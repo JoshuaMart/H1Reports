@@ -1,0 +1,425 @@
+{
+  "id": 1700734,
+  "global_id": "Z2lkOi8vaGFja2Vyb25lL1JlcG9ydC8xNzAwNzM0",
+  "url": "https://hackerone.com/reports/1700734",
+  "title": "Shop App - Attacker is able to intercept authorization code during authentication (OAuth) and is able to get access to Microsoft Outlook email account",
+  "state": "Closed",
+  "substate": "resolved",
+  "severity_rating": "low",
+  "readable_substate": "Resolved",
+  "created_at": "2022-09-14T19:13:42.791Z",
+  "submitted_at": "2022-09-14T19:13:42.938Z",
+  "is_member_of_team?": false,
+  "is_organization_group_member?": false,
+  "reporter": {
+    "disabled": false,
+    "username": "kun_19",
+    "url": "/kun_19",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/M8SJ4S6QmGRoPZP9fGQYupea/ede8cd84a64d5392a2bb88ecb598721116469c27c015c2caa77148f11e211d58"
+    },
+    "is_me?": false,
+    "cleared": false,
+    "verified": false,
+    "hackerone_triager": false,
+    "hacker_mediation": false
+  },
+  "team": {
+    "id": 1382,
+    "url": "https://hackerone.com/shopify",
+    "handle": "shopify",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/fjjiC5585s8WoDGHv2M5okbJ/3c7b305354c9073c106ae3d1701798defaaf5be844fb8fdfa49ca62f991a2c2c",
+      "medium": "https://profile-photos.hackerone-user-content.com/variants/fjjiC5585s8WoDGHv2M5okbJ/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+    },
+    "permissions": [
+
+    ],
+    "submission_state": "open",
+    "default_currency": "usd",
+    "awards_miles": false,
+    "offers_bounties": true,
+    "state": "public_mode",
+    "only_cleared_hackers": false,
+    "pentest_feature_enabled?": false,
+    "profile": {
+      "name": "Shopify",
+      "twitter_handle": "",
+      "website": "https://www.shopify.com",
+      "about": "Shopify is a multi-channel commerce platform that helps people sell online, in-store, and everywhere in between."
+    }
+  },
+  "has_bounty?": true,
+  "in_validation?": false,
+  "can_view_team": true,
+  "can_view_report": true,
+  "is_external_bug": false,
+  "is_published": false,
+  "is_participant": false,
+  "has_collaborators": false,
+  "submitted_by_team_member": false,
+  "stage": 4,
+  "public": true,
+  "visibility": "full",
+  "cve_ids": [
+
+  ],
+  "singular_disclosure_disabled": true,
+  "disclosed_at": "2023-03-02T21:21:51.265Z",
+  "bug_reporter_agreed_on_going_public_at": "2023-01-23T16:09:09.751Z",
+  "team_member_agreed_on_going_public_at": "2023-03-02T21:21:51.079Z",
+  "comments_closed?": false,
+  "facebook_team?": false,
+  "team_private?": false,
+  "vulnerability_information": "## Summary:\n\n### Deep linking \nMobile apps have a unique vulnerability that is non-existent in the web: deep linking. Deep linking is a way of sending data directly to a native application from an outside source. A deep link looks like app:// where app is your app scheme and anything following the // could be used internally to handle the request.\nDeep links are NOT secure and you should never send any sensitive information in them. The reason deep links are not secure is because there is no centralized method of registering URL schemes. As an application developer, you can use almost any url scheme you choose by configuring it in Xcode for iOS or adding an intent on Android. There is nothing stopping a rogue application from hijacking your deep link by also registering to the same scheme and then obtaining access to the data your link contains.\n\n### Shop app - Microsoft Outlook Oauth flow and the vulnerability\nThe **Shop App** allows users to connect to their Microsoft Outlook  account to import orders from the emails (via OAuth flow). Therefore, the custom url scheme `shopapp://` is used for transmitting the authorization code at the end of the Oauth flow to the Shop App, which finally can be used to exchange the the authorization code with a valid session token from Microsoft.\n\nAnother (malicious) app is also able to claim the **same url scheme** and can intercept the authorization code! When the operating system has two or more applications to choose from when opening a link, Android will show the user a modal and ask them to choose which application to use to open the link. On iOS however, the operating system will make the choice for you, so the user will be blissfully unaware. Apple has made steps to address this issue in later iOS versions (iOS 11) where they instituted a first-come-first-served principle. Thus, if the malicious app is installed **BEFORE** the official Shop App, the malicious app \"wins\" and will receive the authorization code.\n\nNormally, a special Oauth flow for mobile apps (**Authorization Code Flow with Proof Key for Code Exchange (PKCE)**) is used to prevent this ! It prevents an attacker, if the authorization code was intercepted, to exchange the authorization code with a valid session token (see here for more information https://auth0.com/docs/flows/authorization-code-flow-with-proof-key-for-code-exchange-pkce). \nThis specific Oauth flow (PKCE) is not implemented by the Shop App for connecting a Microsoft Outlook account.\n\nThus, it is vulnerable to such kind of attacks. I created a malicious Android app which is able to intercept the authorization code (see PoC).\n\n## Steps To Reproduce:\n\n  1. Install the attached malicious Android App (F1926639) on your device.\n  2. Install the official/legit Shop App from the Google Play Store.\n  3. Open the legit Shop App, create an account and start connecting to your Microsoft Outlook account:  \n{F1926639}\n  4. Just log in to your Microsoft account and grant the Shop App the  permissions to access/read your emails: \n{F1926645}\n  5. After the login, a modal is shown which asks the user which app should handle the authentication. Choose \"Shop PRO\" (the malicious App):  \n{F1926673}\n  6. The malicious App successfully intercepted the authorization code, which can now be exchanged to get a valid session token to read the victim's emails:  \n{F1926677}\n\n**NOTE**: Keep in mind that under iOS the *first-come-first-served principle* applies. If the malicious App is installed **BEFORE** the official Shop App, the malicious app \"wins\" and will receive the authorization code.\n\n## Impact\n\nAn attacker is able to intercept an authorization code and exchanges it for a valid session token from Microsoft to gain read access to the victim's emails.\n\nOr the attacker uses the intercepted authorization code to link the Outlook account to his own Shop account via the endpoint https://server.shop.app/graphql (operation name: `LinkOutlookAccount`). Thus, all orders can now be tracked by the attacker.",
+  "bounty_amount": "900.0",
+  "formatted_bounty": "$900",
+  "weakness": {
+    "id": 87,
+    "name": "Insufficiently Protected Credentials"
+  },
+  "original_report_id": null,
+  "original_report_url": null,
+  "attachments": [
+    {
+      "id": 1926639,
+      "file_name": "outlook_connect.png",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/3k0en1xnp6pc4nhke3erl3u3q51f?response-content-disposition=attachment%3B%20filename%3D%22outlook_connect.png%22%3B%20filename%2A%3DUTF-8%27%27outlook_connect.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQWZRWVQLW%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065656Z&X-Amz-Expires=3529&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJHMEUCIH4h5RU%2BpbI3mlwEISZD1G9BopBv%2B7sztLbJknQb99SoAiEAvhxLWqtVFV73maMS53mFspg5vBZ3%2BzoNHXmSke7DMlAqsgUIIxADGgwwMTM2MTkyNzQ4NDkiDC7pogsWvzjWL290gCqPBTKeeZOA278oY6KnHe%2FmWuxZ3Qva3oIxiPgSeceppHqQhkbgfD3tsY8pCoJ9VsxHzSlUT0PRdOuJ8sr7ZKZL2JXBIQSfFD%2FndZi2qU1cFtihzUpwWYUUNN5iSpcUDdb5QDC4CvgOQ%2BEvd6tX7y%2F6Q%2BSMOg8q7yp5mzJr5qbY%2BWMbL6nz%2Buay4cd0wnSe6tkjuaJ1NIbjxSdH9CbkBS0XoTSgIOBDeBGuSMPeOJAc2qCCwB3%2FJJzjHbb07dimFwcVQ37AzR3aSdVTIrEy7NTVExSsa71AnpdGMfq2ZWxbVHT4Z6Ep3h5g9prjvXQKlNKYdiX%2BmlPln5qCDc8s7M8gON6CdSii7fH0aBOcu0INjoa4dc%2FOKcwiuirhI9fDfGn4h4w3t9xVEOfQ21OzAu6iCzqwbyX6FcQTYmc1%2FIb4Lr%2BmfHmZPXpM41HYMK9XHVWPs5aSmF5nYp0DtlX53W%2FJIPEUayublSARs02HeVHIz1vwC6fhS3x1128WqIIvz2dgsHmVJmC%2Bi%2BMemNKEsdiaq0lMgNiTe9mDem3SLrvYMO99wYuebZUfCAVBbqea6mN0o6TtPR%2BY4ZiZl0Y57HEgt3yLwEJQ3BmwdmweldY92DYxW1o1ozabvAsUO6MT%2BEI0mkI2tmtaZQ%2B31bwtxLouobN%2FxkZiIs9YPexJAJ6%2F1%2BFYr5HPRh8rib2vpmO4ylsOFgCISJP5yPdziLDBPihHZhMx8CE858zkJIqVtEFfXZ31W%2FNw09acXa5I4%2BC8AMnDBWV%2FqsryQDDwWpVkzUyRJroktjLT8m7IUEVkEXb7s2GO%2BJiidEBoinU5YgVGpMWTmAmcjaFhRA%2FpwdFI%2F7XHri8KUlyGWMlbYK2BDuF74uow5IK5qAY6sQGceMO9KGy75rSGSK9Jhffgp6ECN8Mwct472Z1JRwqPxCECpo4hAM%2BTiqPzt7Rc8yOTYkRKOicKyCebEt1uytTR6HQoyEcj%2FTBDmV%2BwTAA3FljzwsKBDHTaYj%2Bd0h8rsm4W%2BKtqjUgQ%2BsI4FzYNCv9BSWMF%2FnJ7wV%2BwaSDW1OYbdFVrBpkgTxJPCiLvqlbbKjcH%2BuE8HtSqJR%2FjUt%2Bvxx4CmAPJl%2BJDFQWASMAeV4kuGCM%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=d32446cd61536ada6a2ec98222f8c0e19ab58dcf1e196b28ddaea88c78642a2a",
+      "file_size": 328878,
+      "type": "image/png",
+      "moderated": null
+    },
+    {
+      "id": 1926645,
+      "file_name": "outlook_login.png",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/gcwizk2oa53nt4owcrtdkfeatsk4?response-content-disposition=attachment%3B%20filename%3D%22outlook_login.png%22%3B%20filename%2A%3DUTF-8%27%27outlook_login.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQWZRWVQLW%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065656Z&X-Amz-Expires=3529&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJHMEUCIH4h5RU%2BpbI3mlwEISZD1G9BopBv%2B7sztLbJknQb99SoAiEAvhxLWqtVFV73maMS53mFspg5vBZ3%2BzoNHXmSke7DMlAqsgUIIxADGgwwMTM2MTkyNzQ4NDkiDC7pogsWvzjWL290gCqPBTKeeZOA278oY6KnHe%2FmWuxZ3Qva3oIxiPgSeceppHqQhkbgfD3tsY8pCoJ9VsxHzSlUT0PRdOuJ8sr7ZKZL2JXBIQSfFD%2FndZi2qU1cFtihzUpwWYUUNN5iSpcUDdb5QDC4CvgOQ%2BEvd6tX7y%2F6Q%2BSMOg8q7yp5mzJr5qbY%2BWMbL6nz%2Buay4cd0wnSe6tkjuaJ1NIbjxSdH9CbkBS0XoTSgIOBDeBGuSMPeOJAc2qCCwB3%2FJJzjHbb07dimFwcVQ37AzR3aSdVTIrEy7NTVExSsa71AnpdGMfq2ZWxbVHT4Z6Ep3h5g9prjvXQKlNKYdiX%2BmlPln5qCDc8s7M8gON6CdSii7fH0aBOcu0INjoa4dc%2FOKcwiuirhI9fDfGn4h4w3t9xVEOfQ21OzAu6iCzqwbyX6FcQTYmc1%2FIb4Lr%2BmfHmZPXpM41HYMK9XHVWPs5aSmF5nYp0DtlX53W%2FJIPEUayublSARs02HeVHIz1vwC6fhS3x1128WqIIvz2dgsHmVJmC%2Bi%2BMemNKEsdiaq0lMgNiTe9mDem3SLrvYMO99wYuebZUfCAVBbqea6mN0o6TtPR%2BY4ZiZl0Y57HEgt3yLwEJQ3BmwdmweldY92DYxW1o1ozabvAsUO6MT%2BEI0mkI2tmtaZQ%2B31bwtxLouobN%2FxkZiIs9YPexJAJ6%2F1%2BFYr5HPRh8rib2vpmO4ylsOFgCISJP5yPdziLDBPihHZhMx8CE858zkJIqVtEFfXZ31W%2FNw09acXa5I4%2BC8AMnDBWV%2FqsryQDDwWpVkzUyRJroktjLT8m7IUEVkEXb7s2GO%2BJiidEBoinU5YgVGpMWTmAmcjaFhRA%2FpwdFI%2F7XHri8KUlyGWMlbYK2BDuF74uow5IK5qAY6sQGceMO9KGy75rSGSK9Jhffgp6ECN8Mwct472Z1JRwqPxCECpo4hAM%2BTiqPzt7Rc8yOTYkRKOicKyCebEt1uytTR6HQoyEcj%2FTBDmV%2BwTAA3FljzwsKBDHTaYj%2Bd0h8rsm4W%2BKtqjUgQ%2BsI4FzYNCv9BSWMF%2FnJ7wV%2BwaSDW1OYbdFVrBpkgTxJPCiLvqlbbKjcH%2BuE8HtSqJR%2FjUt%2Bvxx4CmAPJl%2BJDFQWASMAeV4kuGCM%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=ef35e15b7107f8e8e9bd082088823cd682f86a83e84b1fca9d9afed9b71f048c",
+      "file_size": 384843,
+      "type": "image/png",
+      "moderated": null
+    },
+    {
+      "id": 1926673,
+      "file_name": "modal.png",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/btlwwbebf533upxxh0md8d71srig?response-content-disposition=attachment%3B%20filename%3D%22modal.png%22%3B%20filename%2A%3DUTF-8%27%27modal.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQWZRWVQLW%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065656Z&X-Amz-Expires=3529&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJHMEUCIH4h5RU%2BpbI3mlwEISZD1G9BopBv%2B7sztLbJknQb99SoAiEAvhxLWqtVFV73maMS53mFspg5vBZ3%2BzoNHXmSke7DMlAqsgUIIxADGgwwMTM2MTkyNzQ4NDkiDC7pogsWvzjWL290gCqPBTKeeZOA278oY6KnHe%2FmWuxZ3Qva3oIxiPgSeceppHqQhkbgfD3tsY8pCoJ9VsxHzSlUT0PRdOuJ8sr7ZKZL2JXBIQSfFD%2FndZi2qU1cFtihzUpwWYUUNN5iSpcUDdb5QDC4CvgOQ%2BEvd6tX7y%2F6Q%2BSMOg8q7yp5mzJr5qbY%2BWMbL6nz%2Buay4cd0wnSe6tkjuaJ1NIbjxSdH9CbkBS0XoTSgIOBDeBGuSMPeOJAc2qCCwB3%2FJJzjHbb07dimFwcVQ37AzR3aSdVTIrEy7NTVExSsa71AnpdGMfq2ZWxbVHT4Z6Ep3h5g9prjvXQKlNKYdiX%2BmlPln5qCDc8s7M8gON6CdSii7fH0aBOcu0INjoa4dc%2FOKcwiuirhI9fDfGn4h4w3t9xVEOfQ21OzAu6iCzqwbyX6FcQTYmc1%2FIb4Lr%2BmfHmZPXpM41HYMK9XHVWPs5aSmF5nYp0DtlX53W%2FJIPEUayublSARs02HeVHIz1vwC6fhS3x1128WqIIvz2dgsHmVJmC%2Bi%2BMemNKEsdiaq0lMgNiTe9mDem3SLrvYMO99wYuebZUfCAVBbqea6mN0o6TtPR%2BY4ZiZl0Y57HEgt3yLwEJQ3BmwdmweldY92DYxW1o1ozabvAsUO6MT%2BEI0mkI2tmtaZQ%2B31bwtxLouobN%2FxkZiIs9YPexJAJ6%2F1%2BFYr5HPRh8rib2vpmO4ylsOFgCISJP5yPdziLDBPihHZhMx8CE858zkJIqVtEFfXZ31W%2FNw09acXa5I4%2BC8AMnDBWV%2FqsryQDDwWpVkzUyRJroktjLT8m7IUEVkEXb7s2GO%2BJiidEBoinU5YgVGpMWTmAmcjaFhRA%2FpwdFI%2F7XHri8KUlyGWMlbYK2BDuF74uow5IK5qAY6sQGceMO9KGy75rSGSK9Jhffgp6ECN8Mwct472Z1JRwqPxCECpo4hAM%2BTiqPzt7Rc8yOTYkRKOicKyCebEt1uytTR6HQoyEcj%2FTBDmV%2BwTAA3FljzwsKBDHTaYj%2Bd0h8rsm4W%2BKtqjUgQ%2BsI4FzYNCv9BSWMF%2FnJ7wV%2BwaSDW1OYbdFVrBpkgTxJPCiLvqlbbKjcH%2BuE8HtSqJR%2FjUt%2Bvxx4CmAPJl%2BJDFQWASMAeV4kuGCM%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=d0edc7de7adee57c84f787b9909b3a3fa750d35523ee09cc2cec3b9b20447661",
+      "file_size": 307033,
+      "type": "image/png",
+      "moderated": null
+    },
+    {
+      "id": 1926677,
+      "file_name": "intercepted_auth_code.png",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/37pvm07nrpxr17yi6ubesj9tufb6?response-content-disposition=attachment%3B%20filename%3D%22intercepted_auth_code.png%22%3B%20filename%2A%3DUTF-8%27%27intercepted_auth_code.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQWZRWVQLW%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065656Z&X-Amz-Expires=3529&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJHMEUCIH4h5RU%2BpbI3mlwEISZD1G9BopBv%2B7sztLbJknQb99SoAiEAvhxLWqtVFV73maMS53mFspg5vBZ3%2BzoNHXmSke7DMlAqsgUIIxADGgwwMTM2MTkyNzQ4NDkiDC7pogsWvzjWL290gCqPBTKeeZOA278oY6KnHe%2FmWuxZ3Qva3oIxiPgSeceppHqQhkbgfD3tsY8pCoJ9VsxHzSlUT0PRdOuJ8sr7ZKZL2JXBIQSfFD%2FndZi2qU1cFtihzUpwWYUUNN5iSpcUDdb5QDC4CvgOQ%2BEvd6tX7y%2F6Q%2BSMOg8q7yp5mzJr5qbY%2BWMbL6nz%2Buay4cd0wnSe6tkjuaJ1NIbjxSdH9CbkBS0XoTSgIOBDeBGuSMPeOJAc2qCCwB3%2FJJzjHbb07dimFwcVQ37AzR3aSdVTIrEy7NTVExSsa71AnpdGMfq2ZWxbVHT4Z6Ep3h5g9prjvXQKlNKYdiX%2BmlPln5qCDc8s7M8gON6CdSii7fH0aBOcu0INjoa4dc%2FOKcwiuirhI9fDfGn4h4w3t9xVEOfQ21OzAu6iCzqwbyX6FcQTYmc1%2FIb4Lr%2BmfHmZPXpM41HYMK9XHVWPs5aSmF5nYp0DtlX53W%2FJIPEUayublSARs02HeVHIz1vwC6fhS3x1128WqIIvz2dgsHmVJmC%2Bi%2BMemNKEsdiaq0lMgNiTe9mDem3SLrvYMO99wYuebZUfCAVBbqea6mN0o6TtPR%2BY4ZiZl0Y57HEgt3yLwEJQ3BmwdmweldY92DYxW1o1ozabvAsUO6MT%2BEI0mkI2tmtaZQ%2B31bwtxLouobN%2FxkZiIs9YPexJAJ6%2F1%2BFYr5HPRh8rib2vpmO4ylsOFgCISJP5yPdziLDBPihHZhMx8CE858zkJIqVtEFfXZ31W%2FNw09acXa5I4%2BC8AMnDBWV%2FqsryQDDwWpVkzUyRJroktjLT8m7IUEVkEXb7s2GO%2BJiidEBoinU5YgVGpMWTmAmcjaFhRA%2FpwdFI%2F7XHri8KUlyGWMlbYK2BDuF74uow5IK5qAY6sQGceMO9KGy75rSGSK9Jhffgp6ECN8Mwct472Z1JRwqPxCECpo4hAM%2BTiqPzt7Rc8yOTYkRKOicKyCebEt1uytTR6HQoyEcj%2FTBDmV%2BwTAA3FljzwsKBDHTaYj%2Bd0h8rsm4W%2BKtqjUgQ%2BsI4FzYNCv9BSWMF%2FnJ7wV%2BwaSDW1OYbdFVrBpkgTxJPCiLvqlbbKjcH%2BuE8HtSqJR%2FjUt%2Bvxx4CmAPJl%2BJDFQWASMAeV4kuGCM%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=f21757e807d07ff8471da9ab6d92c258fd3fb0e8fbaf2c72e650d461dd08cfe8",
+      "file_size": 316705,
+      "type": "image/png",
+      "moderated": null
+    },
+    {
+      "id": 1926688,
+      "file_name": "shop_pro.apk",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/3pe53z8wj68gq5b81yxl3suk4b41?response-content-disposition=attachment%3B%20filename%3D%22shop_pro.apk%22%3B%20filename%2A%3DUTF-8%27%27shop_pro.apk&response-content-type=application%2Fvnd.android.package-archive&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQWZRWVQLW%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065656Z&X-Amz-Expires=3529&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJHMEUCIH4h5RU%2BpbI3mlwEISZD1G9BopBv%2B7sztLbJknQb99SoAiEAvhxLWqtVFV73maMS53mFspg5vBZ3%2BzoNHXmSke7DMlAqsgUIIxADGgwwMTM2MTkyNzQ4NDkiDC7pogsWvzjWL290gCqPBTKeeZOA278oY6KnHe%2FmWuxZ3Qva3oIxiPgSeceppHqQhkbgfD3tsY8pCoJ9VsxHzSlUT0PRdOuJ8sr7ZKZL2JXBIQSfFD%2FndZi2qU1cFtihzUpwWYUUNN5iSpcUDdb5QDC4CvgOQ%2BEvd6tX7y%2F6Q%2BSMOg8q7yp5mzJr5qbY%2BWMbL6nz%2Buay4cd0wnSe6tkjuaJ1NIbjxSdH9CbkBS0XoTSgIOBDeBGuSMPeOJAc2qCCwB3%2FJJzjHbb07dimFwcVQ37AzR3aSdVTIrEy7NTVExSsa71AnpdGMfq2ZWxbVHT4Z6Ep3h5g9prjvXQKlNKYdiX%2BmlPln5qCDc8s7M8gON6CdSii7fH0aBOcu0INjoa4dc%2FOKcwiuirhI9fDfGn4h4w3t9xVEOfQ21OzAu6iCzqwbyX6FcQTYmc1%2FIb4Lr%2BmfHmZPXpM41HYMK9XHVWPs5aSmF5nYp0DtlX53W%2FJIPEUayublSARs02HeVHIz1vwC6fhS3x1128WqIIvz2dgsHmVJmC%2Bi%2BMemNKEsdiaq0lMgNiTe9mDem3SLrvYMO99wYuebZUfCAVBbqea6mN0o6TtPR%2BY4ZiZl0Y57HEgt3yLwEJQ3BmwdmweldY92DYxW1o1ozabvAsUO6MT%2BEI0mkI2tmtaZQ%2B31bwtxLouobN%2FxkZiIs9YPexJAJ6%2F1%2BFYr5HPRh8rib2vpmO4ylsOFgCISJP5yPdziLDBPihHZhMx8CE858zkJIqVtEFfXZ31W%2FNw09acXa5I4%2BC8AMnDBWV%2FqsryQDDwWpVkzUyRJroktjLT8m7IUEVkEXb7s2GO%2BJiidEBoinU5YgVGpMWTmAmcjaFhRA%2FpwdFI%2F7XHri8KUlyGWMlbYK2BDuF74uow5IK5qAY6sQGceMO9KGy75rSGSK9Jhffgp6ECN8Mwct472Z1JRwqPxCECpo4hAM%2BTiqPzt7Rc8yOTYkRKOicKyCebEt1uytTR6HQoyEcj%2FTBDmV%2BwTAA3FljzwsKBDHTaYj%2Bd0h8rsm4W%2BKtqjUgQ%2BsI4FzYNCv9BSWMF%2FnJ7wV%2BwaSDW1OYbdFVrBpkgTxJPCiLvqlbbKjcH%2BuE8HtSqJR%2FjUt%2Bvxx4CmAPJl%2BJDFQWASMAeV4kuGCM%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=487290387cb7f75ef7d414d1ba754a85afc727a6101311a36ea02292b163699c",
+      "file_size": 3325410,
+      "type": "application/vnd.android.package-archive",
+      "moderated": null
+    }
+  ],
+  "allow_singular_disclosure_at": null,
+  "vote_count": 21,
+  "voters": [
+    "alp",
+    "base_64",
+    "zy9ard3",
+    "shubham_srt",
+    "glister",
+    "h4x0r_dz",
+    "shivammusic",
+    "0x4hk",
+    "niked",
+    "swsirduke",
+    "and 11 more..."
+  ],
+  "severity": {
+    "rating": "low",
+    "score": 3.7,
+    "author_type": "Team",
+    "metrics": {
+      "attack_vector": "network",
+      "attack_complexity": "high",
+      "privileges_required": "none",
+      "user_interaction": "none",
+      "scope": "unchanged",
+      "confidentiality": "low",
+      "integrity": "none",
+      "availability": "none"
+    }
+  },
+  "structured_scope": {
+    "databaseId": 92822,
+    "asset_type": "URL",
+    "asset_identifier": "shop.app",
+    "max_severity": "critical"
+  },
+  "abilities": {
+    "assignable_team_members": [
+
+    ],
+    "assignable_team_member_groups": [
+
+    ]
+  },
+  "activities": [
+    {
+      "id": 18392288,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugTriaged",
+      "message": "Thanks for the report!\n\nWe've been able to validate your findings and our engineering team is working on a fix.",
+      "automated_response": false,
+      "created_at": "2022-09-15T20:21:48.711Z",
+      "updated_at": "2022-09-15T20:21:48.711Z",
+      "actor": {
+        "username": "zack_spotify",
+        "cleared": false,
+        "verified": false,
+        "url": "/zack_spotify",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/261/793/78a81f701248b9e632d5de7b037e5e0eedd37560_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "shopify"
+    },
+    {
+      "id": 18492128,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportSeverityUpdated",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2022-09-22T18:22:14.677Z",
+      "updated_at": "2022-09-22T18:22:14.677Z",
+      "additional_data": {
+        "old_severity": "Medium (6.8)",
+        "new_severity": "Low (3.7)",
+        "old_severity_id": 1660667,
+        "new_severity_id": 1671171
+      },
+      "actor": {
+        "username": "keri-shopify",
+        "cleared": false,
+        "verified": false,
+        "url": "/keri-shopify",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/jx56zwqv0cg07w8g9f39aqw3x0ud/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "shopify"
+    },
+    {
+      "id": 18492134,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BountyAwarded",
+      "message": "Hi @kun_19,\n\nThanks again for your report! \nWe're awarding a $900 bounty for this issue. Please find below our rationale generated using our [CVSS calculator](https://shopify.github.io/appsec/cvss_calculator/).\n\n# Base Score CVSS:3.0/AV:N/AC:H/PR:N/UI:N/S:U/C:L/I:N/A:N 3.7\n# Environment: Core\n\n### Attack Complexity: H\n* Specific conditions or measurable effort to exploit?: Yes\n\n### Privileges Required: N\n* Requires privileged account (not self-registered)?: No\n\n### User Interaction: N\n* Requires victim to perform some action during exploit?: No\n\n### Scope: U\n* Can the attacker impact a separate service?: No\n\n### Confidentiality: L\n* How much data could be accessed?: Some\n* How much of Shopify is impacted?: Some\n\n### Integrity: N\n* How much data could be changed?: None\n\n### Availability: N\n* Level of disruption to network service?: None",
+      "automated_response": false,
+      "created_at": "2022-09-22T18:22:58.093Z",
+      "updated_at": "2022-09-22T18:22:58.093Z",
+      "actor": {
+        "url": "/shopify",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/fjjiC5585s8WoDGHv2M5okbJ/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "profile": {
+          "name": "Shopify"
+        }
+      },
+      "bounty_amount": "900.0",
+      "bonus_amount": "0.0",
+      "bounty_currency": "usd",
+      "genius_execution_id": null,
+      "team_handle": "shopify",
+      "collaborator": {
+        "username": "kun_19",
+        "url": "/kun_19"
+      }
+    },
+    {
+      "id": 19388714,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "Hello! Our engineers have implemented a fix for this issue and it should no longer be reproducible. For this reason, we will resolve this report.\n\nCheers.",
+      "automated_response": false,
+      "created_at": "2022-11-29T19:28:35.827Z",
+      "updated_at": "2022-11-29T19:28:35.827Z",
+      "actor": {
+        "username": "felipe_saez",
+        "cleared": false,
+        "verified": false,
+        "url": "/felipe_saez",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/cghbmubsmx0fwhbdstw4vb81gudh/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937?response-content-disposition=inline%3B%20filename%3D%22profile-small.png%22%3B%20filename%2A%3DUTF-8%27%27profile-small.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQWZRWVQLW%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065656Z&X-Amz-Expires=3529&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJHMEUCIH4h5RU%2BpbI3mlwEISZD1G9BopBv%2B7sztLbJknQb99SoAiEAvhxLWqtVFV73maMS53mFspg5vBZ3%2BzoNHXmSke7DMlAqsgUIIxADGgwwMTM2MTkyNzQ4NDkiDC7pogsWvzjWL290gCqPBTKeeZOA278oY6KnHe%2FmWuxZ3Qva3oIxiPgSeceppHqQhkbgfD3tsY8pCoJ9VsxHzSlUT0PRdOuJ8sr7ZKZL2JXBIQSfFD%2FndZi2qU1cFtihzUpwWYUUNN5iSpcUDdb5QDC4CvgOQ%2BEvd6tX7y%2F6Q%2BSMOg8q7yp5mzJr5qbY%2BWMbL6nz%2Buay4cd0wnSe6tkjuaJ1NIbjxSdH9CbkBS0XoTSgIOBDeBGuSMPeOJAc2qCCwB3%2FJJzjHbb07dimFwcVQ37AzR3aSdVTIrEy7NTVExSsa71AnpdGMfq2ZWxbVHT4Z6Ep3h5g9prjvXQKlNKYdiX%2BmlPln5qCDc8s7M8gON6CdSii7fH0aBOcu0INjoa4dc%2FOKcwiuirhI9fDfGn4h4w3t9xVEOfQ21OzAu6iCzqwbyX6FcQTYmc1%2FIb4Lr%2BmfHmZPXpM41HYMK9XHVWPs5aSmF5nYp0DtlX53W%2FJIPEUayublSARs02HeVHIz1vwC6fhS3x1128WqIIvz2dgsHmVJmC%2Bi%2BMemNKEsdiaq0lMgNiTe9mDem3SLrvYMO99wYuebZUfCAVBbqea6mN0o6TtPR%2BY4ZiZl0Y57HEgt3yLwEJQ3BmwdmweldY92DYxW1o1ozabvAsUO6MT%2BEI0mkI2tmtaZQ%2B31bwtxLouobN%2FxkZiIs9YPexJAJ6%2F1%2BFYr5HPRh8rib2vpmO4ylsOFgCISJP5yPdziLDBPihHZhMx8CE858zkJIqVtEFfXZ31W%2FNw09acXa5I4%2BC8AMnDBWV%2FqsryQDDwWpVkzUyRJroktjLT8m7IUEVkEXb7s2GO%2BJiidEBoinU5YgVGpMWTmAmcjaFhRA%2FpwdFI%2F7XHri8KUlyGWMlbYK2BDuF74uow5IK5qAY6sQGceMO9KGy75rSGSK9Jhffgp6ECN8Mwct472Z1JRwqPxCECpo4hAM%2BTiqPzt7Rc8yOTYkRKOicKyCebEt1uytTR6HQoyEcj%2FTBDmV%2BwTAA3FljzwsKBDHTaYj%2Bd0h8rsm4W%2BKtqjUgQ%2BsI4FzYNCv9BSWMF%2FnJ7wV%2BwaSDW1OYbdFVrBpkgTxJPCiLvqlbbKjcH%2BuE8HtSqJR%2FjUt%2Bvxx4CmAPJl%2BJDFQWASMAeV4kuGCM%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=4953921bb0d5a134efea74862b97942368e0f2423db9a500d1eaa8ec29b9c84d"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "reporter": {
+        "username": "kun_19",
+        "url": "/kun_19"
+      },
+      "genius_execution_id": null,
+      "team_handle": "shopify"
+    },
+    {
+      "id": 20040258,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2023-01-23T16:09:09.794Z",
+      "updated_at": "2023-01-23T16:09:09.794Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "kun_19",
+        "cleared": false,
+        "verified": false,
+        "url": "/kun_19",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/M8SJ4S6QmGRoPZP9fGQYupea/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "shopify"
+    },
+    {
+      "id": 20631269,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportVulnerabilityTypesUpdated",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2023-03-02T21:10:17.546Z",
+      "updated_at": "2023-03-02T21:10:17.546Z",
+      "additional_data": {
+        "added_weaknesses": [
+          {
+            "id": 87,
+            "name": "Insufficiently Protected Credentials"
+          }
+        ],
+        "removed_weaknesses": [
+          {
+            "id": 27,
+            "name": "Improper Authentication - Generic"
+          }
+        ]
+      },
+      "actor": {
+        "username": "felipe_saez",
+        "cleared": false,
+        "verified": false,
+        "url": "/felipe_saez",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/cghbmubsmx0fwhbdstw4vb81gudh/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937?response-content-disposition=inline%3B%20filename%3D%22profile-small.png%22%3B%20filename%2A%3DUTF-8%27%27profile-small.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQWZRWVQLW%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065656Z&X-Amz-Expires=3529&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJHMEUCIH4h5RU%2BpbI3mlwEISZD1G9BopBv%2B7sztLbJknQb99SoAiEAvhxLWqtVFV73maMS53mFspg5vBZ3%2BzoNHXmSke7DMlAqsgUIIxADGgwwMTM2MTkyNzQ4NDkiDC7pogsWvzjWL290gCqPBTKeeZOA278oY6KnHe%2FmWuxZ3Qva3oIxiPgSeceppHqQhkbgfD3tsY8pCoJ9VsxHzSlUT0PRdOuJ8sr7ZKZL2JXBIQSfFD%2FndZi2qU1cFtihzUpwWYUUNN5iSpcUDdb5QDC4CvgOQ%2BEvd6tX7y%2F6Q%2BSMOg8q7yp5mzJr5qbY%2BWMbL6nz%2Buay4cd0wnSe6tkjuaJ1NIbjxSdH9CbkBS0XoTSgIOBDeBGuSMPeOJAc2qCCwB3%2FJJzjHbb07dimFwcVQ37AzR3aSdVTIrEy7NTVExSsa71AnpdGMfq2ZWxbVHT4Z6Ep3h5g9prjvXQKlNKYdiX%2BmlPln5qCDc8s7M8gON6CdSii7fH0aBOcu0INjoa4dc%2FOKcwiuirhI9fDfGn4h4w3t9xVEOfQ21OzAu6iCzqwbyX6FcQTYmc1%2FIb4Lr%2BmfHmZPXpM41HYMK9XHVWPs5aSmF5nYp0DtlX53W%2FJIPEUayublSARs02HeVHIz1vwC6fhS3x1128WqIIvz2dgsHmVJmC%2Bi%2BMemNKEsdiaq0lMgNiTe9mDem3SLrvYMO99wYuebZUfCAVBbqea6mN0o6TtPR%2BY4ZiZl0Y57HEgt3yLwEJQ3BmwdmweldY92DYxW1o1ozabvAsUO6MT%2BEI0mkI2tmtaZQ%2B31bwtxLouobN%2FxkZiIs9YPexJAJ6%2F1%2BFYr5HPRh8rib2vpmO4ylsOFgCISJP5yPdziLDBPihHZhMx8CE858zkJIqVtEFfXZ31W%2FNw09acXa5I4%2BC8AMnDBWV%2FqsryQDDwWpVkzUyRJroktjLT8m7IUEVkEXb7s2GO%2BJiidEBoinU5YgVGpMWTmAmcjaFhRA%2FpwdFI%2F7XHri8KUlyGWMlbYK2BDuF74uow5IK5qAY6sQGceMO9KGy75rSGSK9Jhffgp6ECN8Mwct472Z1JRwqPxCECpo4hAM%2BTiqPzt7Rc8yOTYkRKOicKyCebEt1uytTR6HQoyEcj%2FTBDmV%2BwTAA3FljzwsKBDHTaYj%2Bd0h8rsm4W%2BKtqjUgQ%2BsI4FzYNCv9BSWMF%2FnJ7wV%2BwaSDW1OYbdFVrBpkgTxJPCiLvqlbbKjcH%2BuE8HtSqJR%2FjUt%2Bvxx4CmAPJl%2BJDFQWASMAeV4kuGCM%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=4953921bb0d5a134efea74862b97942368e0f2423db9a500d1eaa8ec29b9c84d"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "shopify"
+    },
+    {
+      "id": 20631321,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2023-03-02T21:21:51.117Z",
+      "updated_at": "2023-03-02T21:21:51.117Z",
+      "actor": {
+        "username": "felipe_saez",
+        "cleared": false,
+        "verified": false,
+        "url": "/felipe_saez",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/cghbmubsmx0fwhbdstw4vb81gudh/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937?response-content-disposition=inline%3B%20filename%3D%22profile-small.png%22%3B%20filename%2A%3DUTF-8%27%27profile-small.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQWZRWVQLW%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065656Z&X-Amz-Expires=3529&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJHMEUCIH4h5RU%2BpbI3mlwEISZD1G9BopBv%2B7sztLbJknQb99SoAiEAvhxLWqtVFV73maMS53mFspg5vBZ3%2BzoNHXmSke7DMlAqsgUIIxADGgwwMTM2MTkyNzQ4NDkiDC7pogsWvzjWL290gCqPBTKeeZOA278oY6KnHe%2FmWuxZ3Qva3oIxiPgSeceppHqQhkbgfD3tsY8pCoJ9VsxHzSlUT0PRdOuJ8sr7ZKZL2JXBIQSfFD%2FndZi2qU1cFtihzUpwWYUUNN5iSpcUDdb5QDC4CvgOQ%2BEvd6tX7y%2F6Q%2BSMOg8q7yp5mzJr5qbY%2BWMbL6nz%2Buay4cd0wnSe6tkjuaJ1NIbjxSdH9CbkBS0XoTSgIOBDeBGuSMPeOJAc2qCCwB3%2FJJzjHbb07dimFwcVQ37AzR3aSdVTIrEy7NTVExSsa71AnpdGMfq2ZWxbVHT4Z6Ep3h5g9prjvXQKlNKYdiX%2BmlPln5qCDc8s7M8gON6CdSii7fH0aBOcu0INjoa4dc%2FOKcwiuirhI9fDfGn4h4w3t9xVEOfQ21OzAu6iCzqwbyX6FcQTYmc1%2FIb4Lr%2BmfHmZPXpM41HYMK9XHVWPs5aSmF5nYp0DtlX53W%2FJIPEUayublSARs02HeVHIz1vwC6fhS3x1128WqIIvz2dgsHmVJmC%2Bi%2BMemNKEsdiaq0lMgNiTe9mDem3SLrvYMO99wYuebZUfCAVBbqea6mN0o6TtPR%2BY4ZiZl0Y57HEgt3yLwEJQ3BmwdmweldY92DYxW1o1ozabvAsUO6MT%2BEI0mkI2tmtaZQ%2B31bwtxLouobN%2FxkZiIs9YPexJAJ6%2F1%2BFYr5HPRh8rib2vpmO4ylsOFgCISJP5yPdziLDBPihHZhMx8CE858zkJIqVtEFfXZ31W%2FNw09acXa5I4%2BC8AMnDBWV%2FqsryQDDwWpVkzUyRJroktjLT8m7IUEVkEXb7s2GO%2BJiidEBoinU5YgVGpMWTmAmcjaFhRA%2FpwdFI%2F7XHri8KUlyGWMlbYK2BDuF74uow5IK5qAY6sQGceMO9KGy75rSGSK9Jhffgp6ECN8Mwct472Z1JRwqPxCECpo4hAM%2BTiqPzt7Rc8yOTYkRKOicKyCebEt1uytTR6HQoyEcj%2FTBDmV%2BwTAA3FljzwsKBDHTaYj%2Bd0h8rsm4W%2BKtqjUgQ%2BsI4FzYNCv9BSWMF%2FnJ7wV%2BwaSDW1OYbdFVrBpkgTxJPCiLvqlbbKjcH%2BuE8HtSqJR%2FjUt%2Bvxx4CmAPJl%2BJDFQWASMAeV4kuGCM%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=4953921bb0d5a134efea74862b97942368e0f2423db9a500d1eaa8ec29b9c84d"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "shopify"
+    },
+    {
+      "id": 20631322,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportBecamePublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2023-03-02T21:21:51.355Z",
+      "updated_at": "2023-03-02T21:21:51.355Z",
+      "actor": {
+        "username": "felipe_saez",
+        "cleared": false,
+        "verified": false,
+        "url": "/felipe_saez",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/cghbmubsmx0fwhbdstw4vb81gudh/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937?response-content-disposition=inline%3B%20filename%3D%22profile-small.png%22%3B%20filename%2A%3DUTF-8%27%27profile-small.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQWZRWVQLW%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065656Z&X-Amz-Expires=3529&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJHMEUCIH4h5RU%2BpbI3mlwEISZD1G9BopBv%2B7sztLbJknQb99SoAiEAvhxLWqtVFV73maMS53mFspg5vBZ3%2BzoNHXmSke7DMlAqsgUIIxADGgwwMTM2MTkyNzQ4NDkiDC7pogsWvzjWL290gCqPBTKeeZOA278oY6KnHe%2FmWuxZ3Qva3oIxiPgSeceppHqQhkbgfD3tsY8pCoJ9VsxHzSlUT0PRdOuJ8sr7ZKZL2JXBIQSfFD%2FndZi2qU1cFtihzUpwWYUUNN5iSpcUDdb5QDC4CvgOQ%2BEvd6tX7y%2F6Q%2BSMOg8q7yp5mzJr5qbY%2BWMbL6nz%2Buay4cd0wnSe6tkjuaJ1NIbjxSdH9CbkBS0XoTSgIOBDeBGuSMPeOJAc2qCCwB3%2FJJzjHbb07dimFwcVQ37AzR3aSdVTIrEy7NTVExSsa71AnpdGMfq2ZWxbVHT4Z6Ep3h5g9prjvXQKlNKYdiX%2BmlPln5qCDc8s7M8gON6CdSii7fH0aBOcu0INjoa4dc%2FOKcwiuirhI9fDfGn4h4w3t9xVEOfQ21OzAu6iCzqwbyX6FcQTYmc1%2FIb4Lr%2BmfHmZPXpM41HYMK9XHVWPs5aSmF5nYp0DtlX53W%2FJIPEUayublSARs02HeVHIz1vwC6fhS3x1128WqIIvz2dgsHmVJmC%2Bi%2BMemNKEsdiaq0lMgNiTe9mDem3SLrvYMO99wYuebZUfCAVBbqea6mN0o6TtPR%2BY4ZiZl0Y57HEgt3yLwEJQ3BmwdmweldY92DYxW1o1ozabvAsUO6MT%2BEI0mkI2tmtaZQ%2B31bwtxLouobN%2FxkZiIs9YPexJAJ6%2F1%2BFYr5HPRh8rib2vpmO4ylsOFgCISJP5yPdziLDBPihHZhMx8CE858zkJIqVtEFfXZ31W%2FNw09acXa5I4%2BC8AMnDBWV%2FqsryQDDwWpVkzUyRJroktjLT8m7IUEVkEXb7s2GO%2BJiidEBoinU5YgVGpMWTmAmcjaFhRA%2FpwdFI%2F7XHri8KUlyGWMlbYK2BDuF74uow5IK5qAY6sQGceMO9KGy75rSGSK9Jhffgp6ECN8Mwct472Z1JRwqPxCECpo4hAM%2BTiqPzt7Rc8yOTYkRKOicKyCebEt1uytTR6HQoyEcj%2FTBDmV%2BwTAA3FljzwsKBDHTaYj%2Bd0h8rsm4W%2BKtqjUgQ%2BsI4FzYNCv9BSWMF%2FnJ7wV%2BwaSDW1OYbdFVrBpkgTxJPCiLvqlbbKjcH%2BuE8HtSqJR%2FjUt%2Bvxx4CmAPJl%2BJDFQWASMAeV4kuGCM%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=4953921bb0d5a134efea74862b97942368e0f2423db9a500d1eaa8ec29b9c84d"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "shopify"
+    }
+  ],
+  "activity_page_count": 1,
+  "activity_page_number": 1,
+  "summaries": [
+    {
+      "id": 259115,
+      "category": "team",
+      "content": "On September 14, 2022, @kun_19 reported an issue that would allow an attacker to use a malicious app to retrieve an Outlook authorization code during authentication, due to the use of deep links. An attacker could exploit this to have access to the victim's emails. \n\nOur engineers implemented PKCE on this login flow, mitigating the issue.",
+      "user": {
+        "id": 1817096,
+        "username": "felipe_saez",
+        "name": "Felipe Sáez",
+        "bio": "",
+        "cleared": false,
+        "verified": false,
+        "website": null,
+        "location": "",
+        "created_at": "2021-06-30T16:24:52.607Z",
+        "url": "https://hackerone.com/felipe_saez",
+        "hackerone_triager": false,
+        "hackerone_employee": false,
+        "user_type": "company",
+        "profile_picture_urls": {
+          "small": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/cghbmubsmx0fwhbdstw4vb81gudh/d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98?response-content-disposition=inline%3B%20filename%3D%22profile-small.png%22%3B%20filename%2A%3DUTF-8%27%27profile-small.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQWZRWVQLW%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065656Z&X-Amz-Expires=3529&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJHMEUCIH4h5RU%2BpbI3mlwEISZD1G9BopBv%2B7sztLbJknQb99SoAiEAvhxLWqtVFV73maMS53mFspg5vBZ3%2BzoNHXmSke7DMlAqsgUIIxADGgwwMTM2MTkyNzQ4NDkiDC7pogsWvzjWL290gCqPBTKeeZOA278oY6KnHe%2FmWuxZ3Qva3oIxiPgSeceppHqQhkbgfD3tsY8pCoJ9VsxHzSlUT0PRdOuJ8sr7ZKZL2JXBIQSfFD%2FndZi2qU1cFtihzUpwWYUUNN5iSpcUDdb5QDC4CvgOQ%2BEvd6tX7y%2F6Q%2BSMOg8q7yp5mzJr5qbY%2BWMbL6nz%2Buay4cd0wnSe6tkjuaJ1NIbjxSdH9CbkBS0XoTSgIOBDeBGuSMPeOJAc2qCCwB3%2FJJzjHbb07dimFwcVQ37AzR3aSdVTIrEy7NTVExSsa71AnpdGMfq2ZWxbVHT4Z6Ep3h5g9prjvXQKlNKYdiX%2BmlPln5qCDc8s7M8gON6CdSii7fH0aBOcu0INjoa4dc%2FOKcwiuirhI9fDfGn4h4w3t9xVEOfQ21OzAu6iCzqwbyX6FcQTYmc1%2FIb4Lr%2BmfHmZPXpM41HYMK9XHVWPs5aSmF5nYp0DtlX53W%2FJIPEUayublSARs02HeVHIz1vwC6fhS3x1128WqIIvz2dgsHmVJmC%2Bi%2BMemNKEsdiaq0lMgNiTe9mDem3SLrvYMO99wYuebZUfCAVBbqea6mN0o6TtPR%2BY4ZiZl0Y57HEgt3yLwEJQ3BmwdmweldY92DYxW1o1ozabvAsUO6MT%2BEI0mkI2tmtaZQ%2B31bwtxLouobN%2FxkZiIs9YPexJAJ6%2F1%2BFYr5HPRh8rib2vpmO4ylsOFgCISJP5yPdziLDBPihHZhMx8CE858zkJIqVtEFfXZ31W%2FNw09acXa5I4%2BC8AMnDBWV%2FqsryQDDwWpVkzUyRJroktjLT8m7IUEVkEXb7s2GO%2BJiidEBoinU5YgVGpMWTmAmcjaFhRA%2FpwdFI%2F7XHri8KUlyGWMlbYK2BDuF74uow5IK5qAY6sQGceMO9KGy75rSGSK9Jhffgp6ECN8Mwct472Z1JRwqPxCECpo4hAM%2BTiqPzt7Rc8yOTYkRKOicKyCebEt1uytTR6HQoyEcj%2FTBDmV%2BwTAA3FljzwsKBDHTaYj%2Bd0h8rsm4W%2BKtqjUgQ%2BsI4FzYNCv9BSWMF%2FnJ7wV%2BwaSDW1OYbdFVrBpkgTxJPCiLvqlbbKjcH%2BuE8HtSqJR%2FjUt%2Bvxx4CmAPJl%2BJDFQWASMAeV4kuGCM%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=68a1e0653843f1dc462127669a230370f1915d93911a1b56b20b3ca124c39cae",
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/cghbmubsmx0fwhbdstw4vb81gudh/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937?response-content-disposition=inline%3B%20filename%3D%22profile-small.png%22%3B%20filename%2A%3DUTF-8%27%27profile-small.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQWZRWVQLW%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065656Z&X-Amz-Expires=3529&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJHMEUCIH4h5RU%2BpbI3mlwEISZD1G9BopBv%2B7sztLbJknQb99SoAiEAvhxLWqtVFV73maMS53mFspg5vBZ3%2BzoNHXmSke7DMlAqsgUIIxADGgwwMTM2MTkyNzQ4NDkiDC7pogsWvzjWL290gCqPBTKeeZOA278oY6KnHe%2FmWuxZ3Qva3oIxiPgSeceppHqQhkbgfD3tsY8pCoJ9VsxHzSlUT0PRdOuJ8sr7ZKZL2JXBIQSfFD%2FndZi2qU1cFtihzUpwWYUUNN5iSpcUDdb5QDC4CvgOQ%2BEvd6tX7y%2F6Q%2BSMOg8q7yp5mzJr5qbY%2BWMbL6nz%2Buay4cd0wnSe6tkjuaJ1NIbjxSdH9CbkBS0XoTSgIOBDeBGuSMPeOJAc2qCCwB3%2FJJzjHbb07dimFwcVQ37AzR3aSdVTIrEy7NTVExSsa71AnpdGMfq2ZWxbVHT4Z6Ep3h5g9prjvXQKlNKYdiX%2BmlPln5qCDc8s7M8gON6CdSii7fH0aBOcu0INjoa4dc%2FOKcwiuirhI9fDfGn4h4w3t9xVEOfQ21OzAu6iCzqwbyX6FcQTYmc1%2FIb4Lr%2BmfHmZPXpM41HYMK9XHVWPs5aSmF5nYp0DtlX53W%2FJIPEUayublSARs02HeVHIz1vwC6fhS3x1128WqIIvz2dgsHmVJmC%2Bi%2BMemNKEsdiaq0lMgNiTe9mDem3SLrvYMO99wYuebZUfCAVBbqea6mN0o6TtPR%2BY4ZiZl0Y57HEgt3yLwEJQ3BmwdmweldY92DYxW1o1ozabvAsUO6MT%2BEI0mkI2tmtaZQ%2B31bwtxLouobN%2FxkZiIs9YPexJAJ6%2F1%2BFYr5HPRh8rib2vpmO4ylsOFgCISJP5yPdziLDBPihHZhMx8CE858zkJIqVtEFfXZ31W%2FNw09acXa5I4%2BC8AMnDBWV%2FqsryQDDwWpVkzUyRJroktjLT8m7IUEVkEXb7s2GO%2BJiidEBoinU5YgVGpMWTmAmcjaFhRA%2FpwdFI%2F7XHri8KUlyGWMlbYK2BDuF74uow5IK5qAY6sQGceMO9KGy75rSGSK9Jhffgp6ECN8Mwct472Z1JRwqPxCECpo4hAM%2BTiqPzt7Rc8yOTYkRKOicKyCebEt1uytTR6HQoyEcj%2FTBDmV%2BwTAA3FljzwsKBDHTaYj%2Bd0h8rsm4W%2BKtqjUgQ%2BsI4FzYNCv9BSWMF%2FnJ7wV%2BwaSDW1OYbdFVrBpkgTxJPCiLvqlbbKjcH%2BuE8HtSqJR%2FjUt%2Bvxx4CmAPJl%2BJDFQWASMAeV4kuGCM%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=4953921bb0d5a134efea74862b97942368e0f2423db9a500d1eaa8ec29b9c84d",
+          "xtralarge": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/cghbmubsmx0fwhbdstw4vb81gudh/60f411638706d89ae3052af6fe8b88fa9a798e291deee40f6a22e81418d78d5f?response-content-disposition=inline%3B%20filename%3D%22profile-small.png%22%3B%20filename%2A%3DUTF-8%27%27profile-small.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQWZRWVQLW%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065656Z&X-Amz-Expires=3529&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJHMEUCIH4h5RU%2BpbI3mlwEISZD1G9BopBv%2B7sztLbJknQb99SoAiEAvhxLWqtVFV73maMS53mFspg5vBZ3%2BzoNHXmSke7DMlAqsgUIIxADGgwwMTM2MTkyNzQ4NDkiDC7pogsWvzjWL290gCqPBTKeeZOA278oY6KnHe%2FmWuxZ3Qva3oIxiPgSeceppHqQhkbgfD3tsY8pCoJ9VsxHzSlUT0PRdOuJ8sr7ZKZL2JXBIQSfFD%2FndZi2qU1cFtihzUpwWYUUNN5iSpcUDdb5QDC4CvgOQ%2BEvd6tX7y%2F6Q%2BSMOg8q7yp5mzJr5qbY%2BWMbL6nz%2Buay4cd0wnSe6tkjuaJ1NIbjxSdH9CbkBS0XoTSgIOBDeBGuSMPeOJAc2qCCwB3%2FJJzjHbb07dimFwcVQ37AzR3aSdVTIrEy7NTVExSsa71AnpdGMfq2ZWxbVHT4Z6Ep3h5g9prjvXQKlNKYdiX%2BmlPln5qCDc8s7M8gON6CdSii7fH0aBOcu0INjoa4dc%2FOKcwiuirhI9fDfGn4h4w3t9xVEOfQ21OzAu6iCzqwbyX6FcQTYmc1%2FIb4Lr%2BmfHmZPXpM41HYMK9XHVWPs5aSmF5nYp0DtlX53W%2FJIPEUayublSARs02HeVHIz1vwC6fhS3x1128WqIIvz2dgsHmVJmC%2Bi%2BMemNKEsdiaq0lMgNiTe9mDem3SLrvYMO99wYuebZUfCAVBbqea6mN0o6TtPR%2BY4ZiZl0Y57HEgt3yLwEJQ3BmwdmweldY92DYxW1o1ozabvAsUO6MT%2BEI0mkI2tmtaZQ%2B31bwtxLouobN%2FxkZiIs9YPexJAJ6%2F1%2BFYr5HPRh8rib2vpmO4ylsOFgCISJP5yPdziLDBPihHZhMx8CE858zkJIqVtEFfXZ31W%2FNw09acXa5I4%2BC8AMnDBWV%2FqsryQDDwWpVkzUyRJroktjLT8m7IUEVkEXb7s2GO%2BJiidEBoinU5YgVGpMWTmAmcjaFhRA%2FpwdFI%2F7XHri8KUlyGWMlbYK2BDuF74uow5IK5qAY6sQGceMO9KGy75rSGSK9Jhffgp6ECN8Mwct472Z1JRwqPxCECpo4hAM%2BTiqPzt7Rc8yOTYkRKOicKyCebEt1uytTR6HQoyEcj%2FTBDmV%2BwTAA3FljzwsKBDHTaYj%2Bd0h8rsm4W%2BKtqjUgQ%2BsI4FzYNCv9BSWMF%2FnJ7wV%2BwaSDW1OYbdFVrBpkgTxJPCiLvqlbbKjcH%2BuE8HtSqJR%2FjUt%2Bvxx4CmAPJl%2BJDFQWASMAeV4kuGCM%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=580070666e840885c0a97f5857388729a0823dc588efb175cec4eb2ed744ae99"
+        }
+      },
+      "can_view?": true,
+      "can_create?": false,
+      "attachments": [
+
+      ]
+    },
+    {
+      "category": "researcher",
+      "can_view?": true,
+      "can_create?": false
+    }
+  ]
+}

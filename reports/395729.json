@@ -1,0 +1,471 @@
+{
+  "id": 395729,
+  "global_id": "Z2lkOi8vaGFja2Vyb25lL1JlcG9ydC8zOTU3Mjk=",
+  "url": "https://hackerone.com/reports/395729",
+  "title": "`socket` command allows sending data over WebSockets to arbitrary origins from Grammarly Extension",
+  "state": "Closed",
+  "substate": "resolved",
+  "severity_rating": "high",
+  "readable_substate": "Resolved",
+  "created_at": "2018-08-16T04:25:52.208Z",
+  "submitted_at": "2018-08-16T04:25:52.208Z",
+  "is_member_of_team?": false,
+  "is_organization_group_member?": false,
+  "reporter": {
+    "disabled": false,
+    "username": "metnew",
+    "url": "/metnew",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/038/544/baa5f77ccb2413a76bf96b3253ba88024ab50a33_original.jpeg/ede8cd84a64d5392a2bb88ecb598721116469c27c015c2caa77148f11e211d58"
+    },
+    "is_me?": false,
+    "cleared": false,
+    "verified": false,
+    "hackerone_triager": false,
+    "hacker_mediation": false
+  },
+  "team": {
+    "id": 22746,
+    "url": "https://hackerone.com/grammarly",
+    "handle": "grammarly",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/022/746/a2bf7f90c683af5214fcc74c1df6804286ee97ce_original.png/d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98",
+      "medium": "https://profile-photos.hackerone-user-content.com/variants/000/022/746/a2bf7f90c683af5214fcc74c1df6804286ee97ce_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+    },
+    "permissions": [
+
+    ],
+    "submission_state": "open",
+    "default_currency": "usd",
+    "awards_miles": false,
+    "offers_bounties": true,
+    "state": "public_mode",
+    "only_cleared_hackers": false,
+    "pentest_feature_enabled?": false,
+    "profile": {
+      "name": "Grammarly",
+      "twitter_handle": "",
+      "website": "https://www.grammarly.com",
+      "about": "Grammarly makes sure everything you type is clear, effective, and mistake-free."
+    }
+  },
+  "has_bounty?": true,
+  "in_validation?": false,
+  "can_view_team": true,
+  "can_view_report": true,
+  "is_external_bug": false,
+  "is_published": false,
+  "is_participant": false,
+  "has_collaborators": false,
+  "submitted_by_team_member": false,
+  "stage": 4,
+  "public": true,
+  "visibility": "full",
+  "cve_ids": [
+
+  ],
+  "singular_disclosure_disabled": true,
+  "disclosed_at": "2019-07-15T16:34:14.775Z",
+  "bug_reporter_agreed_on_going_public_at": "2019-06-24T17:17:01.973Z",
+  "team_member_agreed_on_going_public_at": "2019-07-15T16:34:14.658Z",
+  "comments_closed?": false,
+  "facebook_team?": false,
+  "team_private?": false,
+  "vulnerability_information": "## Summary\n\n1. Attacker could trigger Grammarly extension's `socket` command using a crafted page to perform WS connection(and data sending) from extension's background page (with cookies and origin) to any URL.\n2. Additionally, commands received from the attacker's server are handled by extension and could be used to trigger wrong business-logic behavior (misleading commands) or possibly(!) RCE.\n\n## Description\n\n> Disclaimer: the report is long enough.\n\n### \"socket\" command vs content script\n\nNext snippet handles \"socket\" commands received from `window.addEventListener('message')`. \nTL;DR: it sends received \"socket\" command to the background page.\n\n``` js\nfunction Z(e) {\n           var t, n = e.action;\n           ...\n            \"socket\" === n && p.emitBackground(b.MessageTypes.client, e),\n           ...\n        }\n```\n\n### \"socket\" command vs background page\n\nTL;DR: sent \"socket\" command handled using next snippet, when background page receives it:\n\n``` js\nthis._onContentScriptSocketMessage = function(e, t, n) { // <-- e = action received from content script\n                if (e && !m._getConnectionState().authToCapiDegradation) {\n                    var r = e.socketId\n                      , o = e.method\n                      , i = \"close\" === o\n                      , a = m._sockets[r];\n                    if (a || !i) {\n                        switch (a || (a = new d.BackgroundSocket(e,n,m._onBackgroundSocketEmit,m._fakeCapi),\n                        m._sockets[r] = a), // <-- creates new high-level socket object\n                        e.arg && \"start\" === e.arg.action && m._dialect && (e.arg.dialect = m._dialect),\n                        o) {\n                        case \"connect\": // <-- connect method\n                            m._refreshUser(!0, \"onSessionStart\").then(function() {\n                                return a.connect(e.arg)\n                            });\n                            break;\n                        case \"send\":\n                            a.send(e.arg); // <-- \"send\" with an attacker-controllable property as argument\n                            break;\n                        case \"reconnect\": <-- Other methods (wsPlay/wsPause/etc.) are under attacker's control too\n                            a.reconnect();\n                            break;\n                        case \"release\":\n                            a.release();\n                            break;\n                        case \"close\":\n                            a.close();\n                            break;\n                        case \"wsPlay\":\n                            a.wsPlay();\n                            break;\n                        case \"wsPause\":\n                            a.wsPause();\n                            break;\n                        default:\n                            p.error(\"Unknown method\", o)\n                        }\n                        i && (a.close(),\n                        a.overrideEmitToNoOp(),\n                        delete m._sockets[r])\n                    }\n                }\n            }\n```\n\nThe final proof that it's possible to connect to any origin  - `connect` method:\n``` js\n function E(n) { // <-- e = event received from content script\n                w.isConnected() || (A(\"connect to url: \" + e.url),\n                t = new u(e.url), // <-- e.url is under attacker's control\n                p = !1,\n                d = !1,\n                t.onopen = function() {\n                    g = v,\n                    d = !0,\n                    h && (h = !1,\n                    w.close()),\n                    n && e.resetQueueOnReconnect ? b = [] : O(),\n                    w.emit(\"connect\"),\n                    n && (w.emit(\"reconnect\"),\n                    c = !1)\n                }\n                ,\n                t.onmessage = function(t) {\n                    s && console.log(\"%c Received: %s\", \"color: #46af91;\", t.data), // <--- Screencast!\n                    S(t.data),\n                    function(t) {\n                        try {\n                            t = JSON.parse(t)\n                        } catch (e) {\n                            C(e.stack || e, t)\n                        }\n                        e.useQueue ? (y.push(t),\n                        T()) : w.emit(\"message\", t) // <-- t = command could be received from attacker's server\n                    }(t.data)\n                }\n                ,\n               ...\n}\n```\n\n### Websockets 101 (important for understanding)\n\n> Websockets differs from XHRs - As opposite to XHR, CORS doesn't apply to WS.\n\n1. Page could initiate WS connection to any cross-origin resource.\n2. There is no browser-level mechanism to prevent WS connection from one origin to another. (like CORS for XHR)\n3. Connection through `wss://` includes all user's cookies.\n\nWS server is responsible for validating `Origin` header to check is connection trusted.\n\n#### Example\n\n1. `evil.com` sends XHR to `good.com` = CORS rejects requests (assuming no `Access-Control-Allow-Origin` was specified in response)\n2. `evil.com`  connects to `ws://good.com` using WS = server at `good.com` is responsible for `Origin` header validation.\n\n### Attack mechanism\n\n[Page] -> (socket action) -> [Content script] -> (socket action) -> [Background page] -> [WS server]\n\n### Summary [1/3]\n\nPage could exploit \"socket\" command to :\n\n1. connect to arbitrary WS endpoint from Grammarly extension origin\n2. send arbitrary data from Grammarly extension origin to any WS endpoints\n\n### `w.emit(\"message\", t)` [received command vs background page]\n\nYou probably noticed this line in `t.onmessage` handler.\nShortly, background page handles events received from remote WS server.\nGrammarly uses `wss://capi.grammarly.com/freews` endpoint for text processing.\n\n> I guess \"capi\" is an abbreviature for Command API.\n\nAs of extension could connect to any WS endpoint, it will handle commands received from attacker's endpoint too.\n\nI don't show the full call stack, however, `w.emit(\"message\", commandFromServer)` is handled in this snippet:\n``` js\nthis._onBackgroundSocketEmit = function(e, t, n) { // <-- e = command from attacker's server\n                var o = e.event\n                  , i = e.socketId\n                  , a = e.msg;\n                if (p.trace(\"from ws \" + o + \" \" + i, {\n                    msg: a,\n                    messageType: t\n                }),\n                a && a.error && \"not_authorized\" === a.error)\n                    return m._tryToFixSession();\n                var c = setTimeout(function() {\n                    var e = m._sockets[i];\n                    e && (e.release(),\n                    e.overrideEmitToNoOp(),\n                    delete m._sockets[i])\n                }, m._releaseTimeout);\n                m._message.emitTo(n, t, r({}, e, { // <-- send command from server to content script\n                    id: s.guid()\n                }), function(e) {\n                    return e && clearTimeout(c)\n                })\n            }\n```\n\nShortly, `emitTo` emits the command (from attacker's server) from background page to content script.\n\n### Summary [2/3]\n\nBackground page:\n1. Connects to attacker's WS endpoint \n2. Receives a command from the WS endpoint\n3. Handles received command\n4. Sends received command to the content script\n\n### \\#394518\n\nFirst of all, #394518 is about user data.\nIt's possible to get the latest available `socketId` property and send random malformed data to `capi.grammarly.com` under current `socketId`. However, I think it has zero impact :(\n\n### received command vs content script\n\nReceived commands handled in next function:\n``` js\nthis._onMessage = function(e, t) {\n                var r = n._sockets[e.socketId]; // <-- e.socketId from previous \"connect\" command\n                if (r) {\n                    var i = e.msg || {}; // <-- e.msg - msg received from attacker's server \n                    i.action && \"error\" === i.action.toLowerCase() && n._telemetry.soketCsErrorMsg(i),\n                    t(\"ok\"),\n                    r.emit(e.event, e.msg) <--- emit \"message\" event in content script with attacker-supplied command\n                }\n            }\n```\n\n#### `r.emit(e.event, e.msg)`\n\nI was able to call `r.emit(e.event, e.msg)` from the snippet above a few times [No PoC, however, It was documented during research]. \nHowever, after analyzing listeners of this `emit` (and ancestor calls) I realized the API is too high-level and It can't lead to script execution in the content script.\n\nList of available actions to trigger from server:\n```\nadd: [ƒ]\nalert: (2) [ƒ, ƒ]\ncapiError: [ƒ]\ndisconnect: (2) [ƒ, ƒ]\nfinish: (2) [ƒ, ƒ]\nfinished: [ƒ]\nfrequent_not_authorized_error: [ƒ]\nfrequent_runtime_error: [ƒ]\nplagiarismChecked: [ƒ]\nremove: [ƒ]\nsending: [ƒ]\nserviceState: [ƒ]\nsocketConnect: [ƒ]\nsocketError: [ƒ]\nsocketFailCount: [ƒ]\nsocketReconnect: (2) [ƒ, ƒ]\nsocketReconnectAfterError: [ƒ]\nsocketStart: (2) [ƒ, ƒ]\nstart: (2) [ƒ, ƒ]\nstats:timing: [ƒ]\nsubmit_ot: [ƒ]\nsynonyms: [ƒ]\ntoo_many_runtime_error: [ƒ]\n```\nI didn't test this function call too much.\n\n## Browsers Verified In:\n\n1. Chrome 68.0.3440.106 stable\n2. Chrome 70.0.3521.0 canary\n3. Grammarly 14.861.1790\n\n## Steps To Reproduce:\n\n#### `localhost:8080`\n\n1. Open `exploit.html`\n2. Start server (`npm i ws && node server.js`)\n3. Click \"Connect to localhost\"\n4. Check server process logs - \"Connection received\" logged\n3. Click \"Send \"{\"grammarly\": \"1\"}\" to localhost\" and then \"Connect to localhost\"\n4. Check server process logs - \"Message event {\"grammarly\":\"1\"}\" logged\n\n#### `wss://dox.grammarly.com` origin\n\n1. Click \"Connect to dox.grammarly.com from page origin\" -> see 403 error in console\n2. Click \"Connect to dox.grammarly.com from extension\"\n3. Check \"Network\" tab in background page's devtools\n4. Connection to `dox.grammarly.com` origin was established.\n\n## Supporting Material/References:\n\nScreencast for `localhost:8080` and `ws://dox.grammarly.com` attached.\n\n## Impact\n\n### \"connect\" + \"send\" to any origin\nAttacker could connect and send data to any WS endpoint from extension origin.\nIt's not as impactful as #389108 by itself, because of WS policies.\n\n### \"connect\" + \"send\" to Grammarly's endpoints\nAs of Grammarly's WS APIs allows connections from Grammarly extension origin, attacker could send arbitrary data with user's credentials to:\n1. `wss://dox.grammarly.com/`\n2. `wss://capi.grammarly.com/`\n3. And other Grammarly WS endpoints (and Grammarly extension origin \"friendly\" endpoints, if any)\n\nExample of impactful WS connection: `wss://dox.grammarly.com/documents/<document_id>/ws` - allows editing document with `<document_id>`\n\n### Response handling\nAs a bonus, it's possible to connect to attacker's WS endpoint, receive data and handle received commands in background page and content script. No PoC or possible exploitation, however, that's potentially a bad behavior.\n\n> I hope Grammarly team could imagine the effort I put into this research :( \n> Set \"High\" impact, because of arbitrary WS connection + handling of commands received from attacker's server.",
+  "bounty_amount": "1500.0",
+  "formatted_bounty": "$1,500",
+  "original_report_id": null,
+  "original_report_url": null,
+  "attachments": [
+    {
+      "id": 334015,
+      "file_name": "exploit.html",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/334/015/17d01ed0367bd0fcad5d39e295d6e05e0a2cc890/exploit.html?response-content-disposition=attachment%3B%20filename%3D%22exploit.html%22%3B%20filename%2A%3DUTF-8%27%27exploit.html&response-content-type=application%2Foctet-stream&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ7IF72EGR%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T074144Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEC8aCXVzLXdlc3QtMiJIMEYCIQD0TAEi1peTsxNRMRsx2vBHR2pUGB7uHpbMRYg22KJXXAIhAOfNKRDia06ZOZMyd%2Fls3%2FTdPcLekbPiNmiZSXFYcx5uKrEFCCgQAxoMMDEzNjE5Mjc0ODQ5IgwjRpsfqQF%2BFfykAFMqjgXdivFzeRynUaxnCxzNhWzgVNVya2lqgNeJCfGD3wMjYG5xSgEab7GM4w5o9oGAL8%2BfjsZ7blKNrUlARcDh6fKoJ4rUV9jhNZz%2FvPSgXu6wzQtWtT5a2Ana5wpZSTzm8K62COIpOoBhJTTkJTT%2FdALIxUIidxqFRrLKAi89qr9bgJyQDu33TMI14lRF%2Bvauvx%2Bl9XKOvUSvEFRVuXhxrd%2FQ2SR68RCv05i8EW6Rw11j76ipoSR9CW95fmmNJg%2FEV4hGCi%2FyNDsBu4CQ2GM3PH2T%2ByfbJw85lnD6T%2Bcos3FcMzWc%2BVDZLk2j5FrFa0YExa9%2BN8LdhGVphEYnfjt9OFFnxcoC%2BnrZCSna21kk9sD1g0D8YjpQnNJmMJP%2BnOM7I%2Fk%2F77n4v30KuuC6hpT8twhDKILhks8yAwVuiyDBLgEMMdV1PeuUZFokagw0ONgLFZMZ5ElGYijYV8Dv0UlVGFJRzrpaxVl2Dy%2FWWgy0XMx%2FwG5k95kd%2FLkZ7w7o0%2FM%2FDJToli3C27uWWejCiuq95TXpXKCEzEWb0J4rh29e4hk7hq7OWOtQQTUde2q9wchyksu1rYzq2RCV2gM10O1mMJunqQSg6lES7Z5AvaCVheBpt2uRDsodnl9KD2I3VWF0kgJXSmcDVcQ4UxMShaao7WC7bcYWs%2BIjKN6C9mY9CzgacHoYHms6kZzPz2NrN%2F3cHhxk0zzINkWgZhR8IaHWOGyuyiZIbmQ2sv86YBVwYSb0hQj6n4rBtD8jilSYSnBbvxlJnRSCSIaYwiHuOcQhzmmbIT4pWyAbV4%2FmXomyu0ZvHzcxJiqRiIaBq0fx4B8qyvHCZ0MAWnqCAAlgmS%2BHlRuvxigPCB4nXZ59bhSNtaQw6pq6qAY6sAHlFHUDOcxyHvFiK44%2BbKKoa8xJyrD9kvKV1skKJvix2qkHIcCQAaIne5%2FQOqOFhO25Mu%2BP%2FIg08%2BZTLOQt7xdkt%2FsKZut84hBLHJYAq9vY1kXUeIPQ1avQ9%2FT2wWy9L5CTYbnxh26j%2Bo3NcBtG0oDQg%2BqPGSdORofiFd9dZKqJouuppKCv20%2FFJzBNvMZPpqAVejqiWUAwyYGwtPQUNvmJniwGk0kv1X8Rcycp1eaOEg%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=9dbfbd36ca105d00f2bd0b09ea410de846ba7e3f757dda0d724169d421428746",
+      "file_size": 2426,
+      "type": "text/html",
+      "moderated": null
+    },
+    {
+      "id": 334016,
+      "file_name": "server.js",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/334/016/6d181839ab574bfb3f8bdbb063dc36942ec9e102/server.js?response-content-disposition=attachment%3B%20filename%3D%22server.js%22%3B%20filename%2A%3DUTF-8%27%27server.js&response-content-type=text%2Fplain&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ7IF72EGR%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T074144Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEC8aCXVzLXdlc3QtMiJIMEYCIQD0TAEi1peTsxNRMRsx2vBHR2pUGB7uHpbMRYg22KJXXAIhAOfNKRDia06ZOZMyd%2Fls3%2FTdPcLekbPiNmiZSXFYcx5uKrEFCCgQAxoMMDEzNjE5Mjc0ODQ5IgwjRpsfqQF%2BFfykAFMqjgXdivFzeRynUaxnCxzNhWzgVNVya2lqgNeJCfGD3wMjYG5xSgEab7GM4w5o9oGAL8%2BfjsZ7blKNrUlARcDh6fKoJ4rUV9jhNZz%2FvPSgXu6wzQtWtT5a2Ana5wpZSTzm8K62COIpOoBhJTTkJTT%2FdALIxUIidxqFRrLKAi89qr9bgJyQDu33TMI14lRF%2Bvauvx%2Bl9XKOvUSvEFRVuXhxrd%2FQ2SR68RCv05i8EW6Rw11j76ipoSR9CW95fmmNJg%2FEV4hGCi%2FyNDsBu4CQ2GM3PH2T%2ByfbJw85lnD6T%2Bcos3FcMzWc%2BVDZLk2j5FrFa0YExa9%2BN8LdhGVphEYnfjt9OFFnxcoC%2BnrZCSna21kk9sD1g0D8YjpQnNJmMJP%2BnOM7I%2Fk%2F77n4v30KuuC6hpT8twhDKILhks8yAwVuiyDBLgEMMdV1PeuUZFokagw0ONgLFZMZ5ElGYijYV8Dv0UlVGFJRzrpaxVl2Dy%2FWWgy0XMx%2FwG5k95kd%2FLkZ7w7o0%2FM%2FDJToli3C27uWWejCiuq95TXpXKCEzEWb0J4rh29e4hk7hq7OWOtQQTUde2q9wchyksu1rYzq2RCV2gM10O1mMJunqQSg6lES7Z5AvaCVheBpt2uRDsodnl9KD2I3VWF0kgJXSmcDVcQ4UxMShaao7WC7bcYWs%2BIjKN6C9mY9CzgacHoYHms6kZzPz2NrN%2F3cHhxk0zzINkWgZhR8IaHWOGyuyiZIbmQ2sv86YBVwYSb0hQj6n4rBtD8jilSYSnBbvxlJnRSCSIaYwiHuOcQhzmmbIT4pWyAbV4%2FmXomyu0ZvHzcxJiqRiIaBq0fx4B8qyvHCZ0MAWnqCAAlgmS%2BHlRuvxigPCB4nXZ59bhSNtaQw6pq6qAY6sAHlFHUDOcxyHvFiK44%2BbKKoa8xJyrD9kvKV1skKJvix2qkHIcCQAaIne5%2FQOqOFhO25Mu%2BP%2FIg08%2BZTLOQt7xdkt%2FsKZut84hBLHJYAq9vY1kXUeIPQ1avQ9%2FT2wWy9L5CTYbnxh26j%2Bo3NcBtG0oDQg%2BqPGSdORofiFd9dZKqJouuppKCv20%2FFJzBNvMZPpqAVejqiWUAwyYGwtPQUNvmJniwGk0kv1X8Rcycp1eaOEg%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=0ffe8e02cee017faaa4b63e06dd299f25bb6e1e5fb7a43cc4f537213fcaa28da",
+      "file_size": 795,
+      "type": "text/plain",
+      "moderated": null
+    },
+    {
+      "id": 334018,
+      "file_name": "grammarly-ws-socket-action.mp4",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/334/018/d6c5d74f494fb0c6728b10ccf559d7dc1cba4733/grammarly-ws-socket-action.mp4?response-content-disposition=attachment%3B%20filename%3D%22grammarly-ws-socket-action.mp4%22%3B%20filename%2A%3DUTF-8%27%27grammarly-ws-socket-action.mp4&response-content-type=video%2Fmp4&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ7IF72EGR%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T074144Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEC8aCXVzLXdlc3QtMiJIMEYCIQD0TAEi1peTsxNRMRsx2vBHR2pUGB7uHpbMRYg22KJXXAIhAOfNKRDia06ZOZMyd%2Fls3%2FTdPcLekbPiNmiZSXFYcx5uKrEFCCgQAxoMMDEzNjE5Mjc0ODQ5IgwjRpsfqQF%2BFfykAFMqjgXdivFzeRynUaxnCxzNhWzgVNVya2lqgNeJCfGD3wMjYG5xSgEab7GM4w5o9oGAL8%2BfjsZ7blKNrUlARcDh6fKoJ4rUV9jhNZz%2FvPSgXu6wzQtWtT5a2Ana5wpZSTzm8K62COIpOoBhJTTkJTT%2FdALIxUIidxqFRrLKAi89qr9bgJyQDu33TMI14lRF%2Bvauvx%2Bl9XKOvUSvEFRVuXhxrd%2FQ2SR68RCv05i8EW6Rw11j76ipoSR9CW95fmmNJg%2FEV4hGCi%2FyNDsBu4CQ2GM3PH2T%2ByfbJw85lnD6T%2Bcos3FcMzWc%2BVDZLk2j5FrFa0YExa9%2BN8LdhGVphEYnfjt9OFFnxcoC%2BnrZCSna21kk9sD1g0D8YjpQnNJmMJP%2BnOM7I%2Fk%2F77n4v30KuuC6hpT8twhDKILhks8yAwVuiyDBLgEMMdV1PeuUZFokagw0ONgLFZMZ5ElGYijYV8Dv0UlVGFJRzrpaxVl2Dy%2FWWgy0XMx%2FwG5k95kd%2FLkZ7w7o0%2FM%2FDJToli3C27uWWejCiuq95TXpXKCEzEWb0J4rh29e4hk7hq7OWOtQQTUde2q9wchyksu1rYzq2RCV2gM10O1mMJunqQSg6lES7Z5AvaCVheBpt2uRDsodnl9KD2I3VWF0kgJXSmcDVcQ4UxMShaao7WC7bcYWs%2BIjKN6C9mY9CzgacHoYHms6kZzPz2NrN%2F3cHhxk0zzINkWgZhR8IaHWOGyuyiZIbmQ2sv86YBVwYSb0hQj6n4rBtD8jilSYSnBbvxlJnRSCSIaYwiHuOcQhzmmbIT4pWyAbV4%2FmXomyu0ZvHzcxJiqRiIaBq0fx4B8qyvHCZ0MAWnqCAAlgmS%2BHlRuvxigPCB4nXZ59bhSNtaQw6pq6qAY6sAHlFHUDOcxyHvFiK44%2BbKKoa8xJyrD9kvKV1skKJvix2qkHIcCQAaIne5%2FQOqOFhO25Mu%2BP%2FIg08%2BZTLOQt7xdkt%2FsKZut84hBLHJYAq9vY1kXUeIPQ1avQ9%2FT2wWy9L5CTYbnxh26j%2Bo3NcBtG0oDQg%2BqPGSdORofiFd9dZKqJouuppKCv20%2FFJzBNvMZPpqAVejqiWUAwyYGwtPQUNvmJniwGk0kv1X8Rcycp1eaOEg%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=f21c0093548eba936514335c4d9935f122cdb3cdb6b04e628fa323734c1a9326",
+      "file_size": 4138105,
+      "type": "video/mp4",
+      "moderated": null
+    }
+  ],
+  "allow_singular_disclosure_at": "2019-07-24T17:17:02.152Z",
+  "allow_singular_disclosure_after": -131466282.7885584,
+  "singular_disclosure_allowed": true,
+  "vote_count": 132,
+  "voters": [
+    "th3hidd3nmist",
+    "daehee",
+    "gregxsunday",
+    "sp1d3rs",
+    "jin0ne",
+    "kapytein",
+    "base_64",
+    "jaybonci",
+    "antonakolov",
+    "bughunterninja",
+    "and 122 more..."
+  ],
+  "severity": {
+    "rating": "high",
+    "author_type": "User"
+  },
+  "structured_scope": {
+    "databaseId": 3577,
+    "asset_type": "OTHER",
+    "asset_identifier": "Browser Extensions",
+    "max_severity": "critical"
+  },
+  "abilities": {
+    "assignable_team_members": [
+
+    ],
+    "assignable_team_member_groups": [
+
+    ]
+  },
+  "activities": [
+    {
+      "id": 3210065,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugTriaged",
+      "message": "Vulnerability has been confirmed by Grammarly Team",
+      "automated_response": false,
+      "created_at": "2018-08-17T10:35:41.794Z",
+      "updated_at": "2018-08-17T10:35:41.794Z",
+      "actor": {
+        "username": "andriy_derevyanko",
+        "cleared": false,
+        "verified": false,
+        "url": "/andriy_derevyanko",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/232/429/8d025f5ca823ddfa62ce186084ff79b3e72542ed_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "grammarly"
+    },
+    {
+      "id": 3211552,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BountyAwarded",
+      "message": "Vladimir, thanks again for discovering a serious vulnerability. You rock!",
+      "automated_response": false,
+      "created_at": "2018-08-17T17:59:16.610Z",
+      "updated_at": "2018-08-17T17:59:16.610Z",
+      "actor": {
+        "url": "/grammarly",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/022/746/a2bf7f90c683af5214fcc74c1df6804286ee97ce_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "Grammarly"
+        }
+      },
+      "bounty_amount": "1500.0",
+      "bonus_amount": "0.0",
+      "bounty_currency": "usd",
+      "genius_execution_id": null,
+      "team_handle": "grammarly",
+      "collaborator": {
+        "username": "metnew",
+        "url": "/metnew"
+      }
+    },
+    {
+      "id": 3211798,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Thanks, Grammarly ❤️",
+      "automated_response": false,
+      "created_at": "2018-08-17T19:05:03.302Z",
+      "updated_at": "2018-08-17T19:05:03.302Z",
+      "actor": {
+        "username": "metnew",
+        "cleared": false,
+        "verified": false,
+        "url": "/metnew",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/038/544/baa5f77ccb2413a76bf96b3253ba88024ab50a33_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "grammarly"
+    },
+    {
+      "id": 3287294,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "I guess, Grammarly team started deploying the fix:\n\n## Content script\n\nContent scripts disallows `connect` method:\n``` js\nd.emitBackground(y.MessageTypes.client, e)) : n.error(\"'connect' method call not allowed on remote socket, ignoring\", e)),\n```\n\n## Background:\n\nGrammarly made a whitelist of URLs the extension is allowed to connect.\n\nGood job, @grammarly, the fixes are robust.",
+      "automated_response": false,
+      "created_at": "2018-09-04T03:41:06.323Z",
+      "updated_at": "2018-09-04T03:41:39.363Z",
+      "actor": {
+        "username": "metnew",
+        "cleared": false,
+        "verified": false,
+        "url": "/metnew",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/038/544/baa5f77ccb2413a76bf96b3253ba88024ab50a33_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "grammarly"
+    },
+    {
+      "id": 3304321,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@andriy_derevyanko resolved?",
+      "automated_response": false,
+      "created_at": "2018-09-07T07:04:27.111Z",
+      "updated_at": "2018-09-07T07:04:27.111Z",
+      "actor": {
+        "username": "metnew",
+        "cleared": false,
+        "verified": false,
+        "url": "/metnew",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/038/544/baa5f77ccb2413a76bf96b3253ba88024ab50a33_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "grammarly"
+    },
+    {
+      "id": 3304587,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@metnew per my records – yes. I can definitely say only in the afternoon, but please, feel free to validate.",
+      "automated_response": false,
+      "created_at": "2018-09-07T08:35:56.382Z",
+      "updated_at": "2018-09-07T08:35:56.382Z",
+      "actor": {
+        "username": "andriy_derevyanko",
+        "cleared": false,
+        "verified": false,
+        "url": "/andriy_derevyanko",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/232/429/8d025f5ca823ddfa62ce186084ff79b3e72542ed_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "grammarly"
+    },
+    {
+      "id": 3304588,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2018-09-07T08:36:14.320Z",
+      "updated_at": "2018-09-07T08:36:14.320Z",
+      "actor": {
+        "username": "andriy_derevyanko",
+        "cleared": false,
+        "verified": false,
+        "url": "/andriy_derevyanko",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/232/429/8d025f5ca823ddfa62ce186084ff79b3e72542ed_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "reporter": {
+        "username": "metnew",
+        "url": "/metnew"
+      },
+      "genius_execution_id": null,
+      "team_handle": "grammarly"
+    },
+    {
+      "id": 3806358,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2018-12-11T15:50:08.934Z",
+      "updated_at": "2018-12-11T15:50:08.934Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "metnew",
+        "cleared": false,
+        "verified": false,
+        "url": "/metnew",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/038/544/baa5f77ccb2413a76bf96b3253ba88024ab50a33_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "grammarly"
+    },
+    {
+      "id": 3830773,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportTitleUpdated",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2018-12-15T03:39:25.673Z",
+      "updated_at": "2018-12-15T03:39:25.673Z",
+      "additional_data": {
+        "old_title": "Websockets \"connect\" + \"send\" from extension origin + handling of commands received from attacker's server",
+        "new_title": "`socket` command allows sending data over WebSockets to arbitrary origins from Grammarly Extension"
+      },
+      "actor": {
+        "username": "gr_triage",
+        "cleared": false,
+        "verified": false,
+        "url": "/gr_triage",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "grammarly"
+    },
+    {
+      "id": 3942296,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::CancelledDisclosureRequest",
+      "message": "@vladimir_suslenko per our agreement, we are postponing the disclosure to clarify all the details (external communication and legal aspects). ",
+      "automated_response": false,
+      "created_at": "2019-01-08T12:55:28.383Z",
+      "updated_at": "2019-01-08T12:55:28.383Z",
+      "actor": {
+        "username": "andriy_derevyanko",
+        "cleared": false,
+        "verified": false,
+        "url": "/andriy_derevyanko",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/232/429/8d025f5ca823ddfa62ce186084ff79b3e72542ed_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "grammarly"
+    },
+    {
+      "id": 5180220,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2019-06-24T17:17:02.036Z",
+      "updated_at": "2019-06-24T17:17:02.036Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "metnew",
+        "cleared": false,
+        "verified": false,
+        "url": "/metnew",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/038/544/baa5f77ccb2413a76bf96b3253ba88024ab50a33_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "grammarly"
+    },
+    {
+      "id": 5324991,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2019-07-15T16:34:14.685Z",
+      "updated_at": "2019-07-15T16:34:14.685Z",
+      "actor": {
+        "username": "gr_triage",
+        "cleared": false,
+        "verified": false,
+        "url": "/gr_triage",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "grammarly"
+    },
+    {
+      "id": 5324992,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportBecamePublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2019-07-15T16:34:14.798Z",
+      "updated_at": "2019-07-15T16:34:14.798Z",
+      "actor": {
+        "username": "gr_triage",
+        "cleared": false,
+        "verified": false,
+        "url": "/gr_triage",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "grammarly"
+    }
+  ],
+  "activity_page_count": 1,
+  "activity_page_number": 1,
+  "summaries": [
+    {
+      "category": "team",
+      "can_view?": true,
+      "can_create?": false
+    },
+    {
+      "category": "researcher",
+      "can_view?": true,
+      "can_create?": false
+    }
+  ]
+}

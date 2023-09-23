@@ -1,0 +1,465 @@
+{
+  "id": 1023899,
+  "global_id": "Z2lkOi8vaGFja2Vyb25lL1JlcG9ydC8xMDIzODk5",
+  "url": "https://hackerone.com/reports/1023899",
+  "title": "Regular expression denial of service in ActiveRecord's PostgreSQL Money type",
+  "state": "Closed",
+  "substate": "resolved",
+  "severity_rating": "medium",
+  "readable_substate": "Resolved",
+  "created_at": "2020-11-01T14:22:54.661Z",
+  "submitted_at": "2020-11-01T14:22:54.710Z",
+  "is_member_of_team?": false,
+  "is_organization_group_member?": false,
+  "reporter": {
+    "disabled": false,
+    "username": "dee-see",
+    "url": "/dee-see",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/220/115/9a655d51cb400a5743966e9856918ed02ee8d042_original.jpg/3c7b305354c9073c106ae3d1701798defaaf5be844fb8fdfa49ca62f991a2c2c"
+    },
+    "is_me?": false,
+    "cleared": true,
+    "verified": true,
+    "hackerone_triager": false,
+    "hacker_mediation": false
+  },
+  "team": {
+    "id": 22,
+    "url": "https://hackerone.com/rails",
+    "handle": "rails",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/000/022/5e2b46658c8b86bed62f574d8e1793f353cbbc63_original.png/d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98",
+      "medium": "https://profile-photos.hackerone-user-content.com/variants/000/000/022/5e2b46658c8b86bed62f574d8e1793f353cbbc63_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+    },
+    "permissions": [
+
+    ],
+    "submission_state": "open",
+    "default_currency": "usd",
+    "awards_miles": false,
+    "offers_bounties": true,
+    "state": "public_mode",
+    "only_cleared_hackers": false,
+    "pentest_feature_enabled?": false,
+    "profile": {
+      "name": "Ruby on Rails",
+      "twitter_handle": "rails",
+      "website": "http://rubyonrails.org/security",
+      "about": "Web development that doesn't hurt."
+    }
+  },
+  "has_bounty?": true,
+  "in_validation?": false,
+  "can_view_team": true,
+  "can_view_report": true,
+  "is_external_bug": false,
+  "is_published": false,
+  "is_participant": false,
+  "has_collaborators": false,
+  "submitted_by_team_member": false,
+  "stage": 4,
+  "public": true,
+  "visibility": "full",
+  "cve_ids": [
+    "CVE-2021-22880"
+  ],
+  "singular_disclosure_disabled": false,
+  "disclosed_at": "2021-02-11T00:13:07.326Z",
+  "bug_reporter_agreed_on_going_public_at": "2021-02-11T00:13:07.269Z",
+  "team_member_agreed_on_going_public_at": "2021-02-10T23:52:23.937Z",
+  "comments_closed?": false,
+  "facebook_team?": false,
+  "team_private?": false,
+  "vulnerability_information": "## Summary\n\nHello team! The regular expressions used in the [Money](https://github.com/rails/rails/blob/ddd0e9b/activerecord/lib/active_record/connection_adapters/postgresql/oid/money.rb#L29) type to convert strings like `-$100,000.00` to `100000` have an execution time with a quadratic growth proportional to the length of the string.\n\nCausing the denial of service requires very long strings but if the parameter is in a post body that won't be a problem.\n\n## Details\n\nThe regular expressions marked `(1)` and `(2)` in [the following code](https://github.com/rails/rails/blob/ddd0e9b/activerecord/lib/active_record/connection_adapters/postgresql/oid/money.rb#L28-L33) are the vulnerable expressions\n\n```ruby\n            case value\n            when /^-?\\D*[\\d,]+\\.\\d{2}$/  # (1)\n              value.gsub!(/[^-\\d.]/, \"\")\n            when /^-?\\D*[\\d.]+,\\d{2}$/  # (2)\n              value.gsub!(/[^-\\d,]/, \"\").sub!(/,/, \".\")\n            end\n```\n\nThis code is invoked when Rails saves a user-input value in a `Money` field. If we look at the first expression, the problem comes from this bit `\\D*[\\d,]+`. It matches \"not a number\" 0 or more times and then \"a number or a ,\" one or more times. The `,` can match both expressions so this is somewhat equivalent to `,*,+` as far as the attack is concerned and is where the `O(n^2)` execution time comes from.\n\n## Steps to reproduce\n\nI'm going to assume PostgreSQL is installed and configured on the machine.\n\nNow we'll install the PostgreSQL ruby interface, setup a rails application and scaffold a view for the attack.\n\n```ruby\ngem install pg\nrails new moneydos --database=postgresql\ncd moneydos\nrails db:setup\nrails g scaffold Money amount:money\nrake db:migrate\n```\n\nNow in the `rails console` run these commands. (The same could be accomplished though the UI, but this is simpler for reproduction purpose)\n\n```ruby\napp.host = 'localhost'\napp.get '/money'\ntoken = app.session[:_csrf_token]\napp.post '/money/', params: {money: {amount: (\"$\" + \",\"*100000 + \".11!\")}, authenticity_token: token}\n```\n\nThe last line takes 40 seconds to execute on my machine. Add a 0 to the `\",\"*100000` part and the CPU will pretty much spin forever. An attacker could repeat those requests many times to reach full saturation of the host's CPU capabilities and achieve a complete denial of service.\n\n## Impact\n\nDenial of service and 100% CPU usage in situations where a malicious user is able to input money amounts in a request body (web shops come to mind as the obvious target)",
+  "weakness": {
+    "id": 48,
+    "name": "Denial of Service"
+  },
+  "original_report_id": null,
+  "original_report_url": null,
+  "attachments": [
+
+  ],
+  "allow_singular_disclosure_at": "2021-03-12T23:52:24.045Z",
+  "allow_singular_disclosure_after": -79860300.45075336,
+  "singular_disclosure_allowed": true,
+  "vote_count": 32,
+  "voters": [
+    "sw33tlie",
+    "w31rd0",
+    "mainteemoforfun",
+    "rzx007x",
+    "vp40",
+    "pirateducky",
+    "ali",
+    "sakshamguruji",
+    "akashhamal0x01",
+    "h4x0r_dz",
+    "and 22 more..."
+  ],
+  "severity": {
+    "rating": "medium",
+    "score": 5.3,
+    "author_type": "User",
+    "metrics": {
+      "attack_vector": "network",
+      "attack_complexity": "high",
+      "privileges_required": "low",
+      "user_interaction": "none",
+      "scope": "unchanged",
+      "confidentiality": "none",
+      "integrity": "none",
+      "availability": "high"
+    }
+  },
+  "structured_scope": {
+    "databaseId": 160,
+    "asset_type": "SOURCE_CODE",
+    "asset_identifier": "https://github.com/rails/rails",
+    "max_severity": "critical"
+  },
+  "abilities": {
+    "assignable_team_members": [
+
+    ],
+    "assignable_team_member_groups": [
+
+    ]
+  },
+  "activities": [
+    {
+      "id": 9887938,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hello team!\n\nI was thinking about how to fix this and I think we can use possessive quantifiers here to avoid the backtracking and still match the same strings\n\n```diff\ndiff --git a/activerecord/lib/active_record/connection_adapters/postgresql/oid/money.rb b/activerecord/lib/active_record/connection_adapters/postgresql/oid/money.rb\nindex 357493d..3703e9a 100644\n--- a/activerecord/lib/active_record/connection_adapters/postgresql/oid/money.rb\n+++ b/activerecord/lib/active_record/connection_adapters/postgresql/oid/money.rb\n@@ -26,9 +26,9 @@ def cast_value(value)\n \n             value = value.sub(/^\\((.+)\\)$/, '-\\1') # (4)\n             case value\n-            when /^-?\\D*[\\d,]+\\.\\d{2}$/  # (1)\n+            when /^-?\\D*+[\\d,]+\\.\\d{2}$/  # (1)\n               value.gsub!(/[^-\\d.]/, \"\")\n-            when /^-?\\D*[\\d.]+,\\d{2}$/  # (2)\n+            when /^-?\\D*+[\\d.]+,\\d{2}$/  # (2)\n               value.gsub!(/[^-\\d,]/, \"\").sub!(/,/, \".\")\n             end\n```\n\nIt deals with the malicious string without problem\n\n```shell\n$ time ruby -e 'puts (\"$\" + \",\"*100000 + \".11!\").match?(/^-?\\D*+[\\d,]+\\.\\d{2}$/)'\nfalse\n\nreal\t0m0.091s\nuser\t0m0.069s\nsys\t0m0.024s\n```",
+      "automated_response": false,
+      "created_at": "2020-11-21T17:43:51.338Z",
+      "updated_at": "2020-11-21T17:43:51.338Z",
+      "actor": {
+        "username": "dee-see",
+        "cleared": true,
+        "verified": true,
+        "url": "/dee-see",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/220/115/9a655d51cb400a5743966e9856918ed02ee8d042_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "rails"
+    },
+    {
+      "id": 10005814,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hello team!\n\nJust a friendly ping to make sure this report didn't fall through some cracks given that the program page says the average time to first response is 2 days and it's been a month.\n\nHave a nice day,\n@dee-see ",
+      "automated_response": false,
+      "created_at": "2020-12-04T14:19:39.320Z",
+      "updated_at": "2020-12-04T14:19:39.320Z",
+      "actor": {
+        "username": "dee-see",
+        "cleared": true,
+        "verified": true,
+        "url": "/dee-see",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/220/115/9a655d51cb400a5743966e9856918ed02ee8d042_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "rails"
+    },
+    {
+      "id": 10279486,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @dee-see,\n\nThanks for the reminder. I think your patch looks good, would you be able to write tests for it and we can put out a release?",
+      "automated_response": false,
+      "created_at": "2021-01-05T20:10:24.474Z",
+      "updated_at": "2021-01-05T20:10:24.474Z",
+      "actor": {
+        "username": "jack_mccracken",
+        "cleared": false,
+        "verified": false,
+        "url": "/jack_mccracken",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/164/342/6543dc397b4dbb2c24dc81f92a42de654a3e6a99_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "rails"
+    },
+    {
+      "id": 10279613,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugTriaged",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2021-01-05T20:29:31.289Z",
+      "updated_at": "2021-01-05T20:29:31.289Z",
+      "actor": {
+        "username": "tenderlove",
+        "cleared": false,
+        "verified": false,
+        "url": "/tenderlove",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/003/318/60d828744b5d16813ecbf975fdc453dc4a933f4f_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "rails"
+    },
+    {
+      "id": 10281972,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hey @jack_mccracken!\n\nThere you go:\n\n```diff\ndiff --git a/activerecord/lib/active_record/connection_adapters/postgresql/oid/money.rb b/activerecord/lib/active_record/connection_adapters/postgresql/oid/money.rb\nindex 357493dfc0..3703e9a646 100644\n--- a/activerecord/lib/active_record/connection_adapters/postgresql/oid/money.rb\n+++ b/activerecord/lib/active_record/connection_adapters/postgresql/oid/money.rb\n@@ -26,9 +26,9 @@ def cast_value(value)\n \n             value = value.sub(/^\\((.+)\\)$/, '-\\1') # (4)\n             case value\n-            when /^-?\\D*[\\d,]+\\.\\d{2}$/  # (1)\n+            when /^-?\\D*+[\\d,]+\\.\\d{2}$/  # (1)\n               value.gsub!(/[^-\\d.]/, \"\")\n-            when /^-?\\D*[\\d.]+,\\d{2}$/  # (2)\n+            when /^-?\\D*+[\\d.]+,\\d{2}$/  # (2)\n               value.gsub!(/[^-\\d,]/, \"\").sub!(/,/, \".\")\n             end\n \ndiff --git a/activerecord/test/cases/adapters/postgresql/money_test.rb b/activerecord/test/cases/adapters/postgresql/money_test.rb\nindex b051a9efc4..da3643e57f 100644\n--- a/activerecord/test/cases/adapters/postgresql/money_test.rb\n+++ b/activerecord/test/cases/adapters/postgresql/money_test.rb\n@@ -64,6 +64,14 @@ def test_money_type_cast\n     assert_equal(-2.25, type.cast(+\"(2.25)\"))\n   end\n \n+  def test_money_regex_backtracking\n+    type = PostgresqlMoney.type_for_attribute(\"wealth\")\n+    Timeout.timeout(0.1) do\n+      assert_equal(0.0, type.cast(\"$\" + \",\" * 100000 + \".11!\"))\n+      assert_equal(0.0, type.cast(\"$\" + \".\" * 100000 + \",11!\"))\n+    end\n+  end\n+\n   def test_sum_with_type_cast\n     @connection.execute(\"INSERT INTO postgresql_moneys (id, wealth) VALUES (1, '123.45'::money)\")\n \n```\n\nAlso attached as a patch file. Let me know if I can help in any other way.\n\nThanks,\n@dee-see ",
+      "automated_response": false,
+      "created_at": "2021-01-06T04:40:09.377Z",
+      "updated_at": "2021-01-06T04:40:09.377Z",
+      "actor": {
+        "username": "dee-see",
+        "cleared": true,
+        "verified": true,
+        "url": "/dee-see",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/220/115/9a655d51cb400a5743966e9856918ed02ee8d042_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "attachments": [
+        {
+          "id": 1146115,
+          "filename": "fix_money_regex_dos.patch",
+          "type": "text/x-patch",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/yyvw4qwzilokcg2izo6fcb3euduu?response-content-disposition=attachment%3B%20filename%3D%22fix_money_regex_dos.patch%22%3B%20filename%2A%3DUTF-8%27%27fix_money_regex_dos.patch&response-content-type=text%2Fx-patch&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQQM3U3QWN%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T071724Z&X-Amz-Expires=3585&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQC8AS0gj74xLCqoISG6HxbEYSI0PEfdF96wfaJ9XQRYXAIhANMJJf7iKjV7IKfTVUDY%2FFCPGSxnhIyV8N48256%2BMYR9KrEFCCMQAxoMMDEzNjE5Mjc0ODQ5Igxhj6IY2dpHIu8rk%2FQqjgVrs6hBhGYkbRpwnTMlcXODs%2BzBfQF20UuznJ4WeEETbBCS5xrQKwNciUh8fTXTf3AeLW8ma7i6nN2J%2FTPJmdDJep9LOqCCNnNfoot3TxHeog3PIzq8bBqzv%2FWnZ6WZiSTCgT0fRuUO%2F0NoLfCI2HO7HAJbzDCBBPLDbovCdCCec9tOhSCo4zeTxGL%2B5eNFzvxdrScMsFkSDHqK1nYzB%2BNHu67VcVBNgokTZ%2FiE0D5F2UMHD7Q41spCK9XBNhkLLcYkYcOLSZPgh0y0%2BhAqiB%2F5M75rvi%2FwL4GzjvstCuMp7%2BMlU5uW0LxRNU4av%2Fnf1lTfZJBbJdVp7t47cyPMsPTAh8YfP7rASoDKsUHiH%2BFUgz23qjds1QkLL5EbNJyfMeGE%2BXtoslgNninHIYEKrR5ds5PZuyrZzZMTDLF%2Fh1nIMmJ5vq2TjJfh421jqFfaYQ9GW34apWkiqGr0hGH8SptwKhv4intOnjJEMXalYWlbtl1Pzp1BC18KUB2I%2FxBURyEaaUVKRBbvabpkEgXV%2FnQqzWJTjCL5HnMD4ljLJgc%2BWfWt1Q1EKcMewZWvcY5%2By7QeV5XQIye%2F0GmL5eIhaBkMGzga%2B%2BT%2Btd2hzvF%2BJzR2we9VQYubOGxpQQuF9r%2FV8wkrGgx3sAX8Zd2QX8ckdW6pg1Klcdh7SLABopVWthPu4QV7L3BabFZmhQUAZxdk0ekb1%2Fw1u8af%2Fr51748Lwtjkx8eOWD49jDTLn6Xt0mW91m5QJ4eaq4%2FNmdjUMwnuXKlgK8ZooXSz0KzkvnZ9T%2F7ULiIfcJCltTowwu8hMBaBndUsJxqBhc8BqU6f%2BkchljSoaUmROWNJOFB0Hq9gD7TyVdCAdV0rFjpJkF%2Bqsjsw2Ym5qAY6sAF%2B%2FtGSYZrDIqtpyxX4SjQXtSTuGpkpw2NJ5IoQLX1kapRTuos3cgYmRQqD2osbXW8GAYux38XCyjB7nnsQGwJ0JEKqlWKQK6b0%2FrXO6AT6H0SgoF4kOVUPnUFGdGx5WY2LMvGJ%2FMBV8%2BSm%2FBqOEyct%2F4MP9bhaeuzEeKXirmXTi9G37p059sF1j%2Fald6zrk2x03j7jMV76l15cHOy6ntmTDUBjHYJB0MZDtEpHFj1bVg%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=ab0ce34d88b33c6fa7d0559748d2c8124eb8a1cc3e2904be35b913263baf1e1c"
+        }
+      ],
+      "genius_execution_id": null,
+      "team_handle": "rails"
+    },
+    {
+      "id": 10629519,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@dee-see thank you so much!  I'll apply this patch, make sure the tests pass, then cut a security release.  Thanks!",
+      "automated_response": false,
+      "created_at": "2021-02-09T21:33:18.142Z",
+      "updated_at": "2021-02-09T21:33:18.142Z",
+      "actor": {
+        "username": "tenderlove",
+        "cleared": false,
+        "verified": false,
+        "url": "/tenderlove",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/003/318/60d828744b5d16813ecbf975fdc453dc4a933f4f_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "rails"
+    },
+    {
+      "id": 10629566,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Cool! Thanks for the update :)",
+      "automated_response": false,
+      "created_at": "2021-02-09T21:42:24.881Z",
+      "updated_at": "2021-02-09T21:42:24.881Z",
+      "actor": {
+        "username": "dee-see",
+        "cleared": true,
+        "verified": true,
+        "url": "/dee-see",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/220/115/9a655d51cb400a5743966e9856918ed02ee8d042_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "rails"
+    },
+    {
+      "id": 10638237,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::CveIdAdded",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2021-02-10T19:43:03.232Z",
+      "updated_at": "2021-02-10T19:43:03.232Z",
+      "cve_ids": [
+        "CVE-2021-22880"
+      ],
+      "actor": {
+        "username": "tenderlove",
+        "cleared": false,
+        "verified": false,
+        "url": "/tenderlove",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/003/318/60d828744b5d16813ecbf975fdc453dc4a933f4f_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "rails"
+    },
+    {
+      "id": 10639718,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "The fix was released on Rails 5.2.4.5, 6.0.3.5 and 6.1.2.1. Thank you fore reporting and working with us in a fix.",
+      "automated_response": false,
+      "created_at": "2021-02-10T23:50:31.391Z",
+      "updated_at": "2021-02-10T23:50:31.391Z",
+      "actor": {
+        "username": "rafaelfranca",
+        "cleared": false,
+        "verified": false,
+        "url": "/rafaelfranca",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/004/981/dd3b6bb41f9c33e3448ebbc47303f5a135f25105_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "reporter": {
+        "username": "dee-see",
+        "url": "/dee-see"
+      },
+      "genius_execution_id": null,
+      "team_handle": "rails"
+    },
+    {
+      "id": 10639723,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BountyAwarded",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2021-02-10T23:51:34.544Z",
+      "updated_at": "2021-02-10T23:51:34.544Z",
+      "actor": {
+        "url": "/rails",
+        "ibb": true,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/000/022/5e2b46658c8b86bed62f574d8e1793f353cbbc63_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "Ruby on Rails"
+        }
+      },
+      "bounty_currency": "usd",
+      "genius_execution_id": null,
+      "team_handle": "rails",
+      "collaborator": {
+        "username": "dee-see",
+        "url": "/dee-see"
+      }
+    },
+    {
+      "id": 10639728,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2021-02-10T23:52:23.963Z",
+      "updated_at": "2021-02-10T23:52:23.963Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "rafaelfranca",
+        "cleared": false,
+        "verified": false,
+        "url": "/rafaelfranca",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/004/981/dd3b6bb41f9c33e3448ebbc47303f5a135f25105_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "rails"
+    },
+    {
+      "id": 10639793,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2021-02-11T00:13:07.286Z",
+      "updated_at": "2021-02-11T00:13:07.286Z",
+      "actor": {
+        "username": "dee-see",
+        "cleared": true,
+        "verified": true,
+        "url": "/dee-see",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/220/115/9a655d51cb400a5743966e9856918ed02ee8d042_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "rails"
+    },
+    {
+      "id": 10639794,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportBecamePublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2021-02-11T00:13:07.399Z",
+      "updated_at": "2021-02-11T00:13:07.399Z",
+      "actor": {
+        "username": "dee-see",
+        "cleared": true,
+        "verified": true,
+        "url": "/dee-see",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/220/115/9a655d51cb400a5743966e9856918ed02ee8d042_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "rails"
+    }
+  ],
+  "activity_page_count": 1,
+  "activity_page_number": 1,
+  "summaries": [
+    {
+      "category": "team",
+      "can_view?": true,
+      "can_create?": false
+    },
+    {
+      "category": "researcher",
+      "can_view?": true,
+      "can_create?": false
+    }
+  ]
+}

@@ -1,0 +1,514 @@
+{
+  "id": 1444151,
+  "global_id": "Z2lkOi8vaGFja2Vyb25lL1JlcG9ydC8xNDQ0MTUx",
+  "url": "https://hackerone.com/reports/1444151",
+  "title": "XSS vulnerabilities due to missing checks in tag helpers",
+  "state": "Closed",
+  "substate": "resolved",
+  "severity_rating": "medium",
+  "readable_substate": "Resolved",
+  "created_at": "2022-01-08T18:53:39.226Z",
+  "submitted_at": "2022-01-08T18:53:39.279Z",
+  "is_member_of_team?": false,
+  "is_organization_group_member?": false,
+  "reporter": {
+    "disabled": false,
+    "username": "amartinfraguas",
+    "url": "/amartinfraguas",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/56w2cfpy703c9mv07auk6ygfqei9/3c7b305354c9073c106ae3d1701798defaaf5be844fb8fdfa49ca62f991a2c2c"
+    },
+    "is_me?": false,
+    "cleared": false,
+    "verified": false,
+    "hackerone_triager": false,
+    "hacker_mediation": false
+  },
+  "team": {
+    "id": 22,
+    "url": "https://hackerone.com/rails",
+    "handle": "rails",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/000/022/5e2b46658c8b86bed62f574d8e1793f353cbbc63_original.png/d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98",
+      "medium": "https://profile-photos.hackerone-user-content.com/variants/000/000/022/5e2b46658c8b86bed62f574d8e1793f353cbbc63_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+    },
+    "permissions": [
+
+    ],
+    "submission_state": "open",
+    "default_currency": "usd",
+    "awards_miles": false,
+    "offers_bounties": true,
+    "state": "public_mode",
+    "only_cleared_hackers": false,
+    "pentest_feature_enabled?": false,
+    "profile": {
+      "name": "Ruby on Rails",
+      "twitter_handle": "rails",
+      "website": "http://rubyonrails.org/security",
+      "about": "Web development that doesn't hurt."
+    }
+  },
+  "has_bounty?": false,
+  "in_validation?": false,
+  "can_view_team": true,
+  "can_view_report": true,
+  "is_external_bug": false,
+  "is_published": false,
+  "is_participant": false,
+  "has_collaborators": false,
+  "submitted_by_team_member": false,
+  "stage": 4,
+  "public": true,
+  "visibility": "full",
+  "cve_ids": [
+    "CVE-2022-27777"
+  ],
+  "singular_disclosure_disabled": false,
+  "disclosed_at": "2023-07-28T00:45:26.113Z",
+  "bug_reporter_agreed_on_going_public_at": null,
+  "team_member_agreed_on_going_public_at": "2023-06-28T00:45:25.523Z",
+  "comments_closed?": false,
+  "facebook_team?": false,
+  "team_private?": false,
+  "vulnerability_information": "Rails offers some protections against XSS in its helpers for the views. Several tag helpers in ActionView::Helpers::FormTagHelper and ActionView::Helpers::TagHelper are vulnerable against XSS because their current protection does not restrict properly the set of characters allowed in the names of tag attributes and in the names of tags.\n\nI am providing a proposal of changes to fix the problems following the official Rails guide for contributing, including tests, changelogs, etc. It is just a proposal and I am willing to improve it with your feedback and backport it to the supported versions. Let me know if you would like me to add you to a private repository where I can create a pull request and we can discuss the changes comfortably.\n\nThe first group of vulnerabilities is related to the `options` argument in methods from `FormTagHelper` like `check_box_tag, label_tag, radio_button_tag, select_tag, submit_tag, text_area_tag, text_field_tag, etc.` In particular in these 3 cases:\n- When providing prefixed HTML \"data-*\" attributes.\n- When providing prefixed HTML \"aria-*\" attributes.\n- When providing a hash of other types of non-boolean attributes.\n\nFor example:\n\n`check_box_tag('thename', 'thevalue', false, data: { malicious_input => 'thevalueofdata' })`\n\nIn that method call, when the variable `malicious_input` is controlled in part or completely by a user of the application, an attacker can provide an input that will break free from the tag and execute arbitrary JavaScript code. For some applications, that code can be executed in the browser of a different user visiting the application. A simplified proof of concept with only reflected XSS would be this HTML ERB view file:\n\n`<%= check_box_tag('thename', 'thevalue', false, data: { params[:payload] => 'thevalueofdata' }) %>`\n\nFollowed by a request that included the malicious URL parameter: `http://...?payload=something=\"something\"><img src=\"/nonexistent\" onerror=\"alert(1)\"><div class`\n\nThat example only shows an alert window, but it is possible to steal passwords or other private information from the user, substitute parts of the website with fake content, attack other websites visited by the user, perform scans of the network of the user, etc. And some applications are probably using more dangerous stored user input instead of URL parameters, allowing attackers to perform stored XSS attacks on other users.\n\nHere is another example with `aria-*` HTML attributes were the same simple payload can be tested:\n`check_box_tag('thename', 'thevalue', false, aria: { malicious_input => 'thevalueofaria' })`\n\nAnd finally, another example with other non-boolean attributes:\n`check_box_tag('thename', 'thevalue', false, malicious_input => 'theothervalue')`\n\nThis same vulnerable structure can also be attacked successfully in the other methods listed at the beginning: `label_tag, radio_button_tag, select_tag, submit_tag, text_area_tag, text_field_tag...`\n\nThe second group of vulnerabilities is related to the more generig methods `tag` and `content_tag` from `TagHelper`. They are vulnerable in the `options` argument like the previous group of methods, but they are also vulnerable in their first argument, for the names of the generated tags, using the same kind of attack to break free from the tag and execute arbitrary Javascript code. For example:\n\n- `tag(malicious_input)`\n- `tag.public_send(malicious_input.to_sym)`\n- `content_tag(malicious_input)`\n\nIn the 3 cases, this is an example of a simple payload that works:\n`img%20src=%22/nonexistent%22%20onerror=%22javascript_payload%22`\n\nAs said before for other examples, that only shows an alert window, but it is possible to use the same attack to potentially steal passwords or other private information from the user, substitute parts of the website with fake content, perform scans of the network of the user, etc.\n\n## Impact\n\nAs mentioned in the description, the Rails applications that use those helpers with some kind of user-supplied input are vulnerable to XSS attacks. Currently, there are some protections againts XSS in the affected methods, but it is not enough.\n\nIn the description I have provided simple payloads as an example that only created an alert window. However, it is possible to use the same attack to potentially steal passwords or other private information from the user, substitute parts of the website with fake content, perform scans of the network of the user, etc. In some applications it is probably possible to perform more dangerous stored XSS attacks. So fixing this problem is recommended and consistent with the Rails security policy ( https://rubyonrails.org/security ).",
+  "weakness": {
+    "id": 60,
+    "name": "Cross-site Scripting (XSS) - Generic"
+  },
+  "original_report_id": null,
+  "original_report_url": null,
+  "attachments": [
+    {
+      "id": 1572495,
+      "file_name": "fix_xss_protections_in_names_202201081931.patch",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/jr83h94sz2sdkwijqmnk4y1rxvnz?response-content-disposition=attachment%3B%20filename%3D%22fix_xss_protections_in_names_202201081931.patch%22%3B%20filename%2A%3DUTF-8%27%27fix_xss_protections_in_names_202201081931.patch&response-content-type=application%2Fmbox&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQSJ65FZXU%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065400Z&X-Amz-Expires=2933&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECkaCXVzLXdlc3QtMiJIMEYCIQC13hGRnFPG%2F8PgGnjUyc6RI7lGqUkEmr5u8l5tIeU95QIhAJgg%2FXv6bUcqZ%2FSQC3RBLq7QXM%2FDN5dN3fmku2DEJLRYKrEFCCIQAxoMMDEzNjE5Mjc0ODQ5IgwwR6BVchZWZB1Ys8gqjgXWndmoLAPy6R6rOiASV6IYlCP1ezRaoIE9cgpZaMh%2BiDDyY22Id0kBwojlWW5TCy0oa17lVogIDNmlFMqIVN%2B2ieEOvRZB5BfofcdU4BRMQZobwebNU8U1u3z41pIbGrJ8z%2BD0M%2Bc3SExuepKl5kYwdxZUR3hRtqNEHS3wi9wFG1K55iEbkL8Z3%2FoeDgRA22vZLRT5%2Bfi8q5HN8wvWzeykQCs0lZ6PGAtuDC4GQ5dWmIVTVMNHx%2BHghUQIkfRiOCKLPdo1raL2z7hgrjkg9uzJ4JgHmVEXG%2BfUy7TYArAV%2FtaI4Vuk84onY9eYDjkRB4zCzNIDQEo2kQwFwon6IGIlWBgkVOO37ud5VNRp8NAt6xYzLVfR4qqbMVMnI%2BosvqIcAHiFOzs3eIqnCwzxnzOIqBtb9nvaev20H7dwAwrDoZoC2%2F9wqlTsldSl5EG76v8wCqYamXzWGsuilXt7wv8WwkAk9T553W2a%2B%2BfbsOgcFxSDDddQthDfGf74LDgvOb2WozDHRrLqsR6nJI76RIWLp1hA7eMvpy0gbrQPL19HvpjW9v9tulbIvFTeLguNOKjDBVTAfnJlwD5bISU0b3yinZhtA5cY6tmAv6r7GmVpVWrt66HzOIXW%2FhVM%2F%2B5a%2FR0ODLBMT569ATPEQNgL4OHbeE3fIWxzKiYS9vkDpQz2rAIST4aZTgwC253Ne3n%2FQrG%2B%2F%2B6UQZToMCs8RqF8WRXxfqW7abs4O3ZdrFKESqBFCpPJqUmgXkC67%2BQe35GJARmHz3%2FPH8lntEuX7Bf05Bji8vQCcT1mKCa2fcjqum%2B4rPEDglldLO90UMUUpktIwyKeG4i28osTzPFt1bAltrxqk8wrGuHdPtH7UPAddVEws%2Fm4qAY6sAHJcQAAHMEwHyUT%2B5pz47K2QtFkvJobeZlnKje2WF01wKCRmG2EyJnjOuCSI1K1aNlscisHQeA%2BSqBbWlLVKvLfdeB5Crp92OpeBOmAr1E13T72GcQLOwgGuTXFm8usje4Kh0GfIMl9shrEXw%2FQ1KpNchynhcV7QXLnKks3QIlRuBPhV8TVc9%2Fc7lZvke2E%2BkbhPQTqoPojsquSawR0K1xO9a99vuPUGcyN7Vkh00vEhA%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=f587df147ea2be17920d3880f014bba298b2cbe06dc9d5724663ff088b693142",
+      "file_size": 17230,
+      "type": "application/mbox",
+      "moderated": null
+    }
+  ],
+  "allow_singular_disclosure_at": "2023-07-28T00:45:25.642Z",
+  "allow_singular_disclosure_after": -4946914.378584526,
+  "singular_disclosure_allowed": true,
+  "vote_count": 41,
+  "voters": [
+    "thigh_god",
+    "zy9ard3",
+    "neil-tsakatsa",
+    "h4x0r_dz",
+    "security_sphinx",
+    "vlakhani28",
+    "paler",
+    "th3blackhol3",
+    "shivammusic",
+    "codestroker",
+    "and 31 more..."
+  ],
+  "severity": {
+    "rating": "medium",
+    "author_type": "User"
+  },
+  "structured_scope": {
+    "databaseId": 160,
+    "asset_type": "SOURCE_CODE",
+    "asset_identifier": "https://github.com/rails/rails",
+    "max_severity": "critical"
+  },
+  "abilities": {
+    "assignable_team_members": [
+
+    ],
+    "assignable_team_member_groups": [
+
+    ]
+  },
+  "activities": [
+    {
+      "id": 14955554,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Forgot to specify: my mentioned proposal of changes for the fix is attached in a .patch file in my previous message, following the official Rails guide for contributing.",
+      "automated_response": false,
+      "created_at": "2022-01-08T18:57:06.653Z",
+      "updated_at": "2022-01-08T18:57:06.653Z",
+      "actor": {
+        "username": "amartinfraguas",
+        "cleared": false,
+        "verified": false,
+        "url": "/amartinfraguas",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/56w2cfpy703c9mv07auk6ygfqei9/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "rails"
+    },
+    {
+      "id": 14956041,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Thank you for the report and the attached patch. Is there any reason why we need a new escaping logic for this? Doesn't the already existent `html_escape` logic works for this case?",
+      "automated_response": false,
+      "created_at": "2022-01-08T21:27:28.820Z",
+      "updated_at": "2022-01-08T21:27:28.820Z",
+      "actor": {
+        "username": "rafaelfranca",
+        "cleared": false,
+        "verified": false,
+        "url": "/rafaelfranca",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/004/981/dd3b6bb41f9c33e3448ebbc47303f5a135f25105_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "rails"
+    },
+    {
+      "id": 14956042,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugTriaged",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2022-01-08T21:27:49.614Z",
+      "updated_at": "2022-01-08T21:27:49.614Z",
+      "actor": {
+        "username": "rafaelfranca",
+        "cleared": false,
+        "verified": false,
+        "url": "/rafaelfranca",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/004/981/dd3b6bb41f9c33e3448ebbc47303f5a135f25105_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "rails"
+    },
+    {
+      "id": 14956050,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Also, this patch also changes the `escape_attribute` option to `escape`, what is the reason for that? Is it mostly because we also now escape the name?",
+      "automated_response": false,
+      "created_at": "2022-01-08T21:30:19.841Z",
+      "updated_at": "2022-01-08T21:30:19.841Z",
+      "actor": {
+        "username": "rafaelfranca",
+        "cleared": false,
+        "verified": false,
+        "url": "/rafaelfranca",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/004/981/dd3b6bb41f9c33e3448ebbc47303f5a135f25105_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "rails"
+    },
+    {
+      "id": 14958791,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "First of all, thank you and all the Rails team for the awesome things Rails has brought me as a web application developer for many years :-) I did not thank you properly yesterday.\n\nRegarding the `html_escape` method, it uses `CGI.escapeHTML`, which replaces some characters ( `'&\"<>`) with their corresponding HTML entities (`&something;`). That method is necessary for some HTML contexts and it is important to keep it as well, but it does not cover all of the contexts or cases. So in my proposal of changes I have created a new method:\n\nFor example, consider this HTML ERB view:\n<%= label_tag('thename', 'thevalue', data: { params[:payload] => 'thevalueofdata' }) %>\n\nThe method `html_escape` has these 4 problems:\n* The set of characters it replaces is necessary for the inside of content tags, but it is insufficient for names of attributes or names of tags. It is possible to execute arbitrary JavaScript code, for example with this URL that does not use any characters from that set but still hides working JavaScript code in the onmouseover event and runs it when the user puts his mouse over the label tag (there are many other ways, much more dangerous): `http://...payload=whatever=something%20onmouseover=alert(1)%20another` In my proposal of changes I have used the complete character set for names in XML: https://www.w3.org/TR/REC-xml/#NT-Name\n* Even if we added all the characters necessary to `html_escape` to sanitize names of attributes and names of tags, I think it may feel weird for a developer that many characters in the body of other tags would be replaced by HTML entities (for example, all spaces would be affected) and the response time of the request will increase, because there are many more characters to send now (for example, all spaces would be replaced by `&#20;`, 4 times more characters to send) .\n* I think those HTML entities may break HTML code when used in names of attributes and names of tags, but my proposed replacement `_` is complatible with the XML specification.\n* Lastly, even if we fix all the above in `html_escape`, we would still need to apply that method to several places that have no escaping now (they are covered in my proposal with the new method).\n\nSo for those reasons, I think we could improve it with a new method designed for names of attributes and names of tags. In my proposal of changes, it is called `ERB::Util.xml_name_escape`\n\nRegarding the `escape_attributes` option change to `escape`, I proposed that for 2 reasons:\n* Firstly, as you say, to include the new escaping of the names of attributes and the names of tags apart from the previous escaping of only the value of the attributes.\n* To make it simple for a Rails application developer to only think of one option for escaping characters.\n\nI think escaping characters to prevent XSS is recognized as something difficult and the techniques change depending of the HTML context. I think this short guide is the best I have found: https://cheatsheetseries.owasp.org/cheatsheets/Cross_Site_Scripting_Prevention_Cheat_Sheet.html\n\nLastly, I have mentioned, I have spent many years as a Rails web application developer and it has been great. If possible, I would like to be in the list of contributors and I am happy to make the commits in GitHub and backport the fixes to older Rails versions that are still officially supported.",
+      "automated_response": false,
+      "created_at": "2022-01-09T10:04:00.172Z",
+      "updated_at": "2022-01-09T10:04:00.172Z",
+      "actor": {
+        "username": "amartinfraguas",
+        "cleared": false,
+        "verified": false,
+        "url": "/amartinfraguas",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/56w2cfpy703c9mv07auk6ygfqei9/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "rails"
+    },
+    {
+      "id": 15149479,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi, Rafael,\n\nWhat are the next steps for this process? As mentioned, I am happy to help and make changes to the patch I submitted above, following your feedback. I can also backport the fix to other supported Rails versions.\n\nBest regards,\n\nÁlvaro Martín Fraguas",
+      "automated_response": false,
+      "created_at": "2022-01-22T09:57:57.487Z",
+      "updated_at": "2022-01-22T09:57:57.487Z",
+      "actor": {
+        "username": "amartinfraguas",
+        "cleared": false,
+        "verified": false,
+        "url": "/amartinfraguas",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/56w2cfpy703c9mv07auk6ygfqei9/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "rails"
+    },
+    {
+      "id": 15696388,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@amartinfraguas Yes please do both of those things.  The backports will make it much easier for us to release.  Thank you!",
+      "automated_response": false,
+      "created_at": "2022-03-01T21:29:36.568Z",
+      "updated_at": "2022-03-01T21:29:36.568Z",
+      "actor": {
+        "username": "tenderlove",
+        "cleared": false,
+        "verified": false,
+        "url": "/tenderlove",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/003/318/60d828744b5d16813ecbf975fdc453dc4a933f4f_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "rails"
+    },
+    {
+      "id": 15727118,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@tenderlove , OK, I will probably have the patches ready this week. Thank you :-)",
+      "automated_response": false,
+      "created_at": "2022-03-03T16:45:57.280Z",
+      "updated_at": "2022-03-03T16:45:57.280Z",
+      "actor": {
+        "username": "amartinfraguas",
+        "cleared": false,
+        "verified": false,
+        "url": "/amartinfraguas",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/56w2cfpy703c9mv07auk6ygfqei9/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "rails"
+    },
+    {
+      "id": 15743253,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi, @tenderlove , @rafaelfranca ,\n\nI have finished the patches, I am attaching them to this message. I have also made improvements to my previous proposal in the main branch, so please do not use my previously submitted patch file. I am attaching one patch file for the main branch (with all the changes), one for the branch 7-0-stable and one for the branch 6-1-stable.\n\nFor the backports, I am supporting both the old name and the new name for the option for escaping, with a deprecation warning explaining the situation if the old name is used. Both option names have the same fixed behaviour.\n\nPlease let me know if I can help with anything else. If possible, I would like to be in the list of authors of each commit in GitHub.\n\nThank you.\n\nBest regards,\nÁlvaro Martín Fraguas",
+      "automated_response": false,
+      "created_at": "2022-03-04T15:07:24.220Z",
+      "updated_at": "2022-03-04T15:07:24.220Z",
+      "actor": {
+        "username": "amartinfraguas",
+        "cleared": false,
+        "verified": false,
+        "url": "/amartinfraguas",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/56w2cfpy703c9mv07auk6ygfqei9/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "attachments": [
+        {
+          "id": 1642694,
+          "filename": "fix_xss_protections_in_names_main_20220304.patch",
+          "type": "application/mbox",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/h4nptoj0a6o2x6unk0v1mm8wbbwo?response-content-disposition=attachment%3B%20filename%3D%22fix_xss_protections_in_names_main_20220304.patch%22%3B%20filename%2A%3DUTF-8%27%27fix_xss_protections_in_names_main_20220304.patch&response-content-type=application%2Fmbox&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQSJ65FZXU%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065400Z&X-Amz-Expires=2933&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECkaCXVzLXdlc3QtMiJIMEYCIQC13hGRnFPG%2F8PgGnjUyc6RI7lGqUkEmr5u8l5tIeU95QIhAJgg%2FXv6bUcqZ%2FSQC3RBLq7QXM%2FDN5dN3fmku2DEJLRYKrEFCCIQAxoMMDEzNjE5Mjc0ODQ5IgwwR6BVchZWZB1Ys8gqjgXWndmoLAPy6R6rOiASV6IYlCP1ezRaoIE9cgpZaMh%2BiDDyY22Id0kBwojlWW5TCy0oa17lVogIDNmlFMqIVN%2B2ieEOvRZB5BfofcdU4BRMQZobwebNU8U1u3z41pIbGrJ8z%2BD0M%2Bc3SExuepKl5kYwdxZUR3hRtqNEHS3wi9wFG1K55iEbkL8Z3%2FoeDgRA22vZLRT5%2Bfi8q5HN8wvWzeykQCs0lZ6PGAtuDC4GQ5dWmIVTVMNHx%2BHghUQIkfRiOCKLPdo1raL2z7hgrjkg9uzJ4JgHmVEXG%2BfUy7TYArAV%2FtaI4Vuk84onY9eYDjkRB4zCzNIDQEo2kQwFwon6IGIlWBgkVOO37ud5VNRp8NAt6xYzLVfR4qqbMVMnI%2BosvqIcAHiFOzs3eIqnCwzxnzOIqBtb9nvaev20H7dwAwrDoZoC2%2F9wqlTsldSl5EG76v8wCqYamXzWGsuilXt7wv8WwkAk9T553W2a%2B%2BfbsOgcFxSDDddQthDfGf74LDgvOb2WozDHRrLqsR6nJI76RIWLp1hA7eMvpy0gbrQPL19HvpjW9v9tulbIvFTeLguNOKjDBVTAfnJlwD5bISU0b3yinZhtA5cY6tmAv6r7GmVpVWrt66HzOIXW%2FhVM%2F%2B5a%2FR0ODLBMT569ATPEQNgL4OHbeE3fIWxzKiYS9vkDpQz2rAIST4aZTgwC253Ne3n%2FQrG%2B%2F%2B6UQZToMCs8RqF8WRXxfqW7abs4O3ZdrFKESqBFCpPJqUmgXkC67%2BQe35GJARmHz3%2FPH8lntEuX7Bf05Bji8vQCcT1mKCa2fcjqum%2B4rPEDglldLO90UMUUpktIwyKeG4i28osTzPFt1bAltrxqk8wrGuHdPtH7UPAddVEws%2Fm4qAY6sAHJcQAAHMEwHyUT%2B5pz47K2QtFkvJobeZlnKje2WF01wKCRmG2EyJnjOuCSI1K1aNlscisHQeA%2BSqBbWlLVKvLfdeB5Crp92OpeBOmAr1E13T72GcQLOwgGuTXFm8usje4Kh0GfIMl9shrEXw%2FQ1KpNchynhcV7QXLnKks3QIlRuBPhV8TVc9%2Fc7lZvke2E%2BkbhPQTqoPojsquSawR0K1xO9a99vuPUGcyN7Vkh00vEhA%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=ca6196559ee7cc53fe2954e18f4d539be3a448d28d63cfdc58a08f11f6481cbf"
+        },
+        {
+          "id": 1642693,
+          "filename": "fix_xss_protections_in_names_7-0-stable_20220304.patch",
+          "type": "application/mbox",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/xf63we772yclmkrfy6uq6z2yt0sm?response-content-disposition=attachment%3B%20filename%3D%22fix_xss_protections_in_names_7-0-stable_20220304.patch%22%3B%20filename%2A%3DUTF-8%27%27fix_xss_protections_in_names_7-0-stable_20220304.patch&response-content-type=application%2Fmbox&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQSJ65FZXU%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065400Z&X-Amz-Expires=2933&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECkaCXVzLXdlc3QtMiJIMEYCIQC13hGRnFPG%2F8PgGnjUyc6RI7lGqUkEmr5u8l5tIeU95QIhAJgg%2FXv6bUcqZ%2FSQC3RBLq7QXM%2FDN5dN3fmku2DEJLRYKrEFCCIQAxoMMDEzNjE5Mjc0ODQ5IgwwR6BVchZWZB1Ys8gqjgXWndmoLAPy6R6rOiASV6IYlCP1ezRaoIE9cgpZaMh%2BiDDyY22Id0kBwojlWW5TCy0oa17lVogIDNmlFMqIVN%2B2ieEOvRZB5BfofcdU4BRMQZobwebNU8U1u3z41pIbGrJ8z%2BD0M%2Bc3SExuepKl5kYwdxZUR3hRtqNEHS3wi9wFG1K55iEbkL8Z3%2FoeDgRA22vZLRT5%2Bfi8q5HN8wvWzeykQCs0lZ6PGAtuDC4GQ5dWmIVTVMNHx%2BHghUQIkfRiOCKLPdo1raL2z7hgrjkg9uzJ4JgHmVEXG%2BfUy7TYArAV%2FtaI4Vuk84onY9eYDjkRB4zCzNIDQEo2kQwFwon6IGIlWBgkVOO37ud5VNRp8NAt6xYzLVfR4qqbMVMnI%2BosvqIcAHiFOzs3eIqnCwzxnzOIqBtb9nvaev20H7dwAwrDoZoC2%2F9wqlTsldSl5EG76v8wCqYamXzWGsuilXt7wv8WwkAk9T553W2a%2B%2BfbsOgcFxSDDddQthDfGf74LDgvOb2WozDHRrLqsR6nJI76RIWLp1hA7eMvpy0gbrQPL19HvpjW9v9tulbIvFTeLguNOKjDBVTAfnJlwD5bISU0b3yinZhtA5cY6tmAv6r7GmVpVWrt66HzOIXW%2FhVM%2F%2B5a%2FR0ODLBMT569ATPEQNgL4OHbeE3fIWxzKiYS9vkDpQz2rAIST4aZTgwC253Ne3n%2FQrG%2B%2F%2B6UQZToMCs8RqF8WRXxfqW7abs4O3ZdrFKESqBFCpPJqUmgXkC67%2BQe35GJARmHz3%2FPH8lntEuX7Bf05Bji8vQCcT1mKCa2fcjqum%2B4rPEDglldLO90UMUUpktIwyKeG4i28osTzPFt1bAltrxqk8wrGuHdPtH7UPAddVEws%2Fm4qAY6sAHJcQAAHMEwHyUT%2B5pz47K2QtFkvJobeZlnKje2WF01wKCRmG2EyJnjOuCSI1K1aNlscisHQeA%2BSqBbWlLVKvLfdeB5Crp92OpeBOmAr1E13T72GcQLOwgGuTXFm8usje4Kh0GfIMl9shrEXw%2FQ1KpNchynhcV7QXLnKks3QIlRuBPhV8TVc9%2Fc7lZvke2E%2BkbhPQTqoPojsquSawR0K1xO9a99vuPUGcyN7Vkh00vEhA%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=ba43930dc9143185316d8b475ff4199ccaebda55fcd0de16d82b41bca68f2d77"
+        },
+        {
+          "id": 1642692,
+          "filename": "fix_xss_protections_in_names_6-1-stable_20220304.patch",
+          "type": "application/mbox",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/4y5bmwvet5xi2shmeszk7n6uzrfp?response-content-disposition=attachment%3B%20filename%3D%22fix_xss_protections_in_names_6-1-stable_20220304.patch%22%3B%20filename%2A%3DUTF-8%27%27fix_xss_protections_in_names_6-1-stable_20220304.patch&response-content-type=application%2Fmbox&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQSJ65FZXU%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065400Z&X-Amz-Expires=2933&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECkaCXVzLXdlc3QtMiJIMEYCIQC13hGRnFPG%2F8PgGnjUyc6RI7lGqUkEmr5u8l5tIeU95QIhAJgg%2FXv6bUcqZ%2FSQC3RBLq7QXM%2FDN5dN3fmku2DEJLRYKrEFCCIQAxoMMDEzNjE5Mjc0ODQ5IgwwR6BVchZWZB1Ys8gqjgXWndmoLAPy6R6rOiASV6IYlCP1ezRaoIE9cgpZaMh%2BiDDyY22Id0kBwojlWW5TCy0oa17lVogIDNmlFMqIVN%2B2ieEOvRZB5BfofcdU4BRMQZobwebNU8U1u3z41pIbGrJ8z%2BD0M%2Bc3SExuepKl5kYwdxZUR3hRtqNEHS3wi9wFG1K55iEbkL8Z3%2FoeDgRA22vZLRT5%2Bfi8q5HN8wvWzeykQCs0lZ6PGAtuDC4GQ5dWmIVTVMNHx%2BHghUQIkfRiOCKLPdo1raL2z7hgrjkg9uzJ4JgHmVEXG%2BfUy7TYArAV%2FtaI4Vuk84onY9eYDjkRB4zCzNIDQEo2kQwFwon6IGIlWBgkVOO37ud5VNRp8NAt6xYzLVfR4qqbMVMnI%2BosvqIcAHiFOzs3eIqnCwzxnzOIqBtb9nvaev20H7dwAwrDoZoC2%2F9wqlTsldSl5EG76v8wCqYamXzWGsuilXt7wv8WwkAk9T553W2a%2B%2BfbsOgcFxSDDddQthDfGf74LDgvOb2WozDHRrLqsR6nJI76RIWLp1hA7eMvpy0gbrQPL19HvpjW9v9tulbIvFTeLguNOKjDBVTAfnJlwD5bISU0b3yinZhtA5cY6tmAv6r7GmVpVWrt66HzOIXW%2FhVM%2F%2B5a%2FR0ODLBMT569ATPEQNgL4OHbeE3fIWxzKiYS9vkDpQz2rAIST4aZTgwC253Ne3n%2FQrG%2B%2F%2B6UQZToMCs8RqF8WRXxfqW7abs4O3ZdrFKESqBFCpPJqUmgXkC67%2BQe35GJARmHz3%2FPH8lntEuX7Bf05Bji8vQCcT1mKCa2fcjqum%2B4rPEDglldLO90UMUUpktIwyKeG4i28osTzPFt1bAltrxqk8wrGuHdPtH7UPAddVEws%2Fm4qAY6sAHJcQAAHMEwHyUT%2B5pz47K2QtFkvJobeZlnKje2WF01wKCRmG2EyJnjOuCSI1K1aNlscisHQeA%2BSqBbWlLVKvLfdeB5Crp92OpeBOmAr1E13T72GcQLOwgGuTXFm8usje4Kh0GfIMl9shrEXw%2FQ1KpNchynhcV7QXLnKks3QIlRuBPhV8TVc9%2Fc7lZvke2E%2BkbhPQTqoPojsquSawR0K1xO9a99vuPUGcyN7Vkh00vEhA%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=b250c980defc7a7d65ba9eb1ddf2926a0a072042ca9de0c4937806c32bed901f"
+        }
+      ],
+      "genius_execution_id": null,
+      "team_handle": "rails"
+    },
+    {
+      "id": 15751594,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "I can create a private GitHub repository with my branches and give you access if it makes it easier for you to merge the changes or keep me as one of the authors of each commit. Just let me know what you prefer.\n\nThank you.",
+      "automated_response": false,
+      "created_at": "2022-03-05T10:00:11.537Z",
+      "updated_at": "2022-03-05T10:00:11.537Z",
+      "actor": {
+        "username": "amartinfraguas",
+        "cleared": false,
+        "verified": false,
+        "url": "/amartinfraguas",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/56w2cfpy703c9mv07auk6ygfqei9/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "rails"
+    },
+    {
+      "id": 16171391,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@amartinfraguas the patches look great, thank you so much! We'll ship these.",
+      "automated_response": false,
+      "created_at": "2022-04-05T20:28:23.155Z",
+      "updated_at": "2022-04-05T20:28:23.155Z",
+      "actor": {
+        "username": "tenderlove",
+        "cleared": false,
+        "verified": false,
+        "url": "/tenderlove",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/003/318/60d828744b5d16813ecbf975fdc453dc4a933f4f_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "rails"
+    },
+    {
+      "id": 16444913,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::CveIdAdded",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2022-04-26T19:59:59.046Z",
+      "updated_at": "2022-04-26T19:59:59.046Z",
+      "cve_ids": [
+        "CVE-2022-27777"
+      ],
+      "actor": {
+        "username": "tenderlove",
+        "cleared": false,
+        "verified": false,
+        "url": "/tenderlove",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/003/318/60d828744b5d16813ecbf975fdc453dc4a933f4f_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "rails"
+    },
+    {
+      "id": 16444916,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "This is shipped now.  Thank you!",
+      "automated_response": false,
+      "created_at": "2022-04-26T20:00:28.326Z",
+      "updated_at": "2022-04-26T20:00:28.326Z",
+      "actor": {
+        "username": "tenderlove",
+        "cleared": false,
+        "verified": false,
+        "url": "/tenderlove",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/003/318/60d828744b5d16813ecbf975fdc453dc4a933f4f_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "reporter": {
+        "username": "amartinfraguas",
+        "url": "/amartinfraguas"
+      },
+      "genius_execution_id": null,
+      "team_handle": "rails"
+    },
+    {
+      "id": 22547996,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2023-06-28T00:45:25.584Z",
+      "updated_at": "2023-06-28T00:45:25.584Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "rafaelfranca",
+        "cleared": false,
+        "verified": false,
+        "url": "/rafaelfranca",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/004/981/dd3b6bb41f9c33e3448ebbc47303f5a135f25105_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "rails"
+    },
+    {
+      "id": 23043669,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportBecamePublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2023-07-28T00:45:26.204Z",
+      "updated_at": "2023-07-28T00:45:26.204Z",
+      "actor": {
+        "url": "/rails",
+        "ibb": true,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/000/022/5e2b46658c8b86bed62f574d8e1793f353cbbc63_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "Ruby on Rails"
+        }
+      },
+      "genius_execution_id": null,
+      "team_handle": "rails"
+    }
+  ],
+  "activity_page_count": 1,
+  "activity_page_number": 1,
+  "summaries": [
+    {
+      "category": "team",
+      "can_view?": true,
+      "can_create?": false
+    },
+    {
+      "category": "researcher",
+      "can_view?": true,
+      "can_create?": false
+    }
+  ]
+}

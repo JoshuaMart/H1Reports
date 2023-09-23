@@ -1,0 +1,662 @@
+{
+  "id": 484615,
+  "global_id": "Z2lkOi8vaGFja2Vyb25lL1JlcG9ydC80ODQ2MTU=",
+  "url": "https://hackerone.com/reports/484615",
+  "title": "Unsanitized user photo paths allow local file read",
+  "state": "Closed",
+  "substate": "resolved",
+  "severity_rating": "high",
+  "readable_substate": "Resolved",
+  "created_at": "2019-01-23T11:16:20.844Z",
+  "submitted_at": "2019-01-23T11:16:20.844Z",
+  "is_member_of_team?": false,
+  "is_organization_group_member?": false,
+  "reporter": {
+    "disabled": false,
+    "username": "alb3r7",
+    "url": "/alb3r7",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/076/180/ce539542de07b2104fe48c7eca2af3cb3d583dca_original.jpg/3c7b305354c9073c106ae3d1701798defaaf5be844fb8fdfa49ca62f991a2c2c"
+    },
+    "is_me?": false,
+    "cleared": false,
+    "verified": false,
+    "hackerone_triager": false,
+    "hacker_mediation": false
+  },
+  "team": {
+    "id": 17443,
+    "url": "https://hackerone.com/vanilla",
+    "handle": "vanilla",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/017/443/2720e6aeb834de4fd40765a5cae34abb78eb66cd_original.png/d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98",
+      "medium": "https://profile-photos.hackerone-user-content.com/variants/000/017/443/2720e6aeb834de4fd40765a5cae34abb78eb66cd_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+    },
+    "permissions": [
+
+    ],
+    "submission_state": "paused",
+    "default_currency": "usd",
+    "awards_miles": false,
+    "offers_bounties": true,
+    "state": "public_mode",
+    "only_cleared_hackers": false,
+    "pentest_feature_enabled?": false,
+    "profile": {
+      "name": "Vanilla",
+      "twitter_handle": "vanilla",
+      "website": "http://vanillaforums.com",
+      "about": "Vanilla is a powerfully simple discussion forum you can easily customize to make as unique as your community."
+    }
+  },
+  "has_bounty?": true,
+  "in_validation?": false,
+  "can_view_team": true,
+  "can_view_report": true,
+  "is_external_bug": false,
+  "is_published": false,
+  "is_participant": false,
+  "has_collaborators": false,
+  "submitted_by_team_member": false,
+  "stage": 4,
+  "public": true,
+  "visibility": "full",
+  "cve_ids": [
+
+  ],
+  "singular_disclosure_disabled": false,
+  "disclosed_at": "2019-07-13T04:27:29.324Z",
+  "bug_reporter_agreed_on_going_public_at": "2019-06-13T04:27:26.252Z",
+  "team_member_agreed_on_going_public_at": null,
+  "comments_closed?": false,
+  "facebook_team?": false,
+  "team_private?": false,
+  "vulnerability_information": "**Summary:**\nWhen we register a new user, we can set the photo of user.  If we set a milicious path, we can delete the profile photo of others\n\n**Description:**\nThere is an episode of register.\napplications/dashboard/controllers/class.entrycontroller.php\n```\n    private function registerBasic() {\n        $this->View = 'registerbasic';\n        Gdn::userModel()->addPasswordStrength($this);\n\n        if ($this->Form->isPostBack() === true) {\n            // Add validation rules that are not enforced by the model\n            $this->UserModel->defineSchema();\n            $this->UserModel->Validation->applyRule('Name', 'Username', $this->UsernameError);\n            $this->UserModel->Validation->applyRule('TermsOfService', 'Required', t('You must agree to the terms of service.'));z\n            $this->UserModel->Validation->applyRule('Password', 'Required');\n            $this->UserModel->Validation->applyRule('Password', 'Strength');\n            $this->UserModel->Validation->applyRule('Password', 'Match');\n            // $this->UserModel->Validation->applyRule('DateOfBirth', 'MinimumAge');\n\n            $this->fireEvent('RegisterValidation');\n\n            try {\n                $values = $this->Form->formValues(); //1\n                $values = $this->UserModel->filterForm($values, true); //2\n                unset($values['Roles']);\n                $authUserID = $this->UserModel->register($values);//3\n```\nGet form values and filter many fields in UserModel. But I find there are 23 fields in GDN_User remains\n```\nAbout\nBanned\nConfirmed\nCountBookmarks\nCountDrafts\nCountUnreadConversations\nCountUnreadDiscussions\nDateOfBirth\nDateSetInvitations\nEmail\nGender\nHashMethod\nHourOffset\nInviteUserID\nLocation\nName\nPassword\nPhoto\nPoints\nShowEmail\nTitle\nUserID\nVerified\n```\nIn UserModel::removePicture, it delete the local file according to photo field. But in step 2, it call changeBasename to add prefix 'p' in basename. So we can only delete the filename starts with 'p' in uploads directory\n```\n    public function removePicture($userID) {\n        // Grab the current photo.\n        $user = $this->getID($userID, DATASET_TYPE_ARRAY); //1\n        $photo = $user['Photo'];\n\n        // Only attempt to delete a physical file, not a URL.\n        if (!isUrl($photo)) {\n            $profilePhoto = changeBasename($photo, 'p%s'); //2\n            $upload = new Gdn_Upload();\n            $upload->delete($profilePhoto); //3\n        }\n\n        // Wipe the Photo field.\n        $this->setField($userID, 'Photo', null);\n    }\n```\n\n## Steps to reproduce:\n\n1. find other user's photo url to delete (eg: uploads/userpics/868/pT8SSG8E4EYSK.png)\n2. register a new user and intercept the request\n3. add a field `Photo`, set the value as `userpics/868/T8SSG8E4EYSK.png`(without prefix p)\n4. login, and request /vanilla/index.php?p=/profile/removepicture/**yourusername**&tk=**yourtk**&deliveryType=ALL\nThen the local file uploads/userpics/868/pT8SSG8E4EYSK.png will be deleted\n\n## Anything else we should know?\nBecause of the path restriction, only filepath matchs `uploads/*/p*` can be deleted.\nWhitelist may better than blacklist, only a few fields should be permitted to insert into database where registration\n\n## Impact\n\nbe able to delete profile photo of others",
+  "bounty_amount": "300.0",
+  "formatted_bounty": "$300",
+  "weakness": {
+    "id": 65,
+    "name": "Business Logic Errors"
+  },
+  "original_report_id": null,
+  "original_report_url": null,
+  "attachments": [
+    {
+      "id": 411066,
+      "file_name": "3.png",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/411/066/9bf86e66a34b1f9aed9b5575171ece7356f01364/3.png?response-content-disposition=attachment%3B%20filename%3D%223.png%22%3B%20filename%2A%3DUTF-8%27%273.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ3R5LIR7E%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T074145Z&X-Amz-Expires=974&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJHMEUCIQC8A6iLd6fdizoKiDmGTMJOtEK0j%2B9m1Hwg8kDIhR3i4wIgU1cbUALHKJVW4fP2UzLm%2Fzggy%2Br2f2qSsa5O9UhWw3gqsgUIIxADGgwwMTM2MTkyNzQ4NDkiDJxg6%2BdxWFHEdpNOiSqPBbOGoWCMpPDSC5i104drxenzKlJmKtfbaPYXcEUk5xzpfFz7qlzMHzxshj0ZGvQ9B6u%2FX6LPbR7Sl3mWyjkMgqtizxl77eMrAi1ar%2FJkwIbmf%2B0it8tRDIPTWPFce%2F%2FHd%2BmtmIG4RB%2BQvydMEyr5Q8nhoRP6O%2FjYWWnkb%2BRNcelyK2xmsSwGLQOdlU2enMwhOK3BPGXmuh1bofm3xd5cvTpV39JpV6%2FHz%2BXsNZvVfqbg%2BXuKaDVhROLMjPyKGTGTay0tNg%2BACp27ysa5IWV%2BI31t19hmXNWzs3ESd2B9nf6c8Joaw9cZ0BFv5SPhCjzrknQ3HXC67SgBpIKoEk6LXEaEw2NmKmI7XCGH3bhCHfpUPAj9Mi5Cb%2BK85SWDjSiu91Bd4pe4XmONhhEzu%2BHUsNC4KzHg%2FM4pD%2BGx8ddmYnr3tdArcXEpk67wbeRug1K27YWz%2FVO96fiXdkS9Xm5J9hNQAGlePyFuIN5mOMBg2d%2BcjkTZF8kSHHvqXSqPAQgX6ugFlVoubAsd7KnyrCvE4eFyHIZVo3oV5JU82FGBbUj3s5lUYQdYVFd3Ps16Rt1PGkRAUwR7cXlVvplJS0rb8610%2BG17raAQwJy8cRN7s3KyQNhdXXIQRdJRhKYg1JE%2FNIQcwkwywKN%2FsigvOXECelwnnne41q2BURRgR4GCNgRxam2jBgUkUJjQtQ%2FokWvEQYLIA4f9HX9kkcgw0kkfFu5UJq73bMC%2BU%2F3eZ7B4Zy9taEIGKwSg86qyFVg860n2oAiN%2FfpKAx8tRUW8DTjM2X54yGGHPadIq0Hu8cZCkJQ4Th5tIC7R%2BHPfSgSag0HBfAmzZ5118Q9ZwkkntRTVxAl1pkGthGbtGkww1jjKCJ0wwoe5qAY6sQHDRGqTlml9JOa7pcIPnENAbSjPA%2BNnrcJ1TNMO0BkSMWqUN9w1vudtRvjp773httgmTyAlYuxH7EmlIPFmJQ6Gu1DzzT7rLiEF2GE0t7B2q9gxwFisSqlUh5Y1Lwu%2BtN5x1TzSiMb5y26sSzmQ%2BShQL8fCGA23tpHtpIE9ans0LS34EwJCOxZwBH%2BHx9OzuRqjdgDlu23FbHdQ6SG6rIzVi21GM%2BTw0KAnkoR1gvqPjRk%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=b2cc9565b0076dd9c3ebbf1e785caadd6f5e508fbfb58903ccc653f25ac5b057",
+      "file_size": 58867,
+      "type": "image/png",
+      "moderated": null
+    }
+  ],
+  "allow_singular_disclosure_at": "2019-07-13T04:27:26.349Z",
+  "allow_singular_disclosure_after": -132462859.3748428,
+  "singular_disclosure_allowed": true,
+  "vote_count": 31,
+  "voters": [
+    "0xbeefed",
+    "hunter",
+    "bl4de",
+    "tess",
+    "spam404",
+    "ali",
+    "ahiezer",
+    "aryan2808",
+    "pablov",
+    "tiago-danin",
+    "and 21 more..."
+  ],
+  "severity": {
+    "rating": "high",
+    "score": 7.6,
+    "author_type": "Team",
+    "metrics": {
+      "attack_vector": "network",
+      "attack_complexity": "low",
+      "privileges_required": "low",
+      "user_interaction": "none",
+      "scope": "unchanged",
+      "confidentiality": "high",
+      "integrity": "low",
+      "availability": "low"
+    }
+  },
+  "structured_scope": {
+    "databaseId": 14809,
+    "asset_type": "SOURCE_CODE",
+    "asset_identifier": "https://github.com/vanilla/vanilla/",
+    "max_severity": "critical"
+  },
+  "abilities": {
+    "assignable_team_members": [
+
+    ],
+    "assignable_team_member_groups": [
+
+    ]
+  },
+  "activities": [
+    {
+      "id": 4023801,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "https://github.com/vanilla/vanilla/issues/8246 ",
+      "automated_response": false,
+      "created_at": "2019-01-23T11:18:05.758Z",
+      "updated_at": "2019-01-23T11:18:05.758Z",
+      "actor": {
+        "username": "alb3r7",
+        "cleared": false,
+        "verified": false,
+        "url": "/alb3r7",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/076/180/ce539542de07b2104fe48c7eca2af3cb3d583dca_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "vanilla"
+    },
+    {
+      "id": 4024275,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugDuplicate",
+      "message": "Hi there. Thank you for reporting this, however a similar report has already been submitted to us on HackerOne.",
+      "automated_response": false,
+      "created_at": "2019-01-23T13:12:09.702Z",
+      "updated_at": "2019-01-23T13:12:09.702Z",
+      "original_report_id": 394247,
+      "actor": {
+        "username": "dexterr",
+        "cleared": false,
+        "verified": false,
+        "url": "/dexterr",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/201/201/11a7da9d5256f50a86acdf6a8f3366252baee73e_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "vanilla"
+    },
+    {
+      "id": 4220862,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Has this issue been resolved?\nIt still exists in latest version 2.8. And I find a new way to exploit this issue. It can be led to Local File Read.\n\nSteps to reproduce:\n1. find the file to read (eg: `/etc/passwd`)\n2. register a new user and intercept the request, add a field Photo, set the value as `static://v/lugins\\..\\..\\..\\..\\..\\..\\..\\..\\etc\\passwd`\n3. forward the request to finish the registration\n4. login, and request /vanilla/index.php?p=/profile/picture\nThen the local file `/etc/passwd` will be copied to `/uploads/tmp-static/plugins-..-..-..-..-..-..-..-..-etc-passwd`",
+      "automated_response": false,
+      "created_at": "2019-02-27T05:53:02.016Z",
+      "updated_at": "2019-02-27T05:53:02.016Z",
+      "actor": {
+        "username": "alb3r7",
+        "cleared": false,
+        "verified": false,
+        "url": "/alb3r7",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/076/180/ce539542de07b2104fe48c7eca2af3cb3d583dca_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "attachments": [
+        {
+          "id": 432139,
+          "filename": "333.png",
+          "type": "image/png",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/432/139/6f9c98f6c9f78aef7f954938b00bb38fedf88596/333.png?response-content-disposition=attachment%3B%20filename%3D%22333.png%22%3B%20filename%2A%3DUTF-8%27%27333.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ3R5LIR7E%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T074145Z&X-Amz-Expires=974&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJHMEUCIQC8A6iLd6fdizoKiDmGTMJOtEK0j%2B9m1Hwg8kDIhR3i4wIgU1cbUALHKJVW4fP2UzLm%2Fzggy%2Br2f2qSsa5O9UhWw3gqsgUIIxADGgwwMTM2MTkyNzQ4NDkiDJxg6%2BdxWFHEdpNOiSqPBbOGoWCMpPDSC5i104drxenzKlJmKtfbaPYXcEUk5xzpfFz7qlzMHzxshj0ZGvQ9B6u%2FX6LPbR7Sl3mWyjkMgqtizxl77eMrAi1ar%2FJkwIbmf%2B0it8tRDIPTWPFce%2F%2FHd%2BmtmIG4RB%2BQvydMEyr5Q8nhoRP6O%2FjYWWnkb%2BRNcelyK2xmsSwGLQOdlU2enMwhOK3BPGXmuh1bofm3xd5cvTpV39JpV6%2FHz%2BXsNZvVfqbg%2BXuKaDVhROLMjPyKGTGTay0tNg%2BACp27ysa5IWV%2BI31t19hmXNWzs3ESd2B9nf6c8Joaw9cZ0BFv5SPhCjzrknQ3HXC67SgBpIKoEk6LXEaEw2NmKmI7XCGH3bhCHfpUPAj9Mi5Cb%2BK85SWDjSiu91Bd4pe4XmONhhEzu%2BHUsNC4KzHg%2FM4pD%2BGx8ddmYnr3tdArcXEpk67wbeRug1K27YWz%2FVO96fiXdkS9Xm5J9hNQAGlePyFuIN5mOMBg2d%2BcjkTZF8kSHHvqXSqPAQgX6ugFlVoubAsd7KnyrCvE4eFyHIZVo3oV5JU82FGBbUj3s5lUYQdYVFd3Ps16Rt1PGkRAUwR7cXlVvplJS0rb8610%2BG17raAQwJy8cRN7s3KyQNhdXXIQRdJRhKYg1JE%2FNIQcwkwywKN%2FsigvOXECelwnnne41q2BURRgR4GCNgRxam2jBgUkUJjQtQ%2FokWvEQYLIA4f9HX9kkcgw0kkfFu5UJq73bMC%2BU%2F3eZ7B4Zy9taEIGKwSg86qyFVg860n2oAiN%2FfpKAx8tRUW8DTjM2X54yGGHPadIq0Hu8cZCkJQ4Th5tIC7R%2BHPfSgSag0HBfAmzZ5118Q9ZwkkntRTVxAl1pkGthGbtGkww1jjKCJ0wwoe5qAY6sQHDRGqTlml9JOa7pcIPnENAbSjPA%2BNnrcJ1TNMO0BkSMWqUN9w1vudtRvjp773httgmTyAlYuxH7EmlIPFmJQ6Gu1DzzT7rLiEF2GE0t7B2q9gxwFisSqlUh5Y1Lwu%2BtN5x1TzSiMb5y26sSzmQ%2BShQL8fCGA23tpHtpIE9ans0LS34EwJCOxZwBH%2BHx9OzuRqjdgDlu23FbHdQ6SG6rIzVi21GM%2BTw0KAnkoR1gvqPjRk%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=587b48b89ec40135ff7184b9ce6e068e5ff12a4fb0d6a9d89f30f1e9bee94b41"
+        },
+        {
+          "id": 432133,
+          "filename": "111.png",
+          "type": "image/png",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/432/133/99dc5c80539d2c52899d0e4204f205af8f5f68c5/111.png?response-content-disposition=attachment%3B%20filename%3D%22111.png%22%3B%20filename%2A%3DUTF-8%27%27111.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ3R5LIR7E%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T074145Z&X-Amz-Expires=974&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJHMEUCIQC8A6iLd6fdizoKiDmGTMJOtEK0j%2B9m1Hwg8kDIhR3i4wIgU1cbUALHKJVW4fP2UzLm%2Fzggy%2Br2f2qSsa5O9UhWw3gqsgUIIxADGgwwMTM2MTkyNzQ4NDkiDJxg6%2BdxWFHEdpNOiSqPBbOGoWCMpPDSC5i104drxenzKlJmKtfbaPYXcEUk5xzpfFz7qlzMHzxshj0ZGvQ9B6u%2FX6LPbR7Sl3mWyjkMgqtizxl77eMrAi1ar%2FJkwIbmf%2B0it8tRDIPTWPFce%2F%2FHd%2BmtmIG4RB%2BQvydMEyr5Q8nhoRP6O%2FjYWWnkb%2BRNcelyK2xmsSwGLQOdlU2enMwhOK3BPGXmuh1bofm3xd5cvTpV39JpV6%2FHz%2BXsNZvVfqbg%2BXuKaDVhROLMjPyKGTGTay0tNg%2BACp27ysa5IWV%2BI31t19hmXNWzs3ESd2B9nf6c8Joaw9cZ0BFv5SPhCjzrknQ3HXC67SgBpIKoEk6LXEaEw2NmKmI7XCGH3bhCHfpUPAj9Mi5Cb%2BK85SWDjSiu91Bd4pe4XmONhhEzu%2BHUsNC4KzHg%2FM4pD%2BGx8ddmYnr3tdArcXEpk67wbeRug1K27YWz%2FVO96fiXdkS9Xm5J9hNQAGlePyFuIN5mOMBg2d%2BcjkTZF8kSHHvqXSqPAQgX6ugFlVoubAsd7KnyrCvE4eFyHIZVo3oV5JU82FGBbUj3s5lUYQdYVFd3Ps16Rt1PGkRAUwR7cXlVvplJS0rb8610%2BG17raAQwJy8cRN7s3KyQNhdXXIQRdJRhKYg1JE%2FNIQcwkwywKN%2FsigvOXECelwnnne41q2BURRgR4GCNgRxam2jBgUkUJjQtQ%2FokWvEQYLIA4f9HX9kkcgw0kkfFu5UJq73bMC%2BU%2F3eZ7B4Zy9taEIGKwSg86qyFVg860n2oAiN%2FfpKAx8tRUW8DTjM2X54yGGHPadIq0Hu8cZCkJQ4Th5tIC7R%2BHPfSgSag0HBfAmzZ5118Q9ZwkkntRTVxAl1pkGthGbtGkww1jjKCJ0wwoe5qAY6sQHDRGqTlml9JOa7pcIPnENAbSjPA%2BNnrcJ1TNMO0BkSMWqUN9w1vudtRvjp773httgmTyAlYuxH7EmlIPFmJQ6Gu1DzzT7rLiEF2GE0t7B2q9gxwFisSqlUh5Y1Lwu%2BtN5x1TzSiMb5y26sSzmQ%2BShQL8fCGA23tpHtpIE9ans0LS34EwJCOxZwBH%2BHx9OzuRqjdgDlu23FbHdQ6SG6rIzVi21GM%2BTw0KAnkoR1gvqPjRk%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=1647a52be91a6f74a0fca887cd0f916e5b7f300b888612f9e91eac230a4432c4"
+        }
+      ],
+      "genius_execution_id": null,
+      "team_handle": "vanilla"
+    },
+    {
+      "id": 4223810,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "I will check and get back to you.\nThank you alb3r7.",
+      "automated_response": false,
+      "created_at": "2019-02-27T13:03:59.083Z",
+      "updated_at": "2019-02-27T13:03:59.083Z",
+      "actor": {
+        "username": "dexterr",
+        "cleared": false,
+        "verified": false,
+        "url": "/dexterr",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/201/201/11a7da9d5256f50a86acdf6a8f3366252baee73e_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "vanilla"
+    },
+    {
+      "id": 4227945,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Here is more details, I hope that will be helpful.\n### Analysis of Local File Read\nIn `/application/dashboard/controllers/class.profilecontroller.php` Line 835\n```\n        if ($this->isUploadedAvatar($avatar)) {\n            // Get the image source so we can manipulate it in the crop module.\n            $upload = new Gdn_UploadImage();\n            $thumbnailSize = c('Garden.Thumbnail.Size');\n            $basename = changeBasename($avatar, \"p%s\");\n            $source = $upload->copyLocal($basename);\n```\nIt copies the Photo to local path. `copyLocal` is in `/library/core/class.upload.php` Line 100\n```\n    public function copyLocal($name) {\n        $parsed = self::parse($name);\n\n        $localPath = '';\n        $this->EventArguments['Parsed'] = $parsed;\n        $this->EventArguments['Path'] =& $localPath;\n\n        $this->fireAs('Gdn_Upload')->fireEvent('CopyLocal');\n        if (!$localPath) {\n            $localPath = PATH_UPLOADS.'/'.$parsed['Name'];\n        }\n        return $localPath;\n    }\n```\nFire the event `CopyLocal` to do the actual Copy.\nIn `/application/dashboard/settings/class.hooks.php` Line 876\n```\n    public function gdn_upload_copyLocal_handler($sender, $args) {\n        $parsed = $args['Parsed'];\n        if ($parsed['Type'] !== 'static' || $parsed['Domain'] !== 'v') {\n            return;\n        }\n\n        $remotePath = PATH_ROOT.'/'.$parsed['Name'];\n\n        // Since this is just a temp file we don't want to nest it in a bunch of subfolders.\n        $localPath = paths(PATH_UPLOADS, 'tmp-static', str_replace('/', '-', $parsed['Name']));\n\n        // Make sure the destination path exists\n        if (!file_exists(dirname($localPath))) {\n            mkdir(dirname($localPath), 0777, true);\n        }\n\n        // Copy\n        copy($remotePath, $localPath);\n\n        $args['Path'] = $localPath;\n    }\n```\nCopy `$remotePath` to `$localPath`, but it doesn't check the real path of `$remotePath`. So by Manipulating the value of User Photo, we can manipulate the `$remotePath`. It causes the Local File Read.\n***Check the `$remotePath` may solve this issue***\n\n### Another way to manipulate the value of User Photo \nWhen we edit profile, we can update the `Photo`. It checks the value of Photo, but it doesn't work well. In `/applications/dashboard/controllers/class.profilecontroller.php` Line 485\n```\n            // Don't allow non-mods to set an explicit photo.\n            if ($photo = $this->Form->getFormValue('Photo')) {\n                if (!Gdn_Upload::isUploadUri($photo)) {\n                    if (!checkPermission('Garden.Users.Edit')) {\n                        $this->Form->removeFormValue('Photo');\n                    } elseif (!filter_var($photo, FILTER_VALIDATE_URL)) {\n                        $this->Form->addError('Invalid photo URL.');\n                    }\n                }\n            }\n```\n`static://v/lugins\\..\\..\\..\\..\\..\\..\\..\\..\\etc\\passwd` can bypass these checks.\nStep to reproduce this:\n1. Edit your own profile, don't need to change anything, just click save\n2. Enter Your Password, and intercept the request,\n3. Add `,\"Photo\":\"static://v/lugins\\\\..\\\\..\\\\..\\\\..\\\\..\\\\..\\\\..\\\\..\\\\etc\\\\passwd\"` into OriginalSubmission\n4. Forward the request\n\nWhen the server finish this request, the value of Photo will be changed",
+      "automated_response": false,
+      "created_at": "2019-02-28T02:56:16.523Z",
+      "updated_at": "2019-02-28T02:56:16.523Z",
+      "actor": {
+        "username": "alb3r7",
+        "cleared": false,
+        "verified": false,
+        "url": "/alb3r7",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/076/180/ce539542de07b2104fe48c7eca2af3cb3d583dca_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "vanilla"
+    },
+    {
+      "id": 4255283,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugReopened",
+      "message": "I rechecked this report and it's valid.\n",
+      "automated_response": false,
+      "created_at": "2019-03-04T19:33:17.492Z",
+      "updated_at": "2019-03-04T19:33:17.492Z",
+      "actor": {
+        "username": "dexterr",
+        "cleared": false,
+        "verified": false,
+        "url": "/dexterr",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/201/201/11a7da9d5256f50a86acdf6a8f3366252baee73e_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "vanilla"
+    },
+    {
+      "id": 4255298,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugTriaged",
+      "message": "Thank you for reporting it. It's now triaged.",
+      "automated_response": false,
+      "created_at": "2019-03-04T19:34:34.854Z",
+      "updated_at": "2019-03-04T19:34:34.854Z",
+      "actor": {
+        "username": "dexterr",
+        "cleared": false,
+        "verified": false,
+        "url": "/dexterr",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/201/201/11a7da9d5256f50a86acdf6a8f3366252baee73e_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "vanilla"
+    },
+    {
+      "id": 4291694,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportSeverityUpdated",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2019-03-09T15:08:49.142Z",
+      "updated_at": "2019-03-09T15:08:49.142Z",
+      "additional_data": {
+        "old_severity": "Low",
+        "new_severity": "Medium (4.3)",
+        "old_severity_id": 284909,
+        "new_severity_id": 313344
+      },
+      "actor": {
+        "username": "linc",
+        "cleared": false,
+        "verified": false,
+        "url": "/linc",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/136/045/6328894ce30b4f6b0e176d2a721ce5ea9849d135_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "vanilla"
+    },
+    {
+      "id": 4291695,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BountyAwarded",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2019-03-09T15:08:57.800Z",
+      "updated_at": "2019-03-09T15:08:57.800Z",
+      "actor": {
+        "url": "/vanilla",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/017/443/2720e6aeb834de4fd40765a5cae34abb78eb66cd_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "Vanilla"
+        }
+      },
+      "bounty_amount": "150.0",
+      "bonus_amount": "0.0",
+      "bounty_currency": "usd",
+      "genius_execution_id": null,
+      "team_handle": "vanilla",
+      "collaborator": {
+        "username": "alb3r7",
+        "url": "/alb3r7"
+      }
+    },
+    {
+      "id": 4293071,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi guys, I wonder know why the Severity is Medium. Attacker can access the sensitive file on server with http user privilege(maybe www-data)",
+      "automated_response": false,
+      "created_at": "2019-03-10T04:10:01.993Z",
+      "updated_at": "2019-03-10T04:10:01.993Z",
+      "actor": {
+        "username": "alb3r7",
+        "cleared": false,
+        "verified": false,
+        "url": "/alb3r7",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/076/180/ce539542de07b2104fe48c7eca2af3cb3d583dca_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "vanilla"
+    },
+    {
+      "id": 4294975,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Using the CVSS 2.0 calculator, we determined that this vulnerability had an Integrity score of Low due to the very restricted ability to work within the parameters you described in this ticket. The Confidentiality score is None (uploads folder is public) and the Availability score is None (does not affect uptime or system availability). If you have further questions about using the CVSS 2.0 calculator, let us know.",
+      "automated_response": false,
+      "created_at": "2019-03-10T16:36:29.004Z",
+      "updated_at": "2019-03-10T16:36:29.004Z",
+      "actor": {
+        "username": "linc",
+        "cleared": false,
+        "verified": false,
+        "url": "/linc",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/136/045/6328894ce30b4f6b0e176d2a721ce5ea9849d135_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "vanilla"
+    },
+    {
+      "id": 4296385,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@linc \nHi, thanks for your answer. But I don't think You have understood this problem.\nThe whole impact is that:\nAttacker can copy any private file in the Server to the uploads folder, and then he can access the content of this private file. Because HTTP daemon user is www-data(low privilege) usually, Attacker can read partial files.\n\nThe Integrity score is Partial.\nThe Confidentiality score is Partial.\nThe Availability score is Partial.\nAnd If you use the CVSS 3.0 calculator, this 3 parameters should be set as Low",
+      "automated_response": false,
+      "created_at": "2019-03-11T03:50:08.529Z",
+      "updated_at": "2019-03-11T03:50:08.529Z",
+      "actor": {
+        "username": "alb3r7",
+        "cleared": false,
+        "verified": false,
+        "url": "/alb3r7",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/076/180/ce539542de07b2104fe48c7eca2af3cb3d583dca_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "vanilla"
+    },
+    {
+      "id": 4307223,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportSeverityUpdated",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2019-03-12T12:36:32.226Z",
+      "updated_at": "2019-03-12T12:36:32.226Z",
+      "additional_data": {
+        "old_severity": "Medium (4.3)",
+        "new_severity": "High (7.6)",
+        "old_severity_id": 313344,
+        "new_severity_id": 314740
+      },
+      "actor": {
+        "username": "linc",
+        "cleared": false,
+        "verified": false,
+        "url": "/linc",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/136/045/6328894ce30b4f6b0e176d2a721ce5ea9849d135_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "vanilla"
+    },
+    {
+      "id": 4307239,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "You're correct, I was only evaluating your initial report, not the followups that expanded the scope.\n\nTo clarify, I meant to say CVSS 3.0, not 2.0.\n\nFYI, changing all 3 (Integrity, Confidentiality, Availability) to Low still only resulted in a Medium. I moved Confidentiality to High, which moved the overall severity up.",
+      "automated_response": false,
+      "created_at": "2019-03-12T12:38:58.732Z",
+      "updated_at": "2019-03-12T12:38:58.732Z",
+      "actor": {
+        "username": "linc",
+        "cleared": false,
+        "verified": false,
+        "url": "/linc",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/136/045/6328894ce30b4f6b0e176d2a721ce5ea9849d135_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "vanilla"
+    },
+    {
+      "id": 4307250,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BountyAwarded",
+      "message": "Doubling bounty to reach 'High' severity.",
+      "automated_response": false,
+      "created_at": "2019-03-12T12:40:30.529Z",
+      "updated_at": "2019-03-12T12:40:30.529Z",
+      "actor": {
+        "url": "/vanilla",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/017/443/2720e6aeb834de4fd40765a5cae34abb78eb66cd_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "Vanilla"
+        }
+      },
+      "bounty_amount": "150.0",
+      "bonus_amount": "0.0",
+      "bounty_currency": "usd",
+      "genius_execution_id": null,
+      "team_handle": "vanilla",
+      "collaborator": {
+        "username": "alb3r7",
+        "url": "/alb3r7"
+      }
+    },
+    {
+      "id": 4312887,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "thx.\nMaybe you can update the title to `Unsanitized User Photo URL Lead to Local File Read` or other better titles",
+      "automated_response": false,
+      "created_at": "2019-03-13T01:40:53.345Z",
+      "updated_at": "2019-03-13T01:40:53.345Z",
+      "actor": {
+        "username": "alb3r7",
+        "cleared": false,
+        "verified": false,
+        "url": "/alb3r7",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/076/180/ce539542de07b2104fe48c7eca2af3cb3d583dca_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "vanilla"
+    },
+    {
+      "id": 4317091,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportTitleUpdated",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2019-03-13T15:29:25.500Z",
+      "updated_at": "2019-03-13T15:29:25.500Z",
+      "additional_data": {
+        "old_title": "Be able to delete the profile photo of others",
+        "new_title": "Unsanitized user photo paths allow local file read"
+      },
+      "actor": {
+        "username": "linc",
+        "cleared": false,
+        "verified": false,
+        "url": "/linc",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/136/045/6328894ce30b4f6b0e176d2a721ce5ea9849d135_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "vanilla"
+    },
+    {
+      "id": 5074027,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "Released with (or before): https://success.vanillaforums.com/kb/articles/85-2019-007",
+      "automated_response": false,
+      "created_at": "2019-06-12T20:06:06.979Z",
+      "updated_at": "2019-06-12T20:06:06.979Z",
+      "actor": {
+        "username": "alex-vf",
+        "cleared": false,
+        "verified": false,
+        "url": "/alex-vf",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "reporter": {
+        "username": "alb3r7",
+        "url": "/alb3r7"
+      },
+      "genius_execution_id": null,
+      "team_handle": "vanilla"
+    },
+    {
+      "id": 5076327,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2019-06-13T04:27:26.285Z",
+      "updated_at": "2019-06-13T04:27:26.285Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "alb3r7",
+        "cleared": false,
+        "verified": false,
+        "url": "/alb3r7",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/076/180/ce539542de07b2104fe48c7eca2af3cb3d583dca_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "vanilla"
+    },
+    {
+      "id": 5313309,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportBecamePublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2019-07-13T04:27:29.353Z",
+      "updated_at": "2019-07-13T04:27:29.353Z",
+      "actor": {
+        "url": "/vanilla",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/017/443/2720e6aeb834de4fd40765a5cae34abb78eb66cd_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "Vanilla"
+        }
+      },
+      "genius_execution_id": null,
+      "team_handle": "vanilla"
+    }
+  ],
+  "activity_page_count": 1,
+  "activity_page_number": 1,
+  "summaries": [
+    {
+      "category": "team",
+      "can_view?": true,
+      "can_create?": false
+    },
+    {
+      "category": "researcher",
+      "can_view?": true,
+      "can_create?": false
+    }
+  ]
+}

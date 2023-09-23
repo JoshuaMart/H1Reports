@@ -1,0 +1,258 @@
+{
+  "id": 74595,
+  "global_id": "Z2lkOi8vaGFja2Vyb25lL1JlcG9ydC83NDU5NQ==",
+  "url": "https://hackerone.com/reports/74595",
+  "title": "The product/status method CSRF",
+  "state": "Closed",
+  "substate": "resolved",
+  "readable_substate": "Resolved",
+  "created_at": "2015-07-09T10:59:26.018Z",
+  "submitted_at": "2015-07-09T10:59:26.018Z",
+  "is_member_of_team?": false,
+  "is_organization_group_member?": false,
+  "reporter": {
+    "disabled": false,
+    "username": "s_p_q_r",
+    "url": "/s_p_q_r",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/032/547/1d8b3feccf1a8281a2285cdbfc482aaf3b046b22_original.jpg/3c7b305354c9073c106ae3d1701798defaaf5be844fb8fdfa49ca62f991a2c2c"
+    },
+    "is_me?": false,
+    "cleared": false,
+    "verified": false,
+    "hackerone_triager": false,
+    "hacker_mediation": false
+  },
+  "team": {
+    "id": 293,
+    "url": "https://hackerone.com/digitalsellz",
+    "handle": "digitalsellz",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/000/293/1bb2ed357dd1bcaa52d338cb5dd93d1e1adf1b4d_original.png/d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98",
+      "medium": "https://profile-photos.hackerone-user-content.com/variants/000/000/293/1bb2ed357dd1bcaa52d338cb5dd93d1e1adf1b4d_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+    },
+    "permissions": [
+
+    ],
+    "submission_state": "paused",
+    "default_currency": "usd",
+    "awards_miles": false,
+    "offers_bounties": false,
+    "state": "public_mode",
+    "only_cleared_hackers": false,
+    "pentest_feature_enabled?": false,
+    "profile": {
+      "name": "DigitalSellz",
+      "twitter_handle": null,
+      "website": "https://www.digitalsellz.com/",
+      "about": "Planning to sell your files? Need a platform to sell your new e-book? May be just music, photos, articles, digital art or movies? Try DigitalSellz.com"
+    }
+  },
+  "has_bounty?": false,
+  "in_validation?": false,
+  "can_view_team": true,
+  "can_view_report": true,
+  "is_external_bug": false,
+  "is_published": false,
+  "is_participant": false,
+  "has_collaborators": false,
+  "submitted_by_team_member": false,
+  "stage": 4,
+  "public": true,
+  "visibility": "full",
+  "cve_ids": [
+
+  ],
+  "singular_disclosure_disabled": false,
+  "disclosed_at": "2015-08-25T21:31:01.906Z",
+  "bug_reporter_agreed_on_going_public_at": "2015-07-26T21:30:46.353Z",
+  "team_member_agreed_on_going_public_at": null,
+  "comments_closed?": false,
+  "facebook_team?": false,
+  "team_private?": false,
+  "vulnerability_information": "When we use the \"on/off\" buttons to set the products to be shown on the [products page](https://www.digitalsellz.com/user/#/products), a POST-request to https://www.digitalsellz.com/product/status is sent with only the product id as a parameter (no other security tokens).\r\n\r\nSo the idea is to make my rival visit a web page with a code like this:\r\n\r\n> <form action=\"https://www.digitalsellz.com/product/status\" method=\"POST\" onload=\"this.submit ()\">\r\n  <input type=\"hidden\" name=\"id\" value=\"%PRODUCT_ID%\" />\r\n</form>\r\n\r\nwhere %PRODUCT_ID% is an ID of one of the products shown on his DigitalSellz page. This way me make him hide his product, so the customers will more likely buy mine.\r\n\r\nSo the purpose is to get a proper product id. Let's find out how it's formed. To do this let's upload a few projects at our page. After this when we check the https://www.digitalsellz.com/product/alllist/1 page we see that every product has both a key and an id, for example:\r\n\r\n> {\"Id\":\"__WlojNDgxNSNZVg__\",\"name\":\"test\",\"currency\":\"USD\",\"price\":\"0.90\",\"prwlink\":null,\"prwtype\":\"No\",\"createddate\":\"2015-07-08 12:58:08\",\"key\":\"__NDgxNQ__\",\"onprofile\":\"Enable\"}\r\n\r\nThe key is a public identificator: it's contained in the product URL: https://www.digitalsellz.com/p/NDgxNQ, and the id is a private one: it's not shown there. So we need to figure out the connection between the key and the id.\r\n\r\nIf we take a look at them, we can notice they both look like Base64-encoded. Indeed, if we add \"==\" at the end and then do the Base64 decoding, __NDgxNQ__ and __WlojNDgxNSNZVg__ will turn into __4815__ and __ZZ#4815#YV__ correspondingly. Thus we see the product key is just its integer number and the id is the same number, just with some random symbols added!\r\n\r\nAnd what if we try to add some other symbols, for example AA, instead? Let's check it: __ZZ#4815#YV__ → __AA#4815#AA__ → __QUEjNDgxNSNBQQ__, and then we send a POST-request to https://www.digitalsellz.com/product/status with \"id=QUEjNDgxNSNBQQ\" parameters. In response we get {code:1}. Now if we open the [products page](https://www.digitalsellz.com/user/#/products) we can see the product status changed. So it works!\r\n\r\n__This way the scenario for the attacker can be as follows:__\r\n\r\n1. He goes to his rival's page\r\n2. He opens the product he's interested in and gets its key from the URL\r\n3. He decodes it, adds \"AA#\" and \"#AA\" at both sides and then encodes it back and thus gets the product id\r\n4. He creates a web page with such content:\r\n\r\n> > <form action=\"https://www.digitalsellz.com/product/status\" method=\"POST\" onload=\"this.submit ()\">\r\n  <input type=\"hidden\" name=\"id\" value=\"%PRODUCT_ID%\" />\r\n</form>\r\n\r\nwhere %PRODUCT_ID% is the product id he got, and sends a link to this page to the victim\r\n\r\nWhen the victim visits it, his product gets hidden from his page.\r\n\r\n__Proof of concept:__\r\n\r\n1. Go to your account and upload a product\r\n2. Go to your [products page](https://www.digitalsellz.com/user/#/products) and get its key from the url in the \"Buy now link\" cell. For example, __NDgxNQ__\r\n3. Add \"==\" at the end and Base64-decode it: __4815__\r\n4. Surround it by \"AA\" symbols: __AA#4815#AA__\r\n5. Encode it into Base64 and remove the \"==\" symbols from the end: __QUEjNDgxNSNBQQ__\r\n6. Send a POST-request to https://www.digitalsellz.com/product/status with the \"id=QUEjNDgxNSNBQQ\" body\r\n7. Update your [products page](https://www.digitalsellz.com/user/#/products) — you will see the product status has been successfully changed\r\n\r\n__Ways to fix:__\r\n\r\n1. Check the id entirely, not only the number\r\n2. Add another anti-CSRF token",
+  "weakness": {
+    "id": 45,
+    "name": "Cross-Site Request Forgery (CSRF)"
+  },
+  "original_report_id": null,
+  "original_report_url": null,
+  "attachments": [
+
+  ],
+  "allow_singular_disclosure_at": "2015-08-25T21:30:47.067Z",
+  "allow_singular_disclosure_after": -254919231.16872078,
+  "singular_disclosure_allowed": true,
+  "vote_count": 2,
+  "voters": [
+    "sw33tlie",
+    "spetr0x"
+  ],
+  "structured_scope": null,
+  "abilities": {
+    "assignable_team_members": [
+
+    ],
+    "assignable_team_member_groups": [
+
+    ]
+  },
+  "activities": [
+    {
+      "id": 504372,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugTriaged",
+      "message": "Nice Find! I will share this report with our team. Talk soon.",
+      "automated_response": false,
+      "created_at": "2015-07-09T22:37:21.529Z",
+      "updated_at": "2015-07-09T22:37:21.529Z",
+      "actor": {
+        "username": "panchocosil",
+        "cleared": true,
+        "verified": true,
+        "url": "/panchocosil",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/002/460/fcd3435c16cd3ee97e1862bdaf92c7409c7e4267_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "digitalsellz"
+    },
+    {
+      "id": 510856,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Can you please confirm this bug it has been fixed?",
+      "automated_response": false,
+      "created_at": "2015-07-15T22:29:23.352Z",
+      "updated_at": "2015-07-15T22:29:23.352Z",
+      "actor": {
+        "username": "panchocosil",
+        "cleared": true,
+        "verified": true,
+        "url": "/panchocosil",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/002/460/fcd3435c16cd3ee97e1862bdaf92c7409c7e4267_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "digitalsellz"
+    },
+    {
+      "id": 511824,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Yep, the CSRF-token has been added. The id is properly checked now as well.",
+      "automated_response": false,
+      "created_at": "2015-07-16T11:12:59.327Z",
+      "updated_at": "2015-07-16T11:12:59.327Z",
+      "actor": {
+        "username": "s_p_q_r",
+        "cleared": false,
+        "verified": false,
+        "url": "/s_p_q_r",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/032/547/1d8b3feccf1a8281a2285cdbfc482aaf3b046b22_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "digitalsellz"
+    },
+    {
+      "id": 516781,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "Thanks for your help! and Welcome to our Wall of fame",
+      "automated_response": false,
+      "created_at": "2015-07-20T06:14:42.367Z",
+      "updated_at": "2015-07-20T06:14:42.367Z",
+      "actor": {
+        "username": "panchocosil",
+        "cleared": true,
+        "verified": true,
+        "url": "/panchocosil",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/002/460/fcd3435c16cd3ee97e1862bdaf92c7409c7e4267_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "reporter": {
+        "username": "s_p_q_r",
+        "url": "/s_p_q_r"
+      },
+      "genius_execution_id": null,
+      "team_handle": "digitalsellz"
+    },
+    {
+      "id": 526319,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2015-07-26T21:30:46.807Z",
+      "updated_at": "2015-07-26T21:30:46.807Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "s_p_q_r",
+        "cleared": false,
+        "verified": false,
+        "url": "/s_p_q_r",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/032/547/1d8b3feccf1a8281a2285cdbfc482aaf3b046b22_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "digitalsellz"
+    },
+    {
+      "id": 563070,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportBecamePublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2015-08-25T21:31:02.049Z",
+      "updated_at": "2015-08-25T21:31:02.049Z",
+      "actor": {
+        "url": "/digitalsellz",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/000/293/1bb2ed357dd1bcaa52d338cb5dd93d1e1adf1b4d_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "DigitalSellz"
+        }
+      },
+      "genius_execution_id": null,
+      "team_handle": "digitalsellz"
+    }
+  ],
+  "activity_page_count": 1,
+  "activity_page_number": 1,
+  "summaries": [
+    {
+      "category": "team",
+      "can_view?": true,
+      "can_create?": false
+    },
+    {
+      "category": "researcher",
+      "can_view?": true,
+      "can_create?": false
+    }
+  ]
+}

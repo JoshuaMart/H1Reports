@@ -1,0 +1,475 @@
+{
+  "id": 822262,
+  "global_id": "Z2lkOi8vaGFja2Vyb25lL1JlcG9ydC84MjIyNjI=",
+  "url": "https://hackerone.com/reports/822262",
+  "title": "Path traversal in Nuget Package Registry",
+  "state": "Closed",
+  "substate": "resolved",
+  "severity_rating": "high",
+  "readable_substate": "Resolved",
+  "created_at": "2020-03-17T15:51:58.636Z",
+  "submitted_at": "2020-03-17T15:51:58.636Z",
+  "is_member_of_team?": false,
+  "is_organization_group_member?": false,
+  "reporter": {
+    "disabled": false,
+    "username": "saltyyolk",
+    "url": "/saltyyolk",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/252/596/b03010470e2928f744f71fb5c1685806f1878341_original.jpeg/ede8cd84a64d5392a2bb88ecb598721116469c27c015c2caa77148f11e211d58"
+    },
+    "is_me?": false,
+    "cleared": false,
+    "verified": false,
+    "hackerone_triager": false,
+    "hacker_mediation": false
+  },
+  "team": {
+    "id": 264,
+    "url": "https://hackerone.com/gitlab",
+    "handle": "gitlab",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/f0hovtq73f9ap815a0r1w42bocp4/d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98",
+      "medium": "https://profile-photos.hackerone-user-content.com/variants/f0hovtq73f9ap815a0r1w42bocp4/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+    },
+    "permissions": [
+
+    ],
+    "submission_state": "open",
+    "default_currency": "usd",
+    "awards_miles": false,
+    "offers_bounties": true,
+    "state": "public_mode",
+    "only_cleared_hackers": false,
+    "pentest_feature_enabled?": false,
+    "profile": {
+      "name": "GitLab",
+      "twitter_handle": "gitlab",
+      "website": "https://about.gitlab.com",
+      "about": "A single application for the entire software development lifecycle."
+    }
+  },
+  "has_bounty?": true,
+  "in_validation?": false,
+  "can_view_team": true,
+  "can_view_report": true,
+  "is_external_bug": false,
+  "is_published": false,
+  "is_participant": false,
+  "has_collaborators": false,
+  "submitted_by_team_member": false,
+  "stage": 4,
+  "public": true,
+  "visibility": "full",
+  "cve_ids": [
+    "CVE-2020-12448"
+  ],
+  "singular_disclosure_disabled": true,
+  "disclosed_at": "2022-06-07T14:16:20.534Z",
+  "bug_reporter_agreed_on_going_public_at": "2022-06-07T14:16:20.343Z",
+  "team_member_agreed_on_going_public_at": "2020-11-20T20:55:13.986Z",
+  "comments_closed?": false,
+  "facebook_team?": false,
+  "team_private?": false,
+  "vulnerability_information": "### Summary\nThere's a path traversal issue in Nuget package registry which was released to GitLab-EE recently. The issue allows an attacker to create any file with an extension “.nupkg” in the filesystem. By combining the bug with a race condition in Gitaly which I used several times before (#762421, #732330). It could finally be used to read sensitive files in a GitLab instance.\n\nFor some context, a large part of the exploit were explained in #762421, the npm registry issue. Here I will focus on the simple path traversal part which makes a little bit difference.\n\nThe root cause of the path traversal lies at `ee/app/services/packages/nuget/metadata_extraction_service.rb`\n```\n      XPATHS = {                                                               \n        package_name: '//xmlns:package/xmlns:metadata/xmlns:id',               \n        package_version: '//xmlns:package/xmlns:metadata/xmlns:version'        \n      }.freeze \n...\n      def extract_metadata(file)                                               \n        doc = Nokogiri::XML(file)                                              \n                                                                               \n        XPATHS.map do |key, query|                                             \n          [key, doc.xpath(query).text]                                         \n        end.to_h \n```\nIt extracts the uploaded nupkg (which is in zip format) for the contained nuspec file (which is an XML). And then looks for attribute `id` and `version`. Then the extracted package_name(id), and package_version(version) will be concatenated into a new filename in `ee/app/services/packages/nuget/update_package_from_metadata_service.rb`\n```                                                                      \n        @package_file.transaction do                                           \n          @package_file.update!(                                               \n            file_name: package_filename,                                       \n            file: @package_file.file                                           \n          )      \n...\n      def package_filename                                                     \n        \"#{package_name.downcase}.#{package_version.downcase}.nupkg\"           \n      end    \n```\nSo my payload is:\n```                                                                  \n  <?xml version=\"1.0\" encoding=\"utf-8\"?>                                       \n  <package xmlns=\"http://schemas.microsoft.com/packaging/2013/05/nuspec.xsd\">  \n    <metadata>                                                                 \n      <id>DummyProject.DummyPackage</id>                                       \n      <version>../../../../../nyangawa</version>                                            \n    </metadata>                                                                \n  </package>                                                                   \n```\nname the file above as `dummy.nuspec` and zip it into `dummy.nupkg` and upload it through `PUT /api/v4/projects/#{id}/packages/nuget/` endpoint  will make GitLab to create a `nyangawa.nupkg` somewhere in the filesystem.\n\nThen I wrote a script (I used in #762421) to combine this issue and the race in Gitaly. I could finally read any file I want in my GitLab instance.\n\n### Steps to reproduce\n\n1. Download the attached exploit.tar.gz and extract it.\n2. Install some requirements by gem install faraday and gem install rubyzip\n3. Edit exp.rb to update some url and credentials\n4. Execute the exp.rb to watch the result of .gitlab_shell_secret of target GitLab instance.\n\n### Examples\n{F750878}\n\n#### Results of GitLab environment info\n```\nroot@localhost:/# gitlab-rake gitlab:env:info\n\nSystem information\nSystem:\t\t\nProxy:\t\tno\nCurrent User:\tgit\nUsing RVM:\tno\nRuby Version:\t2.6.5p114\nGem Version:\t2.7.10\nBundler Version:1.17.3\nRake Version:\t12.3.3\nRedis Version:\t5.0.7\nGit Version:\t2.24.1\nSidekiq Version:5.2.7\nGo Version:\tunknown\n\nGitLab information\nVersion:\t12.8.7-ee\nRevision:\t2643fd87200\nDirectory:\t/opt/gitlab/embedded/service/gitlab-rails\nDB Adapter:\tPostgreSQL\nDB Version:\t10.12\nURL:\t\thttp://10.26.0.5\nHTTP Clone URL:\thttp://10.26.0.5/some-group/some-project.git\nSSH Clone URL:\tgit@10.26.0.5:some-group/some-project.git\nElasticsearch:\tno\nGeo:\t\tno\nUsing LDAP:\tno\nUsing Omniauth:\tyes\nOmniauth Providers: \n\nGitLab Shell\nVersion:\t11.0.0\nRepository storage paths:\n- default: \t/var/opt/gitlab/git-data/repositories\nGitLab Shell path:\t\t/opt/gitlab/embedded/service/gitlab-shell\nGit:\t\t/opt/gitlab/embedded/bin/git\n```\n\nps. I changed my username because of a lost bet, don't be strange :p\n\nBest regards,\nSaltyYolk\n\n## Impact\n\nCommon arbitrary file read issue caused by path traversal similar to my previous reports.",
+  "bounty_amount": "12000.0",
+  "formatted_bounty": "$12,000",
+  "weakness": {
+    "id": 19,
+    "name": "Path Traversal"
+  },
+  "original_report_id": null,
+  "original_report_url": null,
+  "attachments": [
+    {
+      "id": 750878,
+      "file_name": "2020-03-17-234802_649x700_scrot.png",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/E9Ap6Era4ypQ4R3XqBVvjKMh?response-content-disposition=attachment%3B%20filename%3D%222020-03-17-234802_649x700_scrot.png%22%3B%20filename%2A%3DUTF-8%27%272020-03-17-234802_649x700_scrot.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQWPXH7W2A%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070235Z&X-Amz-Expires=2373&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJGMEQCIHPD5gEySofUz1xOLbF9RxzsoYi23gDFF6VpbtbxOEbOAiB0gZ0PrWMj9ApM1upCkFsCGj2wZDr0sHM%2FdCN3TWiFlSqwBQgjEAMaDDAxMzYxOTI3NDg0OSIMFefSibaONAmXZdeqKo0FrStIIybrOK6bEwZr5pyK3JxTPHUorBb2V3hjVumlSUzrcUlJuskVWrmNd4RZL3xYp2NFjX6sZJlmfTosswJ6ixEgQRESjrdVab2HF45mm1trgD3HzrFdEa05QJxHMZHXuB0vxaGaUOTokNTEwFLItAjHN8%2FHLB9ycpatLFRq4uVN52spSmTZuDQndEo8CrKUsfA6BtwhxzLkkyZXne1e7M4CpAzxKNKcPiko1jpES02h%2Fmpk5SDR%2BRZgUwj065jAzDlJI%2FvKBvp8t7GbOQq5n5ZWH%2Bz25xRNvUE4i5RKXJizerdDmxAuRROSFAzpdj497%2Fu1CSvhiDHUA%2FVbn8aRwo5DUTNtQtdEeOAEEwiUDCqAgMd5lKuIYIFEIDBuOZNAgvte6VgIXN37ZrqXGK1lsZDS2Hv2bBBHglR9kA4uWBUlZddQ0fUlTAThnBO%2FkixEijGrsWLkkqt8dXMp%2FKYzi2wtDguJlqkw8pnHiViufOnyhy3mr5aLppahgdAOgCchFtV7W9lAV4PB4O0o4p2B9tFko0Jtrln3CsOFrrIzCFf%2BqS2LdxwMZ1jZR3buat3bHV7T5DKtUBs4MGMx6kIi%2FI8gpiY69A3lVRFCjHfWE12sqHEdq9rnG07syd1vglEXDaqqJe%2BYfYR5Ee8nKmckWCkLt0pEGiIA%2FRI%2Bs0ch6NccoW1IiW1uRJG2o64XI%2Bhv3%2Ff2Jg1XfOr%2FKnljk3KQypfib6Zo3eySEuL4cPDCbFIQ%2B4fpUtNBwB%2B6TbMKThow0d%2B9zURqcAZ6QSoDbaT9p04JVxFeOyWzLmH5zvIIt52C%2FVUHGoRrO3ELP6qYs0snGQH6%2FmKbyjnqEMAatXzXI2U9K25Q6ELBK1NGPV0wwYC5qAY6sgHvPFSU40Te8U3TvG0%2FxnZKpqRY7RwHe0EqI8E%2Ffn%2FbAzZtS1msTHhvGiqBntJ%2BccpQwaI%2F7uuwU5ZbJ0JKOVnnBIFFbA%2F2LUwsTSOccxF6VQyLkJQfo0TACBsb8BuejEQN1JySWmkU0BakfQo05LRh87A3TuiIhaxJJzE6m%2B%2BClcIezMNMH9ULosA4UY1PvvIIQAIFyFjboubORtGvP383QMi6o8GCABrtvUKoxEMaCYgZ&X-Amz-SignedHeaders=host&X-Amz-Signature=817aabf9d358c3cf63999412db9f835e4fc6c3abafb6330fe0cc7a077c9cea6b",
+      "file_size": 135484,
+      "type": "image/png",
+      "moderated": null
+    }
+  ],
+  "allow_singular_disclosure_at": null,
+  "vote_count": 83,
+  "voters": [
+    "jumpydata",
+    "ghaem51",
+    "joaxcar",
+    "n1m0",
+    "mrmax4o4",
+    "tolga",
+    "yxw21",
+    "awararesearcher",
+    "zy9ard3",
+    "yassinek3ch",
+    "and 73 more..."
+  ],
+  "severity": {
+    "rating": "high",
+    "author_type": "Team"
+  },
+  "structured_scope": {
+    "databaseId": 39022,
+    "asset_type": "OTHER",
+    "asset_identifier": "Your Own GitLab Instance",
+    "max_severity": "critical"
+  },
+  "abilities": {
+    "assignable_team_members": [
+
+    ],
+    "assignable_team_member_groups": [
+
+    ]
+  },
+  "activities": [
+    {
+      "id": 7345155,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @saltyyolk,\n\nThank you for submitting this report. We will investigate the issue as soon as possible.\nDue to our current workload, we will get back within 7 business days with an update.\n\nPlease refrain from submitting your report or inquiring about its status through\nadditional channels, as this unnecessarily binds resources in the security team.\n\nBest regards,\nGitLab Security Team\n",
+      "automated_response": true,
+      "created_at": "2020-03-17T16:05:58.907Z",
+      "updated_at": "2020-03-17T16:05:58.907Z",
+      "actor": {
+        "username": "gitlab-securitybot",
+        "cleared": false,
+        "verified": false,
+        "url": "/gitlab-securitybot",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 7346123,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportSeverityUpdated",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2020-03-17T17:23:09.092Z",
+      "updated_at": "2020-03-17T17:23:09.092Z",
+      "additional_data": {
+        "old_severity": null,
+        "new_severity": "High",
+        "old_severity_id": null,
+        "new_severity_id": 662632
+      },
+      "actor": {
+        "username": "jmatos_bgtvf",
+        "cleared": false,
+        "verified": false,
+        "url": "/jmatos_bgtvf",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 7351246,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugNeedsMoreInfo",
+      "message": "Hello @saltyyolk,\n\nThank you for this other amazing report.\nI have reproduced the path traversal and can store `whatever.nupkg` anywhere in the file system as the git user.\n\nCould you please share the corresponding `exp.rb` file exploiting the race condition ?\nIt is not straightforward to adapt from https://hackerone.com/reports/732330.\n\nBest regards,\nGitLab Security Team",
+      "automated_response": false,
+      "created_at": "2020-03-18T07:54:01.821Z",
+      "updated_at": "2020-03-18T07:54:01.821Z",
+      "actor": {
+        "username": "jmatos_bgtvf",
+        "cleared": false,
+        "verified": false,
+        "url": "/jmatos_bgtvf",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 7351283,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugNew",
+      "message": "oops, sorry I forgot to upload the mentioned exploit.tar.gz ",
+      "automated_response": false,
+      "created_at": "2020-03-18T08:00:16.646Z",
+      "updated_at": "2020-03-18T08:00:16.646Z",
+      "actor": {
+        "username": "saltyyolk",
+        "cleared": false,
+        "verified": false,
+        "url": "/saltyyolk",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/252/596/b03010470e2928f744f71fb5c1685806f1878341_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "attachments": [
+        {
+          "id": 751670,
+          "filename": "exploit.tar.gz",
+          "type": "application/gzip",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/VPDEWnKfDrv5ukQiotbWuoKH?response-content-disposition=attachment%3B%20filename%3D%22exploit.tar.gz%22%3B%20filename%2A%3DUTF-8%27%27exploit.tar.gz&response-content-type=application%2Fgzip&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQWPXH7W2A%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070235Z&X-Amz-Expires=2373&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJGMEQCIHPD5gEySofUz1xOLbF9RxzsoYi23gDFF6VpbtbxOEbOAiB0gZ0PrWMj9ApM1upCkFsCGj2wZDr0sHM%2FdCN3TWiFlSqwBQgjEAMaDDAxMzYxOTI3NDg0OSIMFefSibaONAmXZdeqKo0FrStIIybrOK6bEwZr5pyK3JxTPHUorBb2V3hjVumlSUzrcUlJuskVWrmNd4RZL3xYp2NFjX6sZJlmfTosswJ6ixEgQRESjrdVab2HF45mm1trgD3HzrFdEa05QJxHMZHXuB0vxaGaUOTokNTEwFLItAjHN8%2FHLB9ycpatLFRq4uVN52spSmTZuDQndEo8CrKUsfA6BtwhxzLkkyZXne1e7M4CpAzxKNKcPiko1jpES02h%2Fmpk5SDR%2BRZgUwj065jAzDlJI%2FvKBvp8t7GbOQq5n5ZWH%2Bz25xRNvUE4i5RKXJizerdDmxAuRROSFAzpdj497%2Fu1CSvhiDHUA%2FVbn8aRwo5DUTNtQtdEeOAEEwiUDCqAgMd5lKuIYIFEIDBuOZNAgvte6VgIXN37ZrqXGK1lsZDS2Hv2bBBHglR9kA4uWBUlZddQ0fUlTAThnBO%2FkixEijGrsWLkkqt8dXMp%2FKYzi2wtDguJlqkw8pnHiViufOnyhy3mr5aLppahgdAOgCchFtV7W9lAV4PB4O0o4p2B9tFko0Jtrln3CsOFrrIzCFf%2BqS2LdxwMZ1jZR3buat3bHV7T5DKtUBs4MGMx6kIi%2FI8gpiY69A3lVRFCjHfWE12sqHEdq9rnG07syd1vglEXDaqqJe%2BYfYR5Ee8nKmckWCkLt0pEGiIA%2FRI%2Bs0ch6NccoW1IiW1uRJG2o64XI%2Bhv3%2Ff2Jg1XfOr%2FKnljk3KQypfib6Zo3eySEuL4cPDCbFIQ%2B4fpUtNBwB%2B6TbMKThow0d%2B9zURqcAZ6QSoDbaT9p04JVxFeOyWzLmH5zvIIt52C%2FVUHGoRrO3ELP6qYs0snGQH6%2FmKbyjnqEMAatXzXI2U9K25Q6ELBK1NGPV0wwYC5qAY6sgHvPFSU40Te8U3TvG0%2FxnZKpqRY7RwHe0EqI8E%2Ffn%2FbAzZtS1msTHhvGiqBntJ%2BccpQwaI%2F7uuwU5ZbJ0JKOVnnBIFFbA%2F2LUwsTSOccxF6VQyLkJQfo0TACBsb8BuejEQN1JySWmkU0BakfQo05LRh87A3TuiIhaxJJzE6m%2B%2BClcIezMNMH9ULosA4UY1PvvIIQAIFyFjboubORtGvP383QMi6o8GCABrtvUKoxEMaCYgZ&X-Amz-SignedHeaders=host&X-Amz-Signature=0edcaaaf8fe6b56e32ce454ab812f3e05d25e15b7df095a38581f306719d1099"
+        }
+      ],
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 7353291,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugTriaged",
+      "message": "Thank you for the quick feedback @saltyyolk. \n\nWe have verified this finding and have escalated to our engineering team.  We will be tracking progress internally at https://gitlab.com/gitlab-org/gitlab/-/issues/211636. This issue will be made public 30 days following the release of a patch.\n\nGiven the severity of the report, we are paying an initial $1000 on triage. Congratulations!\n\nWe will continue to update you via HackerOne as a patch is scheduled for release.\n\nBest regards,\nGitLab Security Team",
+      "automated_response": false,
+      "created_at": "2020-03-18T09:02:16.078Z",
+      "updated_at": "2020-03-18T09:02:16.078Z",
+      "actor": {
+        "username": "jmatos_bgtvf",
+        "cleared": false,
+        "verified": false,
+        "url": "/jmatos_bgtvf",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 7353311,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BountyAwarded",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2020-03-18T09:02:49.604Z",
+      "updated_at": "2020-03-18T09:02:49.604Z",
+      "actor": {
+        "url": "/gitlab",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/f0hovtq73f9ap815a0r1w42bocp4/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "GitLab"
+        }
+      },
+      "bounty_amount": "1000.0",
+      "bonus_amount": "0.0",
+      "bounty_currency": "usd",
+      "genius_execution_id": null,
+      "team_handle": "gitlab",
+      "collaborator": {
+        "username": "saltyyolk",
+        "url": "/saltyyolk"
+      }
+    },
+    {
+      "id": 7374096,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "ETA for fix:\n\nHi @saltyyolk,\n\nThe issue you reported is currently scheduled to be fixed by 2020-05-31.\n\nThank you again for contacting us!\n\nBest regards,\nGitLab Security Team\n",
+      "automated_response": true,
+      "created_at": "2020-03-20T04:06:08.217Z",
+      "updated_at": "2020-03-20T04:06:08.217Z",
+      "actor": {
+        "username": "gitlab-securitybot",
+        "cleared": false,
+        "verified": false,
+        "url": "/gitlab-securitybot",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 7888604,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::CveIdAdded",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2020-05-04T14:48:31.215Z",
+      "updated_at": "2020-05-04T14:48:31.215Z",
+      "cve_ids": [
+        "CVE-2020-12448"
+      ],
+      "actor": {
+        "username": "dcouture",
+        "cleared": false,
+        "verified": false,
+        "url": "/dcouture",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/TpSJ356VRAW7GpCzzZ25R8Kb/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 7901392,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "Hello @saltyyolk ,\n\nThank you again for the report! Your finding has been patched in GitLab version 12.10.2 and we are awarding a bounty. Congratulations!\n\nPlease let us know if you find that our patch does not mitigate your finding. Your report will be published in 30 days in GitLab's issue tracker.\n\nWe look forward to your next report!\n\nBest regards,\nSecurity Team | GitLab Inc.\n",
+      "automated_response": false,
+      "created_at": "2020-05-05T16:55:03.003Z",
+      "updated_at": "2020-05-05T16:55:03.003Z",
+      "actor": {
+        "username": "jmatos_bgtvf",
+        "cleared": false,
+        "verified": false,
+        "url": "/jmatos_bgtvf",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "reporter": {
+        "username": "saltyyolk",
+        "url": "/saltyyolk"
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 7901397,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BountyAwarded",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2020-05-05T16:55:33.814Z",
+      "updated_at": "2020-05-05T16:55:33.814Z",
+      "actor": {
+        "url": "/gitlab",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/f0hovtq73f9ap815a0r1w42bocp4/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "GitLab"
+        }
+      },
+      "bounty_amount": "11000.0",
+      "bonus_amount": "0.0",
+      "bounty_currency": "usd",
+      "genius_execution_id": null,
+      "team_handle": "gitlab",
+      "collaborator": {
+        "username": "saltyyolk",
+        "url": "/saltyyolk"
+      }
+    },
+    {
+      "id": 9882720,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2020-11-20T20:55:14.017Z",
+      "updated_at": "2020-11-20T20:55:14.017Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "dcouture",
+        "cleared": false,
+        "verified": false,
+        "url": "/dcouture",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/TpSJ356VRAW7GpCzzZ25R8Kb/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 17025038,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2022-06-07T14:16:20.378Z",
+      "updated_at": "2022-06-07T14:16:20.378Z",
+      "actor": {
+        "username": "saltyyolk",
+        "cleared": false,
+        "verified": false,
+        "url": "/saltyyolk",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/252/596/b03010470e2928f744f71fb5c1685806f1878341_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 17025039,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportBecamePublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2022-06-07T14:16:20.606Z",
+      "updated_at": "2022-06-07T14:16:20.606Z",
+      "actor": {
+        "username": "saltyyolk",
+        "cleared": false,
+        "verified": false,
+        "url": "/saltyyolk",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/252/596/b03010470e2928f744f71fb5c1685806f1878341_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    }
+  ],
+  "activity_page_count": 1,
+  "activity_page_number": 1,
+  "summaries": [
+    {
+      "category": "team",
+      "can_view?": true,
+      "can_create?": false
+    },
+    {
+      "category": "researcher",
+      "can_view?": true,
+      "can_create?": false
+    }
+  ]
+}

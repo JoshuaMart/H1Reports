@@ -1,0 +1,844 @@
+{
+  "id": 1721098,
+  "global_id": "Z2lkOi8vaGFja2Vyb25lL1JlcG9ydC8xNzIxMDk4",
+  "url": "https://hackerone.com/reports/1721098",
+  "title": "CVE-2022-35260: .netrc parser out-of-bounds access",
+  "state": "Closed",
+  "substate": "resolved",
+  "severity_rating": "low",
+  "readable_substate": "Resolved",
+  "created_at": "2022-10-03T16:14:04.112Z",
+  "submitted_at": "2022-10-03T16:14:04.196Z",
+  "is_member_of_team?": false,
+  "is_organization_group_member?": false,
+  "reporter": {
+    "disabled": false,
+    "username": "kurohiro",
+    "url": "/kurohiro",
+    "profile_picture_urls": {
+      "small": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+    },
+    "is_me?": false,
+    "cleared": false,
+    "verified": false,
+    "hackerone_triager": false,
+    "hacker_mediation": false
+  },
+  "team": {
+    "id": 35663,
+    "url": "https://hackerone.com/curl",
+    "handle": "curl",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/035/663/2faf4c279d437d64bfda6d23d62ce1833813a4d9_original.png/d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98",
+      "medium": "https://profile-photos.hackerone-user-content.com/variants/000/035/663/2faf4c279d437d64bfda6d23d62ce1833813a4d9_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+    },
+    "permissions": [
+
+    ],
+    "submission_state": "open",
+    "default_currency": "usd",
+    "awards_miles": false,
+    "offers_bounties": true,
+    "state": "public_mode",
+    "only_cleared_hackers": false,
+    "pentest_feature_enabled?": false,
+    "profile": {
+      "name": "curl",
+      "twitter_handle": "",
+      "website": "https://curl.se",
+      "about": "cURL is an Open Source project providing a library and command-line tool for doing internet transfers"
+    }
+  },
+  "has_bounty?": false,
+  "in_validation?": false,
+  "can_view_team": true,
+  "can_view_report": true,
+  "is_external_bug": false,
+  "is_published": false,
+  "is_participant": false,
+  "has_collaborators": false,
+  "submitted_by_team_member": false,
+  "stage": 4,
+  "public": true,
+  "visibility": "full",
+  "cve_ids": [
+    "CVE-2022-35260"
+  ],
+  "singular_disclosure_disabled": false,
+  "disclosed_at": "2022-10-27T14:55:15.587Z",
+  "bug_reporter_agreed_on_going_public_at": "2022-10-27T14:55:15.513Z",
+  "team_member_agreed_on_going_public_at": "2022-10-27T12:03:23.338Z",
+  "comments_closed?": false,
+  "facebook_team?": false,
+  "team_private?": false,
+  "vulnerability_information": "## Summary:\nCurl expects the .netrc file to have space characters. So if there is no space character, it will do an out-of-bounds read and a 1-byte out-of-bounds write.\nThis can happen multiple times depending on the state of the memory.\n\n## Steps To Reproduce:\n\n  `curl --netrc-file .netrc test.local`\n\".netrc\" is attached.\nThe content is 'a' for 4095 bytes.\nDepending on memory conditions, even single-byte files can cause problems.\n\nIt's not exactly just spaces and newlines.\nThe condition is that the .netrc file does not contain characters for which ISSPACE() returns true (so it is also a condition that there is no line feed code).\nThere is a problem with parsenetrc() in lib/netrc.c.\nparsenetrc() has the following loop.\n```\n    while(!done && fgets(netrcbuffer, netrcbuffsize, file)) {\n      char *tok;\n      char *tok_end;\n      bool quoted;\n      if(state == MACDEF) {\n        if((netrcbuffer[0] == '\\n') || (netrcbuffer[0] == '\\r'))\n          state = NOTHING;\n        else\n          continue;\n      }\n      tok = netrcbuffer;\n      while(tok) {\n        while(ISSPACE(*tok))\n          tok++;\n        /* tok is first non-space letter */\n        if(!*tok || (*tok == '#'))\n          /* end of line or the rest is a comment */\n          break;\n\n        /* leading double-quote means quoted string */\n        quoted = (*tok == '\\\"');\n\n        tok_end = tok;\n        if(!quoted) {\n          while(!ISSPACE(*tok_end))\n            tok_end++;\n          *tok_end = 0;\n        }\n```\nThe 'a' and the terminating character '\\0' in the .netrc file are characters for which ISSPACE() returns false, so while on line 25 is true(!false).\nThis causes an out-of-bounds read.\nAlso, line 27 is an out-of-bounds write. (1 byte for '\\0).\n\n## Remediation ideas:\nI think it would be better to include the condition that *tok is not NULL in the while statement.\n\n## Impact\n\nApplication crash plus other as yet undetermined consequences.",
+  "weakness": {
+    "id": 8,
+    "name": "Out-of-bounds Read"
+  },
+  "original_report_id": null,
+  "original_report_url": null,
+  "attachments": [
+    {
+      "id": 1967256,
+      "file_name": ".netrc",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/qfheiij11ks398oby4tqsx7exrsz?response-content-disposition=attachment%3B%20filename%3D%22.netrc%22%3B%20filename%2A%3DUTF-8%27%27.netrc&response-content-type=application%2Foctet-stream&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQWZRWVQLW%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065913Z&X-Amz-Expires=3392&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJHMEUCIH4h5RU%2BpbI3mlwEISZD1G9BopBv%2B7sztLbJknQb99SoAiEAvhxLWqtVFV73maMS53mFspg5vBZ3%2BzoNHXmSke7DMlAqsgUIIxADGgwwMTM2MTkyNzQ4NDkiDC7pogsWvzjWL290gCqPBTKeeZOA278oY6KnHe%2FmWuxZ3Qva3oIxiPgSeceppHqQhkbgfD3tsY8pCoJ9VsxHzSlUT0PRdOuJ8sr7ZKZL2JXBIQSfFD%2FndZi2qU1cFtihzUpwWYUUNN5iSpcUDdb5QDC4CvgOQ%2BEvd6tX7y%2F6Q%2BSMOg8q7yp5mzJr5qbY%2BWMbL6nz%2Buay4cd0wnSe6tkjuaJ1NIbjxSdH9CbkBS0XoTSgIOBDeBGuSMPeOJAc2qCCwB3%2FJJzjHbb07dimFwcVQ37AzR3aSdVTIrEy7NTVExSsa71AnpdGMfq2ZWxbVHT4Z6Ep3h5g9prjvXQKlNKYdiX%2BmlPln5qCDc8s7M8gON6CdSii7fH0aBOcu0INjoa4dc%2FOKcwiuirhI9fDfGn4h4w3t9xVEOfQ21OzAu6iCzqwbyX6FcQTYmc1%2FIb4Lr%2BmfHmZPXpM41HYMK9XHVWPs5aSmF5nYp0DtlX53W%2FJIPEUayublSARs02HeVHIz1vwC6fhS3x1128WqIIvz2dgsHmVJmC%2Bi%2BMemNKEsdiaq0lMgNiTe9mDem3SLrvYMO99wYuebZUfCAVBbqea6mN0o6TtPR%2BY4ZiZl0Y57HEgt3yLwEJQ3BmwdmweldY92DYxW1o1ozabvAsUO6MT%2BEI0mkI2tmtaZQ%2B31bwtxLouobN%2FxkZiIs9YPexJAJ6%2F1%2BFYr5HPRh8rib2vpmO4ylsOFgCISJP5yPdziLDBPihHZhMx8CE858zkJIqVtEFfXZ31W%2FNw09acXa5I4%2BC8AMnDBWV%2FqsryQDDwWpVkzUyRJroktjLT8m7IUEVkEXb7s2GO%2BJiidEBoinU5YgVGpMWTmAmcjaFhRA%2FpwdFI%2F7XHri8KUlyGWMlbYK2BDuF74uow5IK5qAY6sQGceMO9KGy75rSGSK9Jhffgp6ECN8Mwct472Z1JRwqPxCECpo4hAM%2BTiqPzt7Rc8yOTYkRKOicKyCebEt1uytTR6HQoyEcj%2FTBDmV%2BwTAA3FljzwsKBDHTaYj%2Bd0h8rsm4W%2BKtqjUgQ%2BsI4FzYNCv9BSWMF%2FnJ7wV%2BwaSDW1OYbdFVrBpkgTxJPCiLvqlbbKjcH%2BuE8HtSqJR%2FjUt%2Bvxx4CmAPJl%2BJDFQWASMAeV4kuGCM%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=f1166163524beccf03e5974bb17197d0723b890c3f46ff40aca9bb5ed4b2a258",
+      "file_size": 4095,
+      "type": "application/octet-stream",
+      "moderated": null
+    }
+  ],
+  "allow_singular_disclosure_at": "2022-11-26T12:03:23.472Z",
+  "allow_singular_disclosure_after": -25988149.941102374,
+  "singular_disclosure_allowed": true,
+  "vote_count": 4,
+  "voters": [
+    "zy9ard3",
+    "shivammusic",
+    "shahrukhkhan1080",
+    "zyklonb"
+  ],
+  "severity": {
+    "rating": "low",
+    "author_type": "User"
+  },
+  "structured_scope": {
+    "databaseId": 18844,
+    "asset_type": "SOURCE_CODE",
+    "asset_identifier": "https://github.com/curl/curl",
+    "max_severity": "critical"
+  },
+  "abilities": {
+    "assignable_team_members": [
+
+    ],
+    "assignable_team_member_groups": [
+
+    ]
+  },
+  "activities": [
+    {
+      "id": 18628314,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Thank you for your report!\n\nWe will take some time and investigate your reports and get back to you with details and possible follow-up questions as soon as we can!",
+      "automated_response": false,
+      "created_at": "2022-10-03T16:16:48.058Z",
+      "updated_at": "2022-10-03T16:16:48.058Z",
+      "actor": {
+        "username": "bagder",
+        "cleared": false,
+        "verified": false,
+        "url": "/bagder",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/y9xzl5ayi7du4kz3l6pa6sff2ha5/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22final-12-1000x1000.jpg%22%3B%20filename%2A%3DUTF-8%27%27final-12-1000x1000.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQWZRWVQLW%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065913Z&X-Amz-Expires=3392&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJHMEUCIH4h5RU%2BpbI3mlwEISZD1G9BopBv%2B7sztLbJknQb99SoAiEAvhxLWqtVFV73maMS53mFspg5vBZ3%2BzoNHXmSke7DMlAqsgUIIxADGgwwMTM2MTkyNzQ4NDkiDC7pogsWvzjWL290gCqPBTKeeZOA278oY6KnHe%2FmWuxZ3Qva3oIxiPgSeceppHqQhkbgfD3tsY8pCoJ9VsxHzSlUT0PRdOuJ8sr7ZKZL2JXBIQSfFD%2FndZi2qU1cFtihzUpwWYUUNN5iSpcUDdb5QDC4CvgOQ%2BEvd6tX7y%2F6Q%2BSMOg8q7yp5mzJr5qbY%2BWMbL6nz%2Buay4cd0wnSe6tkjuaJ1NIbjxSdH9CbkBS0XoTSgIOBDeBGuSMPeOJAc2qCCwB3%2FJJzjHbb07dimFwcVQ37AzR3aSdVTIrEy7NTVExSsa71AnpdGMfq2ZWxbVHT4Z6Ep3h5g9prjvXQKlNKYdiX%2BmlPln5qCDc8s7M8gON6CdSii7fH0aBOcu0INjoa4dc%2FOKcwiuirhI9fDfGn4h4w3t9xVEOfQ21OzAu6iCzqwbyX6FcQTYmc1%2FIb4Lr%2BmfHmZPXpM41HYMK9XHVWPs5aSmF5nYp0DtlX53W%2FJIPEUayublSARs02HeVHIz1vwC6fhS3x1128WqIIvz2dgsHmVJmC%2Bi%2BMemNKEsdiaq0lMgNiTe9mDem3SLrvYMO99wYuebZUfCAVBbqea6mN0o6TtPR%2BY4ZiZl0Y57HEgt3yLwEJQ3BmwdmweldY92DYxW1o1ozabvAsUO6MT%2BEI0mkI2tmtaZQ%2B31bwtxLouobN%2FxkZiIs9YPexJAJ6%2F1%2BFYr5HPRh8rib2vpmO4ylsOFgCISJP5yPdziLDBPihHZhMx8CE858zkJIqVtEFfXZ31W%2FNw09acXa5I4%2BC8AMnDBWV%2FqsryQDDwWpVkzUyRJroktjLT8m7IUEVkEXb7s2GO%2BJiidEBoinU5YgVGpMWTmAmcjaFhRA%2FpwdFI%2F7XHri8KUlyGWMlbYK2BDuF74uow5IK5qAY6sQGceMO9KGy75rSGSK9Jhffgp6ECN8Mwct472Z1JRwqPxCECpo4hAM%2BTiqPzt7Rc8yOTYkRKOicKyCebEt1uytTR6HQoyEcj%2FTBDmV%2BwTAA3FljzwsKBDHTaYj%2Bd0h8rsm4W%2BKtqjUgQ%2BsI4FzYNCv9BSWMF%2FnJ7wV%2BwaSDW1OYbdFVrBpkgTxJPCiLvqlbbKjcH%2BuE8HtSqJR%2FjUt%2Bvxx4CmAPJl%2BJDFQWASMAeV4kuGCM%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=d6b23eb9c8e5a0014a6ce8a718c62a6929e049b871c8383a6aa21e3c85fd9871"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 18628396,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "I can reproduce. Will dig deeper can get back.",
+      "automated_response": false,
+      "created_at": "2022-10-03T16:26:36.067Z",
+      "updated_at": "2022-10-03T16:26:36.067Z",
+      "actor": {
+        "username": "bagder",
+        "cleared": false,
+        "verified": false,
+        "url": "/bagder",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/y9xzl5ayi7du4kz3l6pa6sff2ha5/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22final-12-1000x1000.jpg%22%3B%20filename%2A%3DUTF-8%27%27final-12-1000x1000.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQWZRWVQLW%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065913Z&X-Amz-Expires=3392&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJHMEUCIH4h5RU%2BpbI3mlwEISZD1G9BopBv%2B7sztLbJknQb99SoAiEAvhxLWqtVFV73maMS53mFspg5vBZ3%2BzoNHXmSke7DMlAqsgUIIxADGgwwMTM2MTkyNzQ4NDkiDC7pogsWvzjWL290gCqPBTKeeZOA278oY6KnHe%2FmWuxZ3Qva3oIxiPgSeceppHqQhkbgfD3tsY8pCoJ9VsxHzSlUT0PRdOuJ8sr7ZKZL2JXBIQSfFD%2FndZi2qU1cFtihzUpwWYUUNN5iSpcUDdb5QDC4CvgOQ%2BEvd6tX7y%2F6Q%2BSMOg8q7yp5mzJr5qbY%2BWMbL6nz%2Buay4cd0wnSe6tkjuaJ1NIbjxSdH9CbkBS0XoTSgIOBDeBGuSMPeOJAc2qCCwB3%2FJJzjHbb07dimFwcVQ37AzR3aSdVTIrEy7NTVExSsa71AnpdGMfq2ZWxbVHT4Z6Ep3h5g9prjvXQKlNKYdiX%2BmlPln5qCDc8s7M8gON6CdSii7fH0aBOcu0INjoa4dc%2FOKcwiuirhI9fDfGn4h4w3t9xVEOfQ21OzAu6iCzqwbyX6FcQTYmc1%2FIb4Lr%2BmfHmZPXpM41HYMK9XHVWPs5aSmF5nYp0DtlX53W%2FJIPEUayublSARs02HeVHIz1vwC6fhS3x1128WqIIvz2dgsHmVJmC%2Bi%2BMemNKEsdiaq0lMgNiTe9mDem3SLrvYMO99wYuebZUfCAVBbqea6mN0o6TtPR%2BY4ZiZl0Y57HEgt3yLwEJQ3BmwdmweldY92DYxW1o1ozabvAsUO6MT%2BEI0mkI2tmtaZQ%2B31bwtxLouobN%2FxkZiIs9YPexJAJ6%2F1%2BFYr5HPRh8rib2vpmO4ylsOFgCISJP5yPdziLDBPihHZhMx8CE858zkJIqVtEFfXZ31W%2FNw09acXa5I4%2BC8AMnDBWV%2FqsryQDDwWpVkzUyRJroktjLT8m7IUEVkEXb7s2GO%2BJiidEBoinU5YgVGpMWTmAmcjaFhRA%2FpwdFI%2F7XHri8KUlyGWMlbYK2BDuF74uow5IK5qAY6sQGceMO9KGy75rSGSK9Jhffgp6ECN8Mwct472Z1JRwqPxCECpo4hAM%2BTiqPzt7Rc8yOTYkRKOicKyCebEt1uytTR6HQoyEcj%2FTBDmV%2BwTAA3FljzwsKBDHTaYj%2Bd0h8rsm4W%2BKtqjUgQ%2BsI4FzYNCv9BSWMF%2FnJ7wV%2BwaSDW1OYbdFVrBpkgTxJPCiLvqlbbKjcH%2BuE8HtSqJR%2FjUt%2Bvxx4CmAPJl%2BJDFQWASMAeV4kuGCM%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=d6b23eb9c8e5a0014a6ce8a718c62a6929e049b871c8383a6aa21e3c85fd9871"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 18633596,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "First, here's a patch that seems to do it:\n\n~~~diff\ndiff --git a/lib/netrc.c b/lib/netrc.c\nindex 3232274dd..79f5e78f1 100644\n--- a/lib/netrc.c\n+++ b/lib/netrc.c\n@@ -94,10 +94,11 @@ static int parsenetrc(const char *host,\n         else\n           continue;\n       }\n       tok = netrcbuffer;\n       while(tok) {\n+        bool eol = FALSE;\n         while(ISBLANK(*tok))\n           tok++;\n         /* tok is first non-space letter */\n         if(!*tok || (*tok == '#'))\n           /* end of line or the rest is a comment */\n@@ -106,12 +107,14 @@ static int parsenetrc(const char *host,\n         /* leading double-quote means quoted string */\n         quoted = (*tok == '\\\"');\n \n         tok_end = tok;\n         if(!quoted) {\n-          while(!ISSPACE(*tok_end))\n+          while(*tok_end && !ISSPACE(*tok_end))\n             tok_end++;\n+          if(!*tok_end)\n+            eol = TRUE;\n           *tok_end = 0;\n         }\n         else {\n           bool escape = FALSE;\n           bool endquote = FALSE;\n@@ -239,10 +242,12 @@ static int parsenetrc(const char *host,\n             state = HOSTFOUND;\n             state_our_login = FALSE;\n           }\n           break;\n         } /* switch (state) */\n+        if(eol)\n+          break;\n         tok = ++tok_end;\n       }\n     } /* while fgets() */\n \n     out:\n",
+      "automated_response": false,
+      "created_at": "2022-10-03T21:32:05.979Z",
+      "updated_at": "2022-10-03T21:32:05.979Z",
+      "actor": {
+        "username": "bagder",
+        "cleared": false,
+        "verified": false,
+        "url": "/bagder",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/y9xzl5ayi7du4kz3l6pa6sff2ha5/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22final-12-1000x1000.jpg%22%3B%20filename%2A%3DUTF-8%27%27final-12-1000x1000.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQWZRWVQLW%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065913Z&X-Amz-Expires=3392&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJHMEUCIH4h5RU%2BpbI3mlwEISZD1G9BopBv%2B7sztLbJknQb99SoAiEAvhxLWqtVFV73maMS53mFspg5vBZ3%2BzoNHXmSke7DMlAqsgUIIxADGgwwMTM2MTkyNzQ4NDkiDC7pogsWvzjWL290gCqPBTKeeZOA278oY6KnHe%2FmWuxZ3Qva3oIxiPgSeceppHqQhkbgfD3tsY8pCoJ9VsxHzSlUT0PRdOuJ8sr7ZKZL2JXBIQSfFD%2FndZi2qU1cFtihzUpwWYUUNN5iSpcUDdb5QDC4CvgOQ%2BEvd6tX7y%2F6Q%2BSMOg8q7yp5mzJr5qbY%2BWMbL6nz%2Buay4cd0wnSe6tkjuaJ1NIbjxSdH9CbkBS0XoTSgIOBDeBGuSMPeOJAc2qCCwB3%2FJJzjHbb07dimFwcVQ37AzR3aSdVTIrEy7NTVExSsa71AnpdGMfq2ZWxbVHT4Z6Ep3h5g9prjvXQKlNKYdiX%2BmlPln5qCDc8s7M8gON6CdSii7fH0aBOcu0INjoa4dc%2FOKcwiuirhI9fDfGn4h4w3t9xVEOfQ21OzAu6iCzqwbyX6FcQTYmc1%2FIb4Lr%2BmfHmZPXpM41HYMK9XHVWPs5aSmF5nYp0DtlX53W%2FJIPEUayublSARs02HeVHIz1vwC6fhS3x1128WqIIvz2dgsHmVJmC%2Bi%2BMemNKEsdiaq0lMgNiTe9mDem3SLrvYMO99wYuebZUfCAVBbqea6mN0o6TtPR%2BY4ZiZl0Y57HEgt3yLwEJQ3BmwdmweldY92DYxW1o1ozabvAsUO6MT%2BEI0mkI2tmtaZQ%2B31bwtxLouobN%2FxkZiIs9YPexJAJ6%2F1%2BFYr5HPRh8rib2vpmO4ylsOFgCISJP5yPdziLDBPihHZhMx8CE858zkJIqVtEFfXZ31W%2FNw09acXa5I4%2BC8AMnDBWV%2FqsryQDDwWpVkzUyRJroktjLT8m7IUEVkEXb7s2GO%2BJiidEBoinU5YgVGpMWTmAmcjaFhRA%2FpwdFI%2F7XHri8KUlyGWMlbYK2BDuF74uow5IK5qAY6sQGceMO9KGy75rSGSK9Jhffgp6ECN8Mwct472Z1JRwqPxCECpo4hAM%2BTiqPzt7Rc8yOTYkRKOicKyCebEt1uytTR6HQoyEcj%2FTBDmV%2BwTAA3FljzwsKBDHTaYj%2Bd0h8rsm4W%2BKtqjUgQ%2BsI4FzYNCv9BSWMF%2FnJ7wV%2BwaSDW1OYbdFVrBpkgTxJPCiLvqlbbKjcH%2BuE8HtSqJR%2FjUt%2Bvxx4CmAPJl%2BJDFQWASMAeV4kuGCM%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=d6b23eb9c8e5a0014a6ce8a718c62a6929e049b871c8383a6aa21e3c85fd9871"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 18633639,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "This is a read out-of-bounds read (and write) happens on stack. The 4096 bytes buffer is followed by `netrcbuffsize` on the stack, which is what will be partially read when read past the boundary. That is a an `int` with a value of decimal 4096 so 0x00001000  or 00100000 in hex depending on endianess, meaning that the following byte is always a zero. That read is wrong, but seems benign.\n\nThe out of bounds write is also done on the same address, meaning it will write a zero to that same address previously read from.\n\nI might be wrong, but from where I look at it so far, this look like two totally benign errors that by a fluke actually do not cause any problems other than alarming valgrind and other tools with this input.\n\nAm I wrong?",
+      "automated_response": false,
+      "created_at": "2022-10-03T21:41:01.169Z",
+      "updated_at": "2022-10-03T21:41:01.169Z",
+      "actor": {
+        "username": "bagder",
+        "cleared": false,
+        "verified": false,
+        "url": "/bagder",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/y9xzl5ayi7du4kz3l6pa6sff2ha5/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22final-12-1000x1000.jpg%22%3B%20filename%2A%3DUTF-8%27%27final-12-1000x1000.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQWZRWVQLW%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065913Z&X-Amz-Expires=3392&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJHMEUCIH4h5RU%2BpbI3mlwEISZD1G9BopBv%2B7sztLbJknQb99SoAiEAvhxLWqtVFV73maMS53mFspg5vBZ3%2BzoNHXmSke7DMlAqsgUIIxADGgwwMTM2MTkyNzQ4NDkiDC7pogsWvzjWL290gCqPBTKeeZOA278oY6KnHe%2FmWuxZ3Qva3oIxiPgSeceppHqQhkbgfD3tsY8pCoJ9VsxHzSlUT0PRdOuJ8sr7ZKZL2JXBIQSfFD%2FndZi2qU1cFtihzUpwWYUUNN5iSpcUDdb5QDC4CvgOQ%2BEvd6tX7y%2F6Q%2BSMOg8q7yp5mzJr5qbY%2BWMbL6nz%2Buay4cd0wnSe6tkjuaJ1NIbjxSdH9CbkBS0XoTSgIOBDeBGuSMPeOJAc2qCCwB3%2FJJzjHbb07dimFwcVQ37AzR3aSdVTIrEy7NTVExSsa71AnpdGMfq2ZWxbVHT4Z6Ep3h5g9prjvXQKlNKYdiX%2BmlPln5qCDc8s7M8gON6CdSii7fH0aBOcu0INjoa4dc%2FOKcwiuirhI9fDfGn4h4w3t9xVEOfQ21OzAu6iCzqwbyX6FcQTYmc1%2FIb4Lr%2BmfHmZPXpM41HYMK9XHVWPs5aSmF5nYp0DtlX53W%2FJIPEUayublSARs02HeVHIz1vwC6fhS3x1128WqIIvz2dgsHmVJmC%2Bi%2BMemNKEsdiaq0lMgNiTe9mDem3SLrvYMO99wYuebZUfCAVBbqea6mN0o6TtPR%2BY4ZiZl0Y57HEgt3yLwEJQ3BmwdmweldY92DYxW1o1ozabvAsUO6MT%2BEI0mkI2tmtaZQ%2B31bwtxLouobN%2FxkZiIs9YPexJAJ6%2F1%2BFYr5HPRh8rib2vpmO4ylsOFgCISJP5yPdziLDBPihHZhMx8CE858zkJIqVtEFfXZ31W%2FNw09acXa5I4%2BC8AMnDBWV%2FqsryQDDwWpVkzUyRJroktjLT8m7IUEVkEXb7s2GO%2BJiidEBoinU5YgVGpMWTmAmcjaFhRA%2FpwdFI%2F7XHri8KUlyGWMlbYK2BDuF74uow5IK5qAY6sQGceMO9KGy75rSGSK9Jhffgp6ECN8Mwct472Z1JRwqPxCECpo4hAM%2BTiqPzt7Rc8yOTYkRKOicKyCebEt1uytTR6HQoyEcj%2FTBDmV%2BwTAA3FljzwsKBDHTaYj%2Bd0h8rsm4W%2BKtqjUgQ%2BsI4FzYNCv9BSWMF%2FnJ7wV%2BwaSDW1OYbdFVrBpkgTxJPCiLvqlbbKjcH%2BuE8HtSqJR%2FjUt%2Bvxx4CmAPJl%2BJDFQWASMAeV4kuGCM%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=d6b23eb9c8e5a0014a6ce8a718c62a6929e049b871c8383a6aa21e3c85fd9871"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 18641032,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Actually, this is probably a nicer patch that fixes some other issues with fgets too:\n~~~diff\nFrom a0f16d9a2257620b42845e7a21d1f0eac21ded34 Mon Sep 17 00:00:00 2001\nFrom: Daniel Stenberg <daniel@haxx.se>\nDate: Tue, 4 Oct 2022 14:37:24 +0200\nSubject: [PATCH] netrc: replace fgets with Curl_get_line\n\nTo make it only accept complete lines\n---\n lib/curl_get_line.c | 6 +++---\n lib/netrc.c         | 5 +++--\n 2 files changed, 6 insertions(+), 5 deletions(-)\n\ndiff --git a/lib/curl_get_line.c b/lib/curl_get_line.c\nindex 6a26bb254..22e3705f4 100644\n--- a/lib/curl_get_line.c\n+++ b/lib/curl_get_line.c\n@@ -23,20 +23,20 @@\n  ***************************************************************************/\n \n #include \"curl_setup.h\"\n \n #if !defined(CURL_DISABLE_COOKIES) || !defined(CURL_DISABLE_ALTSVC) ||  \\\n-  !defined(CURL_DISABLE_HSTS)\n+  !defined(CURL_DISABLE_HSTS) || !defined(CURL_DISABLE_NETRC)\n \n #include \"curl_get_line.h\"\n #include \"curl_memory.h\"\n /* The last #include file should be: */\n #include \"memdebug.h\"\n \n /*\n- * get_line() makes sure to only return complete whole lines that fit in 'len'\n- * bytes and end with a newline.\n+ * Curl_get_line() makes sure to only return complete whole lines that fit in\n+ * 'len' bytes and end with a newline.\n  */\n char *Curl_get_line(char *buf, int len, FILE *input)\n {\n   bool partial = FALSE;\n   while(1) {\ndiff --git a/lib/netrc.c b/lib/netrc.c\nindex 3232274dd..cbd6fe639 100644\n--- a/lib/netrc.c\n+++ b/lib/netrc.c\n@@ -31,10 +31,11 @@\n \n #include <curl/curl.h>\n #include \"netrc.h\"\n #include \"strtok.h\"\n #include \"strcase.h\"\n+#include \"curl_get_line.h\"\n \n /* The last 3 #include files should be in this order */\n #include \"curl_printf.h\"\n #include \"curl_memory.h\"\n #include \"memdebug.h\"\n@@ -82,11 +83,11 @@ static int parsenetrc(const char *host,\n   if(file) {\n     bool done = FALSE;\n     char netrcbuffer[4096];\n     int  netrcbuffsize = (int)sizeof(netrcbuffer);\n \n-    while(!done && fgets(netrcbuffer, netrcbuffsize, file)) {\n+    while(!done && Curl_get_line(netrcbuffer, netrcbuffsize, file)) {\n       char *tok;\n       char *tok_end;\n       bool quoted;\n       if(state == MACDEF) {\n         if((netrcbuffer[0] == '\\n') || (netrcbuffer[0] == '\\r'))\n@@ -241,11 +242,11 @@ static int parsenetrc(const char *host,\n           }\n           break;\n         } /* switch (state) */\n         tok = ++tok_end;\n       }\n-    } /* while fgets() */\n+    } /* while Curl_get_line() */\n \n     out:\n     if(!retcode) {\n       /* success */\n       *login_changed = FALSE;\n-- \n2.37.2\n\n",
+      "automated_response": false,
+      "created_at": "2022-10-04T12:39:25.294Z",
+      "updated_at": "2022-10-04T12:39:25.294Z",
+      "actor": {
+        "username": "bagder",
+        "cleared": false,
+        "verified": false,
+        "url": "/bagder",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/y9xzl5ayi7du4kz3l6pa6sff2ha5/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22final-12-1000x1000.jpg%22%3B%20filename%2A%3DUTF-8%27%27final-12-1000x1000.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQWZRWVQLW%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065913Z&X-Amz-Expires=3392&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJHMEUCIH4h5RU%2BpbI3mlwEISZD1G9BopBv%2B7sztLbJknQb99SoAiEAvhxLWqtVFV73maMS53mFspg5vBZ3%2BzoNHXmSke7DMlAqsgUIIxADGgwwMTM2MTkyNzQ4NDkiDC7pogsWvzjWL290gCqPBTKeeZOA278oY6KnHe%2FmWuxZ3Qva3oIxiPgSeceppHqQhkbgfD3tsY8pCoJ9VsxHzSlUT0PRdOuJ8sr7ZKZL2JXBIQSfFD%2FndZi2qU1cFtihzUpwWYUUNN5iSpcUDdb5QDC4CvgOQ%2BEvd6tX7y%2F6Q%2BSMOg8q7yp5mzJr5qbY%2BWMbL6nz%2Buay4cd0wnSe6tkjuaJ1NIbjxSdH9CbkBS0XoTSgIOBDeBGuSMPeOJAc2qCCwB3%2FJJzjHbb07dimFwcVQ37AzR3aSdVTIrEy7NTVExSsa71AnpdGMfq2ZWxbVHT4Z6Ep3h5g9prjvXQKlNKYdiX%2BmlPln5qCDc8s7M8gON6CdSii7fH0aBOcu0INjoa4dc%2FOKcwiuirhI9fDfGn4h4w3t9xVEOfQ21OzAu6iCzqwbyX6FcQTYmc1%2FIb4Lr%2BmfHmZPXpM41HYMK9XHVWPs5aSmF5nYp0DtlX53W%2FJIPEUayublSARs02HeVHIz1vwC6fhS3x1128WqIIvz2dgsHmVJmC%2Bi%2BMemNKEsdiaq0lMgNiTe9mDem3SLrvYMO99wYuebZUfCAVBbqea6mN0o6TtPR%2BY4ZiZl0Y57HEgt3yLwEJQ3BmwdmweldY92DYxW1o1ozabvAsUO6MT%2BEI0mkI2tmtaZQ%2B31bwtxLouobN%2FxkZiIs9YPexJAJ6%2F1%2BFYr5HPRh8rib2vpmO4ylsOFgCISJP5yPdziLDBPihHZhMx8CE858zkJIqVtEFfXZ31W%2FNw09acXa5I4%2BC8AMnDBWV%2FqsryQDDwWpVkzUyRJroktjLT8m7IUEVkEXb7s2GO%2BJiidEBoinU5YgVGpMWTmAmcjaFhRA%2FpwdFI%2F7XHri8KUlyGWMlbYK2BDuF74uow5IK5qAY6sQGceMO9KGy75rSGSK9Jhffgp6ECN8Mwct472Z1JRwqPxCECpo4hAM%2BTiqPzt7Rc8yOTYkRKOicKyCebEt1uytTR6HQoyEcj%2FTBDmV%2BwTAA3FljzwsKBDHTaYj%2Bd0h8rsm4W%2BKtqjUgQ%2BsI4FzYNCv9BSWMF%2FnJ7wV%2BwaSDW1OYbdFVrBpkgTxJPCiLvqlbbKjcH%2BuE8HtSqJR%2FjUt%2Bvxx4CmAPJl%2BJDFQWASMAeV4kuGCM%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=d6b23eb9c8e5a0014a6ce8a718c62a6929e049b871c8383a6aa21e3c85fd9871"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 18642383,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Sorry for the late reply.\n\nThe idea of using curl_get_line() looks good.\nBut I thought it doesn't meet the format of the .netrc file.\n\n`Each field is provided as a sequence of letters that ends with a space or newline.`\nhttps://everything.curl.dev/usingcurl/netrc\n\nLines ending in spaces cannot be read by Curl_get_line().\n\nSorry if I misunderstood the format of the .netrc file.",
+      "automated_response": false,
+      "created_at": "2022-10-04T13:42:19.001Z",
+      "updated_at": "2022-10-04T13:42:19.001Z",
+      "actor": {
+        "username": "kurohiro",
+        "cleared": false,
+        "verified": false,
+        "url": "/kurohiro",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 18642421,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "I don't think this is a benign error.\nI've used [this](https://curl.se/windows/dl-7.85.0_5/curl-7.85.0_5-win64-mingw.zip) in a Windows environment to confirm an application crash.\nI will post again because it will be long.\nPlease give me some time.",
+      "automated_response": false,
+      "created_at": "2022-10-04T13:44:25.600Z",
+      "updated_at": "2022-10-04T13:44:25.600Z",
+      "actor": {
+        "username": "kurohiro",
+        "cleared": false,
+        "verified": false,
+        "url": "/kurohiro",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 18642469,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "> Each field is provided as a sequence of letters that ends with a space or newline\n\nYes, but it doesn't say that it supports super long lines without newline. I think it is a fairly safe work-around.\n\n> to confirm an application crash\n\nAh curious. Then my presumption was wrong...",
+      "automated_response": false,
+      "created_at": "2022-10-04T13:51:53.857Z",
+      "updated_at": "2022-10-04T13:51:53.857Z",
+      "actor": {
+        "username": "bagder",
+        "cleared": false,
+        "verified": false,
+        "url": "/bagder",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/y9xzl5ayi7du4kz3l6pa6sff2ha5/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22final-12-1000x1000.jpg%22%3B%20filename%2A%3DUTF-8%27%27final-12-1000x1000.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQWZRWVQLW%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065913Z&X-Amz-Expires=3392&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJHMEUCIH4h5RU%2BpbI3mlwEISZD1G9BopBv%2B7sztLbJknQb99SoAiEAvhxLWqtVFV73maMS53mFspg5vBZ3%2BzoNHXmSke7DMlAqsgUIIxADGgwwMTM2MTkyNzQ4NDkiDC7pogsWvzjWL290gCqPBTKeeZOA278oY6KnHe%2FmWuxZ3Qva3oIxiPgSeceppHqQhkbgfD3tsY8pCoJ9VsxHzSlUT0PRdOuJ8sr7ZKZL2JXBIQSfFD%2FndZi2qU1cFtihzUpwWYUUNN5iSpcUDdb5QDC4CvgOQ%2BEvd6tX7y%2F6Q%2BSMOg8q7yp5mzJr5qbY%2BWMbL6nz%2Buay4cd0wnSe6tkjuaJ1NIbjxSdH9CbkBS0XoTSgIOBDeBGuSMPeOJAc2qCCwB3%2FJJzjHbb07dimFwcVQ37AzR3aSdVTIrEy7NTVExSsa71AnpdGMfq2ZWxbVHT4Z6Ep3h5g9prjvXQKlNKYdiX%2BmlPln5qCDc8s7M8gON6CdSii7fH0aBOcu0INjoa4dc%2FOKcwiuirhI9fDfGn4h4w3t9xVEOfQ21OzAu6iCzqwbyX6FcQTYmc1%2FIb4Lr%2BmfHmZPXpM41HYMK9XHVWPs5aSmF5nYp0DtlX53W%2FJIPEUayublSARs02HeVHIz1vwC6fhS3x1128WqIIvz2dgsHmVJmC%2Bi%2BMemNKEsdiaq0lMgNiTe9mDem3SLrvYMO99wYuebZUfCAVBbqea6mN0o6TtPR%2BY4ZiZl0Y57HEgt3yLwEJQ3BmwdmweldY92DYxW1o1ozabvAsUO6MT%2BEI0mkI2tmtaZQ%2B31bwtxLouobN%2FxkZiIs9YPexJAJ6%2F1%2BFYr5HPRh8rib2vpmO4ylsOFgCISJP5yPdziLDBPihHZhMx8CE858zkJIqVtEFfXZ31W%2FNw09acXa5I4%2BC8AMnDBWV%2FqsryQDDwWpVkzUyRJroktjLT8m7IUEVkEXb7s2GO%2BJiidEBoinU5YgVGpMWTmAmcjaFhRA%2FpwdFI%2F7XHri8KUlyGWMlbYK2BDuF74uow5IK5qAY6sQGceMO9KGy75rSGSK9Jhffgp6ECN8Mwct472Z1JRwqPxCECpo4hAM%2BTiqPzt7Rc8yOTYkRKOicKyCebEt1uytTR6HQoyEcj%2FTBDmV%2BwTAA3FljzwsKBDHTaYj%2Bd0h8rsm4W%2BKtqjUgQ%2BsI4FzYNCv9BSWMF%2FnJ7wV%2BwaSDW1OYbdFVrBpkgTxJPCiLvqlbbKjcH%2BuE8HtSqJR%2FjUt%2Bvxx4CmAPJl%2BJDFQWASMAeV4kuGCM%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=d6b23eb9c8e5a0014a6ce8a718c62a6929e049b871c8383a6aa21e3c85fd9871"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 18642729,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "I presume then that the compiler puts the array in a different spot on the stack so that reading beyond the end actually causes a crash.\n\nCan you think of how this becomes a security problem and not just a crash?",
+      "automated_response": false,
+      "created_at": "2022-10-04T14:18:52.620Z",
+      "updated_at": "2022-10-04T14:18:52.620Z",
+      "actor": {
+        "username": "bagder",
+        "cleared": false,
+        "verified": false,
+        "url": "/bagder",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/y9xzl5ayi7du4kz3l6pa6sff2ha5/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22final-12-1000x1000.jpg%22%3B%20filename%2A%3DUTF-8%27%27final-12-1000x1000.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQWZRWVQLW%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065913Z&X-Amz-Expires=3392&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJHMEUCIH4h5RU%2BpbI3mlwEISZD1G9BopBv%2B7sztLbJknQb99SoAiEAvhxLWqtVFV73maMS53mFspg5vBZ3%2BzoNHXmSke7DMlAqsgUIIxADGgwwMTM2MTkyNzQ4NDkiDC7pogsWvzjWL290gCqPBTKeeZOA278oY6KnHe%2FmWuxZ3Qva3oIxiPgSeceppHqQhkbgfD3tsY8pCoJ9VsxHzSlUT0PRdOuJ8sr7ZKZL2JXBIQSfFD%2FndZi2qU1cFtihzUpwWYUUNN5iSpcUDdb5QDC4CvgOQ%2BEvd6tX7y%2F6Q%2BSMOg8q7yp5mzJr5qbY%2BWMbL6nz%2Buay4cd0wnSe6tkjuaJ1NIbjxSdH9CbkBS0XoTSgIOBDeBGuSMPeOJAc2qCCwB3%2FJJzjHbb07dimFwcVQ37AzR3aSdVTIrEy7NTVExSsa71AnpdGMfq2ZWxbVHT4Z6Ep3h5g9prjvXQKlNKYdiX%2BmlPln5qCDc8s7M8gON6CdSii7fH0aBOcu0INjoa4dc%2FOKcwiuirhI9fDfGn4h4w3t9xVEOfQ21OzAu6iCzqwbyX6FcQTYmc1%2FIb4Lr%2BmfHmZPXpM41HYMK9XHVWPs5aSmF5nYp0DtlX53W%2FJIPEUayublSARs02HeVHIz1vwC6fhS3x1128WqIIvz2dgsHmVJmC%2Bi%2BMemNKEsdiaq0lMgNiTe9mDem3SLrvYMO99wYuebZUfCAVBbqea6mN0o6TtPR%2BY4ZiZl0Y57HEgt3yLwEJQ3BmwdmweldY92DYxW1o1ozabvAsUO6MT%2BEI0mkI2tmtaZQ%2B31bwtxLouobN%2FxkZiIs9YPexJAJ6%2F1%2BFYr5HPRh8rib2vpmO4ylsOFgCISJP5yPdziLDBPihHZhMx8CE858zkJIqVtEFfXZ31W%2FNw09acXa5I4%2BC8AMnDBWV%2FqsryQDDwWpVkzUyRJroktjLT8m7IUEVkEXb7s2GO%2BJiidEBoinU5YgVGpMWTmAmcjaFhRA%2FpwdFI%2F7XHri8KUlyGWMlbYK2BDuF74uow5IK5qAY6sQGceMO9KGy75rSGSK9Jhffgp6ECN8Mwct472Z1JRwqPxCECpo4hAM%2BTiqPzt7Rc8yOTYkRKOicKyCebEt1uytTR6HQoyEcj%2FTBDmV%2BwTAA3FljzwsKBDHTaYj%2Bd0h8rsm4W%2BKtqjUgQ%2BsI4FzYNCv9BSWMF%2FnJ7wV%2BwaSDW1OYbdFVrBpkgTxJPCiLvqlbbKjcH%2BuE8HtSqJR%2FjUt%2Bvxx4CmAPJl%2BJDFQWASMAeV4kuGCM%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=d6b23eb9c8e5a0014a6ce8a718c62a6929e049b871c8383a6aa21e3c85fd9871"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 18643036,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "I'll use the same quotes again.\n```\n    while(!done && fgets(netrcbuffer, netrcbuffsize, file)) {\n      char *tok;\n      char *tok_end;\n      bool quoted;\n      if(state == MACDEF) {\n        if((netrcbuffer[0] == '\\n') || (netrcbuffer[0] == '\\r'))\n          state = NOTHING;\n        else\n          continue;\n      }\n      tok = netrcbuffer;\n      while(tok) {\n        while(ISSPACE(*tok))\n          tok++;\n        /* tok is first non-space letter */\n        if(!*tok || (*tok == '#'))\n          /* end of line or the rest is a comment */\n          break;\n\n        /* leading double-quote means quoted string */\n        quoted = (*tok == '\\\"');\n\n        tok_end = tok;\n        if(!quoted) {\n          while(!ISSPACE(*tok_end))\n            tok_end++;\n          *tok_end = 0;\n        }\n```\n\\0 does not stop the loop on line 13 because the result of ISSPACE() is false.\n`\nwhile(!ISSPACE(*tok_end))\n`\nIf the result of ISSPACE() is false, while(!ISSPACE()) will be true.\nThere is a process to stop the loop when \\0 on the 16th line, but before that there is a problem.\nAlso, even if you read outside the area and ISSPACE() returns true, the loop will continue if \\0 is not after 1 byte.\n\nWhen I ran it with the same arguments, it would sometimes succeed (and sometimes crash the application if I ran it multiple times).\nI thought that the success/failure was related to the Uninitialized Stack Variables, but I'm still guessing.\nWould it be better to take a screenshot of the application log? It may be difficult to understand because it is a Japanese environment...\n\n",
+      "automated_response": false,
+      "created_at": "2022-10-04T14:50:03.835Z",
+      "updated_at": "2022-10-04T14:50:03.835Z",
+      "actor": {
+        "username": "kurohiro",
+        "cleared": false,
+        "verified": false,
+        "url": "/kurohiro",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 18643047,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "> Yes, but it doesn't say that it supports super long lines without newline. I think it is a fairly safe work-around.\nYou're right. I think that it is a good modification and good specification change if existing users can accept it.",
+      "automated_response": false,
+      "created_at": "2022-10-04T14:51:02.768Z",
+      "updated_at": "2022-10-04T14:51:02.768Z",
+      "actor": {
+        "username": "kurohiro",
+        "cleared": false,
+        "verified": false,
+        "url": "/kurohiro",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 18643099,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "> \\0 does not stop the loop on line 13 because the result of ISSPACE() is false.\n\nAh right,. as long as it is a non-space it will continue and a null-byte is not a space and neither is 0x10. It will read past those until it accidentally hits a space or reads illegal memory and crashes.\n",
+      "automated_response": false,
+      "created_at": "2022-10-04T14:56:41.344Z",
+      "updated_at": "2022-10-04T14:56:41.344Z",
+      "actor": {
+        "username": "bagder",
+        "cleared": false,
+        "verified": false,
+        "url": "/bagder",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/y9xzl5ayi7du4kz3l6pa6sff2ha5/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22final-12-1000x1000.jpg%22%3B%20filename%2A%3DUTF-8%27%27final-12-1000x1000.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQWZRWVQLW%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065913Z&X-Amz-Expires=3392&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJHMEUCIH4h5RU%2BpbI3mlwEISZD1G9BopBv%2B7sztLbJknQb99SoAiEAvhxLWqtVFV73maMS53mFspg5vBZ3%2BzoNHXmSke7DMlAqsgUIIxADGgwwMTM2MTkyNzQ4NDkiDC7pogsWvzjWL290gCqPBTKeeZOA278oY6KnHe%2FmWuxZ3Qva3oIxiPgSeceppHqQhkbgfD3tsY8pCoJ9VsxHzSlUT0PRdOuJ8sr7ZKZL2JXBIQSfFD%2FndZi2qU1cFtihzUpwWYUUNN5iSpcUDdb5QDC4CvgOQ%2BEvd6tX7y%2F6Q%2BSMOg8q7yp5mzJr5qbY%2BWMbL6nz%2Buay4cd0wnSe6tkjuaJ1NIbjxSdH9CbkBS0XoTSgIOBDeBGuSMPeOJAc2qCCwB3%2FJJzjHbb07dimFwcVQ37AzR3aSdVTIrEy7NTVExSsa71AnpdGMfq2ZWxbVHT4Z6Ep3h5g9prjvXQKlNKYdiX%2BmlPln5qCDc8s7M8gON6CdSii7fH0aBOcu0INjoa4dc%2FOKcwiuirhI9fDfGn4h4w3t9xVEOfQ21OzAu6iCzqwbyX6FcQTYmc1%2FIb4Lr%2BmfHmZPXpM41HYMK9XHVWPs5aSmF5nYp0DtlX53W%2FJIPEUayublSARs02HeVHIz1vwC6fhS3x1128WqIIvz2dgsHmVJmC%2Bi%2BMemNKEsdiaq0lMgNiTe9mDem3SLrvYMO99wYuebZUfCAVBbqea6mN0o6TtPR%2BY4ZiZl0Y57HEgt3yLwEJQ3BmwdmweldY92DYxW1o1ozabvAsUO6MT%2BEI0mkI2tmtaZQ%2B31bwtxLouobN%2FxkZiIs9YPexJAJ6%2F1%2BFYr5HPRh8rib2vpmO4ylsOFgCISJP5yPdziLDBPihHZhMx8CE858zkJIqVtEFfXZ31W%2FNw09acXa5I4%2BC8AMnDBWV%2FqsryQDDwWpVkzUyRJroktjLT8m7IUEVkEXb7s2GO%2BJiidEBoinU5YgVGpMWTmAmcjaFhRA%2FpwdFI%2F7XHri8KUlyGWMlbYK2BDuF74uow5IK5qAY6sQGceMO9KGy75rSGSK9Jhffgp6ECN8Mwct472Z1JRwqPxCECpo4hAM%2BTiqPzt7Rc8yOTYkRKOicKyCebEt1uytTR6HQoyEcj%2FTBDmV%2BwTAA3FljzwsKBDHTaYj%2Bd0h8rsm4W%2BKtqjUgQ%2BsI4FzYNCv9BSWMF%2FnJ7wV%2BwaSDW1OYbdFVrBpkgTxJPCiLvqlbbKjcH%2BuE8HtSqJR%2FjUt%2Bvxx4CmAPJl%2BJDFQWASMAeV4kuGCM%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=d6b23eb9c8e5a0014a6ce8a718c62a6929e049b871c8383a6aa21e3c85fd9871"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 18643309,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "> Can you think of how this becomes a security problem and not just a crash?\n\nIf you have a server program that communicates using an externally passed .netrc file, I would say a denial of service due to an application crash.\nI think that specifying CURLOPT_NETRC or CURLOPT_NETRC in curl_easy_setopt() will also cause a problem, so it is recognized that it will be a problem not only with the curl command but also with programs that use libcurl.",
+      "automated_response": false,
+      "created_at": "2022-10-04T15:19:14.780Z",
+      "updated_at": "2022-10-04T15:19:14.780Z",
+      "actor": {
+        "username": "kurohiro",
+        "cleared": false,
+        "verified": false,
+        "url": "/kurohiro",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 18649723,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugTriaged",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2022-10-05T06:26:48.847Z",
+      "updated_at": "2022-10-05T06:26:48.847Z",
+      "actor": {
+        "username": "bagder",
+        "cleared": false,
+        "verified": false,
+        "url": "/bagder",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/y9xzl5ayi7du4kz3l6pa6sff2ha5/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22final-12-1000x1000.jpg%22%3B%20filename%2A%3DUTF-8%27%27final-12-1000x1000.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQWZRWVQLW%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065913Z&X-Amz-Expires=3392&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJHMEUCIH4h5RU%2BpbI3mlwEISZD1G9BopBv%2B7sztLbJknQb99SoAiEAvhxLWqtVFV73maMS53mFspg5vBZ3%2BzoNHXmSke7DMlAqsgUIIxADGgwwMTM2MTkyNzQ4NDkiDC7pogsWvzjWL290gCqPBTKeeZOA278oY6KnHe%2FmWuxZ3Qva3oIxiPgSeceppHqQhkbgfD3tsY8pCoJ9VsxHzSlUT0PRdOuJ8sr7ZKZL2JXBIQSfFD%2FndZi2qU1cFtihzUpwWYUUNN5iSpcUDdb5QDC4CvgOQ%2BEvd6tX7y%2F6Q%2BSMOg8q7yp5mzJr5qbY%2BWMbL6nz%2Buay4cd0wnSe6tkjuaJ1NIbjxSdH9CbkBS0XoTSgIOBDeBGuSMPeOJAc2qCCwB3%2FJJzjHbb07dimFwcVQ37AzR3aSdVTIrEy7NTVExSsa71AnpdGMfq2ZWxbVHT4Z6Ep3h5g9prjvXQKlNKYdiX%2BmlPln5qCDc8s7M8gON6CdSii7fH0aBOcu0INjoa4dc%2FOKcwiuirhI9fDfGn4h4w3t9xVEOfQ21OzAu6iCzqwbyX6FcQTYmc1%2FIb4Lr%2BmfHmZPXpM41HYMK9XHVWPs5aSmF5nYp0DtlX53W%2FJIPEUayublSARs02HeVHIz1vwC6fhS3x1128WqIIvz2dgsHmVJmC%2Bi%2BMemNKEsdiaq0lMgNiTe9mDem3SLrvYMO99wYuebZUfCAVBbqea6mN0o6TtPR%2BY4ZiZl0Y57HEgt3yLwEJQ3BmwdmweldY92DYxW1o1ozabvAsUO6MT%2BEI0mkI2tmtaZQ%2B31bwtxLouobN%2FxkZiIs9YPexJAJ6%2F1%2BFYr5HPRh8rib2vpmO4ylsOFgCISJP5yPdziLDBPihHZhMx8CE858zkJIqVtEFfXZ31W%2FNw09acXa5I4%2BC8AMnDBWV%2FqsryQDDwWpVkzUyRJroktjLT8m7IUEVkEXb7s2GO%2BJiidEBoinU5YgVGpMWTmAmcjaFhRA%2FpwdFI%2F7XHri8KUlyGWMlbYK2BDuF74uow5IK5qAY6sQGceMO9KGy75rSGSK9Jhffgp6ECN8Mwct472Z1JRwqPxCECpo4hAM%2BTiqPzt7Rc8yOTYkRKOicKyCebEt1uytTR6HQoyEcj%2FTBDmV%2BwTAA3FljzwsKBDHTaYj%2Bd0h8rsm4W%2BKtqjUgQ%2BsI4FzYNCv9BSWMF%2FnJ7wV%2BwaSDW1OYbdFVrBpkgTxJPCiLvqlbbKjcH%2BuE8HtSqJR%2FjUt%2Bvxx4CmAPJl%2BJDFQWASMAeV4kuGCM%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=d6b23eb9c8e5a0014a6ce8a718c62a6929e049b871c8383a6aa21e3c85fd9871"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 18649735,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Agreed. I will write up a first security advisory draft for this issue within a day or two.\n\nSince this issue is not set **high** nor **critical**, we would like to work on this issue, create a detailed security advisory, create a patch and ideally one or two tests and then **go public in sync with the pending next release** (this might then end up as one out of several issues that go public on the same date). We hope this is okay with you, as otherwise we can certainly discuss and maybe work out an expedited schedule.",
+      "automated_response": false,
+      "created_at": "2022-10-05T06:28:09.223Z",
+      "updated_at": "2022-10-05T06:28:09.223Z",
+      "actor": {
+        "username": "bagder",
+        "cleared": false,
+        "verified": false,
+        "url": "/bagder",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/y9xzl5ayi7du4kz3l6pa6sff2ha5/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22final-12-1000x1000.jpg%22%3B%20filename%2A%3DUTF-8%27%27final-12-1000x1000.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQWZRWVQLW%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065913Z&X-Amz-Expires=3392&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJHMEUCIH4h5RU%2BpbI3mlwEISZD1G9BopBv%2B7sztLbJknQb99SoAiEAvhxLWqtVFV73maMS53mFspg5vBZ3%2BzoNHXmSke7DMlAqsgUIIxADGgwwMTM2MTkyNzQ4NDkiDC7pogsWvzjWL290gCqPBTKeeZOA278oY6KnHe%2FmWuxZ3Qva3oIxiPgSeceppHqQhkbgfD3tsY8pCoJ9VsxHzSlUT0PRdOuJ8sr7ZKZL2JXBIQSfFD%2FndZi2qU1cFtihzUpwWYUUNN5iSpcUDdb5QDC4CvgOQ%2BEvd6tX7y%2F6Q%2BSMOg8q7yp5mzJr5qbY%2BWMbL6nz%2Buay4cd0wnSe6tkjuaJ1NIbjxSdH9CbkBS0XoTSgIOBDeBGuSMPeOJAc2qCCwB3%2FJJzjHbb07dimFwcVQ37AzR3aSdVTIrEy7NTVExSsa71AnpdGMfq2ZWxbVHT4Z6Ep3h5g9prjvXQKlNKYdiX%2BmlPln5qCDc8s7M8gON6CdSii7fH0aBOcu0INjoa4dc%2FOKcwiuirhI9fDfGn4h4w3t9xVEOfQ21OzAu6iCzqwbyX6FcQTYmc1%2FIb4Lr%2BmfHmZPXpM41HYMK9XHVWPs5aSmF5nYp0DtlX53W%2FJIPEUayublSARs02HeVHIz1vwC6fhS3x1128WqIIvz2dgsHmVJmC%2Bi%2BMemNKEsdiaq0lMgNiTe9mDem3SLrvYMO99wYuebZUfCAVBbqea6mN0o6TtPR%2BY4ZiZl0Y57HEgt3yLwEJQ3BmwdmweldY92DYxW1o1ozabvAsUO6MT%2BEI0mkI2tmtaZQ%2B31bwtxLouobN%2FxkZiIs9YPexJAJ6%2F1%2BFYr5HPRh8rib2vpmO4ylsOFgCISJP5yPdziLDBPihHZhMx8CE858zkJIqVtEFfXZ31W%2FNw09acXa5I4%2BC8AMnDBWV%2FqsryQDDwWpVkzUyRJroktjLT8m7IUEVkEXb7s2GO%2BJiidEBoinU5YgVGpMWTmAmcjaFhRA%2FpwdFI%2F7XHri8KUlyGWMlbYK2BDuF74uow5IK5qAY6sQGceMO9KGy75rSGSK9Jhffgp6ECN8Mwct472Z1JRwqPxCECpo4hAM%2BTiqPzt7Rc8yOTYkRKOicKyCebEt1uytTR6HQoyEcj%2FTBDmV%2BwTAA3FljzwsKBDHTaYj%2Bd0h8rsm4W%2BKtqjUgQ%2BsI4FzYNCv9BSWMF%2FnJ7wV%2BwaSDW1OYbdFVrBpkgTxJPCiLvqlbbKjcH%2BuE8HtSqJR%2FjUt%2Bvxx4CmAPJl%2BJDFQWASMAeV4kuGCM%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=d6b23eb9c8e5a0014a6ce8a718c62a6929e049b871c8383a6aa21e3c85fd9871"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 18653027,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Thank you for agreeing.\nUnderstood.",
+      "automated_response": false,
+      "created_at": "2022-10-05T10:04:52.103Z",
+      "updated_at": "2022-10-05T10:04:52.103Z",
+      "actor": {
+        "username": "kurohiro",
+        "cleared": false,
+        "verified": false,
+        "url": "/kurohiro",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 18667729,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "It seems I introduced this flaw here: https://github.com/curl/curl/commit/eeaae10c0fb27aa06",
+      "automated_response": false,
+      "created_at": "2022-10-06T09:19:40.768Z",
+      "updated_at": "2022-10-06T09:19:40.768Z",
+      "actor": {
+        "username": "bagder",
+        "cleared": false,
+        "verified": false,
+        "url": "/bagder",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/y9xzl5ayi7du4kz3l6pa6sff2ha5/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22final-12-1000x1000.jpg%22%3B%20filename%2A%3DUTF-8%27%27final-12-1000x1000.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQWZRWVQLW%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065913Z&X-Amz-Expires=3392&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJHMEUCIH4h5RU%2BpbI3mlwEISZD1G9BopBv%2B7sztLbJknQb99SoAiEAvhxLWqtVFV73maMS53mFspg5vBZ3%2BzoNHXmSke7DMlAqsgUIIxADGgwwMTM2MTkyNzQ4NDkiDC7pogsWvzjWL290gCqPBTKeeZOA278oY6KnHe%2FmWuxZ3Qva3oIxiPgSeceppHqQhkbgfD3tsY8pCoJ9VsxHzSlUT0PRdOuJ8sr7ZKZL2JXBIQSfFD%2FndZi2qU1cFtihzUpwWYUUNN5iSpcUDdb5QDC4CvgOQ%2BEvd6tX7y%2F6Q%2BSMOg8q7yp5mzJr5qbY%2BWMbL6nz%2Buay4cd0wnSe6tkjuaJ1NIbjxSdH9CbkBS0XoTSgIOBDeBGuSMPeOJAc2qCCwB3%2FJJzjHbb07dimFwcVQ37AzR3aSdVTIrEy7NTVExSsa71AnpdGMfq2ZWxbVHT4Z6Ep3h5g9prjvXQKlNKYdiX%2BmlPln5qCDc8s7M8gON6CdSii7fH0aBOcu0INjoa4dc%2FOKcwiuirhI9fDfGn4h4w3t9xVEOfQ21OzAu6iCzqwbyX6FcQTYmc1%2FIb4Lr%2BmfHmZPXpM41HYMK9XHVWPs5aSmF5nYp0DtlX53W%2FJIPEUayublSARs02HeVHIz1vwC6fhS3x1128WqIIvz2dgsHmVJmC%2Bi%2BMemNKEsdiaq0lMgNiTe9mDem3SLrvYMO99wYuebZUfCAVBbqea6mN0o6TtPR%2BY4ZiZl0Y57HEgt3yLwEJQ3BmwdmweldY92DYxW1o1ozabvAsUO6MT%2BEI0mkI2tmtaZQ%2B31bwtxLouobN%2FxkZiIs9YPexJAJ6%2F1%2BFYr5HPRh8rib2vpmO4ylsOFgCISJP5yPdziLDBPihHZhMx8CE858zkJIqVtEFfXZ31W%2FNw09acXa5I4%2BC8AMnDBWV%2FqsryQDDwWpVkzUyRJroktjLT8m7IUEVkEXb7s2GO%2BJiidEBoinU5YgVGpMWTmAmcjaFhRA%2FpwdFI%2F7XHri8KUlyGWMlbYK2BDuF74uow5IK5qAY6sQGceMO9KGy75rSGSK9Jhffgp6ECN8Mwct472Z1JRwqPxCECpo4hAM%2BTiqPzt7Rc8yOTYkRKOicKyCebEt1uytTR6HQoyEcj%2FTBDmV%2BwTAA3FljzwsKBDHTaYj%2Bd0h8rsm4W%2BKtqjUgQ%2BsI4FzYNCv9BSWMF%2FnJ7wV%2BwaSDW1OYbdFVrBpkgTxJPCiLvqlbbKjcH%2BuE8HtSqJR%2FjUt%2Bvxx4CmAPJl%2BJDFQWASMAeV4kuGCM%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=d6b23eb9c8e5a0014a6ce8a718c62a6929e049b871c8383a6aa21e3c85fd9871"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 18667749,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "I'm thinking CWE-121:\n\nCWE-121: Stack-based Buffer Overflow",
+      "automated_response": false,
+      "created_at": "2022-10-06T09:21:21.769Z",
+      "updated_at": "2022-10-06T09:21:21.769Z",
+      "actor": {
+        "username": "bagder",
+        "cleared": false,
+        "verified": false,
+        "url": "/bagder",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/y9xzl5ayi7du4kz3l6pa6sff2ha5/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22final-12-1000x1000.jpg%22%3B%20filename%2A%3DUTF-8%27%27final-12-1000x1000.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQWZRWVQLW%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065913Z&X-Amz-Expires=3392&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJHMEUCIH4h5RU%2BpbI3mlwEISZD1G9BopBv%2B7sztLbJknQb99SoAiEAvhxLWqtVFV73maMS53mFspg5vBZ3%2BzoNHXmSke7DMlAqsgUIIxADGgwwMTM2MTkyNzQ4NDkiDC7pogsWvzjWL290gCqPBTKeeZOA278oY6KnHe%2FmWuxZ3Qva3oIxiPgSeceppHqQhkbgfD3tsY8pCoJ9VsxHzSlUT0PRdOuJ8sr7ZKZL2JXBIQSfFD%2FndZi2qU1cFtihzUpwWYUUNN5iSpcUDdb5QDC4CvgOQ%2BEvd6tX7y%2F6Q%2BSMOg8q7yp5mzJr5qbY%2BWMbL6nz%2Buay4cd0wnSe6tkjuaJ1NIbjxSdH9CbkBS0XoTSgIOBDeBGuSMPeOJAc2qCCwB3%2FJJzjHbb07dimFwcVQ37AzR3aSdVTIrEy7NTVExSsa71AnpdGMfq2ZWxbVHT4Z6Ep3h5g9prjvXQKlNKYdiX%2BmlPln5qCDc8s7M8gON6CdSii7fH0aBOcu0INjoa4dc%2FOKcwiuirhI9fDfGn4h4w3t9xVEOfQ21OzAu6iCzqwbyX6FcQTYmc1%2FIb4Lr%2BmfHmZPXpM41HYMK9XHVWPs5aSmF5nYp0DtlX53W%2FJIPEUayublSARs02HeVHIz1vwC6fhS3x1128WqIIvz2dgsHmVJmC%2Bi%2BMemNKEsdiaq0lMgNiTe9mDem3SLrvYMO99wYuebZUfCAVBbqea6mN0o6TtPR%2BY4ZiZl0Y57HEgt3yLwEJQ3BmwdmweldY92DYxW1o1ozabvAsUO6MT%2BEI0mkI2tmtaZQ%2B31bwtxLouobN%2FxkZiIs9YPexJAJ6%2F1%2BFYr5HPRh8rib2vpmO4ylsOFgCISJP5yPdziLDBPihHZhMx8CE858zkJIqVtEFfXZ31W%2FNw09acXa5I4%2BC8AMnDBWV%2FqsryQDDwWpVkzUyRJroktjLT8m7IUEVkEXb7s2GO%2BJiidEBoinU5YgVGpMWTmAmcjaFhRA%2FpwdFI%2F7XHri8KUlyGWMlbYK2BDuF74uow5IK5qAY6sQGceMO9KGy75rSGSK9Jhffgp6ECN8Mwct472Z1JRwqPxCECpo4hAM%2BTiqPzt7Rc8yOTYkRKOicKyCebEt1uytTR6HQoyEcj%2FTBDmV%2BwTAA3FljzwsKBDHTaYj%2Bd0h8rsm4W%2BKtqjUgQ%2BsI4FzYNCv9BSWMF%2FnJ7wV%2BwaSDW1OYbdFVrBpkgTxJPCiLvqlbbKjcH%2BuE8HtSqJR%2FjUt%2Bvxx4CmAPJl%2BJDFQWASMAeV4kuGCM%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=d6b23eb9c8e5a0014a6ce8a718c62a6929e049b871c8383a6aa21e3c85fd9871"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 18667827,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::CveIdAdded",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2022-10-06T09:30:23.660Z",
+      "updated_at": "2022-10-06T09:30:23.660Z",
+      "cve_ids": [
+        "CVE-2022-35260"
+      ],
+      "actor": {
+        "username": "bagder",
+        "cleared": false,
+        "verified": false,
+        "url": "/bagder",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/y9xzl5ayi7du4kz3l6pa6sff2ha5/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22final-12-1000x1000.jpg%22%3B%20filename%2A%3DUTF-8%27%27final-12-1000x1000.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQWZRWVQLW%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065913Z&X-Amz-Expires=3392&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJHMEUCIH4h5RU%2BpbI3mlwEISZD1G9BopBv%2B7sztLbJknQb99SoAiEAvhxLWqtVFV73maMS53mFspg5vBZ3%2BzoNHXmSke7DMlAqsgUIIxADGgwwMTM2MTkyNzQ4NDkiDC7pogsWvzjWL290gCqPBTKeeZOA278oY6KnHe%2FmWuxZ3Qva3oIxiPgSeceppHqQhkbgfD3tsY8pCoJ9VsxHzSlUT0PRdOuJ8sr7ZKZL2JXBIQSfFD%2FndZi2qU1cFtihzUpwWYUUNN5iSpcUDdb5QDC4CvgOQ%2BEvd6tX7y%2F6Q%2BSMOg8q7yp5mzJr5qbY%2BWMbL6nz%2Buay4cd0wnSe6tkjuaJ1NIbjxSdH9CbkBS0XoTSgIOBDeBGuSMPeOJAc2qCCwB3%2FJJzjHbb07dimFwcVQ37AzR3aSdVTIrEy7NTVExSsa71AnpdGMfq2ZWxbVHT4Z6Ep3h5g9prjvXQKlNKYdiX%2BmlPln5qCDc8s7M8gON6CdSii7fH0aBOcu0INjoa4dc%2FOKcwiuirhI9fDfGn4h4w3t9xVEOfQ21OzAu6iCzqwbyX6FcQTYmc1%2FIb4Lr%2BmfHmZPXpM41HYMK9XHVWPs5aSmF5nYp0DtlX53W%2FJIPEUayublSARs02HeVHIz1vwC6fhS3x1128WqIIvz2dgsHmVJmC%2Bi%2BMemNKEsdiaq0lMgNiTe9mDem3SLrvYMO99wYuebZUfCAVBbqea6mN0o6TtPR%2BY4ZiZl0Y57HEgt3yLwEJQ3BmwdmweldY92DYxW1o1ozabvAsUO6MT%2BEI0mkI2tmtaZQ%2B31bwtxLouobN%2FxkZiIs9YPexJAJ6%2F1%2BFYr5HPRh8rib2vpmO4ylsOFgCISJP5yPdziLDBPihHZhMx8CE858zkJIqVtEFfXZ31W%2FNw09acXa5I4%2BC8AMnDBWV%2FqsryQDDwWpVkzUyRJroktjLT8m7IUEVkEXb7s2GO%2BJiidEBoinU5YgVGpMWTmAmcjaFhRA%2FpwdFI%2F7XHri8KUlyGWMlbYK2BDuF74uow5IK5qAY6sQGceMO9KGy75rSGSK9Jhffgp6ECN8Mwct472Z1JRwqPxCECpo4hAM%2BTiqPzt7Rc8yOTYkRKOicKyCebEt1uytTR6HQoyEcj%2FTBDmV%2BwTAA3FljzwsKBDHTaYj%2Bd0h8rsm4W%2BKtqjUgQ%2BsI4FzYNCv9BSWMF%2FnJ7wV%2BwaSDW1OYbdFVrBpkgTxJPCiLvqlbbKjcH%2BuE8HtSqJR%2FjUt%2Bvxx4CmAPJl%2BJDFQWASMAeV4kuGCM%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=d6b23eb9c8e5a0014a6ce8a718c62a6929e049b871c8383a6aa21e3c85fd9871"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 18667830,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportTitleUpdated",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2022-10-06T09:30:49.688Z",
+      "updated_at": "2022-10-06T09:30:49.688Z",
+      "additional_data": {
+        "old_title": "Using a file without spaces or newlines as .netrc will result in an out-of-bounds read (& 1 byte out-of-bounds write).",
+        "new_title": "CVE-2022-35260: .netrc parser out-of-bounds access"
+      },
+      "actor": {
+        "username": "bagder",
+        "cleared": false,
+        "verified": false,
+        "url": "/bagder",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/y9xzl5ayi7du4kz3l6pa6sff2ha5/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22final-12-1000x1000.jpg%22%3B%20filename%2A%3DUTF-8%27%27final-12-1000x1000.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQWZRWVQLW%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065913Z&X-Amz-Expires=3392&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJHMEUCIH4h5RU%2BpbI3mlwEISZD1G9BopBv%2B7sztLbJknQb99SoAiEAvhxLWqtVFV73maMS53mFspg5vBZ3%2BzoNHXmSke7DMlAqsgUIIxADGgwwMTM2MTkyNzQ4NDkiDC7pogsWvzjWL290gCqPBTKeeZOA278oY6KnHe%2FmWuxZ3Qva3oIxiPgSeceppHqQhkbgfD3tsY8pCoJ9VsxHzSlUT0PRdOuJ8sr7ZKZL2JXBIQSfFD%2FndZi2qU1cFtihzUpwWYUUNN5iSpcUDdb5QDC4CvgOQ%2BEvd6tX7y%2F6Q%2BSMOg8q7yp5mzJr5qbY%2BWMbL6nz%2Buay4cd0wnSe6tkjuaJ1NIbjxSdH9CbkBS0XoTSgIOBDeBGuSMPeOJAc2qCCwB3%2FJJzjHbb07dimFwcVQ37AzR3aSdVTIrEy7NTVExSsa71AnpdGMfq2ZWxbVHT4Z6Ep3h5g9prjvXQKlNKYdiX%2BmlPln5qCDc8s7M8gON6CdSii7fH0aBOcu0INjoa4dc%2FOKcwiuirhI9fDfGn4h4w3t9xVEOfQ21OzAu6iCzqwbyX6FcQTYmc1%2FIb4Lr%2BmfHmZPXpM41HYMK9XHVWPs5aSmF5nYp0DtlX53W%2FJIPEUayublSARs02HeVHIz1vwC6fhS3x1128WqIIvz2dgsHmVJmC%2Bi%2BMemNKEsdiaq0lMgNiTe9mDem3SLrvYMO99wYuebZUfCAVBbqea6mN0o6TtPR%2BY4ZiZl0Y57HEgt3yLwEJQ3BmwdmweldY92DYxW1o1ozabvAsUO6MT%2BEI0mkI2tmtaZQ%2B31bwtxLouobN%2FxkZiIs9YPexJAJ6%2F1%2BFYr5HPRh8rib2vpmO4ylsOFgCISJP5yPdziLDBPihHZhMx8CE858zkJIqVtEFfXZ31W%2FNw09acXa5I4%2BC8AMnDBWV%2FqsryQDDwWpVkzUyRJroktjLT8m7IUEVkEXb7s2GO%2BJiidEBoinU5YgVGpMWTmAmcjaFhRA%2FpwdFI%2F7XHri8KUlyGWMlbYK2BDuF74uow5IK5qAY6sQGceMO9KGy75rSGSK9Jhffgp6ECN8Mwct472Z1JRwqPxCECpo4hAM%2BTiqPzt7Rc8yOTYkRKOicKyCebEt1uytTR6HQoyEcj%2FTBDmV%2BwTAA3FljzwsKBDHTaYj%2Bd0h8rsm4W%2BKtqjUgQ%2BsI4FzYNCv9BSWMF%2FnJ7wV%2BwaSDW1OYbdFVrBpkgTxJPCiLvqlbbKjcH%2BuE8HtSqJR%2FjUt%2Bvxx4CmAPJl%2BJDFQWASMAeV4kuGCM%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=d6b23eb9c8e5a0014a6ce8a718c62a6929e049b871c8383a6aa21e3c85fd9871"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 18667879,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "I'm attaching my initial take at a security advisory for this flaw.",
+      "automated_response": false,
+      "created_at": "2022-10-06T09:36:36.087Z",
+      "updated_at": "2022-10-06T09:36:36.087Z",
+      "actor": {
+        "username": "bagder",
+        "cleared": false,
+        "verified": false,
+        "url": "/bagder",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/y9xzl5ayi7du4kz3l6pa6sff2ha5/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22final-12-1000x1000.jpg%22%3B%20filename%2A%3DUTF-8%27%27final-12-1000x1000.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQWZRWVQLW%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065913Z&X-Amz-Expires=3392&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJHMEUCIH4h5RU%2BpbI3mlwEISZD1G9BopBv%2B7sztLbJknQb99SoAiEAvhxLWqtVFV73maMS53mFspg5vBZ3%2BzoNHXmSke7DMlAqsgUIIxADGgwwMTM2MTkyNzQ4NDkiDC7pogsWvzjWL290gCqPBTKeeZOA278oY6KnHe%2FmWuxZ3Qva3oIxiPgSeceppHqQhkbgfD3tsY8pCoJ9VsxHzSlUT0PRdOuJ8sr7ZKZL2JXBIQSfFD%2FndZi2qU1cFtihzUpwWYUUNN5iSpcUDdb5QDC4CvgOQ%2BEvd6tX7y%2F6Q%2BSMOg8q7yp5mzJr5qbY%2BWMbL6nz%2Buay4cd0wnSe6tkjuaJ1NIbjxSdH9CbkBS0XoTSgIOBDeBGuSMPeOJAc2qCCwB3%2FJJzjHbb07dimFwcVQ37AzR3aSdVTIrEy7NTVExSsa71AnpdGMfq2ZWxbVHT4Z6Ep3h5g9prjvXQKlNKYdiX%2BmlPln5qCDc8s7M8gON6CdSii7fH0aBOcu0INjoa4dc%2FOKcwiuirhI9fDfGn4h4w3t9xVEOfQ21OzAu6iCzqwbyX6FcQTYmc1%2FIb4Lr%2BmfHmZPXpM41HYMK9XHVWPs5aSmF5nYp0DtlX53W%2FJIPEUayublSARs02HeVHIz1vwC6fhS3x1128WqIIvz2dgsHmVJmC%2Bi%2BMemNKEsdiaq0lMgNiTe9mDem3SLrvYMO99wYuebZUfCAVBbqea6mN0o6TtPR%2BY4ZiZl0Y57HEgt3yLwEJQ3BmwdmweldY92DYxW1o1ozabvAsUO6MT%2BEI0mkI2tmtaZQ%2B31bwtxLouobN%2FxkZiIs9YPexJAJ6%2F1%2BFYr5HPRh8rib2vpmO4ylsOFgCISJP5yPdziLDBPihHZhMx8CE858zkJIqVtEFfXZ31W%2FNw09acXa5I4%2BC8AMnDBWV%2FqsryQDDwWpVkzUyRJroktjLT8m7IUEVkEXb7s2GO%2BJiidEBoinU5YgVGpMWTmAmcjaFhRA%2FpwdFI%2F7XHri8KUlyGWMlbYK2BDuF74uow5IK5qAY6sQGceMO9KGy75rSGSK9Jhffgp6ECN8Mwct472Z1JRwqPxCECpo4hAM%2BTiqPzt7Rc8yOTYkRKOicKyCebEt1uytTR6HQoyEcj%2FTBDmV%2BwTAA3FljzwsKBDHTaYj%2Bd0h8rsm4W%2BKtqjUgQ%2BsI4FzYNCv9BSWMF%2FnJ7wV%2BwaSDW1OYbdFVrBpkgTxJPCiLvqlbbKjcH%2BuE8HtSqJR%2FjUt%2Bvxx4CmAPJl%2BJDFQWASMAeV4kuGCM%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=d6b23eb9c8e5a0014a6ce8a718c62a6929e049b871c8383a6aa21e3c85fd9871"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "attachments": [
+        {
+          "id": 1971860,
+          "filename": "CVE-2022-35260.md",
+          "type": "text/markdown",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/n43cq6u7l7tf8ih0pdi0yvplx8v9?response-content-disposition=attachment%3B%20filename%3D%22CVE-2022-35260.md%22%3B%20filename%2A%3DUTF-8%27%27CVE-2022-35260.md&response-content-type=text%2Fmarkdown&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQWZRWVQLW%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065913Z&X-Amz-Expires=3392&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJHMEUCIH4h5RU%2BpbI3mlwEISZD1G9BopBv%2B7sztLbJknQb99SoAiEAvhxLWqtVFV73maMS53mFspg5vBZ3%2BzoNHXmSke7DMlAqsgUIIxADGgwwMTM2MTkyNzQ4NDkiDC7pogsWvzjWL290gCqPBTKeeZOA278oY6KnHe%2FmWuxZ3Qva3oIxiPgSeceppHqQhkbgfD3tsY8pCoJ9VsxHzSlUT0PRdOuJ8sr7ZKZL2JXBIQSfFD%2FndZi2qU1cFtihzUpwWYUUNN5iSpcUDdb5QDC4CvgOQ%2BEvd6tX7y%2F6Q%2BSMOg8q7yp5mzJr5qbY%2BWMbL6nz%2Buay4cd0wnSe6tkjuaJ1NIbjxSdH9CbkBS0XoTSgIOBDeBGuSMPeOJAc2qCCwB3%2FJJzjHbb07dimFwcVQ37AzR3aSdVTIrEy7NTVExSsa71AnpdGMfq2ZWxbVHT4Z6Ep3h5g9prjvXQKlNKYdiX%2BmlPln5qCDc8s7M8gON6CdSii7fH0aBOcu0INjoa4dc%2FOKcwiuirhI9fDfGn4h4w3t9xVEOfQ21OzAu6iCzqwbyX6FcQTYmc1%2FIb4Lr%2BmfHmZPXpM41HYMK9XHVWPs5aSmF5nYp0DtlX53W%2FJIPEUayublSARs02HeVHIz1vwC6fhS3x1128WqIIvz2dgsHmVJmC%2Bi%2BMemNKEsdiaq0lMgNiTe9mDem3SLrvYMO99wYuebZUfCAVBbqea6mN0o6TtPR%2BY4ZiZl0Y57HEgt3yLwEJQ3BmwdmweldY92DYxW1o1ozabvAsUO6MT%2BEI0mkI2tmtaZQ%2B31bwtxLouobN%2FxkZiIs9YPexJAJ6%2F1%2BFYr5HPRh8rib2vpmO4ylsOFgCISJP5yPdziLDBPihHZhMx8CE858zkJIqVtEFfXZ31W%2FNw09acXa5I4%2BC8AMnDBWV%2FqsryQDDwWpVkzUyRJroktjLT8m7IUEVkEXb7s2GO%2BJiidEBoinU5YgVGpMWTmAmcjaFhRA%2FpwdFI%2F7XHri8KUlyGWMlbYK2BDuF74uow5IK5qAY6sQGceMO9KGy75rSGSK9Jhffgp6ECN8Mwct472Z1JRwqPxCECpo4hAM%2BTiqPzt7Rc8yOTYkRKOicKyCebEt1uytTR6HQoyEcj%2FTBDmV%2BwTAA3FljzwsKBDHTaYj%2Bd0h8rsm4W%2BKtqjUgQ%2BsI4FzYNCv9BSWMF%2FnJ7wV%2BwaSDW1OYbdFVrBpkgTxJPCiLvqlbbKjcH%2BuE8HtSqJR%2FjUt%2Bvxx4CmAPJl%2BJDFQWASMAeV4kuGCM%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=80967a51b5dcdeddecd28d5d01b4c7760b44af15119f40c06833dc1e150c7000"
+        }
+      ],
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 18668834,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "> I'm thinking CWE-121:\n\nIt’s exactly as you said.",
+      "automated_response": false,
+      "created_at": "2022-10-06T10:57:13.153Z",
+      "updated_at": "2022-10-06T10:57:13.153Z",
+      "actor": {
+        "username": "kurohiro",
+        "cleared": false,
+        "verified": false,
+        "url": "/kurohiro",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 18668874,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "I'm sorry I didn't make it clear enough.\n`Depending on memory conditions, even a single byte file can cause problems.`\nI should have clarified this part\n\nThe file was 4095 bytes because it was prone to problems.\n\nI believe this problem can occur even if the .netrc file contains only 1 byte.\nfgets() does not do padding.\nnetrcbuffer is an uninitialized variable.\nSo the remaining 4094 bytes will be random values (depending on the compiler and optimization options).\nIn most cases, somewhere in the remaining 4094 bytes, ISSPACE() becomes true and the phenomenon ceases to occur. However, this is not 100% certain to be the case.",
+      "automated_response": false,
+      "created_at": "2022-10-06T11:02:38.391Z",
+      "updated_at": "2022-10-06T11:02:38.391Z",
+      "actor": {
+        "username": "kurohiro",
+        "cleared": false,
+        "verified": false,
+        "url": "/kurohiro",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 18670517,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Ah right, 4095 bytes makes it more likely to read beyond the the buffer but to trigger the error you just need a trailing line of non-whitespace without a newline.\n\nI'll update the description to say:\n\n---\ncurl can be told to parse a `.netrc` file for credentials. If that file ends\nin a line with consecutive non-white space letters and no newline, curl could\nread past the end of the stack-based buffer, and if the read works, write a\nzero byte possibly beyond its boundary.\n\n",
+      "automated_response": false,
+      "created_at": "2022-10-06T14:08:38.542Z",
+      "updated_at": "2022-10-06T14:08:38.542Z",
+      "actor": {
+        "username": "bagder",
+        "cleared": false,
+        "verified": false,
+        "url": "/bagder",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/y9xzl5ayi7du4kz3l6pa6sff2ha5/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22final-12-1000x1000.jpg%22%3B%20filename%2A%3DUTF-8%27%27final-12-1000x1000.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQWZRWVQLW%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065913Z&X-Amz-Expires=3392&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJHMEUCIH4h5RU%2BpbI3mlwEISZD1G9BopBv%2B7sztLbJknQb99SoAiEAvhxLWqtVFV73maMS53mFspg5vBZ3%2BzoNHXmSke7DMlAqsgUIIxADGgwwMTM2MTkyNzQ4NDkiDC7pogsWvzjWL290gCqPBTKeeZOA278oY6KnHe%2FmWuxZ3Qva3oIxiPgSeceppHqQhkbgfD3tsY8pCoJ9VsxHzSlUT0PRdOuJ8sr7ZKZL2JXBIQSfFD%2FndZi2qU1cFtihzUpwWYUUNN5iSpcUDdb5QDC4CvgOQ%2BEvd6tX7y%2F6Q%2BSMOg8q7yp5mzJr5qbY%2BWMbL6nz%2Buay4cd0wnSe6tkjuaJ1NIbjxSdH9CbkBS0XoTSgIOBDeBGuSMPeOJAc2qCCwB3%2FJJzjHbb07dimFwcVQ37AzR3aSdVTIrEy7NTVExSsa71AnpdGMfq2ZWxbVHT4Z6Ep3h5g9prjvXQKlNKYdiX%2BmlPln5qCDc8s7M8gON6CdSii7fH0aBOcu0INjoa4dc%2FOKcwiuirhI9fDfGn4h4w3t9xVEOfQ21OzAu6iCzqwbyX6FcQTYmc1%2FIb4Lr%2BmfHmZPXpM41HYMK9XHVWPs5aSmF5nYp0DtlX53W%2FJIPEUayublSARs02HeVHIz1vwC6fhS3x1128WqIIvz2dgsHmVJmC%2Bi%2BMemNKEsdiaq0lMgNiTe9mDem3SLrvYMO99wYuebZUfCAVBbqea6mN0o6TtPR%2BY4ZiZl0Y57HEgt3yLwEJQ3BmwdmweldY92DYxW1o1ozabvAsUO6MT%2BEI0mkI2tmtaZQ%2B31bwtxLouobN%2FxkZiIs9YPexJAJ6%2F1%2BFYr5HPRh8rib2vpmO4ylsOFgCISJP5yPdziLDBPihHZhMx8CE858zkJIqVtEFfXZ31W%2FNw09acXa5I4%2BC8AMnDBWV%2FqsryQDDwWpVkzUyRJroktjLT8m7IUEVkEXb7s2GO%2BJiidEBoinU5YgVGpMWTmAmcjaFhRA%2FpwdFI%2F7XHri8KUlyGWMlbYK2BDuF74uow5IK5qAY6sQGceMO9KGy75rSGSK9Jhffgp6ECN8Mwct472Z1JRwqPxCECpo4hAM%2BTiqPzt7Rc8yOTYkRKOicKyCebEt1uytTR6HQoyEcj%2FTBDmV%2BwTAA3FljzwsKBDHTaYj%2Bd0h8rsm4W%2BKtqjUgQ%2BsI4FzYNCv9BSWMF%2FnJ7wV%2BwaSDW1OYbdFVrBpkgTxJPCiLvqlbbKjcH%2BuE8HtSqJR%2FjUt%2Bvxx4CmAPJl%2BJDFQWASMAeV4kuGCM%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=d6b23eb9c8e5a0014a6ce8a718c62a6929e049b871c8383a6aa21e3c85fd9871"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 18670677,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "That’s right.\nthank you for the update.",
+      "automated_response": false,
+      "created_at": "2022-10-06T14:30:12.983Z",
+      "updated_at": "2022-10-06T14:30:12.983Z",
+      "actor": {
+        "username": "kurohiro",
+        "cleared": false,
+        "verified": false,
+        "url": "/kurohiro",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 18964815,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "Thanks for your work. The actual monetary reward part for this issue is managed by the [Internet Bug Bounty](https://hackerone.com/ibb) so the curl project itself therefor sets the reward amount to **zero USD**. If you haven't already, please submit your reward request to them and refer back to this issue.\n",
+      "automated_response": false,
+      "created_at": "2022-10-26T10:44:05.049Z",
+      "updated_at": "2022-10-26T10:44:05.049Z",
+      "actor": {
+        "username": "bagder",
+        "cleared": false,
+        "verified": false,
+        "url": "/bagder",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/y9xzl5ayi7du4kz3l6pa6sff2ha5/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22final-12-1000x1000.jpg%22%3B%20filename%2A%3DUTF-8%27%27final-12-1000x1000.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQWZRWVQLW%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065913Z&X-Amz-Expires=3392&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJHMEUCIH4h5RU%2BpbI3mlwEISZD1G9BopBv%2B7sztLbJknQb99SoAiEAvhxLWqtVFV73maMS53mFspg5vBZ3%2BzoNHXmSke7DMlAqsgUIIxADGgwwMTM2MTkyNzQ4NDkiDC7pogsWvzjWL290gCqPBTKeeZOA278oY6KnHe%2FmWuxZ3Qva3oIxiPgSeceppHqQhkbgfD3tsY8pCoJ9VsxHzSlUT0PRdOuJ8sr7ZKZL2JXBIQSfFD%2FndZi2qU1cFtihzUpwWYUUNN5iSpcUDdb5QDC4CvgOQ%2BEvd6tX7y%2F6Q%2BSMOg8q7yp5mzJr5qbY%2BWMbL6nz%2Buay4cd0wnSe6tkjuaJ1NIbjxSdH9CbkBS0XoTSgIOBDeBGuSMPeOJAc2qCCwB3%2FJJzjHbb07dimFwcVQ37AzR3aSdVTIrEy7NTVExSsa71AnpdGMfq2ZWxbVHT4Z6Ep3h5g9prjvXQKlNKYdiX%2BmlPln5qCDc8s7M8gON6CdSii7fH0aBOcu0INjoa4dc%2FOKcwiuirhI9fDfGn4h4w3t9xVEOfQ21OzAu6iCzqwbyX6FcQTYmc1%2FIb4Lr%2BmfHmZPXpM41HYMK9XHVWPs5aSmF5nYp0DtlX53W%2FJIPEUayublSARs02HeVHIz1vwC6fhS3x1128WqIIvz2dgsHmVJmC%2Bi%2BMemNKEsdiaq0lMgNiTe9mDem3SLrvYMO99wYuebZUfCAVBbqea6mN0o6TtPR%2BY4ZiZl0Y57HEgt3yLwEJQ3BmwdmweldY92DYxW1o1ozabvAsUO6MT%2BEI0mkI2tmtaZQ%2B31bwtxLouobN%2FxkZiIs9YPexJAJ6%2F1%2BFYr5HPRh8rib2vpmO4ylsOFgCISJP5yPdziLDBPihHZhMx8CE858zkJIqVtEFfXZ31W%2FNw09acXa5I4%2BC8AMnDBWV%2FqsryQDDwWpVkzUyRJroktjLT8m7IUEVkEXb7s2GO%2BJiidEBoinU5YgVGpMWTmAmcjaFhRA%2FpwdFI%2F7XHri8KUlyGWMlbYK2BDuF74uow5IK5qAY6sQGceMO9KGy75rSGSK9Jhffgp6ECN8Mwct472Z1JRwqPxCECpo4hAM%2BTiqPzt7Rc8yOTYkRKOicKyCebEt1uytTR6HQoyEcj%2FTBDmV%2BwTAA3FljzwsKBDHTaYj%2Bd0h8rsm4W%2BKtqjUgQ%2BsI4FzYNCv9BSWMF%2FnJ7wV%2BwaSDW1OYbdFVrBpkgTxJPCiLvqlbbKjcH%2BuE8HtSqJR%2FjUt%2Bvxx4CmAPJl%2BJDFQWASMAeV4kuGCM%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=d6b23eb9c8e5a0014a6ce8a718c62a6929e049b871c8383a6aa21e3c85fd9871"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "reporter": {
+        "username": "kurohiro",
+        "url": "/kurohiro"
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 18983586,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::NotEligibleForBounty",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2022-10-27T12:03:13.102Z",
+      "updated_at": "2022-10-27T12:03:13.102Z",
+      "actor": {
+        "url": "/curl",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/035/663/2faf4c279d437d64bfda6d23d62ce1833813a4d9_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "curl"
+        }
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 18983589,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2022-10-27T12:03:23.368Z",
+      "updated_at": "2022-10-27T12:03:23.368Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "bagder",
+        "cleared": false,
+        "verified": false,
+        "url": "/bagder",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/y9xzl5ayi7du4kz3l6pa6sff2ha5/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22final-12-1000x1000.jpg%22%3B%20filename%2A%3DUTF-8%27%27final-12-1000x1000.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQWZRWVQLW%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065913Z&X-Amz-Expires=3392&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJHMEUCIH4h5RU%2BpbI3mlwEISZD1G9BopBv%2B7sztLbJknQb99SoAiEAvhxLWqtVFV73maMS53mFspg5vBZ3%2BzoNHXmSke7DMlAqsgUIIxADGgwwMTM2MTkyNzQ4NDkiDC7pogsWvzjWL290gCqPBTKeeZOA278oY6KnHe%2FmWuxZ3Qva3oIxiPgSeceppHqQhkbgfD3tsY8pCoJ9VsxHzSlUT0PRdOuJ8sr7ZKZL2JXBIQSfFD%2FndZi2qU1cFtihzUpwWYUUNN5iSpcUDdb5QDC4CvgOQ%2BEvd6tX7y%2F6Q%2BSMOg8q7yp5mzJr5qbY%2BWMbL6nz%2Buay4cd0wnSe6tkjuaJ1NIbjxSdH9CbkBS0XoTSgIOBDeBGuSMPeOJAc2qCCwB3%2FJJzjHbb07dimFwcVQ37AzR3aSdVTIrEy7NTVExSsa71AnpdGMfq2ZWxbVHT4Z6Ep3h5g9prjvXQKlNKYdiX%2BmlPln5qCDc8s7M8gON6CdSii7fH0aBOcu0INjoa4dc%2FOKcwiuirhI9fDfGn4h4w3t9xVEOfQ21OzAu6iCzqwbyX6FcQTYmc1%2FIb4Lr%2BmfHmZPXpM41HYMK9XHVWPs5aSmF5nYp0DtlX53W%2FJIPEUayublSARs02HeVHIz1vwC6fhS3x1128WqIIvz2dgsHmVJmC%2Bi%2BMemNKEsdiaq0lMgNiTe9mDem3SLrvYMO99wYuebZUfCAVBbqea6mN0o6TtPR%2BY4ZiZl0Y57HEgt3yLwEJQ3BmwdmweldY92DYxW1o1ozabvAsUO6MT%2BEI0mkI2tmtaZQ%2B31bwtxLouobN%2FxkZiIs9YPexJAJ6%2F1%2BFYr5HPRh8rib2vpmO4ylsOFgCISJP5yPdziLDBPihHZhMx8CE858zkJIqVtEFfXZ31W%2FNw09acXa5I4%2BC8AMnDBWV%2FqsryQDDwWpVkzUyRJroktjLT8m7IUEVkEXb7s2GO%2BJiidEBoinU5YgVGpMWTmAmcjaFhRA%2FpwdFI%2F7XHri8KUlyGWMlbYK2BDuF74uow5IK5qAY6sQGceMO9KGy75rSGSK9Jhffgp6ECN8Mwct472Z1JRwqPxCECpo4hAM%2BTiqPzt7Rc8yOTYkRKOicKyCebEt1uytTR6HQoyEcj%2FTBDmV%2BwTAA3FljzwsKBDHTaYj%2Bd0h8rsm4W%2BKtqjUgQ%2BsI4FzYNCv9BSWMF%2FnJ7wV%2BwaSDW1OYbdFVrBpkgTxJPCiLvqlbbKjcH%2BuE8HtSqJR%2FjUt%2Bvxx4CmAPJl%2BJDFQWASMAeV4kuGCM%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=d6b23eb9c8e5a0014a6ce8a718c62a6929e049b871c8383a6aa21e3c85fd9871"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 18984955,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2022-10-27T14:55:15.560Z",
+      "updated_at": "2022-10-27T14:55:15.560Z",
+      "actor": {
+        "username": "kurohiro",
+        "cleared": false,
+        "verified": false,
+        "url": "/kurohiro",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 18984956,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportBecamePublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2022-10-27T14:55:15.689Z",
+      "updated_at": "2022-10-27T14:55:15.689Z",
+      "actor": {
+        "username": "kurohiro",
+        "cleared": false,
+        "verified": false,
+        "url": "/kurohiro",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    }
+  ],
+  "activity_page_count": 1,
+  "activity_page_number": 1,
+  "summaries": [
+    {
+      "category": "team",
+      "can_view?": true,
+      "can_create?": false
+    },
+    {
+      "category": "researcher",
+      "can_view?": true,
+      "can_create?": false
+    }
+  ]
+}

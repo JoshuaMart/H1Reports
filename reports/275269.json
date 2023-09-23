@@ -1,0 +1,360 @@
+{
+  "id": 275269,
+  "global_id": "Z2lkOi8vaGFja2Vyb25lL1JlcG9ydC8yNzUyNjk=",
+  "url": "https://hackerone.com/reports/275269",
+  "title": "Gem signature forgery",
+  "state": "Closed",
+  "substate": "resolved",
+  "severity_rating": "medium",
+  "readable_substate": "Resolved",
+  "created_at": "2017-10-06T23:57:17.767Z",
+  "submitted_at": "2017-10-06T23:57:17.767Z",
+  "is_member_of_team?": false,
+  "is_organization_group_member?": false,
+  "reporter": {
+    "disabled": false,
+    "username": "plover",
+    "url": "/plover",
+    "profile_picture_urls": {
+      "small": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+    },
+    "is_me?": false,
+    "cleared": false,
+    "verified": false,
+    "hackerone_triager": false,
+    "hacker_mediation": false
+  },
+  "team": {
+    "id": 8212,
+    "url": "https://hackerone.com/rubygems",
+    "handle": "rubygems",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/008/212/e65eca09896d23bc029c08d3147a79a48ec1ee2f_original.png/d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98",
+      "medium": "https://profile-photos.hackerone-user-content.com/variants/000/008/212/e65eca09896d23bc029c08d3147a79a48ec1ee2f_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+    },
+    "permissions": [
+
+    ],
+    "submission_state": "open",
+    "default_currency": "usd",
+    "awards_miles": false,
+    "offers_bounties": true,
+    "state": "public_mode",
+    "only_cleared_hackers": false,
+    "pentest_feature_enabled?": false,
+    "profile": {
+      "name": "RubyGems",
+      "twitter_handle": "rubygems_status",
+      "website": "https://rubygems.org",
+      "about": "RubyGems.org is the Ruby community’s gem hosting service."
+    }
+  },
+  "has_bounty?": true,
+  "in_validation?": false,
+  "can_view_team": true,
+  "can_view_report": true,
+  "is_external_bug": false,
+  "is_published": false,
+  "is_participant": false,
+  "has_collaborators": false,
+  "submitted_by_team_member": false,
+  "stage": 4,
+  "public": true,
+  "visibility": "full",
+  "cve_ids": [
+
+  ],
+  "singular_disclosure_disabled": false,
+  "disclosed_at": "2018-08-03T20:23:47.955Z",
+  "bug_reporter_agreed_on_going_public_at": "2018-07-04T20:23:31.159Z",
+  "team_member_agreed_on_going_public_at": null,
+  "comments_closed?": false,
+  "facebook_team?": false,
+  "team_private?": false,
+  "vulnerability_information": "# Summary\n\nInconsistencies in how `gem` processes gem files make it possible to reuse a signature from an existing signed gem and apply it to arbitrary contents. The forged gem will install even with `-P HighSecurity`.\n\nThe attached file multi_json-1.12.2.gem is a forged version of the genuine [multi_json-1.12.2.gem](https://rubygems.org/gems/multi_json/versions/1.12.2) gem with faked contents (just a single text file called HACKED). Here is how to check it. You must first trust the original developer's public key.\n```\n$ gem --version\n2.5.2\n$ wget https://raw.githubusercontent.com/intridea/multi_json/master/certs/rwz.pem\n$ gem cert --add rwz.pem\nAdded '/CN=pavel/DC=pravosud/DC=com'\n$ gem install --install-dir install -P HighSecurity multi_json-1.12.2.gem\nSuccessfully installed multi_json-1.12.2\n1 gem installed\n$ ls install/gems/multi_json-1.12.2/\nHACKED\n```\n\n\n# Details\n\nThe vulnerability stems from inconsistencies in how `gem` interprets the entries of the tar container. A tar file may contain multiple entries with the same name. When there are two data.tar.gz entries, for example, `gem` will honor the *second* one when verifying the signature, but the *first* one when installing files. The proof of concept gem uses this trick: it prepends an additional data.tar.gz entry to the genuine multi_json-1.12.2.gem. (The attached forge-gem.sh script was used to make it.)\n```\n$ tar tvf multi_json-1.12.2.gem\n-r--r--r-- wheel/wheel     163 2017-10-05 16:05 data.tar.gz\n-r--r--r-- wheel/wheel    1840 2017-09-04 21:51 metadata.gz\n-r--r--r-- wheel/wheel     256 2017-09-04 21:51 metadata.gz.sig\n-r--r--r-- wheel/wheel   16908 2017-09-04 21:51 data.tar.gz\n-r--r--r-- wheel/wheel     256 2017-09-04 21:51 data.tar.gz.sig\n-r--r--r-- wheel/wheel     270 2017-09-04 21:51 checksums.yaml.gz\n-r--r--r-- wheel/wheel     256 2017-09-04 21:51 checksums.yaml.gz.sig\n```\n\nA similar bug affects checksums.yaml.gz: checksums are read from the first such entry, while the signature is verified on the last. This table summarizes the inconsistencies:\n\n| file              | `extract_files` uses | `verify` uses |\n|-------------------|----------------------|---------------|\n| data.tar.gz       | first                | last          |\n| checksums.yaml.gz | first                | last          |\n| metadata.gz       | last                 | last          |\n\n\n## Source code references\n\nHere are the pieces of code that are responsible for the inconsistencies in processing.\n\n[`extract_files`](https://github.com/rubygems/rubygems/blob/v2.6.13/lib/rubygems/package.rb#L334-L350) takes the *first* data.tar.gz entry:\n```\n  def extract_files destination_dir, pattern = \"*\"\n    verify unless @spec\n\n    FileUtils.mkdir_p destination_dir\n\n    @gem.with_read_io do |io|\n      reader = Gem::Package::TarReader.new io\n\n      reader.each do |entry|\n        next unless entry.full_name == 'data.tar.gz'\n\n        extract_tar_gz entry, destination_dir, pattern\n\n        return # ignore further entries\n      end\n    end\n  end\n```\n\n[`read_checksums`](https://github.com/rubygems/rubygems/blob/v2.6.13/lib/rubygems/package.rb#L466-L474) [seeks](https://github.com/rubygems/rubygems/blob/v2.6.13/lib/rubygems/package/tar_reader.rb#L109-L119) to the *first* checksums.yaml.gz entry:\n```\n  def read_checksums gem\n    Gem.load_yaml\n\n    @checksums = gem.seek 'checksums.yaml.gz' do |entry|\n      Zlib::GzipReader.wrap entry do |gz_io|\n        YAML.load gz_io.read\n      end\n    end\n  end\n```\n\n[`verify_files`](https://github.com/rubygems/rubygems/blob/v2.6.13/lib/rubygems/package.rb#L593-L606) and [`verify_entry`](https://github.com/rubygems/rubygems/blob/v2.6.13/lib/rubygems/package.rb#L566-L588) iterate over all entries in the tar file, filling in `@signatures` and `@digests`. In the case of entries with duplicate names, it overwrites previous values, meaning that the *last* result wins. `verify_entry` also handles metadata.gz, calling [`load_spec`](https://github.com/rubygems/rubygems/blob/v2.6.13/lib/rubygems/package.rb#L436-L450) afresh each time:\n```\n  def verify_entry entry\n    file_name = entry.full_name\n    @files << file_name\n\n    case file_name\n    when /\\.sig$/ then\n      @signatures[$`] = entry.read if @security_policy\n      return\n    else\n      digest entry\n    end\n\n    case file_name\n    when /^metadata(.gz)?$/ then\n      load_spec entry\n    when 'data.tar.gz' then\n      verify_gz entry\n    end\n  rescue => e\n    message = \"package is corrupt, exception while verifying: \" +\n              \"#{e.message} (#{e.class})\"\n    raise Gem::Package::FormatError.new message, @gem\n  end\n```\n[`verify_checksums`](https://github.com/rubygems/rubygems/blob/v2.6.13/lib/rubygems/package.rb#L548-L561) and [`verify_signatures`](https://github.com/rubygems/rubygems/blob/v2.6.13/lib/rubygems/security/policy.rb#L283-L291) operate only on the precomputed `@checksums`, `@signatures`, and `@digests`.\n\nIncidentally, [`get_metadata`](https://github.com/rubygems/rubygems/blob/v2.6.13/lib/rubygems/commands/unpack_command.rb#L161-L177), used by the `unpack` command, has its own extractor for metadata.gz, but it happens to grab the last entry, just like `verify_files`.\n\n\n# Mitigation\n\nThe attached patch 0001-Add-tests-that-Gem-Package-verify-checks-duplicate-f.patch adds two new tests (both currently failing) that check signature verification when bogus files come before or after the genuine files.\n\nThe essential mitigation is to ensure that there is no ambiguity when processing a tar file that has multiple entries for the same file name. E.g., \"data.tar.gz\" must refer to one and only one entry in the tar file. One way to do it would be to set a policy in the code: e.g., last entry always wins (which would be consistent with the `tar` command). But that would be hard to enforce, especially in new code going forward. Another way would be not to permit duplicate entries; e.g., `verify_entry` could check whenever it is about to overwrite something in `@signatures`, `@digests`, or `@spec`, and return an error. This needs some care, as metadata and metadata.gz are both processed equivalently. It is possible, using symlinks, to create entries that effectively point to the same file, even though the paths differ; e.g.:\n```\ndata.tar.gz\ndir/ -> ..\ndir/data.tar.gz\n```\nBut this shouldn't be a problem for `gem`, as long as it continues to use strict string equality with unadorned paths like `\"data.tar.gz\"`.\n\nEven when this bug is fixed, a weaker form of signature forgery is possible. There is nothing in a gem file that binds data.tar.gz and metadata.gz together: they are signed independently. It is possible to mix and match files from different signed gems. Suppose a signed gem example-1.0 has a security vulnerability, and the authors release a new signed update example-1.1. Someone (perhaps a malicious rubygems.org admin) could forge a gem containing data.tar.gz from example-1.0 and metadata.gz from example-1.1. Users would think they are running the updated code, but they are still running the old vulnerable code. Fixing this weaker form of forgery seems like it would require a redesign of the signature format. Ideally, the signature would be over the entire gem, and verified before any unpacking.\n\nIt seems that not many people are sign their gems or verify signatures. For most users the possibility of signature forgery doesn't put them at additional risk beyond the (already risky) status quo. The flaw affects only those users who use the `MediumSecurity` or `HighSecurity` profiles.\n\n\n# Attachments\n\n- **multi_json-1.12.2.gem** is a gem with a forged signature.\n- **0001-Add-tests-that-Gem-Package-verify-checks-duplicate-f.patch** adds tests for specific instances of gem files that contain multiple entries with the same name.\n- **forge-gem.sh** takes an existing signed gem and produces a forged gem containing an arbitrary data.tar.gz file.\n\nHow to run forge-gem.sh:\n```\n$ gem fetch multi_json\n$ mkdir orig\n$ mv multi_json-1.12.2.gem orig/\n$ echo hacked > HACKED\n$ tar czf data.tar.gz HACKED\n$ ./forge-gem.sh orig/multi_json-1.12.2.gem data.tar.gz forged.gem\n```\nBe aware that if the original multi_json-1.12.2.gem and the new forged.gem are both in the same directory, then `gem install ./forged.gem` will—for some reason—install multi_json-1.12.2.gem instead. You have to hide the original file in another directory first.\n",
+  "weakness": {
+    "id": 32,
+    "name": "Cryptographic Issues - Generic"
+  },
+  "original_report_id": null,
+  "original_report_url": null,
+  "attachments": [
+    {
+      "id": 227013,
+      "file_name": "multi_json-1.12.2.gem",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/227/013/f89fa0fa02e595d89bf4e2a641308061555de204/multi_json-1.12.2.gem?response-content-disposition=attachment%3B%20filename%3D%22multi_json-1.12.2.gem%22%3B%20filename%2A%3DUTF-8%27%27multi_json-1.12.2.gem&response-content-type=application%2Fx-tar&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ5QZEU3GA%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T075022Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEDAaCXVzLXdlc3QtMiJHMEUCIQDc3xrAviqMJ2jqeLevQNLdC45MAsmuygeVLmErbuYBWwIgfBVE8J7s6qDpcMHnIN9rCvvfG7DbIfiwUYchyqFszIAqsgUIKRADGgwwMTM2MTkyNzQ4NDkiDPuDShxTX86wzlMaASqPBZLeZOHLn42OekgUV7hfAkONaOQ2lArnXt%2BYBlrCPJtsPYMRkyCvi6RhtR%2BSInErhG8Nfh3vox%2B0fjX5El2CEbCC46O1KN5QJSHoNkD1AVKXJJKtrwllinzpD0qEf8UXuTanhgGHWn1rDQGoFdZ4Bo5JZbdrGcq7UpP1PGENEYYW37pXljxOV4a7yC9LfisFFiUit6xfrBp31edMVQmyB7LQjEDjMzKCocUM3W%2Bmc%2FPUESyIqjuWw9bXD0cKI0M9AwJG%2F%2F8IF0tUqygNXSI0FZzkic1BxAMPQxYdf4Ll%2B9rvRRB0r34VbksbgypbwwOQHj5wPdITQqyJdp8BsvhPhLe39HV0VL%2BEfgSfBMku128yLrW5JkbOXQYUD64qtDj5s1uMxl8mxnAfna8Gl7UF03grVWwRWlu6zNXm8WCBVV1XBCPxE2VvFzsfppvuChYYLeSyj%2Bd2KtNrDt6qO4v71haOI1OuMwiIzzbRui5v0DETRvVuYxPDvI%2FeI%2BMExfvEqO4Lgft%2F8H06RHRAo0jBalRWAx8CM%2BNjYNy4bwflq1T8cA%2FTU0%2Bta8SSFd8ZxtDLCwXKqlP%2F0cdqtPNx3xelDz7EVmU63lY%2F7ayMxQNmIFUiquIT04GVohU6kEaKYK7A1DtLVqcr9S0cJfC%2BSQnInOjvcExAgLpx8w884%2BVN9R50k85BG9Sp4CMFwq%2FOxR8cYl7YGU0epDptOBX12gFeFQewl4tUHyCsPTdiVRt%2B6KeFcz7hjCXDXA1y0fCoRrxJpfPSYNSm5RZof0tF5Fh6uL6TVy0aVn4Qbvmc2lMkiOBbQ8DSF5MK8qgOy5%2Butr5JJ1T8Y2%2BB%2Bk1%2B72wQE8rAszdZ8se2bzn0u%2F61GNgSkJAwr6W6qAY6sQH23ptsmg8AvyzxcgWobkqO3Soeto63%2F%2F2P8YUDgf3TLXxmou1QhO8Us22s4vLXGezc%2FVmWL3A4G%2B%2BCH%2FnTiYJ77YM2Io0JDCYcyZVbAoZGsbiXzwXLlc7V%2F%2B373GGXkldkFFFNfVK4OeWeuHSWyM3Deu8se05xryqDblkrcRaz1xRgRLWdpd4WvmivwLymwj%2BUQrRBs9FJfB9TlWanI6T8WLL6K5pLhP2LMVwdu2dy6Vk%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=50b77193cfa15db734eb42dfe67f46680894c581f89ec94ed1d250383f988e4f",
+      "file_size": 30720,
+      "type": "application/x-tar",
+      "moderated": null
+    },
+    {
+      "id": 227014,
+      "file_name": "0001-Add-tests-that-Gem-Package-verify-checks-duplicate-f.patch",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/227/014/d70774534929603debdfecb454f877374ccaf4f2/0001-Add-tests-that-Gem-Package-verify-checks-duplicate-f.patch?response-content-disposition=attachment%3B%20filename%3D%220001-Add-tests-that-Gem-Package-verify-checks-duplicate-f.patch%22%3B%20filename%2A%3DUTF-8%27%270001-Add-tests-that-Gem-Package-verify-checks-duplicate-f.patch&response-content-type=text%2Fx-diff&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ5QZEU3GA%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T075022Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEDAaCXVzLXdlc3QtMiJHMEUCIQDc3xrAviqMJ2jqeLevQNLdC45MAsmuygeVLmErbuYBWwIgfBVE8J7s6qDpcMHnIN9rCvvfG7DbIfiwUYchyqFszIAqsgUIKRADGgwwMTM2MTkyNzQ4NDkiDPuDShxTX86wzlMaASqPBZLeZOHLn42OekgUV7hfAkONaOQ2lArnXt%2BYBlrCPJtsPYMRkyCvi6RhtR%2BSInErhG8Nfh3vox%2B0fjX5El2CEbCC46O1KN5QJSHoNkD1AVKXJJKtrwllinzpD0qEf8UXuTanhgGHWn1rDQGoFdZ4Bo5JZbdrGcq7UpP1PGENEYYW37pXljxOV4a7yC9LfisFFiUit6xfrBp31edMVQmyB7LQjEDjMzKCocUM3W%2Bmc%2FPUESyIqjuWw9bXD0cKI0M9AwJG%2F%2F8IF0tUqygNXSI0FZzkic1BxAMPQxYdf4Ll%2B9rvRRB0r34VbksbgypbwwOQHj5wPdITQqyJdp8BsvhPhLe39HV0VL%2BEfgSfBMku128yLrW5JkbOXQYUD64qtDj5s1uMxl8mxnAfna8Gl7UF03grVWwRWlu6zNXm8WCBVV1XBCPxE2VvFzsfppvuChYYLeSyj%2Bd2KtNrDt6qO4v71haOI1OuMwiIzzbRui5v0DETRvVuYxPDvI%2FeI%2BMExfvEqO4Lgft%2F8H06RHRAo0jBalRWAx8CM%2BNjYNy4bwflq1T8cA%2FTU0%2Bta8SSFd8ZxtDLCwXKqlP%2F0cdqtPNx3xelDz7EVmU63lY%2F7ayMxQNmIFUiquIT04GVohU6kEaKYK7A1DtLVqcr9S0cJfC%2BSQnInOjvcExAgLpx8w884%2BVN9R50k85BG9Sp4CMFwq%2FOxR8cYl7YGU0epDptOBX12gFeFQewl4tUHyCsPTdiVRt%2B6KeFcz7hjCXDXA1y0fCoRrxJpfPSYNSm5RZof0tF5Fh6uL6TVy0aVn4Qbvmc2lMkiOBbQ8DSF5MK8qgOy5%2Butr5JJ1T8Y2%2BB%2Bk1%2B72wQE8rAszdZ8se2bzn0u%2F61GNgSkJAwr6W6qAY6sQH23ptsmg8AvyzxcgWobkqO3Soeto63%2F%2F2P8YUDgf3TLXxmou1QhO8Us22s4vLXGezc%2FVmWL3A4G%2B%2BCH%2FnTiYJ77YM2Io0JDCYcyZVbAoZGsbiXzwXLlc7V%2F%2B373GGXkldkFFFNfVK4OeWeuHSWyM3Deu8se05xryqDblkrcRaz1xRgRLWdpd4WvmivwLymwj%2BUQrRBs9FJfB9TlWanI6T8WLL6K5pLhP2LMVwdu2dy6Vk%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=9ba11a605cb48615bbf406545eb03874711dcf4e4702eeaebb56116ab12a2a3f",
+      "file_size": 4961,
+      "type": "text/x-diff",
+      "moderated": null
+    },
+    {
+      "id": 227015,
+      "file_name": "forge-gem.sh",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/227/015/2b53fef97a7f9a8b1e9ba80fedf2dad0c036acf8/forge-gem.sh?response-content-disposition=attachment%3B%20filename%3D%22forge-gem.sh%22%3B%20filename%2A%3DUTF-8%27%27forge-gem.sh&response-content-type=text%2Fx-shellscript&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ5QZEU3GA%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T075022Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEDAaCXVzLXdlc3QtMiJHMEUCIQDc3xrAviqMJ2jqeLevQNLdC45MAsmuygeVLmErbuYBWwIgfBVE8J7s6qDpcMHnIN9rCvvfG7DbIfiwUYchyqFszIAqsgUIKRADGgwwMTM2MTkyNzQ4NDkiDPuDShxTX86wzlMaASqPBZLeZOHLn42OekgUV7hfAkONaOQ2lArnXt%2BYBlrCPJtsPYMRkyCvi6RhtR%2BSInErhG8Nfh3vox%2B0fjX5El2CEbCC46O1KN5QJSHoNkD1AVKXJJKtrwllinzpD0qEf8UXuTanhgGHWn1rDQGoFdZ4Bo5JZbdrGcq7UpP1PGENEYYW37pXljxOV4a7yC9LfisFFiUit6xfrBp31edMVQmyB7LQjEDjMzKCocUM3W%2Bmc%2FPUESyIqjuWw9bXD0cKI0M9AwJG%2F%2F8IF0tUqygNXSI0FZzkic1BxAMPQxYdf4Ll%2B9rvRRB0r34VbksbgypbwwOQHj5wPdITQqyJdp8BsvhPhLe39HV0VL%2BEfgSfBMku128yLrW5JkbOXQYUD64qtDj5s1uMxl8mxnAfna8Gl7UF03grVWwRWlu6zNXm8WCBVV1XBCPxE2VvFzsfppvuChYYLeSyj%2Bd2KtNrDt6qO4v71haOI1OuMwiIzzbRui5v0DETRvVuYxPDvI%2FeI%2BMExfvEqO4Lgft%2F8H06RHRAo0jBalRWAx8CM%2BNjYNy4bwflq1T8cA%2FTU0%2Bta8SSFd8ZxtDLCwXKqlP%2F0cdqtPNx3xelDz7EVmU63lY%2F7ayMxQNmIFUiquIT04GVohU6kEaKYK7A1DtLVqcr9S0cJfC%2BSQnInOjvcExAgLpx8w884%2BVN9R50k85BG9Sp4CMFwq%2FOxR8cYl7YGU0epDptOBX12gFeFQewl4tUHyCsPTdiVRt%2B6KeFcz7hjCXDXA1y0fCoRrxJpfPSYNSm5RZof0tF5Fh6uL6TVy0aVn4Qbvmc2lMkiOBbQ8DSF5MK8qgOy5%2Butr5JJ1T8Y2%2BB%2Bk1%2B72wQE8rAszdZ8se2bzn0u%2F61GNgSkJAwr6W6qAY6sQH23ptsmg8AvyzxcgWobkqO3Soeto63%2F%2F2P8YUDgf3TLXxmou1QhO8Us22s4vLXGezc%2FVmWL3A4G%2B%2BCH%2FnTiYJ77YM2Io0JDCYcyZVbAoZGsbiXzwXLlc7V%2F%2B373GGXkldkFFFNfVK4OeWeuHSWyM3Deu8se05xryqDblkrcRaz1xRgRLWdpd4WvmivwLymwj%2BUQrRBs9FJfB9TlWanI6T8WLL6K5pLhP2LMVwdu2dy6Vk%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=dac08b819c1e8b15715f6dc3bb51eb5ac980e47f8ce2ecf2b47f0fb008bc3d5f",
+      "file_size": 908,
+      "type": "text/x-shellscript",
+      "moderated": null
+    }
+  ],
+  "allow_singular_disclosure_at": "2018-08-03T20:23:31.255Z",
+  "allow_singular_disclosure_after": -162127611.47537607,
+  "singular_disclosure_allowed": true,
+  "vote_count": 16,
+  "voters": [
+    "barbie_girl",
+    "foobar7",
+    "z3t",
+    "michiel",
+    "ali",
+    "haones",
+    "apapedulimu",
+    "already_in_use_",
+    "eveeez",
+    "khizer47",
+    "and 6 more..."
+  ],
+  "severity": {
+    "rating": "medium",
+    "score": 5.5,
+    "author_type": "User",
+    "metrics": {
+      "attack_vector": "local",
+      "attack_complexity": "low",
+      "privileges_required": "high",
+      "user_interaction": "required",
+      "scope": "changed",
+      "confidentiality": "none",
+      "integrity": "high",
+      "availability": "none"
+    }
+  },
+  "structured_scope": {
+    "databaseId": 2043,
+    "asset_type": "SOURCE_CODE",
+    "asset_identifier": "https://github.com/rubygems/rubygems",
+    "max_severity": "critical"
+  },
+  "abilities": {
+    "assignable_team_members": [
+
+    ],
+    "assignable_team_member_groups": [
+
+    ]
+  },
+  "activities": [
+    {
+      "id": 2050562,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Thanks for submitting this report to RubyGems. Our team will review and investigate the issue. Please note that only issues in the rubygems library are eligible for our bug bounty program.",
+      "automated_response": true,
+      "created_at": "2017-10-06T23:57:18.014Z",
+      "updated_at": "2017-10-06T23:57:18.014Z",
+      "actor": {
+        "url": "/rubygems",
+        "ibb": true,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/008/212/e65eca09896d23bc029c08d3147a79a48ec1ee2f_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "RubyGems"
+        }
+      },
+      "genius_execution_id": null,
+      "team_handle": "rubygems"
+    },
+    {
+      "id": 2299404,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@plover we have a fix developed for this, just waiting on someone to have the time to do a security patch release",
+      "automated_response": false,
+      "created_at": "2018-01-19T04:00:59.096Z",
+      "updated_at": "2018-01-19T04:00:59.096Z",
+      "actor": {
+        "username": "segiddins",
+        "cleared": false,
+        "verified": false,
+        "url": "/segiddins",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "rubygems"
+    },
+    {
+      "id": 2377063,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugTriaged",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2018-02-12T23:51:06.362Z",
+      "updated_at": "2018-02-12T23:51:06.362Z",
+      "actor": {
+        "username": "claudijd",
+        "cleared": false,
+        "verified": false,
+        "url": "/claudijd",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/003/131/3c373767fbd4f34648ab754b0f692fb718bfb8e5_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "rubygems"
+    },
+    {
+      "id": 2395876,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Credit for this bug also goes to Nathan Malkin (nmalkin). We were working as a team.",
+      "automated_response": false,
+      "created_at": "2018-02-18T06:34:11.892Z",
+      "updated_at": "2018-02-18T06:34:11.892Z",
+      "actor": {
+        "username": "plover",
+        "cleared": false,
+        "verified": false,
+        "url": "/plover",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "rubygems"
+    },
+    {
+      "id": 2413749,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BountyAwarded",
+      "message": "Congrats on finding this bug. 🎉",
+      "automated_response": false,
+      "created_at": "2018-02-22T00:09:50.981Z",
+      "updated_at": "2018-02-22T00:10:21.354Z",
+      "actor": {
+        "url": "/rubygems",
+        "ibb": true,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/008/212/e65eca09896d23bc029c08d3147a79a48ec1ee2f_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "RubyGems"
+        }
+      },
+      "bounty_currency": "usd",
+      "genius_execution_id": null,
+      "team_handle": "rubygems",
+      "collaborator": {
+        "username": "plover",
+        "url": "/plover"
+      }
+    },
+    {
+      "id": 2919899,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "This bug was fixed in RubyGems 2.7.6\n\nhttp://blog.rubygems.org/2018/02/15/2.7.6-released.html\n\nThanks!",
+      "automated_response": false,
+      "created_at": "2018-06-22T07:30:49.297Z",
+      "updated_at": "2018-06-22T07:30:49.297Z",
+      "actor": {
+        "username": "sonalkr132",
+        "cleared": false,
+        "verified": false,
+        "url": "/sonalkr132",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/110/393/d14955d9a0ac015bfba8df495ebf3c8b9f6f87cd_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "reporter": {
+        "username": "plover",
+        "url": "/plover"
+      },
+      "genius_execution_id": null,
+      "team_handle": "rubygems"
+    },
+    {
+      "id": 2988933,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2018-07-04T20:23:31.200Z",
+      "updated_at": "2018-07-04T20:23:31.200Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "plover",
+        "cleared": false,
+        "verified": false,
+        "url": "/plover",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "rubygems"
+    },
+    {
+      "id": 3138748,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportBecamePublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2018-08-03T20:23:47.996Z",
+      "updated_at": "2018-08-03T20:23:47.996Z",
+      "actor": {
+        "url": "/rubygems",
+        "ibb": true,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/008/212/e65eca09896d23bc029c08d3147a79a48ec1ee2f_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "RubyGems"
+        }
+      },
+      "genius_execution_id": null,
+      "team_handle": "rubygems"
+    }
+  ],
+  "activity_page_count": 1,
+  "activity_page_number": 1,
+  "summaries": [
+    {
+      "category": "team",
+      "can_view?": true,
+      "can_create?": false
+    },
+    {
+      "category": "researcher",
+      "can_view?": true,
+      "can_create?": false
+    }
+  ]
+}

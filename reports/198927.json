@@ -1,0 +1,469 @@
+{
+  "id": 198927,
+  "global_id": "Z2lkOi8vaGFja2Vyb25lL1JlcG9ydC8xOTg5Mjc=",
+  "url": "https://hackerone.com/reports/198927",
+  "title": "Parsing invalid unicode codepoints using json c extension (2.0.1+) triggers a segfault",
+  "state": "Closed",
+  "substate": "resolved",
+  "severity_rating": "none",
+  "readable_substate": "Resolved",
+  "created_at": "2017-01-17T06:15:41.770Z",
+  "submitted_at": "2017-01-17T06:15:41.770Z",
+  "is_member_of_team?": false,
+  "is_organization_group_member?": false,
+  "reporter": {
+    "disabled": false,
+    "username": "dgollahon",
+    "url": "/dgollahon",
+    "profile_picture_urls": {
+      "small": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+    },
+    "is_me?": false,
+    "cleared": false,
+    "verified": false,
+    "hackerone_triager": false,
+    "hacker_mediation": false
+  },
+  "team": {
+    "id": 7724,
+    "url": "https://hackerone.com/ruby",
+    "handle": "ruby",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/007/724/bb067434deef370d6a0b16c2cbbc030b57c75e92_original.png/d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98",
+      "medium": "https://profile-photos.hackerone-user-content.com/variants/000/007/724/bb067434deef370d6a0b16c2cbbc030b57c75e92_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+    },
+    "permissions": [
+
+    ],
+    "submission_state": "open",
+    "default_currency": "usd",
+    "awards_miles": false,
+    "offers_bounties": true,
+    "state": "public_mode",
+    "only_cleared_hackers": false,
+    "pentest_feature_enabled?": false,
+    "profile": {
+      "name": "Ruby",
+      "twitter_handle": "",
+      "website": "https://www.ruby-lang.org",
+      "about": "A Programmer's Best Friend"
+    }
+  },
+  "has_bounty?": false,
+  "in_validation?": false,
+  "can_view_team": true,
+  "can_view_report": true,
+  "is_external_bug": false,
+  "is_published": false,
+  "is_participant": false,
+  "has_collaborators": false,
+  "submitted_by_team_member": false,
+  "stage": 4,
+  "public": true,
+  "visibility": "full",
+  "cve_ids": [
+
+  ],
+  "singular_disclosure_disabled": false,
+  "disclosed_at": "2017-10-25T13:57:33.611Z",
+  "bug_reporter_agreed_on_going_public_at": null,
+  "team_member_agreed_on_going_public_at": "2017-09-25T13:57:21.249Z",
+  "comments_closed?": false,
+  "facebook_team?": false,
+  "team_private?": false,
+  "vulnerability_information": "Using the default `json` library packaged with ruby, one can trigger a segmentation fault by submitting a string with a unicode escape sequence in the range between ` \\ud800-\\udbff` (https://en.wikipedia.org/wiki/UTF-16#U.2BD800_to_U.2BDFFF).\n\nThis is can lead to a denial of service attack by segmentation fault and could be a possible point of memory corruption or remote code execution. Any program that calls `JSON.parse` on untrusted input (which is, of course, exceedingly common in web APIs/apps) is affected. I have also reproduced this bug on a private API server I control.\n\nMinimal reproduction:\n```ruby\nrequire 'json'; JSON.parse('\"\\ud800\"')\n```\n\nThe resulting segfault output and crash report are attached.\n\nTested in 2.3.3 and 2.4.0. Does NOT occur in 2.2.5.\n\nIn 2.3.3 and 2.4.0, if `json/pure` is required, an error is raised instead of a segmentation fault.\n\n```ruby\nrequire 'json/pure'; JSON.parse('\"\\ud800\"') # => JSON::ParserError: Caught Encoding::InvalidByteSequenceError at '': incomplete \"\\xD8\\x00\" on UTF-16BE\n```\nAdditionally, if you append 6 valid characters after the escape sequence, the escaped value is replaced with '?' and the following character is destroyed (surprising behavior, but no segfault).\n\n```ruby\nrequire 'json';\nJSON.parse('\"\\ud800123456\"') #  => \"?23456\"\n2.3.3 :006 > JSON.parse('\"\\ud800\\ud800123456\"') # => \"𐀀123456\"\n2.3.3 :007 > JSON.parse('\"\\ud800\\ud800\\ud800123456\"') # => \"𐀀?23456\"\n```\n\nIn 2.2.5, bare values are not accepted so testing this requires using a key or string value inside a json object as shown below:\n```ruby\nrequire \"json\"; p JSON.parse(\"{\\\"key\\\":\\\"#{\"\\\\u\" + format(\"%.04x\", 56296)}\\\"}\") # => {\"key\"=>nil}\n```\nIn this case the result is `nil`. Instead, it should likely be an encoding error.\n\nScript I used to iterate over all the codepoints in the range to verify it was not only a handful of specific values:\n```ruby\n# gem 'json', '2.0.1'\n# gem 'json', '2.0.2'\n# gem 'json', '2.0.3'\nrequire 'json'\n\n# or 0...1<<16 to explore the entire range\n(0xd800..0xdbff).each do |i|\n  uni = '\\u' + format(\"%.04x\", i)\n\n  program = \"require 'json'; JSON.parse('\\\\\\\"#{uni}\\\\\\\"')\"\n  system(\"ruby -e \\\"#{program}\\\"\")\n\n  status = $?.to_i\n  if status != 0\n    puts \"#{uni} -> exit status #{status}\"\n  end\nend\n```",
+  "weakness": {
+    "id": 2,
+    "name": "Memory Corruption - Generic"
+  },
+  "original_report_id": null,
+  "original_report_url": null,
+  "attachments": [
+    {
+      "id": 152894,
+      "file_name": "segfault.txt",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/152/894/8950add2270b5705bff848e67b79fc422bdaeb3b/segfault.txt?response-content-disposition=attachment%3B%20filename%3D%22segfault.txt%22%3B%20filename%2A%3DUTF-8%27%27segfault.txt&response-content-type=text%2Fplain&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ3C7WDVGJ%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T075823Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEC8aCXVzLXdlc3QtMiJHMEUCIDn3me4BiYTd9cEhiJgERTjoUKuLBgplckyo1gv%2Bebm1AiEAoY8YKDOvzgyQ3egDWlUq%2Bg%2BoNFbGN1HoNJcuLub14nsqsQUIKBADGgwwMTM2MTkyNzQ4NDkiDEqDO33z8UmFn3D1piqOBXBmutxLn4O8upRMZQVOHUfAZz%2F5H956nuLFNB1w4dHM76Efd6Esqgkx2W3whuKEdFaGEO2k4o2AP0w7OpJczkeT3IDGGn4RUI5bPh%2BiJMkqVI8tK3UzEpJJUSF6HbMTrwao7Uati6%2BREOOmMX2yjZ83ZIRyEqtTJSLCS4BGXULPEFPojDY4qjNA5b60yyjAnPj6gbXk%2BZoo550WZHFsUcA0FJSu69aScHPCXoxh2hDEQf8HLfH4FrgkK4qMpYKxTdxDKK46CLw%2Fg8T4YuK2rOrqRiOsGsGglYhAi9L5PX6QU8fFeU49TJFGG%2BkWWZX7ZXAb53PZjbJmvmXB%2FTEgBADExPBqb0GtBwSXjsfeg2MUkJ1JJKrjSnftn2uF44Lwl3eXcyZ%2FLbiRYRl8qOKyOuIMKOV4yidbKYdgPdbf35OZMs6zr%2F%2FRxFnwc%2FHV68T%2BizwT%2BFlshKH3y%2B%2BbJFOP6i0T1v7M7nKQFvxNABDtplEI%2B9fqUGW1Dg7ibbsBkVWXePr29ZQd73EmOTWK8CQDFOrZf9Oy4UK9y%2FKH%2Bc21lt7H7ZwU%2Fa2h97u0mRoHMoHc1rVbSje1tINDMsdaGwQRGz3ysdTjmviAJnhwBli9m9wXmWXllBnkXU4%2BfQtLWMu4iVOFewLKkpWUKsLuXh6jx3JosBPmfDd1N42E7Fr4XdEKa0y47oWruRIqlmjxP4X6JXrTROYLdF2CZ0zhGeAUylgD%2B4xxKokPK%2FGkiiw5BiLcaWolpFCXanJqcdWdwy6yMeRcmWXvrr50l3xmx4ZVenDU%2FJtgoI%2BVznl1w5kWpZyrrryWGATyEfw47VeINLtjJXQiBm%2FtsdJKR%2FUNyu1wxs4SPRLdf%2Fje9wnFOdNjAzD4n7qoBjqxAclBXSZX5G1EGG0VOqTUzC21u2MNyu51phI1ys1%2B6uIP3wgenMeIXpBmciTImpA3aFP4ng9cLZGSnZTRsU0zXZxH4%2FyvKBheT7YuS%2F6dlvGllnxjsRJpJSxFtvt%2BwQMln5HVRmPnEIWXGkSOdOWIYAiRkfYoHWEIfPVniUKAcjpGHmd44L06V2hWu2jHKJz33sdHWQxZVh5RDQ0uL0bYoUosxbzl%2BjgtMDeHkZmRLFwM3Q%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=661576efd1884025f7f2fc9b6d90f7ce14b0e26afee6abe07f3554287ffe9848",
+      "file_size": 7208,
+      "type": "text/plain",
+      "moderated": null
+    },
+    {
+      "id": 152915,
+      "file_name": "ruby_2017-01-16-165949_Daniels-MacBook-Pro.crash",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/152/915/a1ceef83ec5711f87ec8b4b350ab45a979c2c6ee/ruby_2017-01-16-165949_Daniels-MacBook-Pro.crash?response-content-disposition=attachment%3B%20filename%3D%22ruby_2017-01-16-165949_Daniels-MacBook-Pro.crash%22%3B%20filename%2A%3DUTF-8%27%27ruby_2017-01-16-165949_Daniels-MacBook-Pro.crash&response-content-type=text%2Fplain&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ3C7WDVGJ%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T075823Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEC8aCXVzLXdlc3QtMiJHMEUCIDn3me4BiYTd9cEhiJgERTjoUKuLBgplckyo1gv%2Bebm1AiEAoY8YKDOvzgyQ3egDWlUq%2Bg%2BoNFbGN1HoNJcuLub14nsqsQUIKBADGgwwMTM2MTkyNzQ4NDkiDEqDO33z8UmFn3D1piqOBXBmutxLn4O8upRMZQVOHUfAZz%2F5H956nuLFNB1w4dHM76Efd6Esqgkx2W3whuKEdFaGEO2k4o2AP0w7OpJczkeT3IDGGn4RUI5bPh%2BiJMkqVI8tK3UzEpJJUSF6HbMTrwao7Uati6%2BREOOmMX2yjZ83ZIRyEqtTJSLCS4BGXULPEFPojDY4qjNA5b60yyjAnPj6gbXk%2BZoo550WZHFsUcA0FJSu69aScHPCXoxh2hDEQf8HLfH4FrgkK4qMpYKxTdxDKK46CLw%2Fg8T4YuK2rOrqRiOsGsGglYhAi9L5PX6QU8fFeU49TJFGG%2BkWWZX7ZXAb53PZjbJmvmXB%2FTEgBADExPBqb0GtBwSXjsfeg2MUkJ1JJKrjSnftn2uF44Lwl3eXcyZ%2FLbiRYRl8qOKyOuIMKOV4yidbKYdgPdbf35OZMs6zr%2F%2FRxFnwc%2FHV68T%2BizwT%2BFlshKH3y%2B%2BbJFOP6i0T1v7M7nKQFvxNABDtplEI%2B9fqUGW1Dg7ibbsBkVWXePr29ZQd73EmOTWK8CQDFOrZf9Oy4UK9y%2FKH%2Bc21lt7H7ZwU%2Fa2h97u0mRoHMoHc1rVbSje1tINDMsdaGwQRGz3ysdTjmviAJnhwBli9m9wXmWXllBnkXU4%2BfQtLWMu4iVOFewLKkpWUKsLuXh6jx3JosBPmfDd1N42E7Fr4XdEKa0y47oWruRIqlmjxP4X6JXrTROYLdF2CZ0zhGeAUylgD%2B4xxKokPK%2FGkiiw5BiLcaWolpFCXanJqcdWdwy6yMeRcmWXvrr50l3xmx4ZVenDU%2FJtgoI%2BVznl1w5kWpZyrrryWGATyEfw47VeINLtjJXQiBm%2FtsdJKR%2FUNyu1wxs4SPRLdf%2Fje9wnFOdNjAzD4n7qoBjqxAclBXSZX5G1EGG0VOqTUzC21u2MNyu51phI1ys1%2B6uIP3wgenMeIXpBmciTImpA3aFP4ng9cLZGSnZTRsU0zXZxH4%2FyvKBheT7YuS%2F6dlvGllnxjsRJpJSxFtvt%2BwQMln5HVRmPnEIWXGkSOdOWIYAiRkfYoHWEIfPVniUKAcjpGHmd44L06V2hWu2jHKJz33sdHWQxZVh5RDQ0uL0bYoUosxbzl%2BjgtMDeHkZmRLFwM3Q%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=786dbab8fd9221713b1e18d3dfcabb41654b0b177e0b8a47e1fb7e2f7ba0ac24",
+      "file_size": 14862,
+      "type": "text/plain",
+      "moderated": null
+    }
+  ],
+  "allow_singular_disclosure_at": "2017-10-25T13:57:21.322Z",
+  "allow_singular_disclosure_after": -186516062.27513844,
+  "singular_disclosure_allowed": true,
+  "vote_count": 4,
+  "voters": [
+    "yassinek3ch",
+    "eveeez",
+    "spetr0x",
+    "b4155f7c29acd42c27d007a"
+  ],
+  "severity": {
+    "rating": "none",
+    "author_type": "Team"
+  },
+  "structured_scope": null,
+  "abilities": {
+    "assignable_team_members": [
+
+    ],
+    "assignable_team_member_groups": [
+
+    ]
+  },
+  "activities": [
+    {
+      "id": 1452903,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Any update on this?",
+      "automated_response": false,
+      "created_at": "2017-01-30T23:11:13.984Z",
+      "updated_at": "2017-01-30T23:11:13.984Z",
+      "actor": {
+        "username": "dgollahon",
+        "cleared": false,
+        "verified": false,
+        "url": "/dgollahon",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "ruby"
+    },
+    {
+      "id": 1453024,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "I escalated this report to JSON upstream author named flori. but we have no response.\n\nNote: upstream is here. https://github.com/flori/json",
+      "automated_response": false,
+      "created_at": "2017-01-31T00:18:01.421Z",
+      "updated_at": "2017-01-31T00:18:01.421Z",
+      "actor": {
+        "username": "hsbt",
+        "cleared": false,
+        "verified": false,
+        "url": "/hsbt",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/dx6z1zqthgan1c4rv9ppn4jx3832/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937?response-content-disposition=inline%3B%20filename%3D%222eUvHh_4_400x400.png%22%3B%20filename%2A%3DUTF-8%27%272eUvHh_4_400x400.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ3C7WDVGJ%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T075823Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEC8aCXVzLXdlc3QtMiJHMEUCIDn3me4BiYTd9cEhiJgERTjoUKuLBgplckyo1gv%2Bebm1AiEAoY8YKDOvzgyQ3egDWlUq%2Bg%2BoNFbGN1HoNJcuLub14nsqsQUIKBADGgwwMTM2MTkyNzQ4NDkiDEqDO33z8UmFn3D1piqOBXBmutxLn4O8upRMZQVOHUfAZz%2F5H956nuLFNB1w4dHM76Efd6Esqgkx2W3whuKEdFaGEO2k4o2AP0w7OpJczkeT3IDGGn4RUI5bPh%2BiJMkqVI8tK3UzEpJJUSF6HbMTrwao7Uati6%2BREOOmMX2yjZ83ZIRyEqtTJSLCS4BGXULPEFPojDY4qjNA5b60yyjAnPj6gbXk%2BZoo550WZHFsUcA0FJSu69aScHPCXoxh2hDEQf8HLfH4FrgkK4qMpYKxTdxDKK46CLw%2Fg8T4YuK2rOrqRiOsGsGglYhAi9L5PX6QU8fFeU49TJFGG%2BkWWZX7ZXAb53PZjbJmvmXB%2FTEgBADExPBqb0GtBwSXjsfeg2MUkJ1JJKrjSnftn2uF44Lwl3eXcyZ%2FLbiRYRl8qOKyOuIMKOV4yidbKYdgPdbf35OZMs6zr%2F%2FRxFnwc%2FHV68T%2BizwT%2BFlshKH3y%2B%2BbJFOP6i0T1v7M7nKQFvxNABDtplEI%2B9fqUGW1Dg7ibbsBkVWXePr29ZQd73EmOTWK8CQDFOrZf9Oy4UK9y%2FKH%2Bc21lt7H7ZwU%2Fa2h97u0mRoHMoHc1rVbSje1tINDMsdaGwQRGz3ysdTjmviAJnhwBli9m9wXmWXllBnkXU4%2BfQtLWMu4iVOFewLKkpWUKsLuXh6jx3JosBPmfDd1N42E7Fr4XdEKa0y47oWruRIqlmjxP4X6JXrTROYLdF2CZ0zhGeAUylgD%2B4xxKokPK%2FGkiiw5BiLcaWolpFCXanJqcdWdwy6yMeRcmWXvrr50l3xmx4ZVenDU%2FJtgoI%2BVznl1w5kWpZyrrryWGATyEfw47VeINLtjJXQiBm%2FtsdJKR%2FUNyu1wxs4SPRLdf%2Fje9wnFOdNjAzD4n7qoBjqxAclBXSZX5G1EGG0VOqTUzC21u2MNyu51phI1ys1%2B6uIP3wgenMeIXpBmciTImpA3aFP4ng9cLZGSnZTRsU0zXZxH4%2FyvKBheT7YuS%2F6dlvGllnxjsRJpJSxFtvt%2BwQMln5HVRmPnEIWXGkSOdOWIYAiRkfYoHWEIfPVniUKAcjpGHmd44L06V2hWu2jHKJz33sdHWQxZVh5RDQ0uL0bYoUosxbzl%2BjgtMDeHkZmRLFwM3Q%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=083609d6557770377d5e18c1c1908929a66c2eb9f54d847d91685a3b1c5144ba"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "ruby"
+    },
+    {
+      "id": 1466845,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Any word from flori yet?",
+      "automated_response": false,
+      "created_at": "2017-02-06T21:42:55.432Z",
+      "updated_at": "2017-02-06T21:42:55.432Z",
+      "actor": {
+        "username": "dgollahon",
+        "cleared": false,
+        "verified": false,
+        "url": "/dgollahon",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "ruby"
+    },
+    {
+      "id": 1467229,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Nothing. He is not ruby core member.",
+      "automated_response": false,
+      "created_at": "2017-02-07T00:09:05.967Z",
+      "updated_at": "2017-02-07T00:09:05.967Z",
+      "actor": {
+        "username": "hsbt",
+        "cleared": false,
+        "verified": false,
+        "url": "/hsbt",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/dx6z1zqthgan1c4rv9ppn4jx3832/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937?response-content-disposition=inline%3B%20filename%3D%222eUvHh_4_400x400.png%22%3B%20filename%2A%3DUTF-8%27%272eUvHh_4_400x400.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ3C7WDVGJ%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T075823Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEC8aCXVzLXdlc3QtMiJHMEUCIDn3me4BiYTd9cEhiJgERTjoUKuLBgplckyo1gv%2Bebm1AiEAoY8YKDOvzgyQ3egDWlUq%2Bg%2BoNFbGN1HoNJcuLub14nsqsQUIKBADGgwwMTM2MTkyNzQ4NDkiDEqDO33z8UmFn3D1piqOBXBmutxLn4O8upRMZQVOHUfAZz%2F5H956nuLFNB1w4dHM76Efd6Esqgkx2W3whuKEdFaGEO2k4o2AP0w7OpJczkeT3IDGGn4RUI5bPh%2BiJMkqVI8tK3UzEpJJUSF6HbMTrwao7Uati6%2BREOOmMX2yjZ83ZIRyEqtTJSLCS4BGXULPEFPojDY4qjNA5b60yyjAnPj6gbXk%2BZoo550WZHFsUcA0FJSu69aScHPCXoxh2hDEQf8HLfH4FrgkK4qMpYKxTdxDKK46CLw%2Fg8T4YuK2rOrqRiOsGsGglYhAi9L5PX6QU8fFeU49TJFGG%2BkWWZX7ZXAb53PZjbJmvmXB%2FTEgBADExPBqb0GtBwSXjsfeg2MUkJ1JJKrjSnftn2uF44Lwl3eXcyZ%2FLbiRYRl8qOKyOuIMKOV4yidbKYdgPdbf35OZMs6zr%2F%2FRxFnwc%2FHV68T%2BizwT%2BFlshKH3y%2B%2BbJFOP6i0T1v7M7nKQFvxNABDtplEI%2B9fqUGW1Dg7ibbsBkVWXePr29ZQd73EmOTWK8CQDFOrZf9Oy4UK9y%2FKH%2Bc21lt7H7ZwU%2Fa2h97u0mRoHMoHc1rVbSje1tINDMsdaGwQRGz3ysdTjmviAJnhwBli9m9wXmWXllBnkXU4%2BfQtLWMu4iVOFewLKkpWUKsLuXh6jx3JosBPmfDd1N42E7Fr4XdEKa0y47oWruRIqlmjxP4X6JXrTROYLdF2CZ0zhGeAUylgD%2B4xxKokPK%2FGkiiw5BiLcaWolpFCXanJqcdWdwy6yMeRcmWXvrr50l3xmx4ZVenDU%2FJtgoI%2BVznl1w5kWpZyrrryWGATyEfw47VeINLtjJXQiBm%2FtsdJKR%2FUNyu1wxs4SPRLdf%2Fje9wnFOdNjAzD4n7qoBjqxAclBXSZX5G1EGG0VOqTUzC21u2MNyu51phI1ys1%2B6uIP3wgenMeIXpBmciTImpA3aFP4ng9cLZGSnZTRsU0zXZxH4%2FyvKBheT7YuS%2F6dlvGllnxjsRJpJSxFtvt%2BwQMln5HVRmPnEIWXGkSOdOWIYAiRkfYoHWEIfPVniUKAcjpGHmd44L06V2hWu2jHKJz33sdHWQxZVh5RDQ0uL0bYoUosxbzl%2BjgtMDeHkZmRLFwM3Q%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=083609d6557770377d5e18c1c1908929a66c2eb9f54d847d91685a3b1c5144ba"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "ruby"
+    },
+    {
+      "id": 1467271,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Ah, that's unfortunate. Let me know when you hear back.\n\nI think it's a shame that the default json library can trigger a segfault so easily.",
+      "automated_response": false,
+      "created_at": "2017-02-07T00:40:26.353Z",
+      "updated_at": "2017-02-07T00:40:26.353Z",
+      "actor": {
+        "username": "dgollahon",
+        "cleared": false,
+        "verified": false,
+        "url": "/dgollahon",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "ruby"
+    },
+    {
+      "id": 1515395,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ExternalUserJoined",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2017-03-02T11:31:50.642Z",
+      "updated_at": "2017-03-02T11:31:50.642Z",
+      "actor": {
+        "username": "flori",
+        "cleared": false,
+        "verified": false,
+        "url": "/flori",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/146/939/ee67845a5dccc4fa09224b37b830c8e215173fa0_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "ruby"
+    },
+    {
+      "id": 1589725,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@flori, @hsbt: Any progress on this?",
+      "automated_response": false,
+      "created_at": "2017-04-07T17:11:22.489Z",
+      "updated_at": "2017-04-07T17:11:22.489Z",
+      "actor": {
+        "username": "dgollahon",
+        "cleared": false,
+        "verified": false,
+        "url": "/dgollahon",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "ruby"
+    },
+    {
+      "id": 1604434,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "I have released a fix in version 2.0.4.",
+      "automated_response": false,
+      "created_at": "2017-04-11T10:46:07.663Z",
+      "updated_at": "2017-04-11T10:46:07.663Z",
+      "actor": {
+        "username": "flori",
+        "cleared": false,
+        "verified": false,
+        "url": "/flori",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/146/939/ee67845a5dccc4fa09224b37b830c8e215173fa0_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "ruby"
+    },
+    {
+      "id": 1605410,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Great!",
+      "automated_response": false,
+      "created_at": "2017-04-11T18:07:31.394Z",
+      "updated_at": "2017-04-11T18:07:31.394Z",
+      "actor": {
+        "username": "dgollahon",
+        "cleared": false,
+        "verified": false,
+        "url": "/dgollahon",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "ruby"
+    },
+    {
+      "id": 1613530,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "I think we can close this now that it's fixed (though maybe we still need to import the gem to ruby-core).  @dgollahon thank you for reporting this!",
+      "automated_response": false,
+      "created_at": "2017-04-15T23:03:38.053Z",
+      "updated_at": "2017-04-15T23:03:38.053Z",
+      "actor": {
+        "username": "tenderlove",
+        "cleared": false,
+        "verified": false,
+        "url": "/tenderlove",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/003/318/60d828744b5d16813ecbf975fdc453dc4a933f4f_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "reporter": {
+        "username": "dgollahon",
+        "url": "/dgollahon"
+      },
+      "genius_execution_id": null,
+      "team_handle": "ruby"
+    },
+    {
+      "id": 2019712,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportSeverityUpdated",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2017-09-25T08:29:21.967Z",
+      "updated_at": "2017-09-25T08:29:21.967Z",
+      "additional_data": {
+        "old_severity": "High",
+        "new_severity": "None",
+        "old_severity_id": 19901,
+        "new_severity_id": 77902
+      },
+      "actor": {
+        "username": "hsbt",
+        "cleared": false,
+        "verified": false,
+        "url": "/hsbt",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/dx6z1zqthgan1c4rv9ppn4jx3832/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937?response-content-disposition=inline%3B%20filename%3D%222eUvHh_4_400x400.png%22%3B%20filename%2A%3DUTF-8%27%272eUvHh_4_400x400.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ3C7WDVGJ%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T075823Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEC8aCXVzLXdlc3QtMiJHMEUCIDn3me4BiYTd9cEhiJgERTjoUKuLBgplckyo1gv%2Bebm1AiEAoY8YKDOvzgyQ3egDWlUq%2Bg%2BoNFbGN1HoNJcuLub14nsqsQUIKBADGgwwMTM2MTkyNzQ4NDkiDEqDO33z8UmFn3D1piqOBXBmutxLn4O8upRMZQVOHUfAZz%2F5H956nuLFNB1w4dHM76Efd6Esqgkx2W3whuKEdFaGEO2k4o2AP0w7OpJczkeT3IDGGn4RUI5bPh%2BiJMkqVI8tK3UzEpJJUSF6HbMTrwao7Uati6%2BREOOmMX2yjZ83ZIRyEqtTJSLCS4BGXULPEFPojDY4qjNA5b60yyjAnPj6gbXk%2BZoo550WZHFsUcA0FJSu69aScHPCXoxh2hDEQf8HLfH4FrgkK4qMpYKxTdxDKK46CLw%2Fg8T4YuK2rOrqRiOsGsGglYhAi9L5PX6QU8fFeU49TJFGG%2BkWWZX7ZXAb53PZjbJmvmXB%2FTEgBADExPBqb0GtBwSXjsfeg2MUkJ1JJKrjSnftn2uF44Lwl3eXcyZ%2FLbiRYRl8qOKyOuIMKOV4yidbKYdgPdbf35OZMs6zr%2F%2FRxFnwc%2FHV68T%2BizwT%2BFlshKH3y%2B%2BbJFOP6i0T1v7M7nKQFvxNABDtplEI%2B9fqUGW1Dg7ibbsBkVWXePr29ZQd73EmOTWK8CQDFOrZf9Oy4UK9y%2FKH%2Bc21lt7H7ZwU%2Fa2h97u0mRoHMoHc1rVbSje1tINDMsdaGwQRGz3ysdTjmviAJnhwBli9m9wXmWXllBnkXU4%2BfQtLWMu4iVOFewLKkpWUKsLuXh6jx3JosBPmfDd1N42E7Fr4XdEKa0y47oWruRIqlmjxP4X6JXrTROYLdF2CZ0zhGeAUylgD%2B4xxKokPK%2FGkiiw5BiLcaWolpFCXanJqcdWdwy6yMeRcmWXvrr50l3xmx4ZVenDU%2FJtgoI%2BVznl1w5kWpZyrrryWGATyEfw47VeINLtjJXQiBm%2FtsdJKR%2FUNyu1wxs4SPRLdf%2Fje9wnFOdNjAzD4n7qoBjqxAclBXSZX5G1EGG0VOqTUzC21u2MNyu51phI1ys1%2B6uIP3wgenMeIXpBmciTImpA3aFP4ng9cLZGSnZTRsU0zXZxH4%2FyvKBheT7YuS%2F6dlvGllnxjsRJpJSxFtvt%2BwQMln5HVRmPnEIWXGkSOdOWIYAiRkfYoHWEIfPVniUKAcjpGHmd44L06V2hWu2jHKJz33sdHWQxZVh5RDQ0uL0bYoUosxbzl%2BjgtMDeHkZmRLFwM3Q%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=083609d6557770377d5e18c1c1908929a66c2eb9f54d847d91685a3b1c5144ba"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "ruby"
+    },
+    {
+      "id": 2020665,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::NotEligibleForBounty",
+      "message": "We decide to not handle this issue for vulnerability. It's a normal bug.",
+      "automated_response": false,
+      "created_at": "2017-09-25T13:57:13.092Z",
+      "updated_at": "2017-09-25T13:57:13.092Z",
+      "actor": {
+        "url": "/ruby",
+        "ibb": true,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/007/724/bb067434deef370d6a0b16c2cbbc030b57c75e92_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "Ruby"
+        }
+      },
+      "genius_execution_id": null,
+      "team_handle": "ruby"
+    },
+    {
+      "id": 2020666,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2017-09-25T13:57:21.282Z",
+      "updated_at": "2017-09-25T13:57:21.282Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "hsbt",
+        "cleared": false,
+        "verified": false,
+        "url": "/hsbt",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/dx6z1zqthgan1c4rv9ppn4jx3832/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937?response-content-disposition=inline%3B%20filename%3D%222eUvHh_4_400x400.png%22%3B%20filename%2A%3DUTF-8%27%272eUvHh_4_400x400.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ3C7WDVGJ%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T075823Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEC8aCXVzLXdlc3QtMiJHMEUCIDn3me4BiYTd9cEhiJgERTjoUKuLBgplckyo1gv%2Bebm1AiEAoY8YKDOvzgyQ3egDWlUq%2Bg%2BoNFbGN1HoNJcuLub14nsqsQUIKBADGgwwMTM2MTkyNzQ4NDkiDEqDO33z8UmFn3D1piqOBXBmutxLn4O8upRMZQVOHUfAZz%2F5H956nuLFNB1w4dHM76Efd6Esqgkx2W3whuKEdFaGEO2k4o2AP0w7OpJczkeT3IDGGn4RUI5bPh%2BiJMkqVI8tK3UzEpJJUSF6HbMTrwao7Uati6%2BREOOmMX2yjZ83ZIRyEqtTJSLCS4BGXULPEFPojDY4qjNA5b60yyjAnPj6gbXk%2BZoo550WZHFsUcA0FJSu69aScHPCXoxh2hDEQf8HLfH4FrgkK4qMpYKxTdxDKK46CLw%2Fg8T4YuK2rOrqRiOsGsGglYhAi9L5PX6QU8fFeU49TJFGG%2BkWWZX7ZXAb53PZjbJmvmXB%2FTEgBADExPBqb0GtBwSXjsfeg2MUkJ1JJKrjSnftn2uF44Lwl3eXcyZ%2FLbiRYRl8qOKyOuIMKOV4yidbKYdgPdbf35OZMs6zr%2F%2FRxFnwc%2FHV68T%2BizwT%2BFlshKH3y%2B%2BbJFOP6i0T1v7M7nKQFvxNABDtplEI%2B9fqUGW1Dg7ibbsBkVWXePr29ZQd73EmOTWK8CQDFOrZf9Oy4UK9y%2FKH%2Bc21lt7H7ZwU%2Fa2h97u0mRoHMoHc1rVbSje1tINDMsdaGwQRGz3ysdTjmviAJnhwBli9m9wXmWXllBnkXU4%2BfQtLWMu4iVOFewLKkpWUKsLuXh6jx3JosBPmfDd1N42E7Fr4XdEKa0y47oWruRIqlmjxP4X6JXrTROYLdF2CZ0zhGeAUylgD%2B4xxKokPK%2FGkiiw5BiLcaWolpFCXanJqcdWdwy6yMeRcmWXvrr50l3xmx4ZVenDU%2FJtgoI%2BVznl1w5kWpZyrrryWGATyEfw47VeINLtjJXQiBm%2FtsdJKR%2FUNyu1wxs4SPRLdf%2Fje9wnFOdNjAzD4n7qoBjqxAclBXSZX5G1EGG0VOqTUzC21u2MNyu51phI1ys1%2B6uIP3wgenMeIXpBmciTImpA3aFP4ng9cLZGSnZTRsU0zXZxH4%2FyvKBheT7YuS%2F6dlvGllnxjsRJpJSxFtvt%2BwQMln5HVRmPnEIWXGkSOdOWIYAiRkfYoHWEIfPVniUKAcjpGHmd44L06V2hWu2jHKJz33sdHWQxZVh5RDQ0uL0bYoUosxbzl%2BjgtMDeHkZmRLFwM3Q%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=083609d6557770377d5e18c1c1908929a66c2eb9f54d847d91685a3b1c5144ba"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "ruby"
+    },
+    {
+      "id": 2101797,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportBecamePublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2017-10-25T13:57:33.634Z",
+      "updated_at": "2017-10-25T13:57:33.634Z",
+      "actor": {
+        "url": "/ruby",
+        "ibb": true,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/007/724/bb067434deef370d6a0b16c2cbbc030b57c75e92_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "Ruby"
+        }
+      },
+      "genius_execution_id": null,
+      "team_handle": "ruby"
+    }
+  ],
+  "activity_page_count": 1,
+  "activity_page_number": 1,
+  "summaries": [
+    {
+      "category": "team",
+      "can_view?": true,
+      "can_create?": false
+    },
+    {
+      "category": "researcher",
+      "can_view?": true,
+      "can_create?": false
+    }
+  ]
+}

@@ -1,0 +1,491 @@
+{
+  "id": 402473,
+  "global_id": "Z2lkOi8vaGFja2Vyb25lL1JlcG9ydC80MDI0NzM=",
+  "url": "https://hackerone.com/reports/402473",
+  "title": "Arbitrary File Download as Shopmanager",
+  "state": "Closed",
+  "substate": "resolved",
+  "severity_rating": "high",
+  "readable_substate": "Resolved",
+  "created_at": "2018-08-29T15:43:55.540Z",
+  "submitted_at": "2018-08-29T15:43:55.540Z",
+  "is_member_of_team?": false,
+  "is_organization_group_member?": false,
+  "reporter": {
+    "disabled": false,
+    "username": "simonscannell",
+    "url": "/simonscannell",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/HvE5FGgP56eXFMNMr4rwmunu/3c7b305354c9073c106ae3d1701798defaaf5be844fb8fdfa49ca62f991a2c2c"
+    },
+    "is_me?": false,
+    "cleared": false,
+    "verified": false,
+    "hackerone_triager": false,
+    "hacker_mediation": false
+  },
+  "team": {
+    "id": 111,
+    "url": "https://hackerone.com/automattic",
+    "handle": "automattic",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/000/111/7f89e1ea233f92916202521a069fdbfe9eced339_original.png/d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98",
+      "medium": "https://profile-photos.hackerone-user-content.com/variants/000/000/111/7f89e1ea233f92916202521a069fdbfe9eced339_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+    },
+    "permissions": [
+
+    ],
+    "submission_state": "open",
+    "default_currency": "usd",
+    "awards_miles": false,
+    "offers_bounties": true,
+    "state": "public_mode",
+    "only_cleared_hackers": false,
+    "pentest_feature_enabled?": false,
+    "profile": {
+      "name": "Automattic",
+      "twitter_handle": "",
+      "website": "https://automattic.com",
+      "about": "WordPress.com, VaultPress, Akismet, Gravatar, WooCommerce, Polldaddy, Tumblr and more!"
+    }
+  },
+  "has_bounty?": true,
+  "in_validation?": false,
+  "can_view_team": true,
+  "can_view_report": true,
+  "is_external_bug": false,
+  "is_published": false,
+  "is_participant": false,
+  "has_collaborators": false,
+  "submitted_by_team_member": false,
+  "stage": 4,
+  "public": true,
+  "visibility": "full",
+  "cve_ids": [
+
+  ],
+  "singular_disclosure_disabled": true,
+  "disclosed_at": "2019-12-19T14:23:57.394Z",
+  "bug_reporter_agreed_on_going_public_at": "2019-11-19T14:23:55.332Z",
+  "team_member_agreed_on_going_public_at": null,
+  "comments_closed?": false,
+  "facebook_team?": false,
+  "team_private?": false,
+  "vulnerability_information": "Due to a flaw in the way WooCommerce handles downloadable products, a shop manager can download arbitrary files on the server.\n\nThe video shows the exploit and how simple it is:\nhttps://www.youtube.com/watch?v=bkrHpqht5SM\n\nThe function responsible for validating the download file input is the following:\n(/woocommerce/includes/abstracts/abstract-wc-product.php)\n```\n\tpublic function set_downloads( $downloads_array ) {\n\t\t$downloads = array();\n\t\t$errors    = array();\n\n\t\tforeach ( $downloads_array as $download ) {\n\t\t\tif ( is_a( $download, 'WC_Product_Download' ) ) {\n\t\t\t\t$download_object = $download;\n\t\t\t} else {\n\t\t\t\t$download_object = new WC_Product_Download();\n\n\t\t\t\t// If we don't have a previous hash, generate UUID for download.\n\t\t\t\tif ( empty( $download['download_id'] ) ) {\n\t\t\t\t\t$download['download_id'] = wp_generate_uuid4();\n\t\t\t\t}\n\n\t\t\t\t$download_object->set_id( $download['download_id'] );\n\t\t\t\t$download_object->set_name( $download['name'] );\n\t\t\t\t$download_object->set_file( $download['file'] );\n\t\t\t}\n\n\t\t\t// Validate the file extension.\n\t\t\tif ( ! $download_object->is_allowed_filetype() ) {\n\t\t\t\tif ( $this->get_object_read() ) {\n\t\t\t\t\t/* translators: %1$s: Downloadable file */\n\t\t\t\t\t$errors[] = sprintf( __( 'The downloadable file %1$s cannot be used as it does not have an allowed file type. Allowed types include: %2$s', 'woocommerce' ), '<code>' . basename( $download_object->get_file() ) . '</code>', '<code>' . implode( ', ', array_keys( $download_object->get_allowed_mime_types() ) ) . '</code>' );\n\t\t\t\t}\n\t\t\t\tcontinue;\n\t\t\t}\n\n\t\t\t// Validate the file exists.\n\t\t\tif ( ! $download_object->file_exists() ) {\n\t\t\t\tif ( $this->get_object_read() ) {\n\t\t\t\t\t/* translators: %s: Downloadable file */\n\t\t\t\t\t$errors[] = sprintf( __( 'The downloadable file %s cannot be used as it does not exist on the server.', 'woocommerce' ), '<code>' . $download_object->get_file() . '</code>' );\n\t\t\t\t}\n\t\t\t\tcontinue;\n\t\t\t}\n\n\t\t\t$downloads[ $download_object->get_id() ] = $download_object;\n\t\t}\n\n\t\tif ( $errors ) {\n\t\t\t$this->error( 'product_invalid_download', $errors[0] );\n\t\t}\n\n\t\t$this->set_prop( 'downloads', $downloads );\n\t}\n```\nWhen I took a look at the function I naturally wanted to see if there was a way to bypass is_allowed_filetype().\n\nThe function does the following:\n\n```\n\tpublic function is_allowed_filetype() {\n\t\tif ( 'relative' !== $this->get_type_of_file_path() ) {\n\t\t\treturn true;\n\t\t}\n\t\treturn ! $this->get_file_extension() || in_array( $this->get_file_type(), $this->get_allowed_mime_types(), true );\n\t}\n```\nIt will see what type of file path it is (it could be a URL, it could be an absolute path etc.) and interestingly enough it will only validate the file extension if it is a relative path. So of course I wanted to see what would happen if we would enter an absolute path, since then I could bypass the extension check entirely.\n\n```\n\tpublic function get_type_of_file_path( $file_path = '' ) {\n\t\t$file_path = $file_path ? $file_path : $this->get_file();\n\t\tif ( 0 === strpos( $file_path, 'http' ) || 0 === strpos( $file_path, '//' ) ) {\n\t\t\treturn 'absolute';\n\t\t} elseif ( '[' === substr( $file_path, 0, 1 ) && ']' === substr( $file_path, -1 ) ) {\n\t\t\treturn 'shortcode';\n\t\t} else {\n\t\t\treturn 'relative';\n\t\t}\n\t}\n```\n\nAnd I was right. Funny enough, input is only an absolute path if it starts with two slashes. So all I did was  to set the download file to //home/simon/html/wordpress/wp-config.php and then just downloaded it.\n\nAs a patch recommendation: Also check the file types if it is an absolute path.\n\nBest regards,\nSimon\n\n## Impact\n\nWhen an attacker can download the wp-config.php file, a privilege escalation is easily possible. He could either log into the database if the DB host is not localhost or if the WordPress installation is used with a shared hosting provider, he can simply get some hosting space on the same server and then access the database, which leads to a complete compromise of the installation.",
+  "weakness": {
+    "id": 19,
+    "name": "Path Traversal"
+  },
+  "original_report_id": null,
+  "original_report_url": null,
+  "attachments": [
+
+  ],
+  "allow_singular_disclosure_at": "2019-12-19T14:23:55.421Z",
+  "allow_singular_disclosure_after": -118689042.94289164,
+  "singular_disclosure_allowed": true,
+  "vote_count": 15,
+  "voters": [
+    "mashoud1122",
+    "sameerphad72",
+    "tess",
+    "ali",
+    "t4ym",
+    "cryptographer",
+    "0xm1racle",
+    "facelessdevhack",
+    "mahelsay",
+    "defectstar",
+    "and 5 more..."
+  ],
+  "severity": {
+    "rating": "high",
+    "author_type": "User"
+  },
+  "structured_scope": null,
+  "abilities": {
+    "assignable_team_members": [
+
+    ],
+    "assignable_team_member_groups": [
+
+    ]
+  },
+  "activities": [
+    {
+      "id": 3265179,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Thanks for the report, we're investigating.",
+      "automated_response": false,
+      "created_at": "2018-08-29T18:24:37.031Z",
+      "updated_at": "2018-08-29T18:24:37.031Z",
+      "actor": {
+        "username": "vortfu",
+        "cleared": false,
+        "verified": false,
+        "url": "/vortfu",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/004/982/1ef285fb263d30f189dc6a8038e1d5c46086e9d9_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "automattic"
+    },
+    {
+      "id": 3289645,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "I have also just realized that it is also possible to simply enter http://localhost/wordpress/wp-config.php?ext=.jpg and download arbitrary files this way. This is because WooCommerce translates URLs that refer to the own domain to local paths and then downloads them.",
+      "automated_response": false,
+      "created_at": "2018-09-04T13:34:51.542Z",
+      "updated_at": "2018-09-04T13:34:51.542Z",
+      "actor": {
+        "username": "simonscannell",
+        "cleared": false,
+        "verified": false,
+        "url": "/simonscannell",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/HvE5FGgP56eXFMNMr4rwmunu/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "automattic"
+    },
+    {
+      "id": 3332831,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi Simon,\n\nThanks for the follow up! We'll have patches for this issue and others you reported in WC 3.4.6, releasing in a couple weeks.\n\nThanks,\nClaudiu",
+      "automated_response": false,
+      "created_at": "2018-09-13T14:41:06.688Z",
+      "updated_at": "2018-09-13T14:41:06.688Z",
+      "actor": {
+        "username": "claudiulodro",
+        "cleared": false,
+        "verified": false,
+        "url": "/claudiulodro",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "automattic"
+    },
+    {
+      "id": 3332842,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @claudiulodro ,\n\nThanks for notifying me. I do have an issue though, I am new to Hackerone. As a security researcher with a new account you only get 6 \"trial reports\". After you have reported 6 bugs, you won't be able to report any more bugs until your first 3 bugs are closed. I currently am stuck in this situation and can't report any further exploits to you. However, I have identified two more vulnerabilities in WooCommerce: An Open Redirect and another Code Execution. If you guys could close the reports I sent you, I can report the other ones too so you can include all of them in the upcoming patch and don't have to issue other ones.",
+      "automated_response": false,
+      "created_at": "2018-09-13T14:45:15.061Z",
+      "updated_at": "2018-09-13T14:45:25.929Z",
+      "actor": {
+        "username": "simonscannell",
+        "cleared": false,
+        "verified": false,
+        "url": "/simonscannell",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/HvE5FGgP56eXFMNMr4rwmunu/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "automattic"
+    },
+    {
+      "id": 3334051,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @simonscannell, I've contacted our H1 rep and requested that this restriction be removed from your account so that you can report additional issues - I'll keep you updated (and or just close out the existing reports as `Resolved` if they're unable to help) :)",
+      "automated_response": false,
+      "created_at": "2018-09-13T20:10:25.667Z",
+      "updated_at": "2018-09-13T20:10:25.667Z",
+      "actor": {
+        "username": "vortfu",
+        "cleared": false,
+        "verified": false,
+        "url": "/vortfu",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/004/982/1ef285fb263d30f189dc6a8038e1d5c46086e9d9_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "automattic"
+    },
+    {
+      "id": 3335643,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "The report rate limiting restriction should now be removed. Please let us know if there are any issues :)",
+      "automated_response": false,
+      "created_at": "2018-09-14T03:03:50.607Z",
+      "updated_at": "2018-09-14T03:03:50.607Z",
+      "actor": {
+        "username": "vortfu",
+        "cleared": false,
+        "verified": false,
+        "url": "/vortfu",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/004/982/1ef285fb263d30f189dc6a8038e1d5c46086e9d9_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "automattic"
+    },
+    {
+      "id": 3398965,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi Simon,\n\nI've attached an updated version of WooCommerce with patches for these vulnerabilities.\n\nThere are two changes to mitigate the reported vulnerabilities:\n\n1. For download URLs that begin with `//` the correct behavior should always be to treat that as a URL and never to treat that as a path (e.g. for the download URL `//home/simon/html/wordpress/wp-config.php` the user should be taken to `http(s)://home/simon/html/wordpress/wp-config.php` when trying to download the file). This change is on lines 246-253 of `includes/class-wc-download-handler.php`.\n\n2. For absolute URLs to the current site (e.g. `http://localhost/wordpress/wp-config.php`) we've implemented filetype checking just like if the user had input a path. This change is in the updated `WC_Product_Download::is_allowed_filetype` method located in `includes/class-wc-product-download.php`.\n\nIf you see any flaws in either of these approaches please let us know.\n\nThanks!\nClaudiu\n",
+      "automated_response": false,
+      "created_at": "2018-09-27T20:32:39.603Z",
+      "updated_at": "2018-09-27T20:32:39.603Z",
+      "actor": {
+        "username": "claudiulodro",
+        "cleared": false,
+        "verified": false,
+        "url": "/claudiulodro",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "attachments": [
+        {
+          "id": 352106,
+          "filename": "woocommerce.zip",
+          "type": "application/zip",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/352/106/35ff2e33e2ff818ed52a41699b7b7d1673d4b066/woocommerce.zip?response-content-disposition=attachment%3B%20filename%3D%22woocommerce.zip%22%3B%20filename%2A%3DUTF-8%27%27woocommerce.zip&response-content-type=application%2Fzip&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQWZRWVQLW%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T073438Z&X-Amz-Expires=1267&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJHMEUCIH4h5RU%2BpbI3mlwEISZD1G9BopBv%2B7sztLbJknQb99SoAiEAvhxLWqtVFV73maMS53mFspg5vBZ3%2BzoNHXmSke7DMlAqsgUIIxADGgwwMTM2MTkyNzQ4NDkiDC7pogsWvzjWL290gCqPBTKeeZOA278oY6KnHe%2FmWuxZ3Qva3oIxiPgSeceppHqQhkbgfD3tsY8pCoJ9VsxHzSlUT0PRdOuJ8sr7ZKZL2JXBIQSfFD%2FndZi2qU1cFtihzUpwWYUUNN5iSpcUDdb5QDC4CvgOQ%2BEvd6tX7y%2F6Q%2BSMOg8q7yp5mzJr5qbY%2BWMbL6nz%2Buay4cd0wnSe6tkjuaJ1NIbjxSdH9CbkBS0XoTSgIOBDeBGuSMPeOJAc2qCCwB3%2FJJzjHbb07dimFwcVQ37AzR3aSdVTIrEy7NTVExSsa71AnpdGMfq2ZWxbVHT4Z6Ep3h5g9prjvXQKlNKYdiX%2BmlPln5qCDc8s7M8gON6CdSii7fH0aBOcu0INjoa4dc%2FOKcwiuirhI9fDfGn4h4w3t9xVEOfQ21OzAu6iCzqwbyX6FcQTYmc1%2FIb4Lr%2BmfHmZPXpM41HYMK9XHVWPs5aSmF5nYp0DtlX53W%2FJIPEUayublSARs02HeVHIz1vwC6fhS3x1128WqIIvz2dgsHmVJmC%2Bi%2BMemNKEsdiaq0lMgNiTe9mDem3SLrvYMO99wYuebZUfCAVBbqea6mN0o6TtPR%2BY4ZiZl0Y57HEgt3yLwEJQ3BmwdmweldY92DYxW1o1ozabvAsUO6MT%2BEI0mkI2tmtaZQ%2B31bwtxLouobN%2FxkZiIs9YPexJAJ6%2F1%2BFYr5HPRh8rib2vpmO4ylsOFgCISJP5yPdziLDBPihHZhMx8CE858zkJIqVtEFfXZ31W%2FNw09acXa5I4%2BC8AMnDBWV%2FqsryQDDwWpVkzUyRJroktjLT8m7IUEVkEXb7s2GO%2BJiidEBoinU5YgVGpMWTmAmcjaFhRA%2FpwdFI%2F7XHri8KUlyGWMlbYK2BDuF74uow5IK5qAY6sQGceMO9KGy75rSGSK9Jhffgp6ECN8Mwct472Z1JRwqPxCECpo4hAM%2BTiqPzt7Rc8yOTYkRKOicKyCebEt1uytTR6HQoyEcj%2FTBDmV%2BwTAA3FljzwsKBDHTaYj%2Bd0h8rsm4W%2BKtqjUgQ%2BsI4FzYNCv9BSWMF%2FnJ7wV%2BwaSDW1OYbdFVrBpkgTxJPCiLvqlbbKjcH%2BuE8HtSqJR%2FjUt%2Bvxx4CmAPJl%2BJDFQWASMAeV4kuGCM%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=749078906be8d6fc767eb5fd13ecdc91ea0f768b047c46ecacab5515954ae5f5"
+        }
+      ],
+      "genius_execution_id": null,
+      "team_handle": "automattic"
+    },
+    {
+      "id": 3413221,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @claudiulodro ,\n\njust had a look and the changes do seem to do the trick. :)",
+      "automated_response": false,
+      "created_at": "2018-10-01T12:40:55.573Z",
+      "updated_at": "2018-10-01T12:40:55.573Z",
+      "actor": {
+        "username": "simonscannell",
+        "cleared": false,
+        "verified": false,
+        "url": "/simonscannell",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/HvE5FGgP56eXFMNMr4rwmunu/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "automattic"
+    },
+    {
+      "id": 3471862,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi Simon,\n\nThis was patched in [WC 3.4.6](https://woocommerce.wordpress.com/2018/10/11/woocommerce-3-4-6-security-fix-release-notes/), released yesterday. Thanks for all your help!\n\nClaudiu",
+      "automated_response": false,
+      "created_at": "2018-10-12T16:59:39.707Z",
+      "updated_at": "2018-10-12T16:59:39.707Z",
+      "actor": {
+        "username": "claudiulodro",
+        "cleared": false,
+        "verified": false,
+        "url": "/claudiulodro",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "automattic"
+    },
+    {
+      "id": 3478626,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Glad to have helped. :)",
+      "automated_response": false,
+      "created_at": "2018-10-14T11:59:31.506Z",
+      "updated_at": "2018-10-14T11:59:31.506Z",
+      "actor": {
+        "username": "simonscannell",
+        "cleared": false,
+        "verified": false,
+        "url": "/simonscannell",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/HvE5FGgP56eXFMNMr4rwmunu/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "automattic"
+    },
+    {
+      "id": 3501057,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2018-10-19T00:18:20.255Z",
+      "updated_at": "2018-10-19T00:18:20.255Z",
+      "actor": {
+        "username": "vortfu",
+        "cleared": false,
+        "verified": false,
+        "url": "/vortfu",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/004/982/1ef285fb263d30f189dc6a8038e1d5c46086e9d9_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "reporter": {
+        "username": "simonscannell",
+        "url": "/simonscannell"
+      },
+      "genius_execution_id": null,
+      "team_handle": "automattic"
+    },
+    {
+      "id": 3506113,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BountyAwarded",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2018-10-19T23:49:36.465Z",
+      "updated_at": "2018-10-19T23:49:36.465Z",
+      "actor": {
+        "url": "/automattic",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/000/111/7f89e1ea233f92916202521a069fdbfe9eced339_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "Automattic"
+        }
+      },
+      "bounty_currency": "usd",
+      "genius_execution_id": null,
+      "team_handle": "automattic",
+      "collaborator": {
+        "username": "simonscannell",
+        "url": "/simonscannell"
+      }
+    },
+    {
+      "id": 3520139,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Thank you very much! Was a pleasure working with you.",
+      "automated_response": false,
+      "created_at": "2018-10-23T13:27:29.633Z",
+      "updated_at": "2018-10-23T13:27:29.633Z",
+      "actor": {
+        "username": "simonscannell",
+        "cleared": false,
+        "verified": false,
+        "url": "/simonscannell",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/HvE5FGgP56eXFMNMr4rwmunu/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "automattic"
+    },
+    {
+      "id": 6346149,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2019-11-19T14:23:55.364Z",
+      "updated_at": "2019-11-19T14:23:55.364Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "simonscannell",
+        "cleared": false,
+        "verified": false,
+        "url": "/simonscannell",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/HvE5FGgP56eXFMNMr4rwmunu/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "automattic"
+    },
+    {
+      "id": 6589166,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportBecamePublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2019-12-19T14:23:57.411Z",
+      "updated_at": "2019-12-19T14:23:57.411Z",
+      "actor": {
+        "url": "/automattic",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/000/111/7f89e1ea233f92916202521a069fdbfe9eced339_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "Automattic"
+        }
+      },
+      "genius_execution_id": null,
+      "team_handle": "automattic"
+    }
+  ],
+  "activity_page_count": 1,
+  "activity_page_number": 1,
+  "summaries": [
+    {
+      "category": "team",
+      "can_view?": true,
+      "can_create?": false
+    },
+    {
+      "category": "researcher",
+      "can_view?": true,
+      "can_create?": false
+    }
+  ]
+}

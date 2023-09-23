@@ -1,0 +1,612 @@
+{
+  "id": 1751258,
+  "global_id": "Z2lkOi8vaGFja2Vyb25lL1JlcG9ydC8xNzUxMjU4",
+  "url": "https://hackerone.com/reports/1751258",
+  "title": "Attacker is able to create,Edit & delete notes and leak the title of a victim's private personal snippet",
+  "state": "Closed",
+  "substate": "resolved",
+  "severity_rating": "medium",
+  "readable_substate": "Resolved",
+  "created_at": "2022-10-25T23:29:24.473Z",
+  "submitted_at": "2022-10-25T23:29:24.725Z",
+  "is_member_of_team?": false,
+  "is_organization_group_member?": false,
+  "reporter": {
+    "disabled": false,
+    "username": "cryptopone",
+    "url": "/cryptopone",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/uk6jjk1a2i1dp04zz14k6a4wp4o4/3c7b305354c9073c106ae3d1701798defaaf5be844fb8fdfa49ca62f991a2c2c"
+    },
+    "is_me?": false,
+    "cleared": false,
+    "verified": false,
+    "hackerone_triager": false,
+    "hacker_mediation": false
+  },
+  "team": {
+    "id": 264,
+    "url": "https://hackerone.com/gitlab",
+    "handle": "gitlab",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/f0hovtq73f9ap815a0r1w42bocp4/d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98",
+      "medium": "https://profile-photos.hackerone-user-content.com/variants/f0hovtq73f9ap815a0r1w42bocp4/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+    },
+    "permissions": [
+
+    ],
+    "submission_state": "open",
+    "default_currency": "usd",
+    "awards_miles": false,
+    "offers_bounties": true,
+    "state": "public_mode",
+    "only_cleared_hackers": false,
+    "pentest_feature_enabled?": false,
+    "profile": {
+      "name": "GitLab",
+      "twitter_handle": "gitlab",
+      "website": "https://about.gitlab.com",
+      "about": "A single application for the entire software development lifecycle."
+    }
+  },
+  "has_bounty?": true,
+  "in_validation?": false,
+  "can_view_team": true,
+  "can_view_report": true,
+  "is_external_bug": false,
+  "is_published": false,
+  "is_participant": false,
+  "has_collaborators": false,
+  "submitted_by_team_member": false,
+  "stage": 4,
+  "public": true,
+  "visibility": "full",
+  "cve_ids": [
+
+  ],
+  "singular_disclosure_disabled": true,
+  "disclosed_at": "2023-06-02T01:57:09.182Z",
+  "bug_reporter_agreed_on_going_public_at": "2023-04-21T15:04:31.568Z",
+  "team_member_agreed_on_going_public_at": "2023-06-02T01:57:09.054Z",
+  "comments_closed?": false,
+  "facebook_team?": false,
+  "team_private?": false,
+  "vulnerability_information": "### Summary\n\nAn attacker is able to create new notes for a victim's private personal snippet. This attack leaks the title of the snippet on the attacker's activity page. The attacker is also able to edit/delete the note using the \"id\" value that is returned from the server after creating the comment, as they are the owner for the note.\n\nI believe this attack is achieved by utilizing https://gitlab.com/gitlab-org/gitlab/-/blob/master/app/finders/notes_finder.rb when posting a comment within a project they control.\n\n```ruby\n  def noteables_for_type(noteable_type)\n    case noteable_type\n    when \"issue\"\n      IssuesFinder.new(@current_user, project_id: @project.id).execute # rubocop: disable CodeReuse/Finder\n    when \"merge_request\"\n      MergeRequestsFinder.new(@current_user, project_id: @project.id).execute # rubocop: disable CodeReuse/Finder\n    when \"snippet\", \"project_snippet\"\n      SnippetsFinder.new(@current_user, project: @project).execute # rubocop: disable CodeReuse/Finder\n    when \"personal_snippet\"\n      PersonalSnippet.all\n    else\n      raise \"invalid target_type '#{noteable_type}'\"\n    end\n  end\n```\nBy changing the POST parameter noteable_type from \"issue\" to \"personal_snippet\" the server doesn't perform the project check when attempting to create the note and as a result the comment is posted to the victim's personal snippet.\n\n### Steps to reproduce\n\nReproduction steps require two accounts representing an attacker and a victim\n\n#### Victim Setup:\n1. Log in and navigate to https://gitlab-instance.example.com/dashboard/snippets then click the \"New snippet\" button.\n1. Set the title of the Personal Snippet to \"Private Victim Snippet\", and supply a filename (ex. \"test-victim-file.txt\") with file contents \"test file contents\".\n1. Ensure the visibility level is set to \"Private\" and click \"Create Snippet\".\n1. Make a note of the ID for the snippet in the URL bar. We will refer to this value as VICTIM_SNIPPETID. The attacker will need it in their steps.\n\n#### Attacker Setup and Create New Note on Personal Snippet:\n1. Log in to GitLab and navigate to https://gitlab-instance.example.com/dashboard/projects and create a new private project for the attack (I named mine \"PrivateAttackerProject\").\n1. Create a new issue (I created an issue with title \"Attacker Issue\").\n1. Open up the issue that was just created (ie. https://gitlab-instance.example.com/attacker/privateattackerproject/-/issues/1).\n1. Scroll down to \"Activity\" and create a new note. I used the text `@attacker was here`.\n1. Prepare BurpSuite to intercept the request and then click \"Comment\". We want the request that looks like `/attacker/privateattackerproject/notes?target_id=6&target_type=issue` with post body looking like `{\"note\":{\"noteable_type\":\"Issue\",\"noteable_id\":6,\"internal\":false,\"note\":\"@attacker was here\"}}`.\n1. Send the intercepted POST request to Burp Repeater for easier testing.\n1. Update target_type in the target resource from `target_type=issue` to `target_type=personal_snippet`.\n1. Set the target_id in the target resource from `target_id=6` to `target_id=VICTIM_SNIPPETID` (Replacing VICTIM_SNIPPETID with the id that was generated for the victim).\n1. The POST request should now look similar to `POST /attacker/privateattackerproject/notes?target_id=VICTIM_SNIPPETID&target_type=personal_snippet HTTP/2`\n1. Send the request and review the response. A new note will be created under the private snippet.\n\n#### Attacker editing a note they created previously\nNote: When the attacker creates the note in the previous steps, an id value is returned in the response. This can also be obtained by the victim by copying the link to the note and making a note of the id (ex. https://gitlab-pentest2.example.com/-/snippets/3#note_7)\n1. Have the attacker create a new note within the issue they created. We can then edit/delete this note and intercept the request in BurpSuite.\n1. To edit the note on the personal snippet:\nTake the original edit request:\n```\nPUT /attacker/privateattackerproject/notes/8 HTTP/2\nHost: gitlab-pentest2.example.com\n<Rest of headers>\n\n{\"target_type\":\"issue\",\"target_id\":7,\"note\":{\"note\":\"test2\"}}\n```\n\nModify the body of the post so '\"target_type\"=\"personal_snippet\"' and '\"target_id\"=VICTIM_SNIPPETID'\n\n```\nPUT /attacker/privateattackerproject/notes/8 HTTP/2\nHost: gitlab-pentest2.example.com\n<Rest of headers>\n\n{\"target_type\":\"personal_snippet\",\"target_id\":3,\"note\":{\"note\":\"test2\"}}\n```\n\n#### Attacker deleting a note they created previously\n1. To delete the note on the personal snippet:\nTake the original delete note request:\n```\nDELETE /attacker/privateattackerproject/notes/8 HTTP/2\nHost: gitlab-pentest2.example.com\n<Rest of headers>\n```\nUpdate the id in the request to point to the note id in the personal snippet (Attacker must be the owner of the note).\n\n```\nDELETE /attacker/privateattackerproject/notes/7 HTTP/2\nHost: gitlab-pentest2.example.com\n<Rest of headers>\n```\n\n### Impact\n\nIf the victim refreshes the snippet they will see a comment from the attacker. If the attacker visits their profile page (ie. https://gitlab-pentest2.example.com/attacker) and views activity, they will confirm if they reached the comment and can obtain the title of the private snippet.\n\nSince snippet ids are sequential, an attacker could in theory create a snippet, then iterate from 1 to the snippet number of their own snippet and obtain the titles of all personal snippets.\n\nThe attacker is also able to update a note they have created and modify text and/or delete the note itself by intercepting the \"Edit comment\" and \"Delete comment\" requests within the issue and repeating the steps above. The attacker could delete their notes after collecting the titles for example to cover their tracks.\n\nIf the attacker makes their project public or internal and uses a label or references the issue in the comment, the victim will be able to see the label from the attacker's project. This helps provide further proof of a successful attack and may be used for social engineering.\n\n### Examples\n\nThis bug is also reproducible on GitLab.com\nVictim Snippet: https://gitlab.com/-/snippets/2436054\nAttacker Issue: https://gitlab.com/Cryptopone/MyPrivateProject/-/issues/1\n\n### What is the current *bug* behavior?\n\nWhen the attacker posts a note to the victim's private snippet, the attacker will be able to obtain the title of the snippet. \n\n### What is the expected *correct* behavior?\n\nThe server should return an error message when attempting to create a note for a personal snippet the attacker does not own.\n\n### Relevant logs and/or screenshots\n\nAttacker viewing their activity page to obtain the title of the victim's private personal snippet.\n{F2003894}\n\nVictim seeing notes that have been posted by an attacker. Note the linked issue links back to the attacker's project where they conducted the attack.\n{F2003895}\n\n### Output of checks\n\nThis bug happens on GitLab.com)\n\n#### Results of GitLab environment info\n\n```\nSystem information\nSystem:         Ubuntu 20.04\nProxy:          no\nCurrent User:   git\nUsing RVM:      no\nRuby Version:   2.7.5p203\nGem Version:    3.1.6\nBundler Version:2.3.15\nRake Version:   13.0.6\nRedis Version:  6.2.7\nSidekiq Version:6.4.2\nGo Version:     unknown\n\nGitLab information\nVersion:        15.5.1-ee\nRevision:       7344dd2631a\nDirectory:      /opt/gitlab/embedded/service/gitlab-rails\nDB Adapter:     PostgreSQL\nDB Version:     12.10\nURL:            https://gitlab-pentest2.example.com\nHTTP Clone URL: https://gitlab-pentest2.example.com/some-group/some-project.git\nSSH Clone URL:  git@gitlab-pentest2.example.com:some-group/some-project.git\nElasticsearch:  no\nGeo:            no\nUsing LDAP:     no\nUsing Omniauth: yes\nOmniauth Providers:\n\nGitLab Shell\nVersion:        14.12.0\nRepository storage paths:\n- default:      /var/opt/gitlab/git-data/repositories\nGitLab Shell path:              /opt/gitlab/embedded/service/gitlab-shell\n```\n\n## Impact\n\nWhen the attacker posts a note to the victim's private snippet, the attacker will be able to obtain the title of the snippet. \n\nIf the attacker makes their project public or internal and creates a note with a label or references to an issue in the comment, the victim will be able to see the label from the attacker's project. This could be used as a social engineering vector to obtain the file contents of a snippet (or simply scare the victim into thinking the snippet is public).",
+  "bounty_amount": "1730.0",
+  "formatted_bounty": "$1,730",
+  "weakness": {
+    "id": 55,
+    "name": "Insecure Direct Object Reference (IDOR)"
+  },
+  "original_report_id": null,
+  "original_report_url": null,
+  "attachments": [
+    {
+      "id": 2003894,
+      "file_name": "AttackerActivityProof.png",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/udye8cem2bxk3fb4kw25npktb04y?response-content-disposition=attachment%3B%20filename%3D%22AttackerActivityProof.png%22%3B%20filename%2A%3DUTF-8%27%27AttackerActivityProof.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQU5JYKTGM%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065502Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQDPextUgVMaFUn7J3YE8kNYUZyiY2543ePlEF9CwFfM8QIhAIRilag%2FrZ1iszKpt2JLQyz8teMsWBamJF4Iou7wqMU3KrIFCCMQAxoMMDEzNjE5Mjc0ODQ5Igwu56k94pqVtX8r%2Bo4qjwXEh1PM7wf2Np3Qm66HGnlSD0VTqg7R%2FtI4UnXMImbHLHRC5z94z14%2FX2eWyQeiZAAq3PHSCaPLB7tsZX%2ByCkLvYSKIVEDIBAiJLNfPf0mrHAbRDGyc8keEypRUwMaT5cop25r%2FpVpMdM%2BVhJVrWWa5ovVSzsmubSxixbH%2BvSDMHrKZm1mklKunLYykTJQX%2BiX5bQw3i%2BjEj3n27mXAVXGx17uJj4AZzaAdAN%2Fb7nblHihfCONYhSlmArkzxiwacZx5n%2BkCMiJbI49SZjueO3VcmcjD7qJl9BwZ1W4QT01LH5E0r%2FauBeDReLPQR2A89V610Uem1zJCLjoNtjcpr%2Fy6PNyHeeAwa067JLmyxsCZL2gdW81O9EGHtcrxXf7TlH8A3h0yPO%2B8zVoyJSSsEzzjpzkscidQ86LAyX6CNqqcdHnUJsXeboKB5dqjOphDJLDRfmLzgZTuPihjRKzkML0G3QjO1fWCgDatC%2FHiCuz%2F4Hm5bamHTrdiVE9y%2B%2Bv6QZ2edEQAzLX1lowLp2RzYtTYHwDzZkAjKZJKVeO9zj1pkoJhjfz2VARzHSySfXw0YMwPUVlRPg7L6f%2BQAjpso7C6uYEeozwfIwrkmBFVTZW%2BLEzdRLHNNz7rHyr9w1WlRj4OjJLn5Ee5sdJ5cEyQgF8ir1s09BXAP%2FsqR7THqh25ijYpQsYTzGdJxWFw9Mcq455M0MG7I8oz1i3cTjV9eJJer5Vnjtubr681ZNh6Cbl85VC5gKL3xiZ%2BRa64M54QAtb9tRvCFdlmV7U2Yel7eiB1thRiUc%2BQBXeECkUKbOXNfSGQ6%2FRqu7AD4Qz0GIKmc6obQ3vJeTlVjbt80VYdsyGeWYLjRSjnDrYNEFDoOJTBMPSHuagGOrABfJMTnU4%2FETzLB2BZXf541hyjNiWZ3tqKyh4p%2BOtMGjGYCmsTcu5RXXYGZ3G0puxZ27J20XRP2zhvuPBXAixyr8lz8adwCOfLJe0oCYgqgYmQxwbXeE5pLP9eHwIk2aiqxaN2tTNVGnFifZgT%2BzaAvEW1M5e4bcPdHOcraaqJVAJKjLuYHBPVtsgKcNUbL9bdOH2zFoQgd6ok2JFMDfaY%2FOJ38QDDXR4GXVTD01IxQcc%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=be36a609ae3dbb696fc94e1cd4833450b9b7826804e74da88d25e65bc3349569",
+      "file_size": 82744,
+      "type": "image/png",
+      "moderated": null
+    },
+    {
+      "id": 2003895,
+      "file_name": "VictimProof.png",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/4s8xlfkzf72rkp8hjf10da3anw9c?response-content-disposition=attachment%3B%20filename%3D%22VictimProof.png%22%3B%20filename%2A%3DUTF-8%27%27VictimProof.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQU5JYKTGM%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065502Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQDPextUgVMaFUn7J3YE8kNYUZyiY2543ePlEF9CwFfM8QIhAIRilag%2FrZ1iszKpt2JLQyz8teMsWBamJF4Iou7wqMU3KrIFCCMQAxoMMDEzNjE5Mjc0ODQ5Igwu56k94pqVtX8r%2Bo4qjwXEh1PM7wf2Np3Qm66HGnlSD0VTqg7R%2FtI4UnXMImbHLHRC5z94z14%2FX2eWyQeiZAAq3PHSCaPLB7tsZX%2ByCkLvYSKIVEDIBAiJLNfPf0mrHAbRDGyc8keEypRUwMaT5cop25r%2FpVpMdM%2BVhJVrWWa5ovVSzsmubSxixbH%2BvSDMHrKZm1mklKunLYykTJQX%2BiX5bQw3i%2BjEj3n27mXAVXGx17uJj4AZzaAdAN%2Fb7nblHihfCONYhSlmArkzxiwacZx5n%2BkCMiJbI49SZjueO3VcmcjD7qJl9BwZ1W4QT01LH5E0r%2FauBeDReLPQR2A89V610Uem1zJCLjoNtjcpr%2Fy6PNyHeeAwa067JLmyxsCZL2gdW81O9EGHtcrxXf7TlH8A3h0yPO%2B8zVoyJSSsEzzjpzkscidQ86LAyX6CNqqcdHnUJsXeboKB5dqjOphDJLDRfmLzgZTuPihjRKzkML0G3QjO1fWCgDatC%2FHiCuz%2F4Hm5bamHTrdiVE9y%2B%2Bv6QZ2edEQAzLX1lowLp2RzYtTYHwDzZkAjKZJKVeO9zj1pkoJhjfz2VARzHSySfXw0YMwPUVlRPg7L6f%2BQAjpso7C6uYEeozwfIwrkmBFVTZW%2BLEzdRLHNNz7rHyr9w1WlRj4OjJLn5Ee5sdJ5cEyQgF8ir1s09BXAP%2FsqR7THqh25ijYpQsYTzGdJxWFw9Mcq455M0MG7I8oz1i3cTjV9eJJer5Vnjtubr681ZNh6Cbl85VC5gKL3xiZ%2BRa64M54QAtb9tRvCFdlmV7U2Yel7eiB1thRiUc%2BQBXeECkUKbOXNfSGQ6%2FRqu7AD4Qz0GIKmc6obQ3vJeTlVjbt80VYdsyGeWYLjRSjnDrYNEFDoOJTBMPSHuagGOrABfJMTnU4%2FETzLB2BZXf541hyjNiWZ3tqKyh4p%2BOtMGjGYCmsTcu5RXXYGZ3G0puxZ27J20XRP2zhvuPBXAixyr8lz8adwCOfLJe0oCYgqgYmQxwbXeE5pLP9eHwIk2aiqxaN2tTNVGnFifZgT%2BzaAvEW1M5e4bcPdHOcraaqJVAJKjLuYHBPVtsgKcNUbL9bdOH2zFoQgd6ok2JFMDfaY%2FOJ38QDDXR4GXVTD01IxQcc%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=8e5651a62544391a3df88974089ee82fb57f62fb4c3705212e4c732f75ec0705",
+      "file_size": 68260,
+      "type": "image/png",
+      "moderated": null
+    }
+  ],
+  "allow_singular_disclosure_at": null,
+  "vote_count": 10,
+  "voters": [
+    "n1m0",
+    "zy9ard3",
+    "neil-tsakatsa",
+    "isira_adithya",
+    "kerolesmagdy",
+    "shadow00008",
+    "barner001",
+    "schnapps6150",
+    "abdulsomed-sadat",
+    "vimyumy"
+  ],
+  "severity": {
+    "rating": "medium",
+    "score": 5.4,
+    "author_type": "Team",
+    "metrics": {
+      "attack_vector": "network",
+      "attack_complexity": "low",
+      "privileges_required": "low",
+      "user_interaction": "none",
+      "scope": "unchanged",
+      "confidentiality": "low",
+      "integrity": "low",
+      "availability": "none"
+    }
+  },
+  "structured_scope": {
+    "databaseId": 18138,
+    "asset_type": "URL",
+    "asset_identifier": "gitlab.com",
+    "max_severity": "critical"
+  },
+  "abilities": {
+    "assignable_team_members": [
+
+    ],
+    "assignable_team_member_groups": [
+
+    ]
+  },
+  "activities": [
+    {
+      "id": 19004237,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @cryptopone,\n\nThank you for your submission. I hope you are well. Your report is currently being reviewed and the HackerOne triage team will get back to you once there is additional information to share.\n\nHave a great day! \n\nKind regards,\n@h1_analyst_pablo",
+      "automated_response": false,
+      "created_at": "2022-10-29T05:41:36.552Z",
+      "updated_at": "2022-10-29T05:41:36.552Z",
+      "actor": {
+        "username": "h1_analyst_pablo",
+        "cleared": false,
+        "verified": false,
+        "url": "/h1_analyst_pablo",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/mmkjqfycb9h9djg8w9sook0h4w8c/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": true,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 19004357,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugNeedsMoreInfo",
+      "message": "Hello @cryptopone,\n\nThank you for your report and hope you are having a great day!!\n\nI was able to reproduce the behavior you have described for creating a comment in the private snippet from the attacker account. However i was not able to reproduce the issue in editing the notes/ deleting the notes.\n\nI was able to send the request \n```\nPUT /attacker/privateattackerproject/notes/8 HTTP/2\nHost: gitlab-pentest2.example.com\n<Rest of headers>\n\n{\"target_type\":\"personal_snippet\",\"target_id\":3,\"note\":{\"note\":\"test2\"}}\n```\n\nhowever did not see any change in the victim snippet.\n\n{F2009557}\n\nDo we have to make any changes in the private snippet to allow notes.? i don't see any notes option in the snippet. (It is there in the issue created by attacker)\n\nCan you please let me know what is missing here.? Please provide PoC so that we can better verify the issue.\n\nWe would love to take another look at your report once you have provided additional information supporting your issue.\n\nThanks,\n@h1_analyst_pablo",
+      "automated_response": false,
+      "created_at": "2022-10-29T06:29:28.871Z",
+      "updated_at": "2022-10-29T06:29:28.871Z",
+      "actor": {
+        "username": "h1_analyst_pablo",
+        "cleared": false,
+        "verified": false,
+        "url": "/h1_analyst_pablo",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/mmkjqfycb9h9djg8w9sook0h4w8c/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": true,
+        "hackerone_employee": false
+      },
+      "attachments": [
+        {
+          "id": 2009557,
+          "filename": "Screenshot_2022-10-29_at_11.06.14_AM.png",
+          "type": "image/png",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/jt2x58q1hp01kubiphvy53ze9joo?response-content-disposition=attachment%3B%20filename%3D%22Screenshot_2022-10-29_at_11.06.14_AM.png%22%3B%20filename%2A%3DUTF-8%27%27Screenshot_2022-10-29_at_11.06.14_AM.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQU5JYKTGM%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065502Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQDPextUgVMaFUn7J3YE8kNYUZyiY2543ePlEF9CwFfM8QIhAIRilag%2FrZ1iszKpt2JLQyz8teMsWBamJF4Iou7wqMU3KrIFCCMQAxoMMDEzNjE5Mjc0ODQ5Igwu56k94pqVtX8r%2Bo4qjwXEh1PM7wf2Np3Qm66HGnlSD0VTqg7R%2FtI4UnXMImbHLHRC5z94z14%2FX2eWyQeiZAAq3PHSCaPLB7tsZX%2ByCkLvYSKIVEDIBAiJLNfPf0mrHAbRDGyc8keEypRUwMaT5cop25r%2FpVpMdM%2BVhJVrWWa5ovVSzsmubSxixbH%2BvSDMHrKZm1mklKunLYykTJQX%2BiX5bQw3i%2BjEj3n27mXAVXGx17uJj4AZzaAdAN%2Fb7nblHihfCONYhSlmArkzxiwacZx5n%2BkCMiJbI49SZjueO3VcmcjD7qJl9BwZ1W4QT01LH5E0r%2FauBeDReLPQR2A89V610Uem1zJCLjoNtjcpr%2Fy6PNyHeeAwa067JLmyxsCZL2gdW81O9EGHtcrxXf7TlH8A3h0yPO%2B8zVoyJSSsEzzjpzkscidQ86LAyX6CNqqcdHnUJsXeboKB5dqjOphDJLDRfmLzgZTuPihjRKzkML0G3QjO1fWCgDatC%2FHiCuz%2F4Hm5bamHTrdiVE9y%2B%2Bv6QZ2edEQAzLX1lowLp2RzYtTYHwDzZkAjKZJKVeO9zj1pkoJhjfz2VARzHSySfXw0YMwPUVlRPg7L6f%2BQAjpso7C6uYEeozwfIwrkmBFVTZW%2BLEzdRLHNNz7rHyr9w1WlRj4OjJLn5Ee5sdJ5cEyQgF8ir1s09BXAP%2FsqR7THqh25ijYpQsYTzGdJxWFw9Mcq455M0MG7I8oz1i3cTjV9eJJer5Vnjtubr681ZNh6Cbl85VC5gKL3xiZ%2BRa64M54QAtb9tRvCFdlmV7U2Yel7eiB1thRiUc%2BQBXeECkUKbOXNfSGQ6%2FRqu7AD4Qz0GIKmc6obQ3vJeTlVjbt80VYdsyGeWYLjRSjnDrYNEFDoOJTBMPSHuagGOrABfJMTnU4%2FETzLB2BZXf541hyjNiWZ3tqKyh4p%2BOtMGjGYCmsTcu5RXXYGZ3G0puxZ27J20XRP2zhvuPBXAixyr8lz8adwCOfLJe0oCYgqgYmQxwbXeE5pLP9eHwIk2aiqxaN2tTNVGnFifZgT%2BzaAvEW1M5e4bcPdHOcraaqJVAJKjLuYHBPVtsgKcNUbL9bdOH2zFoQgd6ok2JFMDfaY%2FOJ38QDDXR4GXVTD01IxQcc%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=a036b41fc1baa33f3b2a33605806aadf700f7fc43d52df19cd963c5e0b74f0a3"
+        }
+      ],
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 19007888,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugNew",
+      "message": "Hi @h1_analyst_pablo,\n\nThank you for taking the time to review my report and for the feedback.\n\nWhen the attacker attempts to update a note they created in the victim's snippet, they need to update 3 values (apologies here as my original repro steps only indicated 2):\n1. Update the note/id: in the PUT request URL to match the id of the note that was created when the attacker originally created the note.\n1. Update target_type in the body so it says \"personal_snippet\".\n1. Update target_id in the body to match the victim's snippet id / VICTIM_SNIPPETID.\n\n##Attacker creating note and obtaining the note_id in the response\n{F2009711}\n\n##Attacker editing a snippet note they created previously.\n{F2009714}\n\n##Victim observing the edited note by attacker.\n{F2009717}\n\n## Attacker deleting a note they created within the victim's snippet\n{F2009723}\n\nBased on your feedback I believe the attacker's note failed to update because target_id was `3` in the PUT request but from the screenshot your victim's snippet id is `2`.\n\nApologies for the inconvenience. Please let me know if there is anything else I can help clarify.\n\nBest Regards,\n\nCryptopone",
+      "automated_response": false,
+      "created_at": "2022-10-29T10:19:18.271Z",
+      "updated_at": "2022-10-29T10:19:18.271Z",
+      "actor": {
+        "username": "cryptopone",
+        "cleared": false,
+        "verified": false,
+        "url": "/cryptopone",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/uk6jjk1a2i1dp04zz14k6a4wp4o4/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "attachments": [
+        {
+          "id": 2009723,
+          "filename": "AttackerDeletingNoteInSnippet.png",
+          "type": "image/png",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/vrb8lme1budt1pz0gukd48b24rue?response-content-disposition=attachment%3B%20filename%3D%22AttackerDeletingNoteInSnippet.png%22%3B%20filename%2A%3DUTF-8%27%27AttackerDeletingNoteInSnippet.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQU5JYKTGM%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065502Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQDPextUgVMaFUn7J3YE8kNYUZyiY2543ePlEF9CwFfM8QIhAIRilag%2FrZ1iszKpt2JLQyz8teMsWBamJF4Iou7wqMU3KrIFCCMQAxoMMDEzNjE5Mjc0ODQ5Igwu56k94pqVtX8r%2Bo4qjwXEh1PM7wf2Np3Qm66HGnlSD0VTqg7R%2FtI4UnXMImbHLHRC5z94z14%2FX2eWyQeiZAAq3PHSCaPLB7tsZX%2ByCkLvYSKIVEDIBAiJLNfPf0mrHAbRDGyc8keEypRUwMaT5cop25r%2FpVpMdM%2BVhJVrWWa5ovVSzsmubSxixbH%2BvSDMHrKZm1mklKunLYykTJQX%2BiX5bQw3i%2BjEj3n27mXAVXGx17uJj4AZzaAdAN%2Fb7nblHihfCONYhSlmArkzxiwacZx5n%2BkCMiJbI49SZjueO3VcmcjD7qJl9BwZ1W4QT01LH5E0r%2FauBeDReLPQR2A89V610Uem1zJCLjoNtjcpr%2Fy6PNyHeeAwa067JLmyxsCZL2gdW81O9EGHtcrxXf7TlH8A3h0yPO%2B8zVoyJSSsEzzjpzkscidQ86LAyX6CNqqcdHnUJsXeboKB5dqjOphDJLDRfmLzgZTuPihjRKzkML0G3QjO1fWCgDatC%2FHiCuz%2F4Hm5bamHTrdiVE9y%2B%2Bv6QZ2edEQAzLX1lowLp2RzYtTYHwDzZkAjKZJKVeO9zj1pkoJhjfz2VARzHSySfXw0YMwPUVlRPg7L6f%2BQAjpso7C6uYEeozwfIwrkmBFVTZW%2BLEzdRLHNNz7rHyr9w1WlRj4OjJLn5Ee5sdJ5cEyQgF8ir1s09BXAP%2FsqR7THqh25ijYpQsYTzGdJxWFw9Mcq455M0MG7I8oz1i3cTjV9eJJer5Vnjtubr681ZNh6Cbl85VC5gKL3xiZ%2BRa64M54QAtb9tRvCFdlmV7U2Yel7eiB1thRiUc%2BQBXeECkUKbOXNfSGQ6%2FRqu7AD4Qz0GIKmc6obQ3vJeTlVjbt80VYdsyGeWYLjRSjnDrYNEFDoOJTBMPSHuagGOrABfJMTnU4%2FETzLB2BZXf541hyjNiWZ3tqKyh4p%2BOtMGjGYCmsTcu5RXXYGZ3G0puxZ27J20XRP2zhvuPBXAixyr8lz8adwCOfLJe0oCYgqgYmQxwbXeE5pLP9eHwIk2aiqxaN2tTNVGnFifZgT%2BzaAvEW1M5e4bcPdHOcraaqJVAJKjLuYHBPVtsgKcNUbL9bdOH2zFoQgd6ok2JFMDfaY%2FOJ38QDDXR4GXVTD01IxQcc%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=60a65b2e2f7284df396922b6903e0f8a7238571182640acccaa9ebfeefdd2103"
+        },
+        {
+          "id": 2009717,
+          "filename": "VictimObservingSnippetNotesWhenAttackerPrivateProjectIsInternalOrPublic.png",
+          "type": "image/png",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/oung7g2hcz0qpztw3awza9bh17y5?response-content-disposition=attachment%3B%20filename%3D%22VictimObservingSnippetNotesWhenAttackerPrivateProjectIsInternalOrPublic.png%22%3B%20filename%2A%3DUTF-8%27%27VictimObservingSnippetNotesWhenAttackerPrivateProjectIsInternalOrPublic.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQU5JYKTGM%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065502Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQDPextUgVMaFUn7J3YE8kNYUZyiY2543ePlEF9CwFfM8QIhAIRilag%2FrZ1iszKpt2JLQyz8teMsWBamJF4Iou7wqMU3KrIFCCMQAxoMMDEzNjE5Mjc0ODQ5Igwu56k94pqVtX8r%2Bo4qjwXEh1PM7wf2Np3Qm66HGnlSD0VTqg7R%2FtI4UnXMImbHLHRC5z94z14%2FX2eWyQeiZAAq3PHSCaPLB7tsZX%2ByCkLvYSKIVEDIBAiJLNfPf0mrHAbRDGyc8keEypRUwMaT5cop25r%2FpVpMdM%2BVhJVrWWa5ovVSzsmubSxixbH%2BvSDMHrKZm1mklKunLYykTJQX%2BiX5bQw3i%2BjEj3n27mXAVXGx17uJj4AZzaAdAN%2Fb7nblHihfCONYhSlmArkzxiwacZx5n%2BkCMiJbI49SZjueO3VcmcjD7qJl9BwZ1W4QT01LH5E0r%2FauBeDReLPQR2A89V610Uem1zJCLjoNtjcpr%2Fy6PNyHeeAwa067JLmyxsCZL2gdW81O9EGHtcrxXf7TlH8A3h0yPO%2B8zVoyJSSsEzzjpzkscidQ86LAyX6CNqqcdHnUJsXeboKB5dqjOphDJLDRfmLzgZTuPihjRKzkML0G3QjO1fWCgDatC%2FHiCuz%2F4Hm5bamHTrdiVE9y%2B%2Bv6QZ2edEQAzLX1lowLp2RzYtTYHwDzZkAjKZJKVeO9zj1pkoJhjfz2VARzHSySfXw0YMwPUVlRPg7L6f%2BQAjpso7C6uYEeozwfIwrkmBFVTZW%2BLEzdRLHNNz7rHyr9w1WlRj4OjJLn5Ee5sdJ5cEyQgF8ir1s09BXAP%2FsqR7THqh25ijYpQsYTzGdJxWFw9Mcq455M0MG7I8oz1i3cTjV9eJJer5Vnjtubr681ZNh6Cbl85VC5gKL3xiZ%2BRa64M54QAtb9tRvCFdlmV7U2Yel7eiB1thRiUc%2BQBXeECkUKbOXNfSGQ6%2FRqu7AD4Qz0GIKmc6obQ3vJeTlVjbt80VYdsyGeWYLjRSjnDrYNEFDoOJTBMPSHuagGOrABfJMTnU4%2FETzLB2BZXf541hyjNiWZ3tqKyh4p%2BOtMGjGYCmsTcu5RXXYGZ3G0puxZ27J20XRP2zhvuPBXAixyr8lz8adwCOfLJe0oCYgqgYmQxwbXeE5pLP9eHwIk2aiqxaN2tTNVGnFifZgT%2BzaAvEW1M5e4bcPdHOcraaqJVAJKjLuYHBPVtsgKcNUbL9bdOH2zFoQgd6ok2JFMDfaY%2FOJ38QDDXR4GXVTD01IxQcc%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=6fc605737f083484f4842b7a3b0ed0f46c2294be3ac04bc089941d76d0f0cd57"
+        },
+        {
+          "id": 2009714,
+          "filename": "AttackerEditingTheirExistingNoteOnVictimSnippet.png",
+          "type": "image/png",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/s0ileawfuxf5l26lxvoxiwobh6t8?response-content-disposition=attachment%3B%20filename%3D%22AttackerEditingTheirExistingNoteOnVictimSnippet.png%22%3B%20filename%2A%3DUTF-8%27%27AttackerEditingTheirExistingNoteOnVictimSnippet.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQU5JYKTGM%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065502Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQDPextUgVMaFUn7J3YE8kNYUZyiY2543ePlEF9CwFfM8QIhAIRilag%2FrZ1iszKpt2JLQyz8teMsWBamJF4Iou7wqMU3KrIFCCMQAxoMMDEzNjE5Mjc0ODQ5Igwu56k94pqVtX8r%2Bo4qjwXEh1PM7wf2Np3Qm66HGnlSD0VTqg7R%2FtI4UnXMImbHLHRC5z94z14%2FX2eWyQeiZAAq3PHSCaPLB7tsZX%2ByCkLvYSKIVEDIBAiJLNfPf0mrHAbRDGyc8keEypRUwMaT5cop25r%2FpVpMdM%2BVhJVrWWa5ovVSzsmubSxixbH%2BvSDMHrKZm1mklKunLYykTJQX%2BiX5bQw3i%2BjEj3n27mXAVXGx17uJj4AZzaAdAN%2Fb7nblHihfCONYhSlmArkzxiwacZx5n%2BkCMiJbI49SZjueO3VcmcjD7qJl9BwZ1W4QT01LH5E0r%2FauBeDReLPQR2A89V610Uem1zJCLjoNtjcpr%2Fy6PNyHeeAwa067JLmyxsCZL2gdW81O9EGHtcrxXf7TlH8A3h0yPO%2B8zVoyJSSsEzzjpzkscidQ86LAyX6CNqqcdHnUJsXeboKB5dqjOphDJLDRfmLzgZTuPihjRKzkML0G3QjO1fWCgDatC%2FHiCuz%2F4Hm5bamHTrdiVE9y%2B%2Bv6QZ2edEQAzLX1lowLp2RzYtTYHwDzZkAjKZJKVeO9zj1pkoJhjfz2VARzHSySfXw0YMwPUVlRPg7L6f%2BQAjpso7C6uYEeozwfIwrkmBFVTZW%2BLEzdRLHNNz7rHyr9w1WlRj4OjJLn5Ee5sdJ5cEyQgF8ir1s09BXAP%2FsqR7THqh25ijYpQsYTzGdJxWFw9Mcq455M0MG7I8oz1i3cTjV9eJJer5Vnjtubr681ZNh6Cbl85VC5gKL3xiZ%2BRa64M54QAtb9tRvCFdlmV7U2Yel7eiB1thRiUc%2BQBXeECkUKbOXNfSGQ6%2FRqu7AD4Qz0GIKmc6obQ3vJeTlVjbt80VYdsyGeWYLjRSjnDrYNEFDoOJTBMPSHuagGOrABfJMTnU4%2FETzLB2BZXf541hyjNiWZ3tqKyh4p%2BOtMGjGYCmsTcu5RXXYGZ3G0puxZ27J20XRP2zhvuPBXAixyr8lz8adwCOfLJe0oCYgqgYmQxwbXeE5pLP9eHwIk2aiqxaN2tTNVGnFifZgT%2BzaAvEW1M5e4bcPdHOcraaqJVAJKjLuYHBPVtsgKcNUbL9bdOH2zFoQgd6ok2JFMDfaY%2FOJ38QDDXR4GXVTD01IxQcc%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=f3118ebcd8f8b28ca4400da28d35647f3f7bdd85454c00496d4986f9f3dae8c0"
+        },
+        {
+          "id": 2009711,
+          "filename": "AttackerCreatingNoteAndObtainingNoteID.png",
+          "type": "image/png",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/eglxsf8fn8ap59rw6wam1oj3tnse?response-content-disposition=attachment%3B%20filename%3D%22AttackerCreatingNoteAndObtainingNoteID.png%22%3B%20filename%2A%3DUTF-8%27%27AttackerCreatingNoteAndObtainingNoteID.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQU5JYKTGM%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065502Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQDPextUgVMaFUn7J3YE8kNYUZyiY2543ePlEF9CwFfM8QIhAIRilag%2FrZ1iszKpt2JLQyz8teMsWBamJF4Iou7wqMU3KrIFCCMQAxoMMDEzNjE5Mjc0ODQ5Igwu56k94pqVtX8r%2Bo4qjwXEh1PM7wf2Np3Qm66HGnlSD0VTqg7R%2FtI4UnXMImbHLHRC5z94z14%2FX2eWyQeiZAAq3PHSCaPLB7tsZX%2ByCkLvYSKIVEDIBAiJLNfPf0mrHAbRDGyc8keEypRUwMaT5cop25r%2FpVpMdM%2BVhJVrWWa5ovVSzsmubSxixbH%2BvSDMHrKZm1mklKunLYykTJQX%2BiX5bQw3i%2BjEj3n27mXAVXGx17uJj4AZzaAdAN%2Fb7nblHihfCONYhSlmArkzxiwacZx5n%2BkCMiJbI49SZjueO3VcmcjD7qJl9BwZ1W4QT01LH5E0r%2FauBeDReLPQR2A89V610Uem1zJCLjoNtjcpr%2Fy6PNyHeeAwa067JLmyxsCZL2gdW81O9EGHtcrxXf7TlH8A3h0yPO%2B8zVoyJSSsEzzjpzkscidQ86LAyX6CNqqcdHnUJsXeboKB5dqjOphDJLDRfmLzgZTuPihjRKzkML0G3QjO1fWCgDatC%2FHiCuz%2F4Hm5bamHTrdiVE9y%2B%2Bv6QZ2edEQAzLX1lowLp2RzYtTYHwDzZkAjKZJKVeO9zj1pkoJhjfz2VARzHSySfXw0YMwPUVlRPg7L6f%2BQAjpso7C6uYEeozwfIwrkmBFVTZW%2BLEzdRLHNNz7rHyr9w1WlRj4OjJLn5Ee5sdJ5cEyQgF8ir1s09BXAP%2FsqR7THqh25ijYpQsYTzGdJxWFw9Mcq455M0MG7I8oz1i3cTjV9eJJer5Vnjtubr681ZNh6Cbl85VC5gKL3xiZ%2BRa64M54QAtb9tRvCFdlmV7U2Yel7eiB1thRiUc%2BQBXeECkUKbOXNfSGQ6%2FRqu7AD4Qz0GIKmc6obQ3vJeTlVjbt80VYdsyGeWYLjRSjnDrYNEFDoOJTBMPSHuagGOrABfJMTnU4%2FETzLB2BZXf541hyjNiWZ3tqKyh4p%2BOtMGjGYCmsTcu5RXXYGZ3G0puxZ27J20XRP2zhvuPBXAixyr8lz8adwCOfLJe0oCYgqgYmQxwbXeE5pLP9eHwIk2aiqxaN2tTNVGnFifZgT%2BzaAvEW1M5e4bcPdHOcraaqJVAJKjLuYHBPVtsgKcNUbL9bdOH2zFoQgd6ok2JFMDfaY%2FOJ38QDDXR4GXVTD01IxQcc%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=2bdb6f5114aa516a75a5a1f2fefe82ece53a698706b77b9e67cb9bfa85ef4268"
+        }
+      ],
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 19008088,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportSeverityUpdated",
+      "message": null,
+      "automated_response": false,
+      "created_at": "2022-10-29T11:08:20.005Z",
+      "updated_at": "2022-10-29T11:08:20.005Z",
+      "additional_data": {
+        "old_severity": "Medium (5.4)",
+        "new_severity": "Medium (5.4)",
+        "old_severity_id": 1718710,
+        "new_severity_id": 1723108
+      },
+      "actor": {
+        "username": "h1_analyst_pablo",
+        "cleared": false,
+        "verified": false,
+        "url": "/h1_analyst_pablo",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/mmkjqfycb9h9djg8w9sook0h4w8c/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": true,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 19008092,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugPendingProgramReview",
+      "message": "Hello @cryptopone,\n\nThank you for your submission and the detailed response to the queries!\nReally Interesting Finding.!@cryptopone\n\nWe were able to validate your report, and have submitted it to the appropriate remediation team for review. They will let us know the final ruling on this report, and when/if a fix will be implemented. Please note that the status and severity are subject to change.\n\nThanks,\n@h1_analyst_pablo",
+      "automated_response": false,
+      "created_at": "2022-10-29T11:09:08.753Z",
+      "updated_at": "2022-10-29T11:09:08.753Z",
+      "actor": {
+        "username": "h1_analyst_pablo",
+        "cleared": false,
+        "verified": false,
+        "url": "/h1_analyst_pablo",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/mmkjqfycb9h9djg8w9sook0h4w8c/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": true,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 19008098,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportTitleUpdated",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2022-10-29T11:09:41.004Z",
+      "updated_at": "2022-10-29T11:09:41.004Z",
+      "additional_data": {
+        "old_title": "Attacker is able to create notes and leak the title of a victim's private personal snippet",
+        "new_title": "Attacker is able to create,Edit & delete notes and leak the title of a victim's private personal snippet"
+      },
+      "actor": {
+        "username": "h1_analyst_pablo",
+        "cleared": false,
+        "verified": false,
+        "url": "/h1_analyst_pablo",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/mmkjqfycb9h9djg8w9sook0h4w8c/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": true,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 19015954,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugTriaged",
+      "message": "Hello @cryptopone \n\nThank you for submitting this report.\n\nWe have verified this finding and have escalated to our engineering team.  We will be tracking progress internally at https://gitlab.com/gitlab-org/gitlab/-/issues/379598.  This issue will be made public 30 days following the release of a patch.\n\nGiven the severity of the report, we are paying an initial $500 on triage. Congratulations!\n\nWe will continue to update you via HackerOne as a patch is scheduled for release.\n\nBest regards,\nNick Malcolm\nGitLab Security Team",
+      "automated_response": false,
+      "created_at": "2022-10-31T01:24:08.236Z",
+      "updated_at": "2022-10-31T01:24:08.236Z",
+      "actor": {
+        "username": "nmalcolm_gitlab",
+        "cleared": false,
+        "verified": false,
+        "url": "/nmalcolm_gitlab",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/qugqy57v49704ukw2816cro62zrc/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 19015956,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BountyAwarded",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2022-10-31T01:24:23.020Z",
+      "updated_at": "2022-10-31T01:24:23.020Z",
+      "actor": {
+        "url": "/gitlab",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/f0hovtq73f9ap815a0r1w42bocp4/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "GitLab"
+        }
+      },
+      "bounty_amount": "500.0",
+      "bonus_amount": "0.0",
+      "bounty_currency": "usd",
+      "genius_execution_id": null,
+      "team_handle": "gitlab",
+      "collaborator": {
+        "username": "cryptopone",
+        "url": "/cryptopone"
+      }
+    },
+    {
+      "id": 19022352,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @nmalcolm_gitlab,\n\nThank you for the quick response and for the bounty! \n\nMay I use this as an opportunity to request a GitLab Ultimate License to aid in my testing? Additional reports for this request are #1544507 and #1578400.\n\nBest Regards,\n\nCryptopone",
+      "automated_response": false,
+      "created_at": "2022-10-31T16:05:46.015Z",
+      "updated_at": "2022-10-31T16:05:46.015Z",
+      "actor": {
+        "username": "cryptopone",
+        "cleared": false,
+        "verified": false,
+        "url": "/cryptopone",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/uk6jjk1a2i1dp04zz14k6a4wp4o4/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 19043168,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hey @cryptopone,\n\nThank you for requesting a license. I have validated your reports and requested a license to be sent to your `cryptopone@wearehackerone.com` email address. Please let us know if it has not been received in the next 48 hours, and we can resend it to you.\n\nThank you again for your interest in our program. We look forward to your future reports!\n\nBest Regards,\nNick Malcolm\nGitLab Security Team",
+      "automated_response": false,
+      "created_at": "2022-11-02T03:32:01.637Z",
+      "updated_at": "2022-11-02T03:32:01.637Z",
+      "actor": {
+        "username": "nmalcolm_gitlab",
+        "cleared": false,
+        "verified": false,
+        "url": "/nmalcolm_gitlab",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/qugqy57v49704ukw2816cro62zrc/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 19104212,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "ETA for fix:\n\nHi @cryptopone,\n\nThe issue you reported is currently scheduled to be fixed by 2023-01-31.\n\nThank you again for contacting us!\n\nBest regards,\nGitLab Security Team\n",
+      "automated_response": true,
+      "created_at": "2022-11-07T04:03:59.351Z",
+      "updated_at": "2022-11-07T04:03:59.351Z",
+      "actor": {
+        "username": "gitlab-securitybot",
+        "cleared": false,
+        "verified": false,
+        "url": "/gitlab-securitybot",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 19199648,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BountyAwarded",
+      "message": "Hi @cryptopone \n\nThank you again for the report! Your finding has been reviewed and we are awarding the remaining bounty prior the release of a patch. Congratulations!\n\nWe will continue to keep you updated via HackerOne as a fix is scheduled.\n\nBest regards,\nNick Malcolm\nGitLab Security Team",
+      "automated_response": false,
+      "created_at": "2022-11-13T22:25:03.722Z",
+      "updated_at": "2022-11-13T22:25:03.722Z",
+      "actor": {
+        "url": "/gitlab",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/f0hovtq73f9ap815a0r1w42bocp4/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "GitLab"
+        }
+      },
+      "bounty_amount": "1230.0",
+      "bonus_amount": "0.0",
+      "bounty_currency": "usd",
+      "genius_execution_id": null,
+      "team_handle": "gitlab",
+      "collaborator": {
+        "username": "cryptopone",
+        "url": "/cryptopone"
+      }
+    },
+    {
+      "id": 20182456,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "ETA for fix:\n\nHi @cryptopone,\n\nThe issue you reported is currently scheduled to be fixed by 2023-02-28.\n\nThank you again for contacting us!\n\nBest regards,\nGitLab Security Team\n",
+      "automated_response": true,
+      "created_at": "2023-02-01T04:05:10.358Z",
+      "updated_at": "2023-02-01T04:05:10.358Z",
+      "actor": {
+        "username": "gitlab-securitybot",
+        "cleared": false,
+        "verified": false,
+        "url": "/gitlab-securitybot",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 20657631,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "Hi @cryptopone \n\nThank you again for the report! Your finding has been patched in GitLab version [15.9.2, 15.8.4, 15.7.8](https://about.gitlab.com/releases/2023/03/02/security-release-gitlab-15-9-2-released/). Congratulations!\n\nFYI I've submitted an MR to get you appropriately credited in the blog post: https://gitlab.com/gitlab-com/www-gitlab-com/-/merge_requests/120894.\n\nPlease let us know if you find that our patch does not mitigate your finding. Your report will be published in 30 days in GitLab's issue tracker. If you'd like to publicly disclose this report or details of it in a blog post or elsewhere, please allow 30 days to pass before doing so to give time to our customers to upgrade to a patched version.\n\nWe look forward to your next report!\n\nBest regards,\nNick\nGitLab Security Team",
+      "automated_response": false,
+      "created_at": "2023-03-06T02:54:22.336Z",
+      "updated_at": "2023-03-06T02:54:22.336Z",
+      "actor": {
+        "username": "nmalcolm_gitlab",
+        "cleared": false,
+        "verified": false,
+        "url": "/nmalcolm_gitlab",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/qugqy57v49704ukw2816cro62zrc/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "reporter": {
+        "username": "cryptopone",
+        "url": "/cryptopone"
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 21494542,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "Thank you Nick for ensuring I was credited in the blog post!\n\nI noticed the GitLab issue has been made public and I would like to disclose this report. It might be worth reviewing my Oct 29th reply to align with the redaction made in the GitLab issue. My test instance is not publicly accessible.\n\nThank you!",
+      "automated_response": false,
+      "created_at": "2023-04-21T15:04:31.647Z",
+      "updated_at": "2023-04-21T15:04:31.647Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "cryptopone",
+        "cleared": false,
+        "verified": false,
+        "url": "/cryptopone",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/uk6jjk1a2i1dp04zz14k6a4wp4o4/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 22137986,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2023-06-02T01:57:09.102Z",
+      "updated_at": "2023-06-02T01:57:09.102Z",
+      "actor": {
+        "username": "nmalcolm_gitlab",
+        "cleared": false,
+        "verified": false,
+        "url": "/nmalcolm_gitlab",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/qugqy57v49704ukw2816cro62zrc/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 22137987,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportBecamePublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2023-06-02T01:57:09.245Z",
+      "updated_at": "2023-06-02T01:57:09.245Z",
+      "actor": {
+        "username": "nmalcolm_gitlab",
+        "cleared": false,
+        "verified": false,
+        "url": "/nmalcolm_gitlab",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/qugqy57v49704ukw2816cro62zrc/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    }
+  ],
+  "activity_page_count": 1,
+  "activity_page_number": 1,
+  "summaries": [
+    {
+      "category": "team",
+      "can_view?": true,
+      "can_create?": false
+    },
+    {
+      "category": "researcher",
+      "can_view?": true,
+      "can_create?": false
+    }
+  ]
+}

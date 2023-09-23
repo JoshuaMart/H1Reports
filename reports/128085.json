@@ -1,0 +1,346 @@
+{
+  "id": 128085,
+  "global_id": "Z2lkOi8vaGFja2Vyb25lL1JlcG9ydC8xMjgwODU=",
+  "url": "https://hackerone.com/reports/128085",
+  "title": "Bypassing password authentication of users that have 2FA enabled",
+  "state": "Closed",
+  "substate": "resolved",
+  "readable_substate": "Resolved",
+  "created_at": "2016-04-04T01:43:51.988Z",
+  "submitted_at": "2016-04-04T01:43:51.988Z",
+  "is_member_of_team?": false,
+  "is_organization_group_member?": false,
+  "reporter": {
+    "disabled": false,
+    "username": "jobert",
+    "url": "/jobert",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/ht4b9SmcYNqmpbyCFXd7cxHB/d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98"
+    },
+    "is_me?": false,
+    "cleared": true,
+    "verified": true,
+    "hackerone_triager": false,
+    "hacker_mediation": false
+  },
+  "team": {
+    "id": 264,
+    "url": "https://hackerone.com/gitlab",
+    "handle": "gitlab",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/f0hovtq73f9ap815a0r1w42bocp4/d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98",
+      "medium": "https://profile-photos.hackerone-user-content.com/variants/f0hovtq73f9ap815a0r1w42bocp4/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+    },
+    "permissions": [
+
+    ],
+    "submission_state": "open",
+    "default_currency": "usd",
+    "awards_miles": false,
+    "offers_bounties": true,
+    "state": "public_mode",
+    "only_cleared_hackers": false,
+    "pentest_feature_enabled?": false,
+    "profile": {
+      "name": "GitLab",
+      "twitter_handle": "gitlab",
+      "website": "https://about.gitlab.com",
+      "about": "A single application for the entire software development lifecycle."
+    }
+  },
+  "has_bounty?": false,
+  "in_validation?": false,
+  "can_view_team": true,
+  "can_view_report": true,
+  "is_external_bug": false,
+  "is_published": false,
+  "is_participant": false,
+  "has_collaborators": false,
+  "submitted_by_team_member": false,
+  "stage": 4,
+  "public": true,
+  "visibility": "full",
+  "cve_ids": [
+
+  ],
+  "singular_disclosure_disabled": true,
+  "disclosed_at": "2016-04-18T06:59:28.512Z",
+  "bug_reporter_agreed_on_going_public_at": "2016-04-14T20:27:32.135Z",
+  "team_member_agreed_on_going_public_at": "2016-04-18T06:59:28.439Z",
+  "comments_closed?": false,
+  "facebook_team?": false,
+  "team_private?": false,
+  "vulnerability_information": "# Proof of Concept\nWhen a user has 2FA enabled, it's possible to sign in as that user without the need to know its password. To reproduce this attack, you need two users that both have 2FA enabled. For the sake of this PoC, lets call them Jane and John. Jane is the attacker and wants to get access to John's account. John his username is `john`. Jane knows John's username. Here's how you can reproduce it:\n\n - as Jane, go to the sign in page and enter your username and password\n - in the background, it sets Jane's user ID in `session[:otp_user_id]`\n - you now need to enter Jane's 2FA code in order to get access to the account\n - now intercept all your network traffic with a tool like Burp Suite and capture the request that is send when you submit the 2FA token - it looks like this:\n\n```\n> POST /users/sign_in HTTP/1.1\n> Host: 159.xxx.xxx.xxx\n> ...\n\n> ----------1881604860\n> Content-Disposition: form-data; name=\"user[otp_attempt]\"\n> \n> 212421\n> ----------1881604860--\n```\n\n - now add the `login` header to the request - the request now looks like:\n\n```\n> POST /users/sign_in HTTP/1.1\n> Host: 159.xxx.xxx.xxx\n> ...\n\n> ----------1881604860\n> Content-Disposition: form-data; name=\"user[otp_attempt]\"\n> \n> 212421\n> ----------1881604860\n> Content-Disposition: form-data; name=\"user[login]\"\n> \n> john\n> ----------1881604860--\n```\n\n - now, instead of `212421`, send a valid OTP code for `john` to the server\n - Jane is now signed in as John by entering her own password and John's OTP code - Jane still doesn't know John's password\n\n# Impact\nThe OTP codes are 6 numbers that change every 30 seconds. I haven't looked whether the server allows time drift. This would increase the chance that an attacker guesses the right OTP code for the account. As a PoC, I could run a small attack against GitLab.com, but I haven't been able to reach @sytsem to ask for permission. ;)\n\n# Origin of the issue \nThis issue originates from the `find_user` method in the `SessionsController`. It returns a `User` object in two different ways: the first returns the object based on `params[:login]` parameter. The second one if `sessions[:otp_user_id]`. The `params[:login]` parameter takes precedence over the ID stored in the session. This means that if the `params[:login]` is specified in the request when the 2FA code needs to be verified, a different user can be selected to verify the code against. Here's the method:\n\n```ruby\n# app/controllers/sessions_controller.rb:58\ndef find_user\n  if user_params[:login]\n    User.by_login(user_params[:login])\n  elsif user_params[:otp_attempt] && session[:otp_user_id]\n    User.find(session[:otp_user_id])\n  end\nend\n```\n\n# Fix\nHere's a fix (needs specs to proof that it works): F83019.",
+  "weakness": {
+    "id": 27,
+    "name": "Improper Authentication - Generic"
+  },
+  "original_report_id": null,
+  "original_report_url": null,
+  "attachments": [
+    {
+      "id": 83019,
+      "file_name": "2fa-password-bypass.diff",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/083/019/95fc79353e8b6294611e55df7cbb7901e61f8f61/2fa-password-bypass.diff?response-content-disposition=attachment%3B%20filename%3D%222fa-password-bypass.diff%22%3B%20filename%2A%3DUTF-8%27%272fa-password-bypass.diff&response-content-type=text%2Fx-diff&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ6MB2MFGG%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T082031Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEDAaCXVzLXdlc3QtMiJIMEYCIQCYIr2SSYJfi35%2Bx%2Fejzst0Y9ig0v%2FJscMh9NmdM4t5VAIhAM3tVHHjt2e0sz7iLl%2BDuXOX6%2B7Qkvgs1KealcH7ElMXKrIFCCkQAxoMMDEzNjE5Mjc0ODQ5IgxubweTaMPp5L8Q1YQqjwX98aLIa%2F1BpdVLQC%2BToIBwbGklZ8ygTNCI4x1qYQEmOGsQ1%2F6p4MCPMLXSqoXVF5QxpRt%2BdZrK%2FNcRu%2FY3QoE9gFJoqRHKBQN0hea7VJkz7uo3Rwjv0%2Bs1TjLNvF9Gx9DxVw5gmaNJzFBUsDj05h8b86dmkhqjUzC21gXGs9t4qXslxrGTOenOwfga0eb8fEHnz%2FUG0yD%2FjVQklap45v4C30R4WSycoTBHd2IKfDAZJaqt3smArxbtWItscCWCfFJ5YbB9hQ02lZMGvLB8srO38zC0kWDBR3RWPsI8%2FCT9AQl3xDcTmEbRo8%2BEfRAGkXLHOo5AKqatyHEmPm882mSsghu%2Brspdz%2FeqOhEpYUj4ySBMH0b17ZliROXJKxLzh%2BCpk4fUxbvq89yWnq1oE%2FG%2BGZ8LqH%2BHdDoUgMjnt03ecbuj8wAqebD0M9EeKqj1vXVd7ZWocJ%2FV6oYrm7S7UQivyKhDfuckG4YQxqwGm504IsXFkkTNFI0%2FbAlQyc8oZWIdoVgeThWvi6pw0uZ7M%2BmXEBvYfmy7YzbRIQolLeZ2Ib2tXdc%2Bn5HFgml1zzqu2ZZ8UvtnGce7z5fSnCBmszEnO8llVSoINOleTxGjyvKpO7VdXBdZ6vHaJIqLP4SNZcKEx5MZL7DunikcKcJc1Dh%2BeVNTGBTEwRQo2kmUtWbkmUUiASlDd8HgSnAP4RZOLdiDukVkx7gl6gOh42A5qWddn32TVRG2IDpeFfTYENewkfdTm7VCYmxkxmsP3Y%2Fcw%2BNkYV5PmiGgPIv2Zg9PDt27P3dzVbO0BkrT2UairLaxhj6VzUa%2BsdGMoet2DUfQzKVnGNHKxUFEljtFY%2FFiJHinwQ9Y75x2c9j9UzL1wI6TMI2luqgGOrABYyeNRUxeluFl7y58tZIFLbCliCc92oq3AvL8gskghuI3JnKg7R1ezYwY7GVa14ik6vEtnhisXGNuJh6mNjwDpIIr2%2BnDJR4O60ugIm%2B2U5%2B3g%2BQpzkDorZygbT57TjRGr122tik3dcMk17NAyWA%2FDaZNLlJwiU%2BS%2FxyTsJLLALvI9zlCoPT7U9wokT6nPEdV1VKFKSAm9jewkYUEeI%2FFWCVu2DqEd9C51abS8Y6I8lw%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=e5229f5669d4fadbf47f2768b4047298b375d78402761bbf549a4a67ab840788",
+      "file_size": 1025,
+      "type": "text/x-diff",
+      "moderated": null
+    }
+  ],
+  "allow_singular_disclosure_at": "2016-05-14T20:27:32.220Z",
+  "allow_singular_disclosure_after": -232199579.36438426,
+  "singular_disclosure_allowed": true,
+  "vote_count": 17,
+  "voters": [
+    "michiel",
+    "spam404",
+    "eveeez",
+    "mr_n30",
+    "pavanw3b",
+    "bb00x",
+    "infosechelper",
+    "silv3rpoision",
+    "spetr0x",
+    "safisecu",
+    "and 7 more..."
+  ],
+  "structured_scope": null,
+  "abilities": {
+    "assignable_team_members": [
+
+    ],
+    "assignable_team_member_groups": [
+
+    ]
+  },
+  "activities": [
+    {
+      "id": 886683,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "As a side-note: this also leaks if someone has 2FA enabled. If the request is sent with a `username` or `email` from someone that doesn't have 2FA enabled, the server responds with the error \"Invalid username/password\". In case the user has 2FA enabled, it responds with \"Invalid two-factor code\". To proof this, @douwem has 2FA enabled (good job!) on gitlab.com and @sytse hasn't (you should enable it ;).",
+      "automated_response": false,
+      "created_at": "2016-04-04T03:21:04.318Z",
+      "updated_at": "2016-04-04T03:21:04.318Z",
+      "actor": {
+        "username": "jobert",
+        "cleared": true,
+        "verified": true,
+        "url": "/jobert",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/ht4b9SmcYNqmpbyCFXd7cxHB/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": true
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 887950,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi Jobert,\n\nThank you for reporting. We have published this report internally and will be looking into it with our security team. I'll keep you up to date with our progress but feel free to get in touch with us at security@gitlab.com for additional followup or to request further attention to a report. We have also received your other reports and will proceed accordingly.\n\nAdditionally I'de like to point out that I appreciate the quality of the reports especially this one. I'll be in touch as soon as possible. \n\nBest regards,\n\nJosé Torres\nGitLab Inc.",
+      "automated_response": false,
+      "created_at": "2016-04-04T17:35:30.022Z",
+      "updated_at": "2016-04-04T17:35:30.022Z",
+      "actor": {
+        "username": "jose",
+        "cleared": false,
+        "verified": false,
+        "url": "/jose",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/050/961/83699f83df390864b839d65a6015259d60791068_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 887951,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugTriaged",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2016-04-04T17:35:47.126Z",
+      "updated_at": "2016-04-04T17:35:47.126Z",
+      "actor": {
+        "username": "jose",
+        "cleared": false,
+        "verified": false,
+        "url": "/jose",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/050/961/83699f83df390864b839d65a6015259d60791068_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 891184,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi Jobert,\n\nGreat report, thank you. Just letting you know that this has been confirmed and scheduled to be released in a patch on the current version.  I'll report back with further updates. Feel free to get in touch with us through security@gitlab.com. \n\nBest regards,\n\nJosé Torres\nGitLab B.V.",
+      "automated_response": false,
+      "created_at": "2016-04-06T05:35:27.086Z",
+      "updated_at": "2016-04-06T05:35:27.086Z",
+      "actor": {
+        "username": "jose",
+        "cleared": false,
+        "verified": false,
+        "url": "/jose",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/050/961/83699f83df390864b839d65a6015259d60791068_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 906688,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "Thank you Jobert for reporting. \n\nWe look forward to further reports. Feel free to get in touch with us through security@gitlab.com or open a new report here.\n\nBest,\n\nJosé Torres\nGitLab B.V.",
+      "automated_response": false,
+      "created_at": "2016-04-14T20:26:03.190Z",
+      "updated_at": "2016-04-14T20:26:03.190Z",
+      "actor": {
+        "username": "jose",
+        "cleared": false,
+        "verified": false,
+        "url": "/jose",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/050/961/83699f83df390864b839d65a6015259d60791068_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "reporter": {
+        "username": "jobert",
+        "url": "/jobert"
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 906690,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "Thanks for the quick turnaround @jose, I'll definitely keep looking for more!",
+      "automated_response": false,
+      "created_at": "2016-04-14T20:27:32.156Z",
+      "updated_at": "2016-04-14T20:27:32.156Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "jobert",
+        "cleared": true,
+        "verified": true,
+        "url": "/jobert",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/ht4b9SmcYNqmpbyCFXd7cxHB/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": true
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 911063,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2016-04-18T06:59:28.470Z",
+      "updated_at": "2016-04-18T06:59:28.470Z",
+      "actor": {
+        "username": "jose",
+        "cleared": false,
+        "verified": false,
+        "url": "/jose",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/050/961/83699f83df390864b839d65a6015259d60791068_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 911064,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportBecamePublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2016-04-18T06:59:28.532Z",
+      "updated_at": "2016-04-18T06:59:28.532Z",
+      "actor": {
+        "username": "jose",
+        "cleared": false,
+        "verified": false,
+        "url": "/jose",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/050/961/83699f83df390864b839d65a6015259d60791068_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    }
+  ],
+  "activity_page_count": 1,
+  "activity_page_number": 1,
+  "summaries": [
+    {
+      "category": "team",
+      "can_view?": true,
+      "can_create?": false
+    },
+    {
+      "id": 1677,
+      "category": "researcher",
+      "content": "This vulnerability allowed password authentication to be bypassed when two-factor authentication was enabled for a user. @GitLab resolved this 2 days after I reported it to them. The commit that fixed the bug can be found at https://gitlab.com/gitlab-org/gitlab-ce/commit/00da609cfd8bf1105fe433dfc92ab263d6205eaf. The bug has been fixed in GitLab version 8.6.5.",
+      "user": {
+        "id": 2,
+        "username": "jobert",
+        "name": "Jobert Abma",
+        "bio": "Co-founder of HackerOne. ಠ_ಠ",
+        "cleared": true,
+        "verified": true,
+        "website": "https://hackerone.com",
+        "location": "San Francisco, CA",
+        "created_at": "2013-03-08T01:17:12.256Z",
+        "url": "https://hackerone.com/jobert",
+        "hackerone_triager": false,
+        "hackerone_employee": true,
+        "user_type": "company",
+        "profile_picture_urls": {
+          "small": "https://profile-photos.hackerone-user-content.com/variants/ht4b9SmcYNqmpbyCFXd7cxHB/d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98",
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/ht4b9SmcYNqmpbyCFXd7cxHB/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937",
+          "xtralarge": "https://profile-photos.hackerone-user-content.com/variants/ht4b9SmcYNqmpbyCFXd7cxHB/60f411638706d89ae3052af6fe8b88fa9a798e291deee40f6a22e81418d78d5f"
+        }
+      },
+      "can_view?": true,
+      "can_create?": false,
+      "attachments": [
+
+      ]
+    }
+  ]
+}

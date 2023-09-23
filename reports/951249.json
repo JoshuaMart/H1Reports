@@ -1,0 +1,401 @@
+{
+  "id": 951249,
+  "global_id": "Z2lkOi8vaGFja2Vyb25lL1JlcG9ydC85NTEyNDk=",
+  "url": "https://hackerone.com/reports/951249",
+  "title": "[freespace] Command Injection due to Lack of Sanitization",
+  "state": "Closed",
+  "substate": "resolved",
+  "severity_rating": "medium",
+  "readable_substate": "Resolved",
+  "created_at": "2020-08-04T20:43:52.003Z",
+  "submitted_at": "2020-08-04T20:43:52.025Z",
+  "is_member_of_team?": false,
+  "is_organization_group_member?": false,
+  "reporter": {
+    "disabled": false,
+    "username": "ansuj7",
+    "url": "/ansuj7",
+    "profile_picture_urls": {
+      "small": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+    },
+    "is_me?": false,
+    "cleared": false,
+    "verified": false,
+    "hackerone_triager": false,
+    "hacker_mediation": false
+  },
+  "team": {
+    "id": 23949,
+    "url": "https://hackerone.com/nodejs-ecosystem",
+    "handle": "nodejs-ecosystem",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/023/949/3ea3b2ae039a8f955a4a8fe65d99fe85dc817398_original./d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98",
+      "medium": "https://profile-photos.hackerone-user-content.com/variants/000/023/949/3ea3b2ae039a8f955a4a8fe65d99fe85dc817398_original./5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+    },
+    "permissions": [
+
+    ],
+    "submission_state": "disabled",
+    "default_currency": "usd",
+    "awards_miles": false,
+    "offers_bounties": true,
+    "state": "public_mode",
+    "only_cleared_hackers": false,
+    "pentest_feature_enabled?": false,
+    "profile": {
+      "name": "Node.js third-party modules",
+      "twitter_handle": "",
+      "website": "https://nodejs.org/en/security/",
+      "about": "This program was used to handle vulnerabilities in the Node.js ecosystem."
+    }
+  },
+  "has_bounty?": false,
+  "in_validation?": false,
+  "can_view_team": true,
+  "can_view_report": true,
+  "is_external_bug": false,
+  "is_published": false,
+  "is_participant": false,
+  "has_collaborators": false,
+  "submitted_by_team_member": false,
+  "stage": 4,
+  "public": true,
+  "visibility": "full",
+  "cve_ids": [
+
+  ],
+  "singular_disclosure_disabled": false,
+  "disclosed_at": "2020-10-14T15:50:41.478Z",
+  "bug_reporter_agreed_on_going_public_at": "2020-10-14T15:50:41.403Z",
+  "team_member_agreed_on_going_public_at": "2020-10-13T14:31:01.027Z",
+  "comments_closed?": false,
+  "facebook_team?": false,
+  "team_private?": false,
+  "vulnerability_information": "I would like to report `Command Injection` in the `freespace` module.\nIt allows an attacker to inject and execute shell commands on Unix based systems.\n\n# Module\n\n**module name:** freespace\n**version:** 1.0.4\n**npm page:** `https://www.npmjs.com/package/freespace`\n\n## Module Description\n\nA library that tells you how much free disk space you have.  \n- Works on all platform.\n- No dependencies and no native libraries.\n\n## Module Stats\n\n[26] weekly downloads\n\n# Vulnerability\n\n## Vulnerability Description\n\nThe library offers a function that allows a developer to pass in a disk-label (Windows) or a mount-point (Linux) and returns space details about the same. However, due to lack of proper sanitization of the parameter to that function, injection of multiple commands using delimiters such as `;` and `&&` will cause the shell to interpret and execute each command between those characters.  \nThis code is vulnerable on the Unix platform and not on Windows. The Windows variant also directly uses the input without sanitization, however, uses only the first character of the input parameter, which prevents injection.\n\nThis is the vulnerable code in `index.js` of the library:\n```javascript\nexports.check = function(driveOrMount, callback) {\n    return new Promise(function(resolve, reject) {\n        let cb = function(err, stdout, stderr) { ... };\n        if (!driveOrMountRegex.test(driveOrMount)) {\n            let err = new Error(DRIVE_STRING_ERROR);\n            if (callback) callback(err);\n            return reject(err);\n        }\n        if (process.platform === 'win32') {\n            driveOrMount = driveOrMount.charAt(0).toLowerCase();\n            cp.exec(`fsutil volume diskfree ${driveOrMount}:`, {}, cb);\n        } else {\n            cp.exec(`df -P ${driveOrMount} | awk 'NR==2 {print $4}'`, {}, cb);  // vulnerability - 'driveOrMount' is being used directly without sanitization\n        }\n    }).then(function(bytes) { return bytes })\n        .catch(function(err) { return Promise.reject(err) });\n};\n```\n\n\n## Steps To Reproduce:\n\n- Create test directory: `mkdir freespace-poc` and `cd` into it\n- Install the library with NPM:  `npm install freespace`\n- Create an output directory, I am using `/tmp` - which is initially empty\n- Create a file `test.js` containing the following:\n\n```javascript\nconst freespace = require('freespace');\n\nfreespace.check('/ ; touch /tmp/semicolon_file')\n        .then(bytes => {\n                console.log(bytes);\n        });\n\nfreespace.check('/ && touch /tmp/ampersand_file')\n        .then(bytes => {\n                console.log(bytes);\n        });\n```\n- Run the code: `node test.js`\n- List the output directory - in my case, `ls /tmp`\n- You will see that the files `semicolon_file` and `ampersand_file` have been created, indicating that the commands were injected and executed\n\n{F936538}\n\n## Patch\n\nAll parameters should be sanitized before being sent as shell command arguments. The developer has implemented a REGEX check before shell command calls in the line `if (!driveOrMountRegex.test(driveOrMount))` which does not cover these special cases. This REGEX can be used to whitelist/blacklist characters and either produce an error or strip them out and continue execution. \n\n## Supporting Material/References:\n\n- Operating System Version: Ubuntu 18.04.4 LTS \n- NodeJS Version: v14.7.0\n- NPM Version: 6.14.7\n\n# Wrap up\n\n- I contacted the maintainer to let them know: N \n- I opened an issue in the related repository: N\n\nThank you for your time.\n\n## Impact\n\nCommand Injection can lead to information gathering, system enumeration and further execution of scripts/binaries.",
+  "weakness": {
+    "id": 58,
+    "name": "Command Injection - Generic"
+  },
+  "original_report_id": null,
+  "original_report_url": null,
+  "attachments": [
+    {
+      "id": 936538,
+      "file_name": "freespace-poc.PNG",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/TZLSRrC4fm8iUq1Ya2UeVTVc?response-content-disposition=attachment%3B%20filename%3D%22freespace-poc.PNG%22%3B%20filename%2A%3DUTF-8%27%27freespace-poc.PNG&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ5NIKTYBN%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T072235Z&X-Amz-Expires=1751&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJHMEUCIQCM2la1GSZwFkbzZwAlaXr0SDHvL7evb0H8C%2BcAyp6rJwIgUS%2FvPViGx2g0I162nhXzz0XdF2Xh43GEuLX0y03wgpgqsgUIIxADGgwwMTM2MTkyNzQ4NDkiDNqaUM2zKa0nRrRjPiqPBY3HR7dtjU%2FqgV%2Bme1Vi2BF0srTbVHaeVx7AXFxoOny%2FWf6dy0NtyNi5jqQtZSPTNusRUoRBEVYluoE2pTzC4h8vkvORrE9JykyZYTHH8ocgk5lc0APz3GbNdw8EDi7TxEfkQrfeNcb9De%2FCYblR%2BcD3eIOuf0HhbFpNONPshVMD2bahKYX2YefU56UpZ3VXRBwPkoVPMgab%2BFva6rLt69nWaBZT3wd3EIEFt5XoYZDHjSKORRTdwTs%2FDCgqPEoyGhV0VrhBCUYqQbAukt7wGk7NrNDWs7mZmkL9Kv28fQIY1Q7h9exaudTPtQP0E2yZtr3wKCcWNQFiX57yas%2B0bvmeuA3ym%2BSzBLvdO1P9ziA8htBG3pApMoYNVRcJXqB9Ulg7ZaIeoGHU8ucHynNO64xiJkECfQ%2F83m0uusP%2FCbg8v%2FC8x09sz0WJsbCM5h90DddiMkeTK%2B47Ho2K%2FzWj9Vax4pTTeyBAgNycvbE1C5SdrAIC8ofvTBgjD9VJnS4%2Fm%2FaSERgD%2FpHxyUa3F9f2xwK2zzZHVjSUL9gImPRAlJZ6Nh8ldRy7Y8qAeEkVVgxlkabpkSUzkeJFYWeyAIFxnGiALPstIyZO91J3sBSrtYKPCa81FT%2BAe5FdP%2F16dX7M8G2QBoHlOCiborPNR188kYqbrtspQiMLdSdCqE06hDUFQ3PcbE8pZjc3H5dcny%2BqL2xr08qLnFp5WdXxcvFRdgKAOAiyBUtpuXF6qITm0ms7xwUQpzSFqpQFGxJNdqYxaBQFXFr1B8dripk5f1Qg734MxZRFa8OXrC0SUBclX%2FIsJJJqUWr7uq4q66njtMMLeKaRxJh4vXuOMKGmNrytwHC7GauHczb7gJBY9EaCQsEwyfu4qAY6sQHEE5yo4qz1nHc7W%2FmuNCkeiEC06BT2KXW5Ye7wR%2BJRqa4RD1Evl5MaAbKYOUm3j3RKv8ZiQXgBRIDsjMyLkeHJDlM30wkC5GTlhwpLfAXvVAeC%2BGlwLLBvL176VeFL7S7mGPxQhRCLoa8DCYKS9rPurVlp6T5EPeBgnNUxOC0WTs38l8ylcSgu2HURNvrOIIHuAxsNQYx%2Bnc4wcFv0RnkFptS7LlYhwcWV%2FKYEjxiy5O8%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=27a71027fe9befbd7e0b83e4fba9d1a0efcf70c458187a4da25fdec81d2bd449",
+      "file_size": 21715,
+      "type": "image/png",
+      "moderated": null
+    }
+  ],
+  "allow_singular_disclosure_at": "2020-11-12T14:31:01.173Z",
+  "allow_singular_disclosure_after": -90262294.82171594,
+  "singular_disclosure_allowed": true,
+  "vote_count": 6,
+  "voters": [
+    "rook1337",
+    "0xwise",
+    "exception",
+    "agmed0",
+    "muemmelmoehre",
+    "makentoch"
+  ],
+  "severity": {
+    "rating": "medium",
+    "author_type": "User"
+  },
+  "structured_scope": {
+    "databaseId": 2986,
+    "asset_type": "SOURCE_CODE",
+    "asset_identifier": "Other module",
+    "max_severity": "critical"
+  },
+  "abilities": {
+    "assignable_team_members": [
+
+    ],
+    "assignable_team_member_groups": [
+
+    ]
+  },
+  "activities": [
+    {
+      "id": 8907354,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi, I wanted to follow up on whether there are any updates on this or if there is any additional information I need to provide? Thank you!",
+      "automated_response": false,
+      "created_at": "2020-08-11T15:17:11.105Z",
+      "updated_at": "2020-08-11T15:17:11.105Z",
+      "actor": {
+        "username": "ansuj7",
+        "cleared": false,
+        "verified": false,
+        "url": "/ansuj7",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 8949903,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Thanks for your report ███████. I have contacted the maintainer and invited him to this report.",
+      "automated_response": false,
+      "created_at": "2020-08-16T13:15:03.598Z",
+      "updated_at": "2021-01-20T19:23:06.104Z",
+      "actor": {
+        "username": "danielruf",
+        "cleared": false,
+        "verified": false,
+        "url": "/danielruf",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/JjaMiHpqpLG3vx6VJMAA9KbK/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 9339014,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@danielruf, are there any updates on this? Considering that there hasn't been a developer response, shall we proceed with disclosure? Thank you. ",
+      "automated_response": false,
+      "created_at": "2020-09-26T15:02:53.106Z",
+      "updated_at": "2020-09-26T15:02:53.106Z",
+      "actor": {
+        "username": "ansuj7",
+        "cleared": false,
+        "verified": false,
+        "url": "/ansuj7",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 9339015,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportSeverityUpdated",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2020-09-26T15:03:37.219Z",
+      "updated_at": "2020-09-26T15:03:37.219Z",
+      "additional_data": {
+        "old_severity": null,
+        "new_severity": "Medium",
+        "old_severity_id": null,
+        "new_severity_id": 857722
+      },
+      "actor": {
+        "username": "ansuj7",
+        "cleared": false,
+        "verified": false,
+        "url": "/ansuj7",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 9340260,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @ansuj,\n\nSo far no reaction from the maintainer.\nI've opened an issue at https://github.com/ptelad/freespace/issues/1\n\nIf there is no update in the next few days (45 since the first contact) we'll proceed with the disclosure.",
+      "automated_response": false,
+      "created_at": "2020-09-26T19:24:34.769Z",
+      "updated_at": "2020-09-26T19:24:34.769Z",
+      "actor": {
+        "username": "danielruf",
+        "cleared": false,
+        "verified": false,
+        "url": "/danielruf",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/JjaMiHpqpLG3vx6VJMAA9KbK/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 9488578,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @danielruf, thank you for the update. There hasn't been a response on the opened issue. Shall we proceed with disclosure? ",
+      "automated_response": false,
+      "created_at": "2020-10-12T02:43:32.082Z",
+      "updated_at": "2020-10-12T02:43:32.082Z",
+      "actor": {
+        "username": "ansuj7",
+        "cleared": false,
+        "verified": false,
+        "url": "/ansuj7",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 9506892,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @ansuj, you are right. I'll do the next step and request disclosure.",
+      "automated_response": false,
+      "created_at": "2020-10-13T14:30:31.639Z",
+      "updated_at": "2020-10-13T14:30:31.639Z",
+      "actor": {
+        "username": "danielruf",
+        "cleared": false,
+        "verified": false,
+        "url": "/danielruf",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/JjaMiHpqpLG3vx6VJMAA9KbK/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 9506896,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2020-10-13T14:30:52.353Z",
+      "updated_at": "2020-10-13T14:30:52.353Z",
+      "actor": {
+        "username": "danielruf",
+        "cleared": false,
+        "verified": false,
+        "url": "/danielruf",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/JjaMiHpqpLG3vx6VJMAA9KbK/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "reporter": {
+        "username": "ansuj7",
+        "url": "/ansuj7"
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 9506897,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2020-10-13T14:31:01.061Z",
+      "updated_at": "2020-10-13T14:31:01.061Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "danielruf",
+        "cleared": false,
+        "verified": false,
+        "url": "/danielruf",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/JjaMiHpqpLG3vx6VJMAA9KbK/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 9522803,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2020-10-14T15:50:41.438Z",
+      "updated_at": "2020-10-14T15:50:41.438Z",
+      "actor": {
+        "username": "ansuj7",
+        "cleared": false,
+        "verified": false,
+        "url": "/ansuj7",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 9522804,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportBecamePublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2020-10-14T15:50:41.507Z",
+      "updated_at": "2020-10-14T15:50:41.507Z",
+      "actor": {
+        "username": "ansuj7",
+        "cleared": false,
+        "verified": false,
+        "url": "/ansuj7",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    }
+  ],
+  "activity_page_count": 1,
+  "activity_page_number": 1,
+  "summaries": [
+    {
+      "category": "team",
+      "can_view?": true,
+      "can_create?": false
+    },
+    {
+      "category": "researcher",
+      "can_view?": true,
+      "can_create?": false
+    }
+  ]
+}

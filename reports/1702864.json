@@ -1,0 +1,637 @@
+{
+  "id": 1702864,
+  "global_id": "Z2lkOi8vaGFja2Vyb25lL1JlcG9ydC8xNzAyODY0",
+  "url": "https://hackerone.com/reports/1702864",
+  "title": "SSRF via filter bypass due to lax checking on IPs",
+  "state": "Closed",
+  "substate": "resolved",
+  "severity_rating": "medium",
+  "readable_substate": "Resolved",
+  "created_at": "2022-09-17T08:10:29.340Z",
+  "submitted_at": "2022-09-17T08:10:29.440Z",
+  "is_member_of_team?": false,
+  "is_organization_group_member?": false,
+  "reporter": {
+    "disabled": false,
+    "username": "obitorasu",
+    "url": "/obitorasu",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/UmS2H349mhkzo8rLnNCpZAdv/3c7b305354c9073c106ae3d1701798defaaf5be844fb8fdfa49ca62f991a2c2c"
+    },
+    "is_me?": false,
+    "cleared": false,
+    "verified": false,
+    "hackerone_triager": false,
+    "hacker_mediation": false
+  },
+  "team": {
+    "id": 13291,
+    "url": "https://hackerone.com/nextcloud",
+    "handle": "nextcloud",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/tnqlkt8d6fcch8hj8brdjp8nw864/d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98",
+      "medium": "https://profile-photos.hackerone-user-content.com/variants/tnqlkt8d6fcch8hj8brdjp8nw864/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+    },
+    "permissions": [
+
+    ],
+    "submission_state": "open",
+    "default_currency": "usd",
+    "awards_miles": false,
+    "offers_bounties": true,
+    "state": "public_mode",
+    "only_cleared_hackers": false,
+    "pentest_feature_enabled?": false,
+    "profile": {
+      "name": "Nextcloud",
+      "twitter_handle": "nextclouders",
+      "website": "https://nextcloud.com",
+      "about": "Access, share and protect your files, calendars, contacts, communication & more at home and in your enterprise."
+    }
+  },
+  "has_bounty?": true,
+  "in_validation?": false,
+  "can_view_team": true,
+  "can_view_report": true,
+  "is_external_bug": false,
+  "is_published": false,
+  "is_participant": false,
+  "has_collaborators": false,
+  "submitted_by_team_member": false,
+  "stage": 4,
+  "public": true,
+  "visibility": "full",
+  "cve_ids": [
+
+  ],
+  "singular_disclosure_disabled": false,
+  "disclosed_at": "2023-02-10T02:03:11.903Z",
+  "bug_reporter_agreed_on_going_public_at": "2023-01-11T02:03:10.033Z",
+  "team_member_agreed_on_going_public_at": null,
+  "comments_closed?": false,
+  "facebook_team?": false,
+  "team_private?": false,
+  "vulnerability_information": "## Summary:\nHello,\n\nI was reading up on the recent SSRF bug found on NextCloud which is originally a part of this [report](https://hackerone.com/reports/1608039) by @tomorrowisnew_ \n\nI went through the source code again which was highlighted in the report I mentioned and I noticed that filtering for some of the more advanced SSRF payloads were clearly missing. Alphanumeric payloads came to my mind when thinking about the same so I set up a local test environment with my friend @w1redch4d\n\nWe primarily focused on the code around the IP checking namely `ThowIfLocalIp`:\n```php\n\tpublic function ThrowIfLocalIp(string $ip) : void {\n\t\t$localRanges = [\n\t\t\t'100.64.0.0/10', // See RFC 6598\n\t\t\t'192.0.0.0/24', // See RFC 6890\n\t\t];\n\t\tif (\n\t\t\t(bool)filter_var($ip, FILTER_VALIDATE_IP) &&\n\t\t\t(\n\t\t\t\t!filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE) ||\n\t\t\t\tIpUtils::checkIp($ip, $localRanges)\n\t\t\t)) {\n\t\t\t$this->logger->warning(\"Host $ip was not connected to because it violates local access rules\");\n\t\t\tthrow new LocalServerException('Host violates local access rules');\n\t\t}\n\n\t\t// Also check for IPv6 IPv4 nesting, because that's not covered by filter_var\n\t\tif ((bool)filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6) && substr_count($ip, '.') > 0) {\n\t\t\t$delimiter = strrpos($ip, ':'); // Get last colon\n\t\t\t$ipv4Address = substr($ip, $delimiter + 1);\n\n\t\t\tif (\n\t\t\t\t!filter_var($ipv4Address, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE) ||\n\t\t\t\tIpUtils::checkIp($ip, $localRanges)) {\n\t\t\t\t$this->logger->warning(\"Host $ip was not connected to because it violates local access rules\");\n\t\t\t\tthrow new LocalServerException('Host violates local access rules');\n\t\t\t}\n\t\t}\n\t}\n```\nAs seen above, the code is more than capable of rooting out most of the SSRF payloads including IPv4 and IPv6 as well as the recently pointed out payload involving the Alibaba metadata IP `100.100.100.200`. But as stated above, the filtration technique fails when met with some of the more advanced SSRF payloads like the alphanumeric ones. In our test environment, we edited the code and set up a dummy website to test different payloads. The workflow was simple, if the payload was an invalid attempt at an SSRF, the server will throw an exception but if all the filtrations were bypassed successfully, the server would echo Pass.\n\n## Supporting Material/References:\nOur dummy code is as follows:\n```php\n<?php\n      require 'vendor/autoload.php';\n      use Symfony\\Component\\HttpFoundation\\IpUtils;\n\n      function ThrowIfLocalIp(string $ip) : void {\n        $localRanges = [\n            '100.64.0.0/10', // See RFC 6598\n            '192.0.0.0/24', // See RFC 6890\n        ];\n        if (\n            (bool)filter_var($ip, FILTER_VALIDATE_IP) &&\n            (\n                !filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE) ||\n                IpUtils::checkIp($ip, $localRanges)\n            )) {\n            throw new Exception('Host violates local access rules');\n        }\n\n        // Also check for IPv6 IPv4 nesting, because that's not covered by filter_var\n        if ((bool)filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6) && substr_count($ip, '.') > 0) {\n            $delimiter = strrpos($ip, ':'); // Get last colon\n            $ipv4Address = substr($ip, $delimiter + 1);\n\n            if (\n                !filter_var($ipv4Address, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE) ||\n                IpUtils::checkIp($ip, $localRanges)) {\n                throw new Exception('Host violates local access rules');\n            }\n        }\n        echo \"Pass\";\n    }\n    ThrowIfLocalIp($_GET[\"ip\"])\n?>\n```\n\nHere are some of the screenshots:\n\n**Server catches exception for Alibaba metadata IP and doesn't echo Pass**\n{F1934403}\n{F1934404}\n\n**Server catches normal payload for AWS Magic IP and doesn't echo Pass**\n{F1934407}\n{F1934406}\n\n**Server passes the Alphanumeric payload for AWS Magic IP and echoes Pass**\n{F1934411}\n{F1934412}\n\n**Server passes greenlighted IPs proof with `8.8.8.8` and `8.8.4.4` and echoes Pass**\n{F1934464}\n{F1934456}\n\n## Impact\n\nAttackers can leverage enclosed alphanumeric payloads to bypass IP filters and gain SSRF. An example can be using `⑯⑨。②⑤④。⑯⑨｡②⑤④` which would allow an attacker to read crucial metadata if the server is hosted on the AWS platform. The above payload will resolve to the magic IP of AWS namely `169.254.169.254` but bypasses all the filtering present in the code itself.",
+  "bounty_amount": "250.0",
+  "formatted_bounty": "$250",
+  "weakness": {
+    "id": 68,
+    "name": "Server-Side Request Forgery (SSRF)"
+  },
+  "original_report_id": null,
+  "original_report_url": null,
+  "attachments": [
+    {
+      "id": 1934403,
+      "file_name": "image.png",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/d9d73n2mdm26axe29j5v699vlqsy?response-content-disposition=attachment%3B%20filename%3D%22image.png%22%3B%20filename%2A%3DUTF-8%27%27image.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQSL26QVWJ%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065721Z&X-Amz-Expires=1774&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJGMEQCIGsYX%2B2SBOyOVYF%2Bbhi8FJSYZBaFBWa1bRzT%2Be3B%2FZjKAiAhOYWk%2Foi9Uzlh7TDqFekha1XoJLvg7HRX6M15Zy7OgyqyBQgiEAMaDDAxMzYxOTI3NDg0OSIMMFtgJWJNe1jj9nkVKo8F8Rs2Uaqvx6JwF6x1kZKjsrSeZ6cQNBwN5Wb9hls0EDyKQtSi4OIwgPbnTQubX83nd5ah2LnVEbBjw%2FeWeXliDAl%2FvcfL7Jr%2Bw%2B9Zt%2FJIPwgok0yh0yrBt%2FMHKf6jKyg1HXYfn1nmhzeOD2d2QJDCj5sOXpB7wiW08myHF2gOX%2FhtSISZCSevxv8fM25ODarqeeS4hfv%2BLEDgbFHbbT4E1NfuF8ED2tZiBSFh5%2B5GRH9tDuQNiRc11PuPiSwjorAQR%2BvNEGNjQmE4t1MC7CZ%2FcXGauTAzCS%2Fc%2Bwn34cAFOc2Tg5jVrz6xBNrLQkxxdjHvIBsqLMrTz%2FQ1LCnEECdd957bMTmgqAVSbGeqK2LjKaZ7j4m37weF8D66L%2Fffl0dc0inkPwRnTr0ZTF3%2FEIXdlA2Vp1lgDGet58F%2BpNSEEcSdhnS7xtwxDjXz7C3kS7O6OfaRyAO8ZJGUZmveDph6o2cw%2FPsTphMY2pbm6Pkz07sTZkxdV2fxo92Zo9qpNDPWqHn3gm%2BKAywtq0nQug0bAkV%2FgWYEYrziFLkzRomPvJSGDNHpwb6peEgKF5g4GJGCx3qCurJLfQPIC0AnVFKhpoWvaa%2FLQL6ChC6wGDy6Tl4OOwSd%2FOSuJCnSq1CwWZzdKfyQ3%2FDgDtgklpCj5%2FeQ53M5BpI6bTmGvzUZjPOclF5%2Brk%2BemsD13H7ZHfb96cFvwLHSHT62xRD0NXavKkuuUbg6LMZnfAUOCCZaZmBR2hjJCA9pJ0xHeRcvfG6FoXGmUapCjaCdA4pe1w1dwvfbrvpL4x2tCA%2Bf6zSRP427wTuP50SgkLkxX05dtO4svq%2BPfjeeMMqWgotYcj%2FN%2FVBQbQBRszE8Iw8WK1KakxxWqjDf%2BbioBjqyAe46EFyZlnjpkAH7Kxwo2RjFWK1UspOuXEko65zIpUW0G3QveRljnTHuFnmELUOY%2FbuoPKctkCKm4MSlL4vdbCrHPpvodCNBNct%2B0piCNeqN4cIPMf7KzWsae1GnSb7AF3GE0%2F8QNvzYw3DDJv0zie%2F87QMf%2FxeBFJFnoI1vuhAwg3Nhex5lw1vtQrfVTrYy%2F9P2yDEji39vZEEsb9yVzOIzAXuAyTq%2F%2F9TNfW%2Bn16NAsB8%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=121487c18bcd9b9b4ffbe9eca44a9eaa48f19f54cae4e6bc65b694f6a1b6d620",
+      "file_size": 20147,
+      "type": "image/png",
+      "moderated": null
+    },
+    {
+      "id": 1934404,
+      "file_name": "image.png",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/pjijll9udhmxw1ehyelqcygmk6ys?response-content-disposition=attachment%3B%20filename%3D%22image.png%22%3B%20filename%2A%3DUTF-8%27%27image.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQSL26QVWJ%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065721Z&X-Amz-Expires=1774&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJGMEQCIGsYX%2B2SBOyOVYF%2Bbhi8FJSYZBaFBWa1bRzT%2Be3B%2FZjKAiAhOYWk%2Foi9Uzlh7TDqFekha1XoJLvg7HRX6M15Zy7OgyqyBQgiEAMaDDAxMzYxOTI3NDg0OSIMMFtgJWJNe1jj9nkVKo8F8Rs2Uaqvx6JwF6x1kZKjsrSeZ6cQNBwN5Wb9hls0EDyKQtSi4OIwgPbnTQubX83nd5ah2LnVEbBjw%2FeWeXliDAl%2FvcfL7Jr%2Bw%2B9Zt%2FJIPwgok0yh0yrBt%2FMHKf6jKyg1HXYfn1nmhzeOD2d2QJDCj5sOXpB7wiW08myHF2gOX%2FhtSISZCSevxv8fM25ODarqeeS4hfv%2BLEDgbFHbbT4E1NfuF8ED2tZiBSFh5%2B5GRH9tDuQNiRc11PuPiSwjorAQR%2BvNEGNjQmE4t1MC7CZ%2FcXGauTAzCS%2Fc%2Bwn34cAFOc2Tg5jVrz6xBNrLQkxxdjHvIBsqLMrTz%2FQ1LCnEECdd957bMTmgqAVSbGeqK2LjKaZ7j4m37weF8D66L%2Fffl0dc0inkPwRnTr0ZTF3%2FEIXdlA2Vp1lgDGet58F%2BpNSEEcSdhnS7xtwxDjXz7C3kS7O6OfaRyAO8ZJGUZmveDph6o2cw%2FPsTphMY2pbm6Pkz07sTZkxdV2fxo92Zo9qpNDPWqHn3gm%2BKAywtq0nQug0bAkV%2FgWYEYrziFLkzRomPvJSGDNHpwb6peEgKF5g4GJGCx3qCurJLfQPIC0AnVFKhpoWvaa%2FLQL6ChC6wGDy6Tl4OOwSd%2FOSuJCnSq1CwWZzdKfyQ3%2FDgDtgklpCj5%2FeQ53M5BpI6bTmGvzUZjPOclF5%2Brk%2BemsD13H7ZHfb96cFvwLHSHT62xRD0NXavKkuuUbg6LMZnfAUOCCZaZmBR2hjJCA9pJ0xHeRcvfG6FoXGmUapCjaCdA4pe1w1dwvfbrvpL4x2tCA%2Bf6zSRP427wTuP50SgkLkxX05dtO4svq%2BPfjeeMMqWgotYcj%2FN%2FVBQbQBRszE8Iw8WK1KakxxWqjDf%2BbioBjqyAe46EFyZlnjpkAH7Kxwo2RjFWK1UspOuXEko65zIpUW0G3QveRljnTHuFnmELUOY%2FbuoPKctkCKm4MSlL4vdbCrHPpvodCNBNct%2B0piCNeqN4cIPMf7KzWsae1GnSb7AF3GE0%2F8QNvzYw3DDJv0zie%2F87QMf%2FxeBFJFnoI1vuhAwg3Nhex5lw1vtQrfVTrYy%2F9P2yDEji39vZEEsb9yVzOIzAXuAyTq%2F%2F9TNfW%2Bn16NAsB8%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=534d91a0b106c6f74d1b76456049602dbf297de44733dd7bf1fd2a07d9e87c63",
+      "file_size": 50501,
+      "type": "image/png",
+      "moderated": null
+    },
+    {
+      "id": 1934406,
+      "file_name": "image.png",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/u72yc9ku9l1hse4qqep9h2qh6zm2?response-content-disposition=attachment%3B%20filename%3D%22image.png%22%3B%20filename%2A%3DUTF-8%27%27image.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQSL26QVWJ%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065721Z&X-Amz-Expires=1774&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJGMEQCIGsYX%2B2SBOyOVYF%2Bbhi8FJSYZBaFBWa1bRzT%2Be3B%2FZjKAiAhOYWk%2Foi9Uzlh7TDqFekha1XoJLvg7HRX6M15Zy7OgyqyBQgiEAMaDDAxMzYxOTI3NDg0OSIMMFtgJWJNe1jj9nkVKo8F8Rs2Uaqvx6JwF6x1kZKjsrSeZ6cQNBwN5Wb9hls0EDyKQtSi4OIwgPbnTQubX83nd5ah2LnVEbBjw%2FeWeXliDAl%2FvcfL7Jr%2Bw%2B9Zt%2FJIPwgok0yh0yrBt%2FMHKf6jKyg1HXYfn1nmhzeOD2d2QJDCj5sOXpB7wiW08myHF2gOX%2FhtSISZCSevxv8fM25ODarqeeS4hfv%2BLEDgbFHbbT4E1NfuF8ED2tZiBSFh5%2B5GRH9tDuQNiRc11PuPiSwjorAQR%2BvNEGNjQmE4t1MC7CZ%2FcXGauTAzCS%2Fc%2Bwn34cAFOc2Tg5jVrz6xBNrLQkxxdjHvIBsqLMrTz%2FQ1LCnEECdd957bMTmgqAVSbGeqK2LjKaZ7j4m37weF8D66L%2Fffl0dc0inkPwRnTr0ZTF3%2FEIXdlA2Vp1lgDGet58F%2BpNSEEcSdhnS7xtwxDjXz7C3kS7O6OfaRyAO8ZJGUZmveDph6o2cw%2FPsTphMY2pbm6Pkz07sTZkxdV2fxo92Zo9qpNDPWqHn3gm%2BKAywtq0nQug0bAkV%2FgWYEYrziFLkzRomPvJSGDNHpwb6peEgKF5g4GJGCx3qCurJLfQPIC0AnVFKhpoWvaa%2FLQL6ChC6wGDy6Tl4OOwSd%2FOSuJCnSq1CwWZzdKfyQ3%2FDgDtgklpCj5%2FeQ53M5BpI6bTmGvzUZjPOclF5%2Brk%2BemsD13H7ZHfb96cFvwLHSHT62xRD0NXavKkuuUbg6LMZnfAUOCCZaZmBR2hjJCA9pJ0xHeRcvfG6FoXGmUapCjaCdA4pe1w1dwvfbrvpL4x2tCA%2Bf6zSRP427wTuP50SgkLkxX05dtO4svq%2BPfjeeMMqWgotYcj%2FN%2FVBQbQBRszE8Iw8WK1KakxxWqjDf%2BbioBjqyAe46EFyZlnjpkAH7Kxwo2RjFWK1UspOuXEko65zIpUW0G3QveRljnTHuFnmELUOY%2FbuoPKctkCKm4MSlL4vdbCrHPpvodCNBNct%2B0piCNeqN4cIPMf7KzWsae1GnSb7AF3GE0%2F8QNvzYw3DDJv0zie%2F87QMf%2FxeBFJFnoI1vuhAwg3Nhex5lw1vtQrfVTrYy%2F9P2yDEji39vZEEsb9yVzOIzAXuAyTq%2F%2F9TNfW%2Bn16NAsB8%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=9f49d95439e1299bbedd5d9ceb280c33a868e3267295bbbc5354267b85374d27",
+      "file_size": 51631,
+      "type": "image/png",
+      "moderated": null
+    },
+    {
+      "id": 1934407,
+      "file_name": "image.png",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/uc9x33mqhfhm2rms41bz6w9d5bpt?response-content-disposition=attachment%3B%20filename%3D%22image.png%22%3B%20filename%2A%3DUTF-8%27%27image.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQSL26QVWJ%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065721Z&X-Amz-Expires=1774&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJGMEQCIGsYX%2B2SBOyOVYF%2Bbhi8FJSYZBaFBWa1bRzT%2Be3B%2FZjKAiAhOYWk%2Foi9Uzlh7TDqFekha1XoJLvg7HRX6M15Zy7OgyqyBQgiEAMaDDAxMzYxOTI3NDg0OSIMMFtgJWJNe1jj9nkVKo8F8Rs2Uaqvx6JwF6x1kZKjsrSeZ6cQNBwN5Wb9hls0EDyKQtSi4OIwgPbnTQubX83nd5ah2LnVEbBjw%2FeWeXliDAl%2FvcfL7Jr%2Bw%2B9Zt%2FJIPwgok0yh0yrBt%2FMHKf6jKyg1HXYfn1nmhzeOD2d2QJDCj5sOXpB7wiW08myHF2gOX%2FhtSISZCSevxv8fM25ODarqeeS4hfv%2BLEDgbFHbbT4E1NfuF8ED2tZiBSFh5%2B5GRH9tDuQNiRc11PuPiSwjorAQR%2BvNEGNjQmE4t1MC7CZ%2FcXGauTAzCS%2Fc%2Bwn34cAFOc2Tg5jVrz6xBNrLQkxxdjHvIBsqLMrTz%2FQ1LCnEECdd957bMTmgqAVSbGeqK2LjKaZ7j4m37weF8D66L%2Fffl0dc0inkPwRnTr0ZTF3%2FEIXdlA2Vp1lgDGet58F%2BpNSEEcSdhnS7xtwxDjXz7C3kS7O6OfaRyAO8ZJGUZmveDph6o2cw%2FPsTphMY2pbm6Pkz07sTZkxdV2fxo92Zo9qpNDPWqHn3gm%2BKAywtq0nQug0bAkV%2FgWYEYrziFLkzRomPvJSGDNHpwb6peEgKF5g4GJGCx3qCurJLfQPIC0AnVFKhpoWvaa%2FLQL6ChC6wGDy6Tl4OOwSd%2FOSuJCnSq1CwWZzdKfyQ3%2FDgDtgklpCj5%2FeQ53M5BpI6bTmGvzUZjPOclF5%2Brk%2BemsD13H7ZHfb96cFvwLHSHT62xRD0NXavKkuuUbg6LMZnfAUOCCZaZmBR2hjJCA9pJ0xHeRcvfG6FoXGmUapCjaCdA4pe1w1dwvfbrvpL4x2tCA%2Bf6zSRP427wTuP50SgkLkxX05dtO4svq%2BPfjeeMMqWgotYcj%2FN%2FVBQbQBRszE8Iw8WK1KakxxWqjDf%2BbioBjqyAe46EFyZlnjpkAH7Kxwo2RjFWK1UspOuXEko65zIpUW0G3QveRljnTHuFnmELUOY%2FbuoPKctkCKm4MSlL4vdbCrHPpvodCNBNct%2B0piCNeqN4cIPMf7KzWsae1GnSb7AF3GE0%2F8QNvzYw3DDJv0zie%2F87QMf%2FxeBFJFnoI1vuhAwg3Nhex5lw1vtQrfVTrYy%2F9P2yDEji39vZEEsb9yVzOIzAXuAyTq%2F%2F9TNfW%2Bn16NAsB8%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=4544744ca76362dbc3d1a73ec57fbbc85aa345b9e67590b39a96e38839b41300",
+      "file_size": 20137,
+      "type": "image/png",
+      "moderated": null
+    },
+    {
+      "id": 1934411,
+      "file_name": "image.png",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/qckd85stwh48clo6y1zi4v200uk5?response-content-disposition=attachment%3B%20filename%3D%22image.png%22%3B%20filename%2A%3DUTF-8%27%27image.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQSL26QVWJ%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065721Z&X-Amz-Expires=1774&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJGMEQCIGsYX%2B2SBOyOVYF%2Bbhi8FJSYZBaFBWa1bRzT%2Be3B%2FZjKAiAhOYWk%2Foi9Uzlh7TDqFekha1XoJLvg7HRX6M15Zy7OgyqyBQgiEAMaDDAxMzYxOTI3NDg0OSIMMFtgJWJNe1jj9nkVKo8F8Rs2Uaqvx6JwF6x1kZKjsrSeZ6cQNBwN5Wb9hls0EDyKQtSi4OIwgPbnTQubX83nd5ah2LnVEbBjw%2FeWeXliDAl%2FvcfL7Jr%2Bw%2B9Zt%2FJIPwgok0yh0yrBt%2FMHKf6jKyg1HXYfn1nmhzeOD2d2QJDCj5sOXpB7wiW08myHF2gOX%2FhtSISZCSevxv8fM25ODarqeeS4hfv%2BLEDgbFHbbT4E1NfuF8ED2tZiBSFh5%2B5GRH9tDuQNiRc11PuPiSwjorAQR%2BvNEGNjQmE4t1MC7CZ%2FcXGauTAzCS%2Fc%2Bwn34cAFOc2Tg5jVrz6xBNrLQkxxdjHvIBsqLMrTz%2FQ1LCnEECdd957bMTmgqAVSbGeqK2LjKaZ7j4m37weF8D66L%2Fffl0dc0inkPwRnTr0ZTF3%2FEIXdlA2Vp1lgDGet58F%2BpNSEEcSdhnS7xtwxDjXz7C3kS7O6OfaRyAO8ZJGUZmveDph6o2cw%2FPsTphMY2pbm6Pkz07sTZkxdV2fxo92Zo9qpNDPWqHn3gm%2BKAywtq0nQug0bAkV%2FgWYEYrziFLkzRomPvJSGDNHpwb6peEgKF5g4GJGCx3qCurJLfQPIC0AnVFKhpoWvaa%2FLQL6ChC6wGDy6Tl4OOwSd%2FOSuJCnSq1CwWZzdKfyQ3%2FDgDtgklpCj5%2FeQ53M5BpI6bTmGvzUZjPOclF5%2Brk%2BemsD13H7ZHfb96cFvwLHSHT62xRD0NXavKkuuUbg6LMZnfAUOCCZaZmBR2hjJCA9pJ0xHeRcvfG6FoXGmUapCjaCdA4pe1w1dwvfbrvpL4x2tCA%2Bf6zSRP427wTuP50SgkLkxX05dtO4svq%2BPfjeeMMqWgotYcj%2FN%2FVBQbQBRszE8Iw8WK1KakxxWqjDf%2BbioBjqyAe46EFyZlnjpkAH7Kxwo2RjFWK1UspOuXEko65zIpUW0G3QveRljnTHuFnmELUOY%2FbuoPKctkCKm4MSlL4vdbCrHPpvodCNBNct%2B0piCNeqN4cIPMf7KzWsae1GnSb7AF3GE0%2F8QNvzYw3DDJv0zie%2F87QMf%2FxeBFJFnoI1vuhAwg3Nhex5lw1vtQrfVTrYy%2F9P2yDEji39vZEEsb9yVzOIzAXuAyTq%2F%2F9TNfW%2Bn16NAsB8%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=174b73038d8c95c5653a2d3f8455a52050c953ceb8dbb8c88afe9d46c013d757",
+      "file_size": 27196,
+      "type": "image/png",
+      "moderated": null
+    },
+    {
+      "id": 1934412,
+      "file_name": "image.png",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/2zfks72lhj00phwee71myivg6xvr?response-content-disposition=attachment%3B%20filename%3D%22image.png%22%3B%20filename%2A%3DUTF-8%27%27image.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQSL26QVWJ%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065721Z&X-Amz-Expires=1774&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJGMEQCIGsYX%2B2SBOyOVYF%2Bbhi8FJSYZBaFBWa1bRzT%2Be3B%2FZjKAiAhOYWk%2Foi9Uzlh7TDqFekha1XoJLvg7HRX6M15Zy7OgyqyBQgiEAMaDDAxMzYxOTI3NDg0OSIMMFtgJWJNe1jj9nkVKo8F8Rs2Uaqvx6JwF6x1kZKjsrSeZ6cQNBwN5Wb9hls0EDyKQtSi4OIwgPbnTQubX83nd5ah2LnVEbBjw%2FeWeXliDAl%2FvcfL7Jr%2Bw%2B9Zt%2FJIPwgok0yh0yrBt%2FMHKf6jKyg1HXYfn1nmhzeOD2d2QJDCj5sOXpB7wiW08myHF2gOX%2FhtSISZCSevxv8fM25ODarqeeS4hfv%2BLEDgbFHbbT4E1NfuF8ED2tZiBSFh5%2B5GRH9tDuQNiRc11PuPiSwjorAQR%2BvNEGNjQmE4t1MC7CZ%2FcXGauTAzCS%2Fc%2Bwn34cAFOc2Tg5jVrz6xBNrLQkxxdjHvIBsqLMrTz%2FQ1LCnEECdd957bMTmgqAVSbGeqK2LjKaZ7j4m37weF8D66L%2Fffl0dc0inkPwRnTr0ZTF3%2FEIXdlA2Vp1lgDGet58F%2BpNSEEcSdhnS7xtwxDjXz7C3kS7O6OfaRyAO8ZJGUZmveDph6o2cw%2FPsTphMY2pbm6Pkz07sTZkxdV2fxo92Zo9qpNDPWqHn3gm%2BKAywtq0nQug0bAkV%2FgWYEYrziFLkzRomPvJSGDNHpwb6peEgKF5g4GJGCx3qCurJLfQPIC0AnVFKhpoWvaa%2FLQL6ChC6wGDy6Tl4OOwSd%2FOSuJCnSq1CwWZzdKfyQ3%2FDgDtgklpCj5%2FeQ53M5BpI6bTmGvzUZjPOclF5%2Brk%2BemsD13H7ZHfb96cFvwLHSHT62xRD0NXavKkuuUbg6LMZnfAUOCCZaZmBR2hjJCA9pJ0xHeRcvfG6FoXGmUapCjaCdA4pe1w1dwvfbrvpL4x2tCA%2Bf6zSRP427wTuP50SgkLkxX05dtO4svq%2BPfjeeMMqWgotYcj%2FN%2FVBQbQBRszE8Iw8WK1KakxxWqjDf%2BbioBjqyAe46EFyZlnjpkAH7Kxwo2RjFWK1UspOuXEko65zIpUW0G3QveRljnTHuFnmELUOY%2FbuoPKctkCKm4MSlL4vdbCrHPpvodCNBNct%2B0piCNeqN4cIPMf7KzWsae1GnSb7AF3GE0%2F8QNvzYw3DDJv0zie%2F87QMf%2FxeBFJFnoI1vuhAwg3Nhex5lw1vtQrfVTrYy%2F9P2yDEji39vZEEsb9yVzOIzAXuAyTq%2F%2F9TNfW%2Bn16NAsB8%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=0afc9ff435434eef8754443d8b9fcdb43a923ccd101141bc0dce5995a8f71d14",
+      "file_size": 30588,
+      "type": "image/png",
+      "moderated": null
+    },
+    {
+      "id": 1934456,
+      "file_name": "image.png",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/4kc4m64ave0jinwnoyr9mtp18tax?response-content-disposition=attachment%3B%20filename%3D%22image.png%22%3B%20filename%2A%3DUTF-8%27%27image.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQSL26QVWJ%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065721Z&X-Amz-Expires=1774&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJGMEQCIGsYX%2B2SBOyOVYF%2Bbhi8FJSYZBaFBWa1bRzT%2Be3B%2FZjKAiAhOYWk%2Foi9Uzlh7TDqFekha1XoJLvg7HRX6M15Zy7OgyqyBQgiEAMaDDAxMzYxOTI3NDg0OSIMMFtgJWJNe1jj9nkVKo8F8Rs2Uaqvx6JwF6x1kZKjsrSeZ6cQNBwN5Wb9hls0EDyKQtSi4OIwgPbnTQubX83nd5ah2LnVEbBjw%2FeWeXliDAl%2FvcfL7Jr%2Bw%2B9Zt%2FJIPwgok0yh0yrBt%2FMHKf6jKyg1HXYfn1nmhzeOD2d2QJDCj5sOXpB7wiW08myHF2gOX%2FhtSISZCSevxv8fM25ODarqeeS4hfv%2BLEDgbFHbbT4E1NfuF8ED2tZiBSFh5%2B5GRH9tDuQNiRc11PuPiSwjorAQR%2BvNEGNjQmE4t1MC7CZ%2FcXGauTAzCS%2Fc%2Bwn34cAFOc2Tg5jVrz6xBNrLQkxxdjHvIBsqLMrTz%2FQ1LCnEECdd957bMTmgqAVSbGeqK2LjKaZ7j4m37weF8D66L%2Fffl0dc0inkPwRnTr0ZTF3%2FEIXdlA2Vp1lgDGet58F%2BpNSEEcSdhnS7xtwxDjXz7C3kS7O6OfaRyAO8ZJGUZmveDph6o2cw%2FPsTphMY2pbm6Pkz07sTZkxdV2fxo92Zo9qpNDPWqHn3gm%2BKAywtq0nQug0bAkV%2FgWYEYrziFLkzRomPvJSGDNHpwb6peEgKF5g4GJGCx3qCurJLfQPIC0AnVFKhpoWvaa%2FLQL6ChC6wGDy6Tl4OOwSd%2FOSuJCnSq1CwWZzdKfyQ3%2FDgDtgklpCj5%2FeQ53M5BpI6bTmGvzUZjPOclF5%2Brk%2BemsD13H7ZHfb96cFvwLHSHT62xRD0NXavKkuuUbg6LMZnfAUOCCZaZmBR2hjJCA9pJ0xHeRcvfG6FoXGmUapCjaCdA4pe1w1dwvfbrvpL4x2tCA%2Bf6zSRP427wTuP50SgkLkxX05dtO4svq%2BPfjeeMMqWgotYcj%2FN%2FVBQbQBRszE8Iw8WK1KakxxWqjDf%2BbioBjqyAe46EFyZlnjpkAH7Kxwo2RjFWK1UspOuXEko65zIpUW0G3QveRljnTHuFnmELUOY%2FbuoPKctkCKm4MSlL4vdbCrHPpvodCNBNct%2B0piCNeqN4cIPMf7KzWsae1GnSb7AF3GE0%2F8QNvzYw3DDJv0zie%2F87QMf%2FxeBFJFnoI1vuhAwg3Nhex5lw1vtQrfVTrYy%2F9P2yDEji39vZEEsb9yVzOIzAXuAyTq%2F%2F9TNfW%2Bn16NAsB8%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=31c33472e98e844665b5099a93733d339398aa429240916a543ca3ab0e30c871",
+      "file_size": 16746,
+      "type": "image/png",
+      "moderated": null
+    },
+    {
+      "id": 1934464,
+      "file_name": "image.png",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/zzq66dmeoovohm51n0rzy6mkr0dt?response-content-disposition=attachment%3B%20filename%3D%22image.png%22%3B%20filename%2A%3DUTF-8%27%27image.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQSL26QVWJ%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065721Z&X-Amz-Expires=1774&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJGMEQCIGsYX%2B2SBOyOVYF%2Bbhi8FJSYZBaFBWa1bRzT%2Be3B%2FZjKAiAhOYWk%2Foi9Uzlh7TDqFekha1XoJLvg7HRX6M15Zy7OgyqyBQgiEAMaDDAxMzYxOTI3NDg0OSIMMFtgJWJNe1jj9nkVKo8F8Rs2Uaqvx6JwF6x1kZKjsrSeZ6cQNBwN5Wb9hls0EDyKQtSi4OIwgPbnTQubX83nd5ah2LnVEbBjw%2FeWeXliDAl%2FvcfL7Jr%2Bw%2B9Zt%2FJIPwgok0yh0yrBt%2FMHKf6jKyg1HXYfn1nmhzeOD2d2QJDCj5sOXpB7wiW08myHF2gOX%2FhtSISZCSevxv8fM25ODarqeeS4hfv%2BLEDgbFHbbT4E1NfuF8ED2tZiBSFh5%2B5GRH9tDuQNiRc11PuPiSwjorAQR%2BvNEGNjQmE4t1MC7CZ%2FcXGauTAzCS%2Fc%2Bwn34cAFOc2Tg5jVrz6xBNrLQkxxdjHvIBsqLMrTz%2FQ1LCnEECdd957bMTmgqAVSbGeqK2LjKaZ7j4m37weF8D66L%2Fffl0dc0inkPwRnTr0ZTF3%2FEIXdlA2Vp1lgDGet58F%2BpNSEEcSdhnS7xtwxDjXz7C3kS7O6OfaRyAO8ZJGUZmveDph6o2cw%2FPsTphMY2pbm6Pkz07sTZkxdV2fxo92Zo9qpNDPWqHn3gm%2BKAywtq0nQug0bAkV%2FgWYEYrziFLkzRomPvJSGDNHpwb6peEgKF5g4GJGCx3qCurJLfQPIC0AnVFKhpoWvaa%2FLQL6ChC6wGDy6Tl4OOwSd%2FOSuJCnSq1CwWZzdKfyQ3%2FDgDtgklpCj5%2FeQ53M5BpI6bTmGvzUZjPOclF5%2Brk%2BemsD13H7ZHfb96cFvwLHSHT62xRD0NXavKkuuUbg6LMZnfAUOCCZaZmBR2hjJCA9pJ0xHeRcvfG6FoXGmUapCjaCdA4pe1w1dwvfbrvpL4x2tCA%2Bf6zSRP427wTuP50SgkLkxX05dtO4svq%2BPfjeeMMqWgotYcj%2FN%2FVBQbQBRszE8Iw8WK1KakxxWqjDf%2BbioBjqyAe46EFyZlnjpkAH7Kxwo2RjFWK1UspOuXEko65zIpUW0G3QveRljnTHuFnmELUOY%2FbuoPKctkCKm4MSlL4vdbCrHPpvodCNBNct%2B0piCNeqN4cIPMf7KzWsae1GnSb7AF3GE0%2F8QNvzYw3DDJv0zie%2F87QMf%2FxeBFJFnoI1vuhAwg3Nhex5lw1vtQrfVTrYy%2F9P2yDEji39vZEEsb9yVzOIzAXuAyTq%2F%2F9TNfW%2Bn16NAsB8%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=38f86b2c433c6e2e7b177d64ff158aec4a7bf675bc7cfa3469e0b17299706f29",
+      "file_size": 17016,
+      "type": "image/png",
+      "moderated": null
+    }
+  ],
+  "allow_singular_disclosure_at": "2023-02-10T02:03:10.104Z",
+  "allow_singular_disclosure_after": -19457650.9590253,
+  "singular_disclosure_allowed": true,
+  "vote_count": 26,
+  "voters": [
+    "un1que",
+    "blakduk",
+    "researcher14",
+    "zy9ard3",
+    "shubham_srt",
+    "h4x0r_dz",
+    "titosantana00",
+    "zacksecurity",
+    "kerolesmagdy",
+    "eminf",
+    "and 16 more..."
+  ],
+  "severity": {
+    "rating": "medium",
+    "author_type": "User"
+  },
+  "structured_scope": {
+    "databaseId": 13,
+    "asset_type": "SOURCE_CODE",
+    "asset_identifier": "nextcloud/server",
+    "max_severity": "critical"
+  },
+  "abilities": {
+    "assignable_team_members": [
+
+    ],
+    "assignable_team_member_groups": [
+
+    ]
+  },
+  "activities": [
+    {
+      "id": 18409992,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Thanks a lot for reporting this potential issue back to us!\n\nOur security team will take a look at this issue as soon as possible. For obvious reasons we'd like to ask you to not disclose this issue to any other party.",
+      "automated_response": true,
+      "created_at": "2022-09-17T08:10:29.976Z",
+      "updated_at": "2022-09-17T08:10:29.976Z",
+      "actor": {
+        "url": "/nextcloud",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/tnqlkt8d6fcch8hj8brdjp8nw864/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "Nextcloud"
+        }
+      },
+      "genius_execution_id": null,
+      "team_handle": "nextcloud"
+    },
+    {
+      "id": 18413413,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "**UPDATE on Initial Report**\n\nI decided to inspect my initial report further. My prvious test environment was modified and the present code is as follows:\n```php\n<?php\n    require \"vendor/autoload.php\";\n\n    use Symfony\\Component\\HttpFoundation\\IpUtils;\n\n    function ThrowIfLocalIp(string $ip) : void {\n        $localRanges = [\n            '100.64.0.0/10', // See RFC 6598\n            '192.0.0.0/24', // See RFC 6890\n        ];\n        if (\n            (bool)filter_var($ip, FILTER_VALIDATE_IP) &&\n            (\n                !filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE) ||\n                IpUtils::checkIp($ip, $localRanges)\n            )) {\n            throw new Exception('Host violates local access rules');\n        }\n\n        // Also check for IPv6 IPv4 nesting, because that's not covered by filter_var\n        if ((bool)filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6) && substr_count($ip, '.') > 0) {\n            $delimiter = strrpos($ip, ':'); // Get last colon\n            $ipv4Address = substr($ip, $delimiter + 1);\n\n            if (\n                !filter_var($ipv4Address, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE) ||\n                IpUtils::checkIp($ip, $localRanges)) {\n                throw new Exception('Host violates local access rules');\n            }\n        }\n        $ch = curl_init($ip); // such as http://example.com/example.xml\n        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);\n        curl_setopt($ch, CURLOPT_HEADER, 0);\n        $data = curl_exec($ch);\n        curl_close($ch);\n        echo $data;\n    }\n\n    function ThrowIfLocalAddress(string $uri) : void {\n        $host = parse_url($uri, PHP_URL_HOST);\n        if ($host === false || $host === null) {\n            throw new Exception('Could not detect any host');\n        }\n\n        $host = strtolower($host);\n        // Remove brackets from IPv6 addresses\n        if (strpos($host, '[') === 0 && substr($host, -1) === ']') {\n            $host = substr($host, 1, -1);\n        }\n\n        // Disallow local network top-level domains from RFC 6762\n        $localTopLevelDomains = ['local','localhost','intranet','internal','private','corp','home','lan'];\n        $topLevelDomain = substr((strrchr($host, '.') ?: ''), 1);\n        if (in_array($topLevelDomain, $localTopLevelDomains)) {\n            throw new Exception('Host violates local access rules');\n        }\n\n        // Disallow hostname only\n        if (substr_count($host, '.') === 0 && !(bool)filter_var($host, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6)) {\n            echo !(bool)filter_var($host, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6);\n            throw new Exception('Host violates local access rules');\n        }\n\n        ThrowIfLocalIp($host);\n    }\n    ThrowIfLocalAddress($_GET[\"host\"])\n?>\n```\nI noticed that the `ThrowIfLocalAddress` function was successful in filtering out my Enclosed Alphanumeric payload and managed to prevent me from accessing AWS metadata. The payload was caught in the following part of the original code:\n```php\n\t\t// Disallow hostname only\n\t\tif (substr_count($host, '.') === 0 && !(bool)filter_var($host, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6)) {\n\t\t\t$this->logger->warning(\"Host $host was not connected to because it violates local access rules\");\n\t\t\tthrow new LocalServerException('Host violates local access rules');\n\t\t}\n\n\t\t$this->ThrowIfLocalIp($host);\n\t}\n```\nHere are the screenshots:\n{F1934970}\nAs you can see the URL encoded portion is the encoded Alphanumeric payload and it was easily caught as an exception.\n\nBut on some further investigation, I realized it is possible to bypass all the current filters using octal IP notations. In our current workflow, if an SSRF payload is caught via the blacklist, the server will raise an exception and it won't curl the contents as seen above. But when using octal notations I noticed there were no exceptions and we were freely able to curl the contents of sensitive IPs including the localhost.\n\nProof:\nHere we used a payload namely `http://0177.0.0.1/` and were given access to the page hosted on our localhost without any exceptions\n{F1934983}\n{F1934984}\nWe are not using an AWS server so of course, it is not possible for me to resolve `169.254.169.254` using its octal counterpart `0251.0376.0251.0376` but the logs in @w1redch4d terminal proves the server is making the request to the said IP freely without raising exceptions.\n{F1934991}\n\n",
+      "automated_response": false,
+      "created_at": "2022-09-17T10:35:46.389Z",
+      "updated_at": "2022-09-17T10:35:46.389Z",
+      "actor": {
+        "username": "obitorasu",
+        "cleared": false,
+        "verified": false,
+        "url": "/obitorasu",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/UmS2H349mhkzo8rLnNCpZAdv/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "attachments": [
+        {
+          "id": 1934991,
+          "filename": "image.png",
+          "type": "image/png",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/yros67yemrkkifewriuzuc5944g3?response-content-disposition=attachment%3B%20filename%3D%22image.png%22%3B%20filename%2A%3DUTF-8%27%27image.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQSL26QVWJ%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065721Z&X-Amz-Expires=1774&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJGMEQCIGsYX%2B2SBOyOVYF%2Bbhi8FJSYZBaFBWa1bRzT%2Be3B%2FZjKAiAhOYWk%2Foi9Uzlh7TDqFekha1XoJLvg7HRX6M15Zy7OgyqyBQgiEAMaDDAxMzYxOTI3NDg0OSIMMFtgJWJNe1jj9nkVKo8F8Rs2Uaqvx6JwF6x1kZKjsrSeZ6cQNBwN5Wb9hls0EDyKQtSi4OIwgPbnTQubX83nd5ah2LnVEbBjw%2FeWeXliDAl%2FvcfL7Jr%2Bw%2B9Zt%2FJIPwgok0yh0yrBt%2FMHKf6jKyg1HXYfn1nmhzeOD2d2QJDCj5sOXpB7wiW08myHF2gOX%2FhtSISZCSevxv8fM25ODarqeeS4hfv%2BLEDgbFHbbT4E1NfuF8ED2tZiBSFh5%2B5GRH9tDuQNiRc11PuPiSwjorAQR%2BvNEGNjQmE4t1MC7CZ%2FcXGauTAzCS%2Fc%2Bwn34cAFOc2Tg5jVrz6xBNrLQkxxdjHvIBsqLMrTz%2FQ1LCnEECdd957bMTmgqAVSbGeqK2LjKaZ7j4m37weF8D66L%2Fffl0dc0inkPwRnTr0ZTF3%2FEIXdlA2Vp1lgDGet58F%2BpNSEEcSdhnS7xtwxDjXz7C3kS7O6OfaRyAO8ZJGUZmveDph6o2cw%2FPsTphMY2pbm6Pkz07sTZkxdV2fxo92Zo9qpNDPWqHn3gm%2BKAywtq0nQug0bAkV%2FgWYEYrziFLkzRomPvJSGDNHpwb6peEgKF5g4GJGCx3qCurJLfQPIC0AnVFKhpoWvaa%2FLQL6ChC6wGDy6Tl4OOwSd%2FOSuJCnSq1CwWZzdKfyQ3%2FDgDtgklpCj5%2FeQ53M5BpI6bTmGvzUZjPOclF5%2Brk%2BemsD13H7ZHfb96cFvwLHSHT62xRD0NXavKkuuUbg6LMZnfAUOCCZaZmBR2hjJCA9pJ0xHeRcvfG6FoXGmUapCjaCdA4pe1w1dwvfbrvpL4x2tCA%2Bf6zSRP427wTuP50SgkLkxX05dtO4svq%2BPfjeeMMqWgotYcj%2FN%2FVBQbQBRszE8Iw8WK1KakxxWqjDf%2BbioBjqyAe46EFyZlnjpkAH7Kxwo2RjFWK1UspOuXEko65zIpUW0G3QveRljnTHuFnmELUOY%2FbuoPKctkCKm4MSlL4vdbCrHPpvodCNBNct%2B0piCNeqN4cIPMf7KzWsae1GnSb7AF3GE0%2F8QNvzYw3DDJv0zie%2F87QMf%2FxeBFJFnoI1vuhAwg3Nhex5lw1vtQrfVTrYy%2F9P2yDEji39vZEEsb9yVzOIzAXuAyTq%2F%2F9TNfW%2Bn16NAsB8%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=0c5fde6b0e3d3a9b1cea23e2408a1ac5fc6162aea0b53cf951c330abefb50a72"
+        },
+        {
+          "id": 1934984,
+          "filename": "image.png",
+          "type": "image/png",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/gwosoffog9csfl4z68zwzbnwthhn?response-content-disposition=attachment%3B%20filename%3D%22image.png%22%3B%20filename%2A%3DUTF-8%27%27image.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQSL26QVWJ%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065721Z&X-Amz-Expires=1774&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJGMEQCIGsYX%2B2SBOyOVYF%2Bbhi8FJSYZBaFBWa1bRzT%2Be3B%2FZjKAiAhOYWk%2Foi9Uzlh7TDqFekha1XoJLvg7HRX6M15Zy7OgyqyBQgiEAMaDDAxMzYxOTI3NDg0OSIMMFtgJWJNe1jj9nkVKo8F8Rs2Uaqvx6JwF6x1kZKjsrSeZ6cQNBwN5Wb9hls0EDyKQtSi4OIwgPbnTQubX83nd5ah2LnVEbBjw%2FeWeXliDAl%2FvcfL7Jr%2Bw%2B9Zt%2FJIPwgok0yh0yrBt%2FMHKf6jKyg1HXYfn1nmhzeOD2d2QJDCj5sOXpB7wiW08myHF2gOX%2FhtSISZCSevxv8fM25ODarqeeS4hfv%2BLEDgbFHbbT4E1NfuF8ED2tZiBSFh5%2B5GRH9tDuQNiRc11PuPiSwjorAQR%2BvNEGNjQmE4t1MC7CZ%2FcXGauTAzCS%2Fc%2Bwn34cAFOc2Tg5jVrz6xBNrLQkxxdjHvIBsqLMrTz%2FQ1LCnEECdd957bMTmgqAVSbGeqK2LjKaZ7j4m37weF8D66L%2Fffl0dc0inkPwRnTr0ZTF3%2FEIXdlA2Vp1lgDGet58F%2BpNSEEcSdhnS7xtwxDjXz7C3kS7O6OfaRyAO8ZJGUZmveDph6o2cw%2FPsTphMY2pbm6Pkz07sTZkxdV2fxo92Zo9qpNDPWqHn3gm%2BKAywtq0nQug0bAkV%2FgWYEYrziFLkzRomPvJSGDNHpwb6peEgKF5g4GJGCx3qCurJLfQPIC0AnVFKhpoWvaa%2FLQL6ChC6wGDy6Tl4OOwSd%2FOSuJCnSq1CwWZzdKfyQ3%2FDgDtgklpCj5%2FeQ53M5BpI6bTmGvzUZjPOclF5%2Brk%2BemsD13H7ZHfb96cFvwLHSHT62xRD0NXavKkuuUbg6LMZnfAUOCCZaZmBR2hjJCA9pJ0xHeRcvfG6FoXGmUapCjaCdA4pe1w1dwvfbrvpL4x2tCA%2Bf6zSRP427wTuP50SgkLkxX05dtO4svq%2BPfjeeMMqWgotYcj%2FN%2FVBQbQBRszE8Iw8WK1KakxxWqjDf%2BbioBjqyAe46EFyZlnjpkAH7Kxwo2RjFWK1UspOuXEko65zIpUW0G3QveRljnTHuFnmELUOY%2FbuoPKctkCKm4MSlL4vdbCrHPpvodCNBNct%2B0piCNeqN4cIPMf7KzWsae1GnSb7AF3GE0%2F8QNvzYw3DDJv0zie%2F87QMf%2FxeBFJFnoI1vuhAwg3Nhex5lw1vtQrfVTrYy%2F9P2yDEji39vZEEsb9yVzOIzAXuAyTq%2F%2F9TNfW%2Bn16NAsB8%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=8e1b76592ac1c25cd3abf2d28f37a9fab1daff861b263397022d2d6d4814b5f1"
+        },
+        {
+          "id": 1934983,
+          "filename": "image.png",
+          "type": "image/png",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/3da8itu7q0ujhve6mrqwu4vghz1t?response-content-disposition=attachment%3B%20filename%3D%22image.png%22%3B%20filename%2A%3DUTF-8%27%27image.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQSL26QVWJ%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065721Z&X-Amz-Expires=1774&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJGMEQCIGsYX%2B2SBOyOVYF%2Bbhi8FJSYZBaFBWa1bRzT%2Be3B%2FZjKAiAhOYWk%2Foi9Uzlh7TDqFekha1XoJLvg7HRX6M15Zy7OgyqyBQgiEAMaDDAxMzYxOTI3NDg0OSIMMFtgJWJNe1jj9nkVKo8F8Rs2Uaqvx6JwF6x1kZKjsrSeZ6cQNBwN5Wb9hls0EDyKQtSi4OIwgPbnTQubX83nd5ah2LnVEbBjw%2FeWeXliDAl%2FvcfL7Jr%2Bw%2B9Zt%2FJIPwgok0yh0yrBt%2FMHKf6jKyg1HXYfn1nmhzeOD2d2QJDCj5sOXpB7wiW08myHF2gOX%2FhtSISZCSevxv8fM25ODarqeeS4hfv%2BLEDgbFHbbT4E1NfuF8ED2tZiBSFh5%2B5GRH9tDuQNiRc11PuPiSwjorAQR%2BvNEGNjQmE4t1MC7CZ%2FcXGauTAzCS%2Fc%2Bwn34cAFOc2Tg5jVrz6xBNrLQkxxdjHvIBsqLMrTz%2FQ1LCnEECdd957bMTmgqAVSbGeqK2LjKaZ7j4m37weF8D66L%2Fffl0dc0inkPwRnTr0ZTF3%2FEIXdlA2Vp1lgDGet58F%2BpNSEEcSdhnS7xtwxDjXz7C3kS7O6OfaRyAO8ZJGUZmveDph6o2cw%2FPsTphMY2pbm6Pkz07sTZkxdV2fxo92Zo9qpNDPWqHn3gm%2BKAywtq0nQug0bAkV%2FgWYEYrziFLkzRomPvJSGDNHpwb6peEgKF5g4GJGCx3qCurJLfQPIC0AnVFKhpoWvaa%2FLQL6ChC6wGDy6Tl4OOwSd%2FOSuJCnSq1CwWZzdKfyQ3%2FDgDtgklpCj5%2FeQ53M5BpI6bTmGvzUZjPOclF5%2Brk%2BemsD13H7ZHfb96cFvwLHSHT62xRD0NXavKkuuUbg6LMZnfAUOCCZaZmBR2hjJCA9pJ0xHeRcvfG6FoXGmUapCjaCdA4pe1w1dwvfbrvpL4x2tCA%2Bf6zSRP427wTuP50SgkLkxX05dtO4svq%2BPfjeeMMqWgotYcj%2FN%2FVBQbQBRszE8Iw8WK1KakxxWqjDf%2BbioBjqyAe46EFyZlnjpkAH7Kxwo2RjFWK1UspOuXEko65zIpUW0G3QveRljnTHuFnmELUOY%2FbuoPKctkCKm4MSlL4vdbCrHPpvodCNBNct%2B0piCNeqN4cIPMf7KzWsae1GnSb7AF3GE0%2F8QNvzYw3DDJv0zie%2F87QMf%2FxeBFJFnoI1vuhAwg3Nhex5lw1vtQrfVTrYy%2F9P2yDEji39vZEEsb9yVzOIzAXuAyTq%2F%2F9TNfW%2Bn16NAsB8%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=d38bae585db2bc6876a57a69e839f922bc4c2349441120de9ffa2e8e7613feae"
+        },
+        {
+          "id": 1934970,
+          "filename": "image.png",
+          "type": "image/png",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/hirpo4stxvqvj1uuvqj0aomb2zm3?response-content-disposition=attachment%3B%20filename%3D%22image.png%22%3B%20filename%2A%3DUTF-8%27%27image.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQSL26QVWJ%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065721Z&X-Amz-Expires=1774&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJGMEQCIGsYX%2B2SBOyOVYF%2Bbhi8FJSYZBaFBWa1bRzT%2Be3B%2FZjKAiAhOYWk%2Foi9Uzlh7TDqFekha1XoJLvg7HRX6M15Zy7OgyqyBQgiEAMaDDAxMzYxOTI3NDg0OSIMMFtgJWJNe1jj9nkVKo8F8Rs2Uaqvx6JwF6x1kZKjsrSeZ6cQNBwN5Wb9hls0EDyKQtSi4OIwgPbnTQubX83nd5ah2LnVEbBjw%2FeWeXliDAl%2FvcfL7Jr%2Bw%2B9Zt%2FJIPwgok0yh0yrBt%2FMHKf6jKyg1HXYfn1nmhzeOD2d2QJDCj5sOXpB7wiW08myHF2gOX%2FhtSISZCSevxv8fM25ODarqeeS4hfv%2BLEDgbFHbbT4E1NfuF8ED2tZiBSFh5%2B5GRH9tDuQNiRc11PuPiSwjorAQR%2BvNEGNjQmE4t1MC7CZ%2FcXGauTAzCS%2Fc%2Bwn34cAFOc2Tg5jVrz6xBNrLQkxxdjHvIBsqLMrTz%2FQ1LCnEECdd957bMTmgqAVSbGeqK2LjKaZ7j4m37weF8D66L%2Fffl0dc0inkPwRnTr0ZTF3%2FEIXdlA2Vp1lgDGet58F%2BpNSEEcSdhnS7xtwxDjXz7C3kS7O6OfaRyAO8ZJGUZmveDph6o2cw%2FPsTphMY2pbm6Pkz07sTZkxdV2fxo92Zo9qpNDPWqHn3gm%2BKAywtq0nQug0bAkV%2FgWYEYrziFLkzRomPvJSGDNHpwb6peEgKF5g4GJGCx3qCurJLfQPIC0AnVFKhpoWvaa%2FLQL6ChC6wGDy6Tl4OOwSd%2FOSuJCnSq1CwWZzdKfyQ3%2FDgDtgklpCj5%2FeQ53M5BpI6bTmGvzUZjPOclF5%2Brk%2BemsD13H7ZHfb96cFvwLHSHT62xRD0NXavKkuuUbg6LMZnfAUOCCZaZmBR2hjJCA9pJ0xHeRcvfG6FoXGmUapCjaCdA4pe1w1dwvfbrvpL4x2tCA%2Bf6zSRP427wTuP50SgkLkxX05dtO4svq%2BPfjeeMMqWgotYcj%2FN%2FVBQbQBRszE8Iw8WK1KakxxWqjDf%2BbioBjqyAe46EFyZlnjpkAH7Kxwo2RjFWK1UspOuXEko65zIpUW0G3QveRljnTHuFnmELUOY%2FbuoPKctkCKm4MSlL4vdbCrHPpvodCNBNct%2B0piCNeqN4cIPMf7KzWsae1GnSb7AF3GE0%2F8QNvzYw3DDJv0zie%2F87QMf%2FxeBFJFnoI1vuhAwg3Nhex5lw1vtQrfVTrYy%2F9P2yDEji39vZEEsb9yVzOIzAXuAyTq%2F%2F9TNfW%2Bn16NAsB8%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=07917bc0a2c27e0510880f3a621b037b1696c0ee7ad1c20621ca86f3e26c84a0"
+        }
+      ],
+      "genius_execution_id": null,
+      "team_handle": "nextcloud"
+    },
+    {
+      "id": 18427566,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugTriaged",
+      "message": "Thanks a lot for reporting this potential issue back to us!\n\nOur security team will take a look at this issue as soon as possible. For obvious reasons we'd like to ask you to not disclose this issue to any other party.",
+      "automated_response": false,
+      "created_at": "2022-09-19T05:47:00.175Z",
+      "updated_at": "2022-09-19T05:47:00.175Z",
+      "actor": {
+        "username": "nickvergessen",
+        "cleared": false,
+        "verified": false,
+        "url": "/nickvergessen",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/5DBbeB7om4ZiKgskrEoeTyGH/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nextcloud"
+    },
+    {
+      "id": 19181065,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @nickvergessen  \n\nHope you are doing well. I am extremely sorry to bother you knowing well that all of you are working hard and have a busy schedule to maintain, but could you please share any updates on this report? Any replies are appreciated.",
+      "automated_response": false,
+      "created_at": "2022-11-11T05:57:31.952Z",
+      "updated_at": "2022-11-11T05:57:31.952Z",
+      "actor": {
+        "username": "obitorasu",
+        "cleared": false,
+        "verified": false,
+        "url": "/obitorasu",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/UmS2H349mhkzo8rLnNCpZAdv/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nextcloud"
+    },
+    {
+      "id": 19181419,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "Sorry, this somehow slipped through.\n\nIt's fixed with https://github.com/nextcloud/server/pull/34160",
+      "automated_response": false,
+      "created_at": "2022-11-11T07:48:19.828Z",
+      "updated_at": "2022-11-11T07:48:19.828Z",
+      "actor": {
+        "username": "nickvergessen",
+        "cleared": false,
+        "verified": false,
+        "url": "/nickvergessen",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/5DBbeB7om4ZiKgskrEoeTyGH/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "reporter": {
+        "username": "obitorasu",
+        "url": "/obitorasu"
+      },
+      "genius_execution_id": null,
+      "team_handle": "nextcloud"
+    },
+    {
+      "id": 19181423,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Thanks a lot for your report again. This has been resolved in our latest maintenance releases and we're working on the advisories at the moment.\n\nIf you have a GitHub account please let us know the username, and we will associate it with the advisory.\n",
+      "automated_response": false,
+      "created_at": "2022-11-11T07:49:12.832Z",
+      "updated_at": "2022-11-11T07:49:12.832Z",
+      "actor": {
+        "username": "nickvergessen",
+        "cleared": false,
+        "verified": false,
+        "url": "/nickvergessen",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/5DBbeB7om4ZiKgskrEoeTyGH/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nextcloud"
+    },
+    {
+      "id": 19183487,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Thanks for the heads up! Here is my GitHub account https://github.com/OBITORASU, I go by the username OBITORASU. Also, is this report eligible for a bounty?",
+      "automated_response": false,
+      "created_at": "2022-11-11T09:12:40.424Z",
+      "updated_at": "2022-11-11T09:12:40.424Z",
+      "actor": {
+        "username": "obitorasu",
+        "cleared": false,
+        "verified": false,
+        "url": "/obitorasu",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/UmS2H349mhkzo8rLnNCpZAdv/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nextcloud"
+    },
+    {
+      "id": 19183914,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Almost forgot, if possible could you also mention my friend in the advisory? His GitHub account is https://github.com/w1redch4d (w1redch4d), wouldn't have found this bug without his valuable help.",
+      "automated_response": false,
+      "created_at": "2022-11-11T09:46:06.901Z",
+      "updated_at": "2022-11-11T09:46:06.901Z",
+      "actor": {
+        "username": "obitorasu",
+        "cleared": false,
+        "verified": false,
+        "url": "/obitorasu",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/UmS2H349mhkzo8rLnNCpZAdv/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nextcloud"
+    },
+    {
+      "id": 19204425,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "> Also, is this report eligible for a bounty?\n\nBounty decision will mostlikely be made while we finish up the advisory.",
+      "automated_response": false,
+      "created_at": "2022-11-14T08:47:42.684Z",
+      "updated_at": "2022-11-14T08:47:42.684Z",
+      "actor": {
+        "username": "nickvergessen",
+        "cleared": false,
+        "verified": false,
+        "url": "/nickvergessen",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/5DBbeB7om4ZiKgskrEoeTyGH/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nextcloud"
+    },
+    {
+      "id": 19205377,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@nickvergessen thank you for your time, that would be all from my side. I will wait for the final decision and the advisory, have a great day ahead :)",
+      "automated_response": false,
+      "created_at": "2022-11-14T09:50:48.715Z",
+      "updated_at": "2022-11-14T09:50:48.715Z",
+      "actor": {
+        "username": "obitorasu",
+        "cleared": false,
+        "verified": false,
+        "url": "/obitorasu",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/UmS2H349mhkzo8rLnNCpZAdv/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nextcloud"
+    },
+    {
+      "id": 19651163,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@nickvergessen sorry for the ping, just wanted to know if you have any updates for me regarding the advisory.",
+      "automated_response": false,
+      "created_at": "2022-12-20T13:02:01.820Z",
+      "updated_at": "2022-12-20T13:02:01.820Z",
+      "actor": {
+        "username": "obitorasu",
+        "cleared": false,
+        "verified": false,
+        "url": "/obitorasu",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/UmS2H349mhkzo8rLnNCpZAdv/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nextcloud"
+    },
+    {
+      "id": 19741503,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Sorry, I got sick and then was vacation season. Should happen next week.",
+      "automated_response": false,
+      "created_at": "2022-12-30T09:03:43.794Z",
+      "updated_at": "2022-12-30T09:03:43.794Z",
+      "actor": {
+        "username": "nickvergessen",
+        "cleared": false,
+        "verified": false,
+        "url": "/nickvergessen",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/5DBbeB7om4ZiKgskrEoeTyGH/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nextcloud"
+    },
+    {
+      "id": 19741572,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Thanks for the update. Hope you are doing well now. Belated merry Christmas and a happy upcoming new year to you and your team.",
+      "automated_response": false,
+      "created_at": "2022-12-30T09:08:53.424Z",
+      "updated_at": "2022-12-30T09:08:53.424Z",
+      "actor": {
+        "username": "obitorasu",
+        "cleared": false,
+        "verified": false,
+        "url": "/obitorasu",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/UmS2H349mhkzo8rLnNCpZAdv/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nextcloud"
+    },
+    {
+      "id": 19865770,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BountyAwarded",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2023-01-10T13:39:50.085Z",
+      "updated_at": "2023-01-10T13:39:50.085Z",
+      "actor": {
+        "url": "/nextcloud",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/tnqlkt8d6fcch8hj8brdjp8nw864/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "Nextcloud"
+        }
+      },
+      "bounty_amount": "250.0",
+      "bonus_amount": "0.0",
+      "bounty_currency": "usd",
+      "genius_execution_id": null,
+      "team_handle": "nextcloud",
+      "collaborator": {
+        "username": "obitorasu",
+        "url": "/obitorasu"
+      }
+    },
+    {
+      "id": 19874802,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2023-01-11T02:03:10.077Z",
+      "updated_at": "2023-01-11T02:03:10.077Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "obitorasu",
+        "cleared": false,
+        "verified": false,
+        "url": "/obitorasu",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/UmS2H349mhkzo8rLnNCpZAdv/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nextcloud"
+    },
+    {
+      "id": 20084048,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportVulnerabilityTypesUpdated",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2023-01-25T20:51:38.800Z",
+      "updated_at": "2023-01-25T20:51:38.800Z",
+      "additional_data": {
+        "added_weaknesses": [
+          {
+            "id": 68,
+            "name": "Server-Side Request Forgery (SSRF)"
+          }
+        ],
+        "removed_weaknesses": [
+
+        ]
+      },
+      "actor": {
+        "username": "nickvergessen",
+        "cleared": false,
+        "verified": false,
+        "url": "/nickvergessen",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/5DBbeB7om4ZiKgskrEoeTyGH/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nextcloud"
+    },
+    {
+      "id": 20329299,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportBecamePublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2023-02-10T02:03:12.025Z",
+      "updated_at": "2023-02-10T02:03:12.025Z",
+      "actor": {
+        "url": "/nextcloud",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/tnqlkt8d6fcch8hj8brdjp8nw864/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "Nextcloud"
+        }
+      },
+      "genius_execution_id": null,
+      "team_handle": "nextcloud"
+    }
+  ],
+  "activity_page_count": 1,
+  "activity_page_number": 1,
+  "summaries": [
+    {
+      "category": "team",
+      "can_view?": true,
+      "can_create?": false
+    },
+    {
+      "category": "researcher",
+      "can_view?": true,
+      "can_create?": false
+    }
+  ]
+}

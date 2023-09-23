@@ -1,0 +1,447 @@
+{
+  "id": 178152,
+  "global_id": "Z2lkOi8vaGFja2Vyb25lL1JlcG9ydC8xNzgxNTI=",
+  "url": "https://hackerone.com/reports/178152",
+  "title": "Read files on application server, leads to RCE",
+  "state": "Closed",
+  "substate": "resolved",
+  "severity_rating": "critical",
+  "readable_substate": "Resolved",
+  "created_at": "2016-10-26T04:30:29.824Z",
+  "submitted_at": "2016-10-26T04:30:29.824Z",
+  "is_member_of_team?": false,
+  "is_organization_group_member?": false,
+  "reporter": {
+    "disabled": false,
+    "username": "jobert",
+    "url": "/jobert",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/ht4b9SmcYNqmpbyCFXd7cxHB/d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98"
+    },
+    "is_me?": false,
+    "cleared": true,
+    "verified": true,
+    "hackerone_triager": false,
+    "hacker_mediation": false
+  },
+  "team": {
+    "id": 264,
+    "url": "https://hackerone.com/gitlab",
+    "handle": "gitlab",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/f0hovtq73f9ap815a0r1w42bocp4/d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98",
+      "medium": "https://profile-photos.hackerone-user-content.com/variants/f0hovtq73f9ap815a0r1w42bocp4/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+    },
+    "permissions": [
+
+    ],
+    "submission_state": "open",
+    "default_currency": "usd",
+    "awards_miles": false,
+    "offers_bounties": true,
+    "state": "public_mode",
+    "only_cleared_hackers": false,
+    "pentest_feature_enabled?": false,
+    "profile": {
+      "name": "GitLab",
+      "twitter_handle": "gitlab",
+      "website": "https://about.gitlab.com",
+      "about": "A single application for the entire software development lifecycle."
+    }
+  },
+  "has_bounty?": false,
+  "in_validation?": false,
+  "can_view_team": true,
+  "can_view_report": true,
+  "is_external_bug": false,
+  "is_published": false,
+  "is_participant": false,
+  "has_collaborators": false,
+  "submitted_by_team_member": false,
+  "stage": 4,
+  "public": true,
+  "visibility": "full",
+  "cve_ids": [
+    "CVE-2016-9086"
+  ],
+  "singular_disclosure_disabled": true,
+  "disclosed_at": "2016-11-03T00:35:28.706Z",
+  "bug_reporter_agreed_on_going_public_at": "2016-11-02T18:37:40.826Z",
+  "team_member_agreed_on_going_public_at": "2016-11-03T00:35:28.669Z",
+  "comments_closed?": false,
+  "facebook_team?": false,
+  "team_private?": false,
+  "vulnerability_information": "The GitLab export upload feature contains a vulnerability that allows an attacker to read arbitrary files on a GitLab instance. This vulnerability is caused by the behaviour of `JSON.parse`, your error handling, and the possibility to reference a symbolic link in a GitLab export. When I started looking into this functionality, I created a demo repository and created a GitLab export through the project's admin panel. GitLab exports can be imported when creating a new project, for example at https://gitlab.com/projects/new (click GitLab export). Anyway, a simple, extracted GitLab export file contains the following files:\n\n```\nexport $ ls -lash\ntotal 48\n 8 -rw-r--r--@   1 jobert  staff     5B Oct 25 19:52 VERSION\n 8 -rw-r--r--@   1 jobert  staff   341B Oct 25 19:53 project.bundle\n 8 lrwxr-xr-x    1 jobert  staff    11B Oct 25 20:43 project.json\n```\n\nWhen the export file is uploaded again, a few things happen. The first three are, in this order: it waits until the file has been written to disk (for big repositories), a version check based on the `VERSION` file, and creating a new `Project` model instance based on `project.json`. The first step isn't important. Lets look at the code that's being executed for the second step (line 12-18 from `Gitlab::ImportExport::VersionChecker`):\n\n```ruby\ndef check!\n  version = File.open(version_file, &:readline)\n  verify_version!(version)\nrescue => e\n  shared.error(e)\n  false\nend\n```\n\nPay attention to line 13. It will open the file and call the method `readline`, which will return the first line of the file. Now, on line 16 any exception is caught and the message is pushed onto the `errors` array. All these errors are returned to the frontend. Take a look at line 27-31 of the same file:\n\n```ruby\nif Gem::Version.new(version) != Gem::Version.new(Gitlab::ImportExport.version)\n  raise Gitlab::ImportExport::Error.new(\"Import version mismatch: Required #{Gitlab::ImportExport.version} but was #{version}\")\nelse\n  true\nend\n```\n\nThis means if the version isn't correct, an exception is returned that contains the provided version from the GitLab export. Lets untar the GitLab export, replace the `VERSION` file with a symbolic link, and tar the GitLab export again. The structure of the tar will look like this:\n\n```\nexport $ ls -lash\n 8 lrwxr-xr-x    1 jobert  staff    11B Oct 25 20:43 VERSION -> /etc/passwd\n 8 -rw-r--r--@   1 jobert  staff   341B Oct 25 19:53 project.bundle\n 8 lrwxr-xr-x    1 jobert  staff    11B Oct 25 20:43 project.json\n```\n\nAfter creating a new GitLab export (run `tar -czvf test.tar.gz .` in the export directory), the new GitLab export can be uploaded. By doing so, the GitLab instance will return the first line of the error because the version matcher raises an exception:\n\n{F130235}\n\nHowever, with this only the first line of a file can be read. This is interesting, but much harder to exploit than if an entire file can be read. I kept digging to see if there was a way to read an entire file. Like I pointed out earlier, the third step in the import process is creating a new instance of the `Project` model. It executes the following code (line 11-22 from `Gitlab::ImportExport::ProjectTreeRestorer`):\n\n```ruby\ndef restore\n  json = IO.read(@path)\n  tree_hash = ActiveSupport::JSON.decode(json)\n  project_members = tree_hash.delete('project_members')\n\n  ActiveRecord::Base.no_touching do\n    create_relations\n  end\nrescue => e\n  shared.error(e)\n  false\nend\n```\n\nA similar code structure as the version check is implemented: any exception that is thrown in line 13-18 is caught and the error message is pushed onto the errors array. It isn't immediately clear from the code, but the ActiveSupport implementation of JSON decoding uses `JSON.parse`, which returns the contents of the entire string to be decoded in the error message when it fails to decode. This means that if we can let the decoder raise an exception, we can read the contents of a file. This isn't so hard. Consider this file structure:\n\n```\nexport $ ls -lash\n 8 -rw-r--r--@   1 jobert  staff    11B Oct 25 20:43 VERSION\n 8 -rw-r--r--@   1 jobert  staff   341B Oct 25 19:53 project.bundle\n 8 lrwxr-xr-x    1 jobert  staff    11B Oct 25 20:43 project.json -> /etc/passwd\n```\n\nIn this example, the `project.json` file is a symlink to `/etc/passwd`. The `IO.read` call on line 14 will follow a symlink to read the contents of a file. Obviously, the `/etc/passwd` file doesn't contain valid JSON, thus it will result in an exception with the contents of `/etc/passwd`. Use tar to compress the files again to prepare it for upload. An example file is attached: F130233. When this file gets imported, it'll show the contents of the linked file in the error message:\n\n{F130234}\n\nTo proof that this isn't my own `/etc/passwd` file that was accidentally compressed with the file, here are the last 5 lines of the `/etc/passwd` of gitlab.com.\n\n```\nalejandro:x:1117:1117::/home/alejandro:/bin/bash\nprometheus:x:999:999::/opt/prometheus:/bin/false\ngitlab-monitor:x:998:998::/opt/gitlab-monitor:/bin/false\npostgres:x:116:121:PostgreSQL administrator,,,:/var/lib/postgresql:/bin/bash\nbrian:x:1118:1118::/home/brian:/bin/bash\n```\n\nWith this issue, the secrets of the GitLab rails project can be read, too. This results in an RCE because cookies can be marshalled and resigned again. It seems to also give access to the internal GitLab shell tokens, which give access to all repositories.\n\nLet me know if you need any more information!",
+  "weakness": {
+    "id": 18,
+    "name": "Information Disclosure"
+  },
+  "original_report_id": null,
+  "original_report_url": null,
+  "attachments": [
+    {
+      "id": 130233,
+      "file_name": "test.tar.gz",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/130/233/1a62bf87c15a273b1ff8f5a5b257169a8e44e88e/test.tar.gz?response-content-disposition=attachment%3B%20filename%3D%22test.tar.gz%22%3B%20filename%2A%3DUTF-8%27%27test.tar.gz&response-content-type=application%2Fgzip&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ4XR7FADI%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T081320Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEDAaCXVzLXdlc3QtMiJHMEUCIQDKk5wN9ph3nw7lju9CWwe7X2HrWWHuO2eCIJ5EHtGa6QIgGJJlYbCAihaUF%2FM088FFQu1bla3zuEssAzL9YO6rij0qsQUIKRADGgwwMTM2MTkyNzQ4NDkiDMbphoLsoVV4O78KySqOBdSUftDrgf%2B7izQf2skYIWsaZ1biSN3yL6unVLjbwLfhb5nb0c3f2TbOrdJ1Wnf6G0Byvplyo3QqnEwctFLW0lAfiqKUK5C2XgyXTWaQRv0JMrFPWR9yKVDY8BzizeJ%2BGkKpKNq3EKqVesipiClbUOp2u7hexkIpFOaSprdTE2g%2B1oL3t3IsB7R87aju3MPOLF3cQE%2FotQsVnD4HkWLCOuG4RUy%2B%2BhpZX9hnrB5CDN9LhjeIQorvB1%2FfIZIy7gzmiJ19uRMuGEfLkXCLU3LABGmzM%2Bbb3U8bxf1cch0nqAoFKvWcSZRwRTDo3%2FQ8mABRsGBINrTmrFL8bI%2FMKAKMbUKHH4aKCAQxejCvuvW68xpFnLsI7K70WJCHZvxX3W9hXgiLpWfRRPpT58YqUH4thiAgffpf6zDInKTbmYP72C%2F7RELZmoSZW2ZEy7WL6az0L084dlCXjkU8JTW5vCbY49yWsclgbC4FPbBFOOLpezerWD0uEwYGj6xsFXT9e2VRwBq7yWfYBcal2DeKCWDQS6Ny4b4%2BnQWToGLCbZNBS%2BasRFdWlSJroy77iBUIYQQcW8VPfcycCSutOUwuokoK0QP%2FL1qPG6IEkfMoJrfsHCCA%2BdyzhvB%2FIv5MUNEoxNGSxC%2BvtNcAJDCdgVzVVjPS3HvG3NZuuwkntct0V%2FYzDIKSnFLqVpx2vz71MmvRcfBKFTGwzQh0NdGLxfdHy94paJoabAVIsBP6FxPZ7htE%2FtO5wBwYrbY10QYW02pwXEnMYeLcO1KJNRcwfdEBWPAslt1OlyBujWoEJhTWgve2DJTKscgMuxcXG%2BTk%2BmNND%2B%2FixUT52IgPBOz%2FVMYpJqV%2FUoV90XKpYPCJQNZAvhnLnjDTsLqoBjqxAZ%2BUJLSnSgIWjRBVhhsgKxU2P%2BZd9uRqPQdnC6cxgb6%2B56F4EDm8qH2C54qlU5cE0grMwf5Cry0pz9S36HcoDMfPK6e88SvZo7zGHFJUHcCBp%2BRn8CTUYvRjtKeKs57sfO2aWOWZemwCno2CsIj9oWK%2FykPIxiYqBMQeKGHOb%2BDrGZIb1KRjfSncoPU72gpfqCu0HEifkYsnJ8UzWZDhor5%2FpcUbPohw0ZzuleJiSth%2BlA%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=3b9cef8989ebb14be815d3b2f5fef078f90f7777e55cc5d830992aeeebcd7e98",
+      "file_size": 746,
+      "type": "application/gzip",
+      "moderated": null
+    },
+    {
+      "id": 130234,
+      "file_name": "Screen_Shot_2016-10-25_at_20.55.36.png",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/130/234/3835c6918f985b21fee93e9f9c3401a399c0fd06/Screen_Shot_2016-10-25_at_20.55.36.png?response-content-disposition=attachment%3B%20filename%3D%22Screen_Shot_2016-10-25_at_20.55.36.png%22%3B%20filename%2A%3DUTF-8%27%27Screen_Shot_2016-10-25_at_20.55.36.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ4XR7FADI%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T081320Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEDAaCXVzLXdlc3QtMiJHMEUCIQDKk5wN9ph3nw7lju9CWwe7X2HrWWHuO2eCIJ5EHtGa6QIgGJJlYbCAihaUF%2FM088FFQu1bla3zuEssAzL9YO6rij0qsQUIKRADGgwwMTM2MTkyNzQ4NDkiDMbphoLsoVV4O78KySqOBdSUftDrgf%2B7izQf2skYIWsaZ1biSN3yL6unVLjbwLfhb5nb0c3f2TbOrdJ1Wnf6G0Byvplyo3QqnEwctFLW0lAfiqKUK5C2XgyXTWaQRv0JMrFPWR9yKVDY8BzizeJ%2BGkKpKNq3EKqVesipiClbUOp2u7hexkIpFOaSprdTE2g%2B1oL3t3IsB7R87aju3MPOLF3cQE%2FotQsVnD4HkWLCOuG4RUy%2B%2BhpZX9hnrB5CDN9LhjeIQorvB1%2FfIZIy7gzmiJ19uRMuGEfLkXCLU3LABGmzM%2Bbb3U8bxf1cch0nqAoFKvWcSZRwRTDo3%2FQ8mABRsGBINrTmrFL8bI%2FMKAKMbUKHH4aKCAQxejCvuvW68xpFnLsI7K70WJCHZvxX3W9hXgiLpWfRRPpT58YqUH4thiAgffpf6zDInKTbmYP72C%2F7RELZmoSZW2ZEy7WL6az0L084dlCXjkU8JTW5vCbY49yWsclgbC4FPbBFOOLpezerWD0uEwYGj6xsFXT9e2VRwBq7yWfYBcal2DeKCWDQS6Ny4b4%2BnQWToGLCbZNBS%2BasRFdWlSJroy77iBUIYQQcW8VPfcycCSutOUwuokoK0QP%2FL1qPG6IEkfMoJrfsHCCA%2BdyzhvB%2FIv5MUNEoxNGSxC%2BvtNcAJDCdgVzVVjPS3HvG3NZuuwkntct0V%2FYzDIKSnFLqVpx2vz71MmvRcfBKFTGwzQh0NdGLxfdHy94paJoabAVIsBP6FxPZ7htE%2FtO5wBwYrbY10QYW02pwXEnMYeLcO1KJNRcwfdEBWPAslt1OlyBujWoEJhTWgve2DJTKscgMuxcXG%2BTk%2BmNND%2B%2FixUT52IgPBOz%2FVMYpJqV%2FUoV90XKpYPCJQNZAvhnLnjDTsLqoBjqxAZ%2BUJLSnSgIWjRBVhhsgKxU2P%2BZd9uRqPQdnC6cxgb6%2B56F4EDm8qH2C54qlU5cE0grMwf5Cry0pz9S36HcoDMfPK6e88SvZo7zGHFJUHcCBp%2BRn8CTUYvRjtKeKs57sfO2aWOWZemwCno2CsIj9oWK%2FykPIxiYqBMQeKGHOb%2BDrGZIb1KRjfSncoPU72gpfqCu0HEifkYsnJ8UzWZDhor5%2FpcUbPohw0ZzuleJiSth%2BlA%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=2794335e375df6de28036f34afaf8606114899f3ce2f4baa8dd0b5d98f56cc6e",
+      "file_size": 102437,
+      "type": "image/png",
+      "moderated": null
+    },
+    {
+      "id": 130235,
+      "file_name": "Screen_Shot_2016-10-25_at_19.28.51.png",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/130/235/eda5af808482da6f95d04416ba92d08c11f516d1/Screen_Shot_2016-10-25_at_19.28.51.png?response-content-disposition=attachment%3B%20filename%3D%22Screen_Shot_2016-10-25_at_19.28.51.png%22%3B%20filename%2A%3DUTF-8%27%27Screen_Shot_2016-10-25_at_19.28.51.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ4XR7FADI%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T081320Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEDAaCXVzLXdlc3QtMiJHMEUCIQDKk5wN9ph3nw7lju9CWwe7X2HrWWHuO2eCIJ5EHtGa6QIgGJJlYbCAihaUF%2FM088FFQu1bla3zuEssAzL9YO6rij0qsQUIKRADGgwwMTM2MTkyNzQ4NDkiDMbphoLsoVV4O78KySqOBdSUftDrgf%2B7izQf2skYIWsaZ1biSN3yL6unVLjbwLfhb5nb0c3f2TbOrdJ1Wnf6G0Byvplyo3QqnEwctFLW0lAfiqKUK5C2XgyXTWaQRv0JMrFPWR9yKVDY8BzizeJ%2BGkKpKNq3EKqVesipiClbUOp2u7hexkIpFOaSprdTE2g%2B1oL3t3IsB7R87aju3MPOLF3cQE%2FotQsVnD4HkWLCOuG4RUy%2B%2BhpZX9hnrB5CDN9LhjeIQorvB1%2FfIZIy7gzmiJ19uRMuGEfLkXCLU3LABGmzM%2Bbb3U8bxf1cch0nqAoFKvWcSZRwRTDo3%2FQ8mABRsGBINrTmrFL8bI%2FMKAKMbUKHH4aKCAQxejCvuvW68xpFnLsI7K70WJCHZvxX3W9hXgiLpWfRRPpT58YqUH4thiAgffpf6zDInKTbmYP72C%2F7RELZmoSZW2ZEy7WL6az0L084dlCXjkU8JTW5vCbY49yWsclgbC4FPbBFOOLpezerWD0uEwYGj6xsFXT9e2VRwBq7yWfYBcal2DeKCWDQS6Ny4b4%2BnQWToGLCbZNBS%2BasRFdWlSJroy77iBUIYQQcW8VPfcycCSutOUwuokoK0QP%2FL1qPG6IEkfMoJrfsHCCA%2BdyzhvB%2FIv5MUNEoxNGSxC%2BvtNcAJDCdgVzVVjPS3HvG3NZuuwkntct0V%2FYzDIKSnFLqVpx2vz71MmvRcfBKFTGwzQh0NdGLxfdHy94paJoabAVIsBP6FxPZ7htE%2FtO5wBwYrbY10QYW02pwXEnMYeLcO1KJNRcwfdEBWPAslt1OlyBujWoEJhTWgve2DJTKscgMuxcXG%2BTk%2BmNND%2B%2FixUT52IgPBOz%2FVMYpJqV%2FUoV90XKpYPCJQNZAvhnLnjDTsLqoBjqxAZ%2BUJLSnSgIWjRBVhhsgKxU2P%2BZd9uRqPQdnC6cxgb6%2B56F4EDm8qH2C54qlU5cE0grMwf5Cry0pz9S36HcoDMfPK6e88SvZo7zGHFJUHcCBp%2BRn8CTUYvRjtKeKs57sfO2aWOWZemwCno2CsIj9oWK%2FykPIxiYqBMQeKGHOb%2BDrGZIb1KRjfSncoPU72gpfqCu0HEifkYsnJ8UzWZDhor5%2FpcUbPohw0ZzuleJiSth%2BlA%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=9cc0e97c8a70ea04f765af43de79c3dfa7a9dca1fbac02319224ea08342050db",
+      "file_size": 33247,
+      "type": "image/png",
+      "moderated": null
+    }
+  ],
+  "allow_singular_disclosure_at": "2016-12-02T18:37:40.852Z",
+  "allow_singular_disclosure_after": -214752939.36766225,
+  "singular_disclosure_allowed": true,
+  "vote_count": 111,
+  "voters": [
+    "lukasreschke",
+    "philip",
+    "b1ngz",
+    "zhchbin",
+    "pmnh",
+    "derision",
+    "tomdev",
+    "d1m0ck",
+    "smiegles",
+    "inhibitor181",
+    "and 101 more..."
+  ],
+  "severity": {
+    "rating": "critical",
+    "score": 9.0,
+    "author_type": "User",
+    "metrics": {
+      "attack_vector": "network",
+      "attack_complexity": "low",
+      "privileges_required": "low",
+      "user_interaction": "required",
+      "scope": "changed",
+      "confidentiality": "high",
+      "integrity": "high",
+      "availability": "high"
+    }
+  },
+  "structured_scope": null,
+  "abilities": {
+    "assignable_team_members": [
+
+    ],
+    "assignable_team_member_groups": [
+
+    ]
+  },
+  "activities": [
+    {
+      "id": 1269201,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugTriaged",
+      "message": "@jobert Thanks for the detailed report. We opened an internal issue earlier today to discuss it, and a fix is in the works. We'll keep you updated here on the progress as always.",
+      "automated_response": false,
+      "created_at": "2016-10-26T18:46:43.261Z",
+      "updated_at": "2016-10-26T18:46:43.261Z",
+      "actor": {
+        "username": "rspeicher",
+        "cleared": false,
+        "verified": false,
+        "url": "/rspeicher",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/070/800/771703800f32dcb0c5413919f04f19305041dd58_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 1279180,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "A fix has gone through review and been merged into the stable branches for 8.9 through 8.13. We're currently building packages for each version and if everything goes well, we plan to release all patches on Wednesday November 2, 2016 at 4:59pm PDT (23:59 GMT).\n\nWe've been assigned CVE-2016-9086 for this issue. A pre-disclosure announcement was sent to our security newsletter and [posted on our blog](https://about.gitlab.com/2016/10/31/gitlab-major-security-update-for-cve-2016-9086/).",
+      "automated_response": false,
+      "created_at": "2016-11-01T19:55:15.661Z",
+      "updated_at": "2016-11-01T19:55:15.661Z",
+      "actor": {
+        "username": "rspeicher",
+        "cleared": false,
+        "verified": false,
+        "url": "/rspeicher",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/070/800/771703800f32dcb0c5413919f04f19305041dd58_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 1279216,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Below is (the relevant part of) the fix we've applied, if you'd like to verify it:\n\n```\ndiff --git a/lib/gitlab/import_export/file_importer.rb b/lib/gitlab/import_export/file_importer.rb\nindex 113895b..ffd1711 100644\n--- a/lib/gitlab/import_export/file_importer.rb\n+++ b/lib/gitlab/import_export/file_importer.rb\n@@ -43,6 +43,14 @@ module Gitlab\n \n         raise Projects::ImportService::Error.new(\"Unable to decompress #{@archive_file} into #{@shared.export_path}\") unless result\n \n+        remove_symlinks!\n+      end\n+\n+      def remove_symlinks!\n+        Dir[\"#{@shared.export_path}/**/*\"].each do |path|\n+          FileUtils.rm(path) if File.lstat(path).symlink?\n+        end\n+\n         true\n       end\n     end\ndiff --git a/lib/gitlab/import_export/project_tree_restorer.rb b/lib/gitlab/import_export/project_tree_restorer.rb\nindex 7cdba88..c551321 100644\n--- a/lib/gitlab/import_export/project_tree_restorer.rb\n+++ b/lib/gitlab/import_export/project_tree_restorer.rb\n@@ -9,8 +9,14 @@ module Gitlab\n       end\n \n       def restore\n-        json = IO.read(@path)\n-        @tree_hash = ActiveSupport::JSON.decode(json)\n+        begin\n+          json = IO.read(@path)\n+          @tree_hash = ActiveSupport::JSON.decode(json)\n+        rescue => e\n+          Rails.logger.error(\"Import/Export error: #{e.message}\")\n+          raise Gitlab::ImportExport::Error.new('Incorrect JSON format')\n+        end\n+\n         @project_members = @tree_hash.delete('project_members')\n \n         ActiveRecord::Base.no_touching do\ndiff --git a/lib/gitlab/import_export/version_checker.rb b/lib/gitlab/import_export/version_checker.rb\nindex fc08082..bd3c3ee 100644\n--- a/lib/gitlab/import_export/version_checker.rb\n+++ b/lib/gitlab/import_export/version_checker.rb\n@@ -24,12 +24,19 @@ module Gitlab\n       end\n \n       def verify_version!(version)\n-        if Gem::Version.new(version) != Gem::Version.new(Gitlab::ImportExport.version)\n+        if different_version?(version)\n           raise Gitlab::ImportExport::Error.new(\"Import version mismatch: Required #{Gitlab::ImportExport.version} but was #{version}\")\n         else\n           true\n         end\n       end\n+\n+      def different_version?(version)\n+        Gem::Version.new(version) != Gem::Version.new(Gitlab::ImportExport.version)\n+      rescue => e\n+        Rails.logger.error(\"Import/Export error: #{e.message}\")\n+        raise Gitlab::ImportExport::Error.new('Incorrect VERSION format')\n+      end\n     end\n   end\n end\n```",
+      "automated_response": false,
+      "created_at": "2016-11-01T20:12:38.521Z",
+      "updated_at": "2016-11-01T20:12:38.521Z",
+      "actor": {
+        "username": "rspeicher",
+        "cleared": false,
+        "verified": false,
+        "url": "/rspeicher",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/070/800/771703800f32dcb0c5413919f04f19305041dd58_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 1279280,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Thanks, @rspeicher! With the upcoming security release, I wanted to document a few more problems that will be addressed. There are two more restore scripts that have similar problems, namely the avatar restorer and the uploads restorer.\n\nThe likelihood of exploiting the avatar restore script is limited, because the project avatar is being validated before it's saved. This means that it can only be used to copy potentially confidential files on the application server, but only when it's a valid image. Because the entropy of the uploads directories in other namespaces, this is less likely to be exploited. Because you're using bare repositories, files from other repositories cannot be extracted.\n\nThe similar vulnerability in the upload restorer is more severe. When the tar file contains an `uploads` directory, its subdirectories will be copied to the new namespace. This will copy the symlink to the attacker's namespace. When that happens, the linked file can be obtained through two ways. The attacker can download the original file by simply downloading the file through the web application, but it can also be obtained by downloading a new GitLab export. The export feature will copy the linked file to the tar instead of the symlink itself.\n\nThe proposed fix seems to take care of all vulnerabilities pointed out in this report so far. I'm looking forward to the release. Thanks again, @rspeicher!",
+      "automated_response": false,
+      "created_at": "2016-11-01T20:41:07.896Z",
+      "updated_at": "2016-11-01T20:41:07.896Z",
+      "actor": {
+        "username": "jobert",
+        "cleared": true,
+        "verified": true,
+        "url": "/jobert",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/ht4b9SmcYNqmpbyCFXd7cxHB/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": true
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 1280398,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Minor update: the fix did not apply cleanly to 8.9 due to a number of changes in the Import/Export code since that version's release. Because the import feature requires administrator access in that version, we feel the exploit is less severe and will only be releasing patches for 8.10 through 8.13.\n\nVersions 8.10 through 8.12 also had the administrator requirement, but because the patch applied cleanly we plan to release patches for those versions as an extra precaution.",
+      "automated_response": false,
+      "created_at": "2016-11-02T13:54:29.509Z",
+      "updated_at": "2016-11-02T13:54:29.509Z",
+      "actor": {
+        "username": "rspeicher",
+        "cleared": false,
+        "verified": false,
+        "url": "/rspeicher",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/070/800/771703800f32dcb0c5413919f04f19305041dd58_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 1280524,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "To clarify, the required administrator access is that the import of GitLab export files has to be enabled on the GitLab instance by an administrator. Once that has been done, anyone that can create a project can exploit the reported vulnerabilities. The recommendation you could give to people using 8.9 is to disable the ability to import GitLab exports for now.",
+      "automated_response": false,
+      "created_at": "2016-11-02T15:26:11.085Z",
+      "updated_at": "2016-11-02T15:26:11.085Z",
+      "actor": {
+        "username": "jobert",
+        "cleared": true,
+        "verified": true,
+        "url": "/jobert",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/ht4b9SmcYNqmpbyCFXd7cxHB/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": true
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 1280662,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@jobert The *import* controller actually performs an admin check itself before any action. We added this as a precaution against the second part of your report in #158330 and only disabled the check going into 8.13's release.\n\n- https://gitlab.com/gitlab-org/gitlab-ce/blob/8-9-stable/app/controllers/import/gitlab_projects_controller.rb#L3\n- https://gitlab.com/gitlab-org/gitlab-ce/blob/8-10-stable/app/controllers/import/gitlab_projects_controller.rb#L3\n- https://gitlab.com/gitlab-org/gitlab-ce/blob/8-11-stable/app/controllers/import/gitlab_projects_controller.rb#L3 \n- https://gitlab.com/gitlab-org/gitlab-ce/blob/8-12-stable/app/controllers/import/gitlab_projects_controller.rb#L3",
+      "automated_response": false,
+      "created_at": "2016-11-02T16:25:04.758Z",
+      "updated_at": "2016-11-02T16:56:00.970Z",
+      "actor": {
+        "username": "rspeicher",
+        "cleared": false,
+        "verified": false,
+        "url": "/rspeicher",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/070/800/771703800f32dcb0c5413919f04f19305041dd58_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 1280896,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "@jobert Going to mark this as resolved. You can request disclosure (and on #158330 as well) and we'll approve both once our blog post for the patch releases is live.\n\nThanks again!",
+      "automated_response": false,
+      "created_at": "2016-11-02T18:33:17.841Z",
+      "updated_at": "2016-11-02T18:33:17.841Z",
+      "actor": {
+        "username": "rspeicher",
+        "cleared": false,
+        "verified": false,
+        "url": "/rspeicher",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/070/800/771703800f32dcb0c5413919f04f19305041dd58_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "reporter": {
+        "username": "jobert",
+        "url": "/jobert"
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 1280903,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2016-11-02T18:37:40.840Z",
+      "updated_at": "2016-11-02T18:37:40.840Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "jobert",
+        "cleared": true,
+        "verified": true,
+        "url": "/jobert",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/ht4b9SmcYNqmpbyCFXd7cxHB/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": true
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 1281491,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "Our patch and security announcement have gone live! \n\nhttps://about.gitlab.com/2016/11/02/cve-2016-9086-patches/\n\nThanks so much, Jobert.",
+      "automated_response": false,
+      "created_at": "2016-11-03T00:35:28.684Z",
+      "updated_at": "2016-11-03T00:35:28.684Z",
+      "actor": {
+        "username": "briann",
+        "cleared": false,
+        "verified": false,
+        "url": "/briann",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 1281492,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportBecamePublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2016-11-03T00:35:28.722Z",
+      "updated_at": "2016-11-03T00:35:28.722Z",
+      "actor": {
+        "username": "briann",
+        "cleared": false,
+        "verified": false,
+        "url": "/briann",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    }
+  ],
+  "activity_page_count": 1,
+  "activity_page_number": 1,
+  "summaries": [
+    {
+      "category": "team",
+      "can_view?": true,
+      "can_create?": false
+    },
+    {
+      "id": 2869,
+      "category": "researcher",
+      "content": "GitLab CE/EE versions 8.9, 8.10, 8.11, 8.12, and 8.13 are vulnerable to an arbitrary file read vulnerability. The vulnerability could be exploited to gain access to the application's secrets. These secrets could be used to gain command execution access on the application server. \n\nThe CVSS for the vulnerability in versions 8.9, 8.10, 8.11, and 8.12 is determined to be 8.4 (CVSS:3.0/AV:N/AC:L/PR:H/UI:R/S:C/C:H/I:H/A:H). The CVSS for the same vulnerability in version 8.13 was determined to be 9.0, because the admin privilege was not necessary anymore to exploit the vulnerability (CVSS:3.0/AV:N/AC:L/PR:L/UI:R/S:C/C:H/I:H/A:H). For all scenarios, the GitLab instance needs to have the import feature of GitLab export files enabled.",
+      "user": {
+        "id": 2,
+        "username": "jobert",
+        "name": "Jobert Abma",
+        "bio": "Co-founder of HackerOne. ಠ_ಠ",
+        "cleared": true,
+        "verified": true,
+        "website": "https://hackerone.com",
+        "location": "San Francisco, CA",
+        "created_at": "2013-03-08T01:17:12.256Z",
+        "url": "https://hackerone.com/jobert",
+        "hackerone_triager": false,
+        "hackerone_employee": true,
+        "user_type": "company",
+        "profile_picture_urls": {
+          "small": "https://profile-photos.hackerone-user-content.com/variants/ht4b9SmcYNqmpbyCFXd7cxHB/d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98",
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/ht4b9SmcYNqmpbyCFXd7cxHB/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937",
+          "xtralarge": "https://profile-photos.hackerone-user-content.com/variants/ht4b9SmcYNqmpbyCFXd7cxHB/60f411638706d89ae3052af6fe8b88fa9a798e291deee40f6a22e81418d78d5f"
+        }
+      },
+      "can_view?": true,
+      "can_create?": false,
+      "attachments": [
+
+      ]
+    }
+  ]
+}

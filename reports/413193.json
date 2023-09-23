@@ -1,0 +1,210 @@
+{
+  "id": 413193,
+  "global_id": "Z2lkOi8vaGFja2Vyb25lL1JlcG9ydC80MTMxOTM=",
+  "url": "https://hackerone.com/reports/413193",
+  "title": "Directory Traversal + HTTP Paramater Pollution leaking SQL/LDAP credentials",
+  "state": "Closed",
+  "substate": "resolved",
+  "readable_substate": "Resolved",
+  "created_at": "2018-07-17T22:25:59.000Z",
+  "submitted_at": "2018-07-17T22:25:59.000Z",
+  "is_member_of_team?": false,
+  "is_organization_group_member?": false,
+  "reporter": {
+    "disabled": false,
+    "username": "bug0xf4",
+    "url": "/bug0xf4",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/bjis5mpq1041r1po1o6hgggr8trt/3c7b305354c9073c106ae3d1701798defaaf5be844fb8fdfa49ca62f991a2c2c"
+    },
+    "is_me?": false,
+    "cleared": false,
+    "verified": false,
+    "hackerone_triager": false,
+    "hacker_mediation": false
+  },
+  "team": {
+    "id": 33392,
+    "url": "https://hackerone.com/soleo",
+    "handle": "soleo",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/033/392/19f5cb0509cf0e76732f84729a7ceee9485d1a7c_original.jpg/3c7b305354c9073c106ae3d1701798defaaf5be844fb8fdfa49ca62f991a2c2c",
+      "medium": "https://profile-photos.hackerone-user-content.com/variants/000/033/392/19f5cb0509cf0e76732f84729a7ceee9485d1a7c_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+    },
+    "permissions": [
+
+    ],
+    "profile": {
+      "name": "Soleo",
+      "twitter_handle": "",
+      "website": "https://www.soleo.com/",
+      "about": ""
+    }
+  },
+  "has_bounty?": false,
+  "in_validation?": false,
+  "can_view_team": true,
+  "can_view_report": true,
+  "is_external_bug": false,
+  "is_published": true,
+  "is_participant": false,
+  "has_collaborators": false,
+  "submitted_by_team_member": false,
+  "stage": 4,
+  "public": true,
+  "visibility": "full",
+  "cve_ids": [
+
+  ],
+  "singular_disclosure_disabled": false,
+  "disclosed_at": "2018-09-24T16:28:03.288Z",
+  "bug_reporter_agreed_on_going_public_at": null,
+  "team_member_agreed_on_going_public_at": null,
+  "comments_closed?": true,
+  "facebook_team?": false,
+  "team_private?": false,
+  "vulnerability_information": "Upon visiting the login page of a provider’s IP Relay client, we noticed that if someone were to click the “forgot password” link, it would bring them to a URL which appeared as the following: \n\n`https://<host>.<tld>/IPRelayApp/servlet/IPRelay?page=forgotPassword`\n\nWhen attempting to modify the \"page\" GET parameter, a .jsp extension was appended to the inputted value, preventing File Disclosure from taking place. Use of nullbytes to bypass this extension being appended was an unlikely option, so we turned to HTTP parameter poisoning. By including a trailing question mark on the file name, we were able to fool the server\ninto thinking it was about to receive a parameter, effectively truncating the trailing `.jsp` extension, like so:\n\n`https://<host>/IPRelayApp/servlet/IPRelay?page=anyfile.txt?`\n\nAttempting Local File Disclosure resulted in an error, but File Disclosure itself was still an option - the web-app is restricted to only loading files from within a certain directory. This limits us to only loading files within `IPRelayApp/*`. In this scenario, this is what the directory layout looked like, thanks to Tomcat:\n\n`IPRelayApp/\n  |- jsp/\n  |- images/\n  |- html/\n  |- META-INF/\n  |- WEB-INF/\n\t|- classes/\n        |- help/\n        |- logs/\n        |- lib/\n        |- xml/\n        |- files/\n        |- web.xml`\n\nThe `WEB-INF` directory is within the IPRelayApp directory, meaning we could load `web.xml`, an XML document that has a few mappings for Tomcat to understand where to pull certain files from. Attached is proof of the file getting loaded. Here is what the proof-of-concept would look like by this point:\n\n`http://<host>/IPRelayApp/servlet/IPRelay?page=../WEB-INF/web.xml?`\n\nAt this point, we wrote a little proof-of-concept to parse the web.xml file and find the location of the source files. This was purely to confirm the severity of this vulnerability. This was the output of our script:\n\n`[+] connecting to <redacted>\nsrc file found @ 'com/soleo/iprelayweb/common/filters/LoggedInFilter.class'\nsrc file found @ 'com/soleo/iprelayweb/common/filters/RedirectionFilter.class'\nsrc file found @ 'com/soleo/iprelayweb/common/filters/HostnameFilter.class'\nsrc file found @ 'com/soleo/iprelayweb/common/filters/SetHeadersFilter.class'\nsrc file found @ 'com/soleo/iprelayweb/common/filters/SetHeadersFilter.class'\nsrc file found @ 'com/soleo/iprelayapp/filters/ChangePasswordFilter.class'\nsrc file found @ 'com/soleo/iprelayweb/common/filters/EncodingFilter.class'\nsrc file found @\n'com/soleo/iprelayapp/filters/PasswordChangeRestrictionFilter.class'\nsrc file found @ 'com/soleo/iprelayapp/filters/SSORedirectFilter.class'\nsrc file found @ 'com/soleo/iprelayapp/common/ContextListener.class'\nsrc file found @ 'com/soleo/iprelayapp/servlets/LoginServlet.class'\nsrc file found @ 'com/soleo/iprelayapp/servlets/SoleoInteractionServlet.class'\nsrc file found @ 'com/soleo/iprelayapp/servlets/CreateUserServlet.class'\nsrc file found @ 'com/soleo/iprelayapp/servlets/CreateCDRServlet.class'\nsrc file found @ 'com/soleo/iprelayapp/servlets/FindSecurityQuestionServlet.class'\nsrc file found @ 'com/soleo/iprelayapp/servlets/ChangePasswordServlet.class'\nsrc file found @ 'com/soleo/iprelayapp/servlets/VerifyAccountServlet.class'\nsrc file found @ 'com/soleo/iprelayapp/servlets/GenerateIPRelayPageServlet.class'\nsrc file found @ 'com/soleo/iprelayapp/servlets/ProfilePageServlet.class'\nsrc file found @ 'com/soleo/iprelayapp/servlets/ProfileServlet.class'\nsrc file found @ 'com/soleo/iprelayapp/servlets/PreferencesPageServlet.class'\nsrc file found @ 'com/soleo/iprelayapp/servlets/RegistrationPageServlet.class'\nsrc file found @ 'com/soleo/iprelayapp/servlets/WelcomeServlet.class'\nsrc file found @ 'com/soleo/iprelayapp/servlets/LogoutServlet.class'\nsrc file found @ 'com/soleo/iprelayapp/servlets/UpdateProfileServlet.class'\nsrc file found @ 'com/soleo/iprelayapp/servlets/UpdatePreferencesServlet.class'\nsrc file found @ 'com/soleo/iprelayapp/servlets/ValidateIPUserStatusServlet.class'\nsrc file found @ 'com/soleo/iprelayapp/servlets/OfflineMessageServlet.class'\nsrc file found @ 'com/soleo/iprelayapp/servlets/AddressBookServlet.class'\nsrc file found @ 'com/soleo/iprelayapp/servlets/SaveIPConversationServlet.class'\nsrc file found @ 'com/soleo/iprelayapp/servlets/SessionPingServlet.class'\nsrc file found @ 'com/soleo/iprelayweb/common/servlet/PingServlet.class'\nsrc file found @ 'com/soleo/iprelayweb/common/servlet/Skinner.class'\nsrc file found @ 'com/soleo/iprelayapp/servlets/FinishLoginServlet.class'\nsrc file found @ 'com/soleo/iprelayapp/servlets/SSOEntryServlet.class'\nsrc file found @ 'com/soleo/iprelayapp/servlets/ShibbolethErrorServlet.class'\nsrc file found @ 'com/soleo/iprelayapp/servlets/MakeCallServlet.class'\nsrc file found @ 'com/soleo/iprelayapp/servlets/ChangeOperatingLanguage.class'`\n\nAll of the following files can be downloaded by loading them from `WEB-INF/classes/*`.  Once again, to confirm severity, we tried to load one of these files, specifically `IPRelay.class` - the attached image shows the file being successfully downloaded.\n\nAfter loading this file into our text editor, it was evident that these classes had been compiled in Java bytecode. However, a determined attacker would easily be able to convert this directly back to source, compromising source code and other sensitive files. Within the source code lies passwords which allow the servlet to communicate with other services, such as SQL/LDAP. An attacker could extract these passwords from within the source files, and further escalate their privileges on the server, or even use said information in a social engineering attack. The end result could be escalated to yield remote code execution, though we were not comfortable attempting to do this before getting in contact with the vendor. Attached you can find a `.class` file which leads to sensitive Information Disclosure.\n\nEssentially every Internet Service Provider in Canada uses Soleo’s IP Relay service. This was not an initial discovery however upon further analysis the impact of this vulnerability kept increasing. By utilizing Google dorks, we were able to determine that there were at least ​ten ​other Internet Service Providers in Canada that wererunning the same vulnerable instance of Soleo’s IP Relay. Interestingly enough six out of the ten vulnerable ISPs were actually the largest telecom providers in Canada.\n\nTo conclude this report, we have confirmed that a determined attacker (APT/foreign entity) could leverage this vulnerability to steal passwords from configuration files across multiple providers, compromise said providers using the stolen passwords, and then ​potentially​ launch a large scale identity theft operation against Canadians. Seeing as Canada’s federal elections are coming up in 2019, this vulnerability could have had detrimental effects for Canadian citizens who confide in these providers to safeguard their identity. Due to our concerns about the social security of Canadian citizens, we decided to compile a list of the providers that were affected by this vulnerability. In total this can ultimately lead to the compromise of over 30 million Canadian records. Here are some major providers that were affected:\n\n`Bell\nSasktel\nTelus\nShaw\nVideotron\nMTS\nRogers (their services are hosted at iprelayservice.net)\nBell Aliant\nCogeco\nFido (their services are hosted at iprelayservice.net)\nKoodo (their services are hosted at iprelayservice.net)\nChatr (their services are hosted at iprelayservice.net)\nAllStream\nEastLink`\n\nThis flaw was remediated on 10th August 2018, roughly three weeks after our initial disclosure.\n\n\n\n",
+  "original_report_id": null,
+  "original_report_url": null,
+  "attachments": [
+    {
+      "id": 350125,
+      "file_name": "classfile.png",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/350/125/1ffa27d7983298a0993f421fb65ae5d3163fc73b/classfile.png?response-content-disposition=attachment%3B%20filename%3D%22classfile.png%22%3B%20filename%2A%3DUTF-8%27%27classfile.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQRI2DKS33%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T074907Z&X-Amz-Expires=1045&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJGMEQCIClqVjComm5eHHgl4hk6izxePckLv8jDeMc0T9b7T3O3AiADmJZnWuzG%2B70iNqDIQCs8vCBykwa2yXC74JTt7oggICqyBQgjEAMaDDAxMzYxOTI3NDg0OSIMymNPAONb%2FCmXBdVeKo8FJzded9JrQRalz027Fy9ORg8M6dHgBBXFzVDsXNDc1JhsKfZyKPDvBwtVth3yDUjFVges68qucKHRijQ6l7wR%2BSrXd5GDh5pLy2MTIGZe67Nnez9UpyMMkMJctkxp2GshCXqzgeHl6v5vSB7diJyZoACs1T7UBRfBPVqB2ExFrI2%2ByTsFYZc7jw70kHGnPahik3gX45Na5Kayh8HRMrZ3nvkWoQsOaDXxlIuviOeI5Nyk%2BqknsMl85LFsHGofSTOGYZXckaP1kkyR%2Fws8c%2FsDxEPpjbWADHNIoe1MFd9enDvdgnJNwHThsUBDzs2HZ0DaxfueMMQsmaKM7fUJBEcCBdyLJgLh9FwY2rWv0osDiBaDwoJBATYz0TqNSzbPLCHXCY4yvjrupR020hIrH7h6vaAO5AGy8BvQlbd4pDsg3fydvKz0cbgeICmouv0Z1B%2BNOmdg%2BiZsobA1R9WzJqDzDfOVTl5%2BplONkde1nrnLg%2FMBW9mk6pF4ZVrKen5uchggefwkdoDb8%2BQe0Ajvj8x8xFdUsC%2FFWEdzRTRjBETbScuWC84tinh7KwW8N2gJzaorc6xcHTdBLvgUtj96BY6lEvsNyjfHwLGgutWn8FvrDQIseWHlWXnVVIfP4p6hSWttAAC9HFoMzHIskKQ8OP21vUmVnZdmOmSLz1dG07Xymll1yNHsBo3AtM2WqzA%2BgnJvv6xCVMBGtXCr%2Fwgk0SMyytjAAt2Ayqtb%2FMcO4y9jne5RcXfe18ZM26LZ8Q%2FAr%2B7y5tFCIDsL%2Bv%2Fu41E9njnrOd4bPbjlDbGY6FQGcUeT8IjQ6%2FqK9rzqwByRyUW84v%2Fm6tpHTp9GZ3Z%2F8GxGiq1ytLMwnn4Nr8mHZoVXW95MFDDxhbmoBjqyAZJiId57NZFL44uwPAXChJjOVBJpFacYn6dA566GE9JXcWCJbWbLvQ1PLav0JA%2FFjK1C6zjLxpR6Zgm%2Bb1YVJ%2Fwvyz5iKzFpjrw5DUkBbq7AqgC1wANIYsCzKnybPgJV%2FdvDI8wXqZ5s4I4kfGwElgjNbNXwCPPz0GSv35NPkyyyGZTFfTgucOASY3bZjNx0yQISVMqLnWZVnzBkXcLX7FeL1pcuvp4XRZgpKzT%2BnTs6PiU%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=b7d7d9fbd2c2b8893324926ad5d2e945a21e22415e409590d9bf6ae4a1decd64",
+      "file_size": 805993,
+      "type": "image/png",
+      "moderated": null
+    },
+    {
+      "id": 350126,
+      "file_name": "IPRelay.png",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/350/126/137f924f8082ed99a272fed55e7913a87eeaa0b1/IPRelay.png?response-content-disposition=attachment%3B%20filename%3D%22IPRelay.png%22%3B%20filename%2A%3DUTF-8%27%27IPRelay.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQRI2DKS33%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T074907Z&X-Amz-Expires=1045&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJGMEQCIClqVjComm5eHHgl4hk6izxePckLv8jDeMc0T9b7T3O3AiADmJZnWuzG%2B70iNqDIQCs8vCBykwa2yXC74JTt7oggICqyBQgjEAMaDDAxMzYxOTI3NDg0OSIMymNPAONb%2FCmXBdVeKo8FJzded9JrQRalz027Fy9ORg8M6dHgBBXFzVDsXNDc1JhsKfZyKPDvBwtVth3yDUjFVges68qucKHRijQ6l7wR%2BSrXd5GDh5pLy2MTIGZe67Nnez9UpyMMkMJctkxp2GshCXqzgeHl6v5vSB7diJyZoACs1T7UBRfBPVqB2ExFrI2%2ByTsFYZc7jw70kHGnPahik3gX45Na5Kayh8HRMrZ3nvkWoQsOaDXxlIuviOeI5Nyk%2BqknsMl85LFsHGofSTOGYZXckaP1kkyR%2Fws8c%2FsDxEPpjbWADHNIoe1MFd9enDvdgnJNwHThsUBDzs2HZ0DaxfueMMQsmaKM7fUJBEcCBdyLJgLh9FwY2rWv0osDiBaDwoJBATYz0TqNSzbPLCHXCY4yvjrupR020hIrH7h6vaAO5AGy8BvQlbd4pDsg3fydvKz0cbgeICmouv0Z1B%2BNOmdg%2BiZsobA1R9WzJqDzDfOVTl5%2BplONkde1nrnLg%2FMBW9mk6pF4ZVrKen5uchggefwkdoDb8%2BQe0Ajvj8x8xFdUsC%2FFWEdzRTRjBETbScuWC84tinh7KwW8N2gJzaorc6xcHTdBLvgUtj96BY6lEvsNyjfHwLGgutWn8FvrDQIseWHlWXnVVIfP4p6hSWttAAC9HFoMzHIskKQ8OP21vUmVnZdmOmSLz1dG07Xymll1yNHsBo3AtM2WqzA%2BgnJvv6xCVMBGtXCr%2Fwgk0SMyytjAAt2Ayqtb%2FMcO4y9jne5RcXfe18ZM26LZ8Q%2FAr%2B7y5tFCIDsL%2Bv%2Fu41E9njnrOd4bPbjlDbGY6FQGcUeT8IjQ6%2FqK9rzqwByRyUW84v%2Fm6tpHTp9GZ3Z%2F8GxGiq1ytLMwnn4Nr8mHZoVXW95MFDDxhbmoBjqyAZJiId57NZFL44uwPAXChJjOVBJpFacYn6dA566GE9JXcWCJbWbLvQ1PLav0JA%2FFjK1C6zjLxpR6Zgm%2Bb1YVJ%2Fwvyz5iKzFpjrw5DUkBbq7AqgC1wANIYsCzKnybPgJV%2FdvDI8wXqZ5s4I4kfGwElgjNbNXwCPPz0GSv35NPkyyyGZTFfTgucOASY3bZjNx0yQISVMqLnWZVnzBkXcLX7FeL1pcuvp4XRZgpKzT%2BnTs6PiU%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=5b3cb5140c56c52d3c2e1efcc04a032f80f71c93f0f9f6eedc817cb66c8e09d8",
+      "file_size": 318992,
+      "type": "image/png",
+      "moderated": null
+    },
+    {
+      "id": 350127,
+      "file_name": "webinf.png",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/350/127/3c0cc336044da65545a60a0f5ac2eb616df72772/webinf.png?response-content-disposition=attachment%3B%20filename%3D%22webinf.png%22%3B%20filename%2A%3DUTF-8%27%27webinf.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQRI2DKS33%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T074907Z&X-Amz-Expires=1045&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJGMEQCIClqVjComm5eHHgl4hk6izxePckLv8jDeMc0T9b7T3O3AiADmJZnWuzG%2B70iNqDIQCs8vCBykwa2yXC74JTt7oggICqyBQgjEAMaDDAxMzYxOTI3NDg0OSIMymNPAONb%2FCmXBdVeKo8FJzded9JrQRalz027Fy9ORg8M6dHgBBXFzVDsXNDc1JhsKfZyKPDvBwtVth3yDUjFVges68qucKHRijQ6l7wR%2BSrXd5GDh5pLy2MTIGZe67Nnez9UpyMMkMJctkxp2GshCXqzgeHl6v5vSB7diJyZoACs1T7UBRfBPVqB2ExFrI2%2ByTsFYZc7jw70kHGnPahik3gX45Na5Kayh8HRMrZ3nvkWoQsOaDXxlIuviOeI5Nyk%2BqknsMl85LFsHGofSTOGYZXckaP1kkyR%2Fws8c%2FsDxEPpjbWADHNIoe1MFd9enDvdgnJNwHThsUBDzs2HZ0DaxfueMMQsmaKM7fUJBEcCBdyLJgLh9FwY2rWv0osDiBaDwoJBATYz0TqNSzbPLCHXCY4yvjrupR020hIrH7h6vaAO5AGy8BvQlbd4pDsg3fydvKz0cbgeICmouv0Z1B%2BNOmdg%2BiZsobA1R9WzJqDzDfOVTl5%2BplONkde1nrnLg%2FMBW9mk6pF4ZVrKen5uchggefwkdoDb8%2BQe0Ajvj8x8xFdUsC%2FFWEdzRTRjBETbScuWC84tinh7KwW8N2gJzaorc6xcHTdBLvgUtj96BY6lEvsNyjfHwLGgutWn8FvrDQIseWHlWXnVVIfP4p6hSWttAAC9HFoMzHIskKQ8OP21vUmVnZdmOmSLz1dG07Xymll1yNHsBo3AtM2WqzA%2BgnJvv6xCVMBGtXCr%2Fwgk0SMyytjAAt2Ayqtb%2FMcO4y9jne5RcXfe18ZM26LZ8Q%2FAr%2B7y5tFCIDsL%2Bv%2Fu41E9njnrOd4bPbjlDbGY6FQGcUeT8IjQ6%2FqK9rzqwByRyUW84v%2Fm6tpHTp9GZ3Z%2F8GxGiq1ytLMwnn4Nr8mHZoVXW95MFDDxhbmoBjqyAZJiId57NZFL44uwPAXChJjOVBJpFacYn6dA566GE9JXcWCJbWbLvQ1PLav0JA%2FFjK1C6zjLxpR6Zgm%2Bb1YVJ%2Fwvyz5iKzFpjrw5DUkBbq7AqgC1wANIYsCzKnybPgJV%2FdvDI8wXqZ5s4I4kfGwElgjNbNXwCPPz0GSv35NPkyyyGZTFfTgucOASY3bZjNx0yQISVMqLnWZVnzBkXcLX7FeL1pcuvp4XRZgpKzT%2BnTs6PiU%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=40a1d1be8b712fe39418a941e1980683024adfb7c11e12ed716af74e55c7dfdb",
+      "file_size": 756483,
+      "type": "image/png",
+      "moderated": null
+    }
+  ],
+  "allow_singular_disclosure_at": null,
+  "vote_count": 47,
+  "voters": [
+    "foobar7",
+    "sameerphad72",
+    "dmatrix",
+    "smshrimant",
+    "eveeez",
+    "pisarenko",
+    "what_web",
+    "mrsinister15",
+    "cryptographer",
+    "protector47",
+    "and 37 more..."
+  ],
+  "structured_scope": null,
+  "abilities": {
+    "assignable_team_members": [
+
+    ],
+    "assignable_team_member_groups": [
+
+    ]
+  },
+  "activities": [
+    {
+      "id": 3376820,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2018-08-10T22:25:59.000Z",
+      "updated_at": "2018-08-10T22:25:59.000Z",
+      "actor": {
+        "username": "bug0xf4",
+        "cleared": false,
+        "verified": false,
+        "url": "/bug0xf4",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/bjis5mpq1041r1po1o6hgggr8trt/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "reporter": {
+        "username": "bug0xf4",
+        "url": "/bug0xf4"
+      },
+      "genius_execution_id": null,
+      "team_handle": "soleo"
+    },
+    {
+      "id": 3380384,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportBecamePublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2018-09-24T16:28:03.333Z",
+      "updated_at": "2018-09-24T16:28:03.333Z",
+      "actor": {
+        "username": "bug0xf4",
+        "cleared": false,
+        "verified": false,
+        "url": "/bug0xf4",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/bjis5mpq1041r1po1o6hgggr8trt/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "soleo"
+    }
+  ],
+  "activity_page_count": 1,
+  "activity_page_number": 1,
+  "summaries": [
+    {
+      "category": "team",
+      "can_view?": true,
+      "can_create?": false
+    },
+    {
+      "id": 10730,
+      "category": "researcher",
+      "content": "SOLEO IP Relay (by Soleo communications) is a cloud-based IP Relay service for telecommunications providers. It is a solution in compliance with government-mandated service requirements for IP Relay Services, also known as “Remote Interpreting Services”. It is a service that allows people who are deaf, hard of hearing, or have a speech disorder to place calls through a TTY or other assistive telephone device. IP Relay is also commonly known as “TRS”, “relay service” or “IP-Relay”.  \n\nThrough Directory Traversal, a File Disclosure vulnerability was identified in Soleo's IP Relay Application, HTTP parameter poisoning was utilized to bypass the appended `.JSP` file extension, leading to the disclosure of sensitive java `.class` files which contained information such as SQL and LDAP credentials used by the Java Servlet, allowing an attacker to authenticate via these services. Every major Internet Service Provider in Canada was affected by this vulnerability, alongside some US-based providers. \n\nHere you can find one of the articles covering our findings: https://www.securityweek.com/vulnerability-ip-relay-service-impacts-major-canadian-isps",
+      "user": {
+        "id": 5997,
+        "username": "bug0xf4",
+        "name": "Bug\\xF4",
+        "bio": "",
+        "cleared": false,
+        "verified": false,
+        "website": null,
+        "location": "United Kingdom",
+        "created_at": "2014-05-08T11:37:54.312Z",
+        "url": "https://hackerone.com/bug0xf4",
+        "hackerone_triager": false,
+        "hackerone_employee": false,
+        "user_type": "hacker",
+        "profile_picture_urls": {
+          "small": "https://profile-photos.hackerone-user-content.com/variants/bjis5mpq1041r1po1o6hgggr8trt/3c7b305354c9073c106ae3d1701798defaaf5be844fb8fdfa49ca62f991a2c2c",
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/bjis5mpq1041r1po1o6hgggr8trt/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc",
+          "xtralarge": "https://profile-photos.hackerone-user-content.com/variants/bjis5mpq1041r1po1o6hgggr8trt/114764ec8f01b1a3e153599212c9f011fb3b0bce3a4fdc1f9a3c551f8c94acf8"
+        }
+      },
+      "can_view?": true,
+      "can_create?": false,
+      "attachments": [
+
+      ]
+    }
+  ]
+}

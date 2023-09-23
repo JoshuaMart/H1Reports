@@ -1,0 +1,632 @@
+{
+  "id": 1392211,
+  "global_id": "Z2lkOi8vaGFja2Vyb25lL1JlcG9ydC8xMzkyMjEx",
+  "url": "https://hackerone.com/reports/1392211",
+  "title": "Remote 0click exfiltration of Safari user's IP address",
+  "state": "Closed",
+  "substate": "resolved",
+  "severity_rating": "medium",
+  "readable_substate": "Resolved",
+  "created_at": "2021-11-05T07:01:11.351Z",
+  "submitted_at": "2021-11-05T07:01:11.431Z",
+  "is_member_of_team?": false,
+  "is_organization_group_member?": false,
+  "reporter": {
+    "disabled": false,
+    "username": "max2x",
+    "url": "/max2x",
+    "profile_picture_urls": {
+      "small": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+    },
+    "is_me?": false,
+    "cleared": false,
+    "verified": false,
+    "hackerone_triager": false,
+    "hacker_mediation": false
+  },
+  "team": {
+    "id": 61,
+    "url": "https://hackerone.com/x",
+    "handle": "x",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/ikx4ept298unt534kpz4am2bd4zs/3c7b305354c9073c106ae3d1701798defaaf5be844fb8fdfa49ca62f991a2c2c",
+      "medium": "https://profile-photos.hackerone-user-content.com/variants/ikx4ept298unt534kpz4am2bd4zs/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+    },
+    "permissions": [
+
+    ],
+    "submission_state": "open",
+    "default_currency": "usd",
+    "awards_miles": false,
+    "offers_bounties": true,
+    "state": "public_mode",
+    "only_cleared_hackers": false,
+    "pentest_feature_enabled?": false,
+    "profile": {
+      "name": "X (Formerly Twitter)",
+      "twitter_handle": "XSecurity",
+      "website": "https://x.com",
+      "about": "X helps you create and share ideas and information instantly, without barriers."
+    }
+  },
+  "has_bounty?": true,
+  "in_validation?": false,
+  "can_view_team": true,
+  "can_view_report": true,
+  "is_external_bug": false,
+  "is_published": false,
+  "is_participant": false,
+  "has_collaborators": false,
+  "submitted_by_team_member": false,
+  "stage": 4,
+  "public": true,
+  "visibility": "full",
+  "cve_ids": [
+
+  ],
+  "singular_disclosure_disabled": true,
+  "disclosed_at": "2022-06-15T20:00:43.926Z",
+  "bug_reporter_agreed_on_going_public_at": "2022-05-25T19:17:55.950Z",
+  "team_member_agreed_on_going_public_at": "2022-06-15T20:00:43.784Z",
+  "comments_closed?": false,
+  "facebook_team?": false,
+  "team_private?": false,
+  "vulnerability_information": "> NOTE! Thanks for submitting a report! Please replace *all* the [square] sections below with the pertinent details. Remember, the more detail you provide, the easier it is for us to triage and respond quickly, so be sure to take your time filling out the report!\n\n**Summary:** A malicious actor when embedding content into Twitter content (for example, see this ████) can lookup the IP address of a user without the user consenting to loading the 3rd party domain.\n\n**Description:** When the user loads the page and doesn't click on any content Safari preloads the ad target domain (in this case ██████████). Using that, without the user tapping on the link, my server receives a TCP connection where I extract the IP and hostname of the victim. Using that information, I can lookup their approximate address, maybe spoof an IP in their city and spearphish one of their accounts, find their telco or ISP provider and use their twitter name to take over their account, many things are possible.\n\nThe problem is caused by use of remote domain links with preconnect.\n\n<link href=\"https://██████\" rel=\"preconnect\">\n<link href=\"//███████\" rel=\"preconnect\">\n\nI recommend a mitigation of removing preload and preconnect for 3rd party domains.\n\nThis has huge privacy and security implications. I can remotely extract a targeted user's IP address by sending them a email, text message, or just tweeting at them. They are not aware it happened, it doesn't show up in their browser history because the user doesn't tap on the 3rd party link.\n\nOnce you have mitigated this issue I will need to notify Apple.\n\n## Steps To Reproduce:\n\n(Add details for how we can reproduce the issue)\n\n  1. I send a targeted user a link to a tweet such as https://twitter.com/██████/status/███████\n2. They use Safari to open the link\n3. When the user mouses over the image on a mac (or scrolls the screen on an iPhone) Safari will connect to ████.\n4. My server lists out incoming TCP connections.\n\n## Impact:\n\nSilently exfiltrating a user's IP address remotely opens them up to lots of attacks. You may see an egg, but I see a gateway to spear phishing the user by initiating regular MITM attack (showing the login request from the same location as the user), I see it been useful to do an account takeover via their ISP or telco. I see it useful to know when a user is at home or at work, in some cases I can tell they work at a certain company. In the case of a popular streamer it opens them up to DDOS attacks by just clicking on a \"safe\" tweet. There are huge possibilities for doxxing individuals using this exploit.\n\nYou can also target an individual (for example an individual you know is in America somewhere) through twitter ads by adding 99 twitter handles from Japan, then the target twitter handle. That way, you know when your ad is shown if it is the target because they won't be in Japan.\n\nThe only thing to bring down the impact of this attack is it is macOS and iOS Safari only. But if you don't think this attack has high severity I can demonstrate more use cases.\n\n## Supporting Material/References:\n\n  * List any additional material (e.g. screenshots, logs, etc.)\n\nHere is a simple C server for logging incoming connections.\n\n```\n#include <netdb.h>\n/* --- server.c --- */\n#include <sys/socket.h>\n#include <netinet/in.h>\n#include <arpa/inet.h>\n#include <stdio.h>\n#include <stdlib.h>\n#include <unistd.h>\n#include <errno.h>\n#include <string.h>\n#include <sys/types.h>\n#include <time.h>\n\nint main(int argc, char *argv[])\n{\n\tint listenfd = 0, connfd = 0;\n\tstruct sockaddr_in serv_addr;\n\n\tchar sendBuff[1025];\n\ttime_t ticks;\n\n\t/* creates an UN-named socket inside the kernel and returns\n\t * an integer known as socket descriptor\n\t * This function takes domain/family as its first argument.\n\t * For Internet family of IPv4 addresses we use AF_INET\n\t */\n\tlistenfd = socket(AF_INET, SOCK_STREAM, 0);\n\tmemset(&serv_addr, '0', sizeof(serv_addr));\n\tmemset(sendBuff, '0', sizeof(sendBuff));\n\n\tserv_addr.sin_family = AF_INET;\n\tserv_addr.sin_addr.s_addr = htonl(INADDR_ANY);\n\tserv_addr.sin_port = htons(443);\n\n\t/* The call to the function \"bind()\" assigns the details specified\n\t * in the structure 『serv_addr' to the socket created in the step above\n\t */\n\tbind(listenfd, (struct sockaddr*)&serv_addr, sizeof(serv_addr));\n\n\t/* The call to the function \"listen()\" with second argument as 10 specifies\n\t * maximum number of client connections that server will queue for this listening\n\t * socket.\n\t */\n\tlisten(listenfd, 10);\n\n\twhile(1)\n\t{\n\t\t/* In the call to accept(), the server is put to sleep and when for an incoming\n\t\t * client request, the three way TCP handshake* is complete, the function accept()\n\t\t * wakes up and returns the socket descriptor representing the client socket.\n\t\t */\n\t\tstruct sockaddr_in client;\n\t\tunsigned int fromLen;\n\t\tconnfd = accept(listenfd, (struct sockaddr*)&client, &fromLen);\nprintf(\"Client accepted: %s \\n\", inet_ntoa(client.sin_addr));  \n\t\tstruct hostent *hostName;\nstruct in_addr ipv4addr;\n\ninet_pton(AF_INET, inet_ntoa(client.sin_addr), &ipv4addr);\nhostName = gethostbyaddr(&ipv4addr, sizeof ipv4addr, AF_INET);\nif (hostName != NULL) {\nprintf(\"Host name: %s\\n\", hostName->h_name);\n}\n\n\n\t\t/* As soon as server gets a request from client, it prepares the date and time and\n\t\t * writes on the client socket through the descriptor returned by accept()\n\t\t */\n\t\tticks = time(NULL);\n// printf(sendBuff, sizeof(sendBuff), \"%.24s\\r\\n\", ctime(&ticks));\n//\t\tprintf(sendBuff, sizeof(sendBuff), \"%.24s\\r\\n\", ctime(&ticks));\n\t\twrite(connfd, sendBuff, strlen(sendBuff));\n\n\t\tclose(connfd);\n\t\tsleep(1);\n\t}\n}\n\n```\n\n## Impact\n\nSilently exfiltrating a user's IP address remotely opens them up to lots of attacks. You may see an egg, but I see a gateway to spear phishing the user by initiating regular MITM attack (showing the login request from the same location as the user), I see it been useful to do an account takeover via their ISP or telco. I see it useful to know when a user is at home or at work, in some cases I can tell they work at a certain company. In the case of a popular streamer it opens them up to DDOS attacks by just clicking on a \"safe\" tweet. There are huge possibilities for doxxing individuals using this exploit.\n\nYou can also target an individual (for example an individual you know is in America somewhere) through twitter ads by adding 99 twitter handles from Japan, then the target twitter handle. That way, you know when your ad is shown if it is the target because they won't be in Japan.\n\nThe only thing to bring down the impact of this attack is it is macOS and iOS Safari only. But if you don't think this attack has high severity I can demonstrate more use cases.",
+  "bounty_amount": "560.0",
+  "formatted_bounty": "$560",
+  "weakness": {
+    "id": 85,
+    "name": "Forced Browsing"
+  },
+  "original_report_id": null,
+  "original_report_url": null,
+  "attachments": [
+
+  ],
+  "allow_singular_disclosure_at": "2022-06-24T19:17:56.018Z",
+  "allow_singular_disclosure_after": -39354265.95232741,
+  "singular_disclosure_allowed": true,
+  "vote_count": 24,
+  "voters": [
+    "alp",
+    "awararesearcher",
+    "zy9ard3",
+    "yassinek3ch",
+    "trieulieuf9",
+    "h4x0r_dz",
+    "sodium_",
+    "victorrocha",
+    "ewo--",
+    "shivammusic",
+    "and 14 more..."
+  ],
+  "severity": {
+    "rating": "medium",
+    "author_type": "Team"
+  },
+  "structured_scope": {
+    "databaseId": 1062,
+    "asset_type": "WILDCARD",
+    "asset_identifier": "*.twitter.com",
+    "max_severity": "critical"
+  },
+  "abilities": {
+    "assignable_team_members": [
+
+    ],
+    "assignable_team_member_groups": [
+
+    ]
+  },
+  "activities": [
+    {
+      "id": 14188093,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "It seems twitter.com only generates preload URLs for image embeds, like the example in the summary above. It is a sponsored-only tweet so I could spearphish with it. ",
+      "automated_response": false,
+      "created_at": "2021-11-05T07:09:33.889Z",
+      "updated_at": "2021-11-05T07:09:33.889Z",
+      "actor": {
+        "username": "max2x",
+        "cleared": false,
+        "verified": false,
+        "url": "/max2x",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "x"
+    },
+    {
+      "id": 14188095,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Sorry, that should say, image embeds inside ad cards.",
+      "automated_response": false,
+      "created_at": "2021-11-05T07:09:58.574Z",
+      "updated_at": "2021-11-05T07:09:58.574Z",
+      "actor": {
+        "username": "max2x",
+        "cleared": false,
+        "verified": false,
+        "url": "/max2x",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "x"
+    },
+    {
+      "id": 14197721,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugNeedsMoreInfo",
+      "message": "Thank you for your report @max2x, \n\nWe have reviewed the behavior you are reporting and have been able to reproduce it, however, we need some more information to determine its impact. Whilst it is true that an attacker may obtain IP addresses of users that hover over the malicious tweet, it appears that no other personally identifiable information is exposed that would allow the attacker to correlate the aforementioned IP addresses with the Twitter users.\n\nAre you able to increase the impact of this behavior by using other techniques such as correlating the IP address to a user, or by demonstrating that other information can be viewed by the attacker? Any additional information you can provide will help us investigate your report.\n\nThank you for thinking of Twitter security.",
+      "automated_response": false,
+      "created_at": "2021-11-05T17:05:08.825Z",
+      "updated_at": "2021-11-05T17:05:08.825Z",
+      "actor": {
+        "username": "bugtriage-simon",
+        "cleared": false,
+        "verified": false,
+        "url": "/bugtriage-simon",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "x"
+    },
+    {
+      "id": 14199259,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugNew",
+      "message": "Yeah, so you can use this attack to target an individual twitter user. It will extract their IP just by scrolling their home timeline, without clicking on any links.\n\nSuppose I wanted to target ████████, the process for targeting an individual twitter user is: \n\n1. Create a new Audience List in Twitter ads.\n2. Create a CSV with 99 japanese twitter handles.\n3. The 100th row is ████████.\n4. Run the audience list in an ad campaign with the sponsor-only tweet as the content.\n\nNow when Twitter shows that ad (maybe I also restrict it to the hours of 5pm-11pm so I can find his home IP) and █████ scrolls his timeline in Safari it will trigger the remote web request. It will be obvious which IP is his because it will be the only non japanese one.\n\nIf you can give me a list of active twitter accounts I can use as test targets without breaking the \"Twitter Rules\" I'm happy to demonstrate it.",
+      "automated_response": false,
+      "created_at": "2021-11-05T20:31:03.591Z",
+      "updated_at": "2022-06-09T17:14:27.655Z",
+      "actor": {
+        "username": "max2x",
+        "cleared": false,
+        "verified": false,
+        "url": "/max2x",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "attachments": [
+        {
+          "id": 1504859,
+          "filename": "Screen_Shot_2021-11-06_at_9.26.56_AM.png",
+          "type": "image/png",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/zjoigz270junvczmvuidf26ut8xg?response-content-disposition=attachment%3B%20filename%3D%22Screen_Shot_2021-11-06_at_9.26.56_AM.png%22%3B%20filename%2A%3DUTF-8%27%27Screen_Shot_2021-11-06_at_9.26.56_AM.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQQM3U3QWN%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070222Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQC8AS0gj74xLCqoISG6HxbEYSI0PEfdF96wfaJ9XQRYXAIhANMJJf7iKjV7IKfTVUDY%2FFCPGSxnhIyV8N48256%2BMYR9KrEFCCMQAxoMMDEzNjE5Mjc0ODQ5Igxhj6IY2dpHIu8rk%2FQqjgVrs6hBhGYkbRpwnTMlcXODs%2BzBfQF20UuznJ4WeEETbBCS5xrQKwNciUh8fTXTf3AeLW8ma7i6nN2J%2FTPJmdDJep9LOqCCNnNfoot3TxHeog3PIzq8bBqzv%2FWnZ6WZiSTCgT0fRuUO%2F0NoLfCI2HO7HAJbzDCBBPLDbovCdCCec9tOhSCo4zeTxGL%2B5eNFzvxdrScMsFkSDHqK1nYzB%2BNHu67VcVBNgokTZ%2FiE0D5F2UMHD7Q41spCK9XBNhkLLcYkYcOLSZPgh0y0%2BhAqiB%2F5M75rvi%2FwL4GzjvstCuMp7%2BMlU5uW0LxRNU4av%2Fnf1lTfZJBbJdVp7t47cyPMsPTAh8YfP7rASoDKsUHiH%2BFUgz23qjds1QkLL5EbNJyfMeGE%2BXtoslgNninHIYEKrR5ds5PZuyrZzZMTDLF%2Fh1nIMmJ5vq2TjJfh421jqFfaYQ9GW34apWkiqGr0hGH8SptwKhv4intOnjJEMXalYWlbtl1Pzp1BC18KUB2I%2FxBURyEaaUVKRBbvabpkEgXV%2FnQqzWJTjCL5HnMD4ljLJgc%2BWfWt1Q1EKcMewZWvcY5%2By7QeV5XQIye%2F0GmL5eIhaBkMGzga%2B%2BT%2Btd2hzvF%2BJzR2we9VQYubOGxpQQuF9r%2FV8wkrGgx3sAX8Zd2QX8ckdW6pg1Klcdh7SLABopVWthPu4QV7L3BabFZmhQUAZxdk0ekb1%2Fw1u8af%2Fr51748Lwtjkx8eOWD49jDTLn6Xt0mW91m5QJ4eaq4%2FNmdjUMwnuXKlgK8ZooXSz0KzkvnZ9T%2F7ULiIfcJCltTowwu8hMBaBndUsJxqBhc8BqU6f%2BkchljSoaUmROWNJOFB0Hq9gD7TyVdCAdV0rFjpJkF%2Bqsjsw2Ym5qAY6sAF%2B%2FtGSYZrDIqtpyxX4SjQXtSTuGpkpw2NJ5IoQLX1kapRTuos3cgYmRQqD2osbXW8GAYux38XCyjB7nnsQGwJ0JEKqlWKQK6b0%2FrXO6AT6H0SgoF4kOVUPnUFGdGx5WY2LMvGJ%2FMBV8%2BSm%2FBqOEyct%2F4MP9bhaeuzEeKXirmXTi9G37p059sF1j%2Fald6zrk2x03j7jMV76l15cHOy6ntmTDUBjHYJB0MZDtEpHFj1bVg%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=b19126c9c235fa737cd844f6e17f33bac98b08e1de9f047895e712779cd479de"
+        }
+      ],
+      "genius_execution_id": null,
+      "team_handle": "x"
+    },
+    {
+      "id": 14219290,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Thank you for your report @max2x,\n\nWe are looking into this and we'll keep you updated when we have additional information.\n\nThank you for thinking of Twitter security.",
+      "automated_response": false,
+      "created_at": "2021-11-08T11:53:10.670Z",
+      "updated_at": "2021-11-08T11:53:10.670Z",
+      "actor": {
+        "username": "bugtriage-simon",
+        "cleared": false,
+        "verified": false,
+        "url": "/bugtriage-simon",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "x"
+    },
+    {
+      "id": 15144554,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hello, I just want to follow up as I haven't received any status updates. The fix should be very straight forward, it should just be a matter of removing `rel=\"preconnect\"` from different origin domain links.",
+      "automated_response": false,
+      "created_at": "2022-01-21T19:15:47.803Z",
+      "updated_at": "2022-01-21T19:15:47.803Z",
+      "actor": {
+        "username": "max2x",
+        "cleared": false,
+        "verified": false,
+        "url": "/max2x",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "x"
+    },
+    {
+      "id": 16009502,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hello,\n\nI haven't heard a response in 2 months since I last followed up.\n\nThis issue is very serious and can be used to target any twitter user with a Mac or iPhone to find their IP address and physical location.\n\nCan you please provide a timeline on fixing this issue? It should be extremely straight-forward. ",
+      "automated_response": false,
+      "created_at": "2022-03-24T10:40:33.997Z",
+      "updated_at": "2022-03-24T10:40:33.997Z",
+      "actor": {
+        "username": "max2x",
+        "cleared": false,
+        "verified": false,
+        "url": "/max2x",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "x"
+    },
+    {
+      "id": 16197197,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportSeverityUpdated",
+      "message": null,
+      "automated_response": false,
+      "created_at": "2022-04-07T14:29:50.018Z",
+      "updated_at": "2022-04-07T14:29:50.018Z",
+      "additional_data": {
+        "old_severity": "High (8.2)",
+        "new_severity": "Medium",
+        "old_severity_id": 1292926,
+        "new_severity_id": 1459062
+      },
+      "actor": {
+        "username": "ngholap",
+        "cleared": false,
+        "verified": false,
+        "url": "/ngholap",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "x"
+    },
+    {
+      "id": 16197203,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugTriaged",
+      "message": "Thank you for your report. We believe it may be a valid security issue and will investigate it further. It could take some time to find and update the root cause for an issue, so we thank you for your patience.\n\nThank you for helping keep Twitter secure!",
+      "automated_response": false,
+      "created_at": "2022-04-07T14:29:52.813Z",
+      "updated_at": "2022-04-07T14:29:52.813Z",
+      "actor": {
+        "username": "ngholap",
+        "cleared": false,
+        "verified": false,
+        "url": "/ngholap",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "x"
+    },
+    {
+      "id": 16392358,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @max2x  we have not been able to reproduce this issue on Safari, can you check if this is still a pertinent on your end? Thank you!",
+      "automated_response": false,
+      "created_at": "2022-04-21T19:14:08.412Z",
+      "updated_at": "2022-04-21T19:14:08.412Z",
+      "actor": {
+        "username": "ngholap",
+        "cleared": false,
+        "verified": false,
+        "url": "/ngholap",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "x"
+    },
+    {
+      "id": 16392730,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hello,\n\nI've tested it and the issue is now fixed. The preconnect tag is now removed from the HTML upon inspection. \n\nThank you. ",
+      "automated_response": false,
+      "created_at": "2022-04-21T20:09:05.179Z",
+      "updated_at": "2022-04-21T20:09:29.468Z",
+      "actor": {
+        "username": "max2x",
+        "cleared": false,
+        "verified": false,
+        "url": "/max2x",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "x"
+    },
+    {
+      "id": 16513515,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hello, now the issue is fixed I'm requesting a timeline for disclosure. Thank you.",
+      "automated_response": false,
+      "created_at": "2022-05-01T23:15:44.569Z",
+      "updated_at": "2022-05-01T23:15:44.569Z",
+      "actor": {
+        "username": "max2x",
+        "cleared": false,
+        "verified": false,
+        "url": "/max2x",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "x"
+    },
+    {
+      "id": 16565667,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BountyAwarded",
+      "message": "Thanks again. Please note that Twitter normally does not accept issues that are unable to be reproduced by the triage team, however we are making an exception here since the team has decided to take action based on your report.\n\nAny disclosure requests will be considered once this report is resolved.\n\nThank you for thinking of Twitter security!",
+      "automated_response": false,
+      "created_at": "2022-05-04T22:31:57.215Z",
+      "updated_at": "2022-05-04T22:31:57.215Z",
+      "actor": {
+        "url": "/x",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/ikx4ept298unt534kpz4am2bd4zs/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "profile": {
+          "name": "X (Formerly Twitter)"
+        }
+      },
+      "bounty_amount": "560.0",
+      "bonus_amount": "0.0",
+      "bounty_currency": "usd",
+      "genius_execution_id": null,
+      "team_handle": "x",
+      "collaborator": {
+        "username": "max2x",
+        "url": "/max2x"
+      }
+    },
+    {
+      "id": 16565682,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hello, this issue was reproduced by the triage team. What are you talking about? It's in the chat history",
+      "automated_response": false,
+      "created_at": "2022-05-04T22:36:00.455Z",
+      "updated_at": "2022-05-04T22:36:00.455Z",
+      "actor": {
+        "username": "max2x",
+        "cleared": false,
+        "verified": false,
+        "url": "/max2x",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "x"
+    },
+    {
+      "id": 16565689,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "See attached screenshot. ",
+      "automated_response": false,
+      "created_at": "2022-05-04T22:37:49.705Z",
+      "updated_at": "2022-05-04T22:37:49.705Z",
+      "actor": {
+        "username": "max2x",
+        "cleared": false,
+        "verified": false,
+        "url": "/max2x",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "attachments": [
+        {
+          "id": 1717350,
+          "filename": "B9E744E6-1DCD-4031-8EC5-73C708C834FF.jpeg",
+          "type": "image/jpeg",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/nu6ylgw8gb1bq2rb8fdwms658bmi?response-content-disposition=attachment%3B%20filename%3D%22B9E744E6-1DCD-4031-8EC5-73C708C834FF.jpeg%22%3B%20filename%2A%3DUTF-8%27%27B9E744E6-1DCD-4031-8EC5-73C708C834FF.jpeg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQQM3U3QWN%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070222Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQC8AS0gj74xLCqoISG6HxbEYSI0PEfdF96wfaJ9XQRYXAIhANMJJf7iKjV7IKfTVUDY%2FFCPGSxnhIyV8N48256%2BMYR9KrEFCCMQAxoMMDEzNjE5Mjc0ODQ5Igxhj6IY2dpHIu8rk%2FQqjgVrs6hBhGYkbRpwnTMlcXODs%2BzBfQF20UuznJ4WeEETbBCS5xrQKwNciUh8fTXTf3AeLW8ma7i6nN2J%2FTPJmdDJep9LOqCCNnNfoot3TxHeog3PIzq8bBqzv%2FWnZ6WZiSTCgT0fRuUO%2F0NoLfCI2HO7HAJbzDCBBPLDbovCdCCec9tOhSCo4zeTxGL%2B5eNFzvxdrScMsFkSDHqK1nYzB%2BNHu67VcVBNgokTZ%2FiE0D5F2UMHD7Q41spCK9XBNhkLLcYkYcOLSZPgh0y0%2BhAqiB%2F5M75rvi%2FwL4GzjvstCuMp7%2BMlU5uW0LxRNU4av%2Fnf1lTfZJBbJdVp7t47cyPMsPTAh8YfP7rASoDKsUHiH%2BFUgz23qjds1QkLL5EbNJyfMeGE%2BXtoslgNninHIYEKrR5ds5PZuyrZzZMTDLF%2Fh1nIMmJ5vq2TjJfh421jqFfaYQ9GW34apWkiqGr0hGH8SptwKhv4intOnjJEMXalYWlbtl1Pzp1BC18KUB2I%2FxBURyEaaUVKRBbvabpkEgXV%2FnQqzWJTjCL5HnMD4ljLJgc%2BWfWt1Q1EKcMewZWvcY5%2By7QeV5XQIye%2F0GmL5eIhaBkMGzga%2B%2BT%2Btd2hzvF%2BJzR2we9VQYubOGxpQQuF9r%2FV8wkrGgx3sAX8Zd2QX8ckdW6pg1Klcdh7SLABopVWthPu4QV7L3BabFZmhQUAZxdk0ekb1%2Fw1u8af%2Fr51748Lwtjkx8eOWD49jDTLn6Xt0mW91m5QJ4eaq4%2FNmdjUMwnuXKlgK8ZooXSz0KzkvnZ9T%2F7ULiIfcJCltTowwu8hMBaBndUsJxqBhc8BqU6f%2BkchljSoaUmROWNJOFB0Hq9gD7TyVdCAdV0rFjpJkF%2Bqsjsw2Ym5qAY6sAF%2B%2FtGSYZrDIqtpyxX4SjQXtSTuGpkpw2NJ5IoQLX1kapRTuos3cgYmRQqD2osbXW8GAYux38XCyjB7nnsQGwJ0JEKqlWKQK6b0%2FrXO6AT6H0SgoF4kOVUPnUFGdGx5WY2LMvGJ%2FMBV8%2BSm%2FBqOEyct%2F4MP9bhaeuzEeKXirmXTi9G37p059sF1j%2Fald6zrk2x03j7jMV76l15cHOy6ntmTDUBjHYJB0MZDtEpHFj1bVg%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=d631c5bdd9015fbdb6ffa7c38ee64b1580797100a94b2e09720aef4020c91f15"
+        }
+      ],
+      "genius_execution_id": null,
+      "team_handle": "x"
+    },
+    {
+      "id": 16861623,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "We consider this issue to be fixed now.\n\nThank you for helping keep Twitter secure!",
+      "automated_response": false,
+      "created_at": "2022-05-25T19:02:12.896Z",
+      "updated_at": "2022-05-25T19:02:12.896Z",
+      "actor": {
+        "username": "ngholap",
+        "cleared": false,
+        "verified": false,
+        "url": "/ngholap",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "reporter": {
+        "username": "max2x",
+        "url": "/max2x"
+      },
+      "genius_execution_id": null,
+      "team_handle": "x"
+    },
+    {
+      "id": 16861765,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2022-05-25T19:17:55.982Z",
+      "updated_at": "2022-05-25T19:17:55.982Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "max2x",
+        "cleared": false,
+        "verified": false,
+        "url": "/max2x",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "x"
+    },
+    {
+      "id": 17153214,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2022-06-15T20:00:43.816Z",
+      "updated_at": "2022-06-15T20:00:43.816Z",
+      "actor": {
+        "username": "cfletcher",
+        "cleared": false,
+        "verified": false,
+        "url": "/cfletcher",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "x"
+    },
+    {
+      "id": 17153215,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportBecamePublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2022-06-15T20:00:44.005Z",
+      "updated_at": "2022-06-15T20:00:44.005Z",
+      "actor": {
+        "username": "cfletcher",
+        "cleared": false,
+        "verified": false,
+        "url": "/cfletcher",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "x"
+    }
+  ],
+  "activity_page_count": 1,
+  "activity_page_number": 1,
+  "summaries": [
+    {
+      "category": "team",
+      "can_view?": true,
+      "can_create?": false
+    },
+    {
+      "id": 105736,
+      "category": "researcher",
+      "content": "Category: Flaws leaking PII.",
+      "user": {
+        "id": 2062889,
+        "username": "max2x",
+        "name": "Max",
+        "bio": "",
+        "cleared": false,
+        "verified": false,
+        "website": null,
+        "location": "",
+        "created_at": "2021-11-05T06:41:30.433Z",
+        "url": "https://hackerone.com/max2x",
+        "hackerone_triager": false,
+        "hackerone_employee": false,
+        "user_type": "hacker",
+        "profile_picture_urls": {
+          "small": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png",
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png",
+          "xtralarge": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        }
+      },
+      "can_view?": true,
+      "can_create?": false,
+      "attachments": [
+
+      ]
+    }
+  ]
+}

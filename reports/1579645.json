@@ -1,0 +1,964 @@
+{
+  "id": 1579645,
+  "global_id": "Z2lkOi8vaGFja2Vyb25lL1JlcG9ydC8xNTc5NjQ1",
+  "url": "https://hackerone.com/reports/1579645",
+  "title": "XSS: `v-safe-html` is not safe enough",
+  "state": "Closed",
+  "substate": "resolved",
+  "severity_rating": "high",
+  "readable_substate": "Resolved",
+  "created_at": "2022-05-24T10:29:44.813Z",
+  "submitted_at": "2022-05-24T10:29:44.956Z",
+  "is_member_of_team?": false,
+  "is_organization_group_member?": false,
+  "reporter": {
+    "disabled": false,
+    "username": "yvvdwf",
+    "url": "/yvvdwf",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/ubqmt760dugarh527x4qc4mkdn4n/d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98"
+    },
+    "is_me?": false,
+    "cleared": false,
+    "verified": false,
+    "hackerone_triager": false,
+    "hacker_mediation": false
+  },
+  "team": {
+    "id": 264,
+    "url": "https://hackerone.com/gitlab",
+    "handle": "gitlab",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/f0hovtq73f9ap815a0r1w42bocp4/d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98",
+      "medium": "https://profile-photos.hackerone-user-content.com/variants/f0hovtq73f9ap815a0r1w42bocp4/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+    },
+    "permissions": [
+
+    ],
+    "submission_state": "open",
+    "default_currency": "usd",
+    "awards_miles": false,
+    "offers_bounties": true,
+    "state": "public_mode",
+    "only_cleared_hackers": false,
+    "pentest_feature_enabled?": false,
+    "profile": {
+      "name": "GitLab",
+      "twitter_handle": "gitlab",
+      "website": "https://about.gitlab.com",
+      "about": "A single application for the entire software development lifecycle."
+    }
+  },
+  "has_bounty?": true,
+  "in_validation?": false,
+  "can_view_team": true,
+  "can_view_report": true,
+  "is_external_bug": false,
+  "is_published": false,
+  "is_participant": false,
+  "has_collaborators": false,
+  "submitted_by_team_member": false,
+  "stage": 4,
+  "public": true,
+  "visibility": "full",
+  "cve_ids": [
+
+  ],
+  "singular_disclosure_disabled": true,
+  "disclosed_at": "2022-11-16T01:08:16.508Z",
+  "bug_reporter_agreed_on_going_public_at": "2022-11-04T16:53:01.128Z",
+  "team_member_agreed_on_going_public_at": "2022-11-16T01:08:16.353Z",
+  "comments_closed?": false,
+  "facebook_team?": false,
+  "team_private?": false,
+  "vulnerability_information": "`v-safe-html` directive uses Dompurify [to remove](https://gitlab.com/gitlab-org/gitlab-ui/-/blob/9f1bcb1f7392d4d6d072f10197c2aab2c29c3287/src/directives/safe_html/constants.js#L3)  `data-remote', 'data-url', 'data-type', 'data-method'` attributes from HTML tags. Rails-js relies on another attribute, [`data-disable-with`](https://github.com/rails/rails/blob/v6.1.4.7/actionview/app/assets/javascripts/rails-ujs.coffee#L10) to [show a HTML content](https://github.com/rails/rails/blob/v6.1.4.7/actionview/app/assets/javascripts/rails-ujs/features/disable.coffee#L41) when an user clicks on a disabled link.\n\nFor example, the following text will bypass the sanitization and popup an alert when an user clicks on the link (which is a transparent topmost layer since the sanitization allows also `style` and `class` attributes):\n\n```html\n<a class=\"fixed-top fixed-bottom text-hide gl-font-size-42 cursor-default\" href=# data-disable-with=\"<img src=x onerror=alert(document.domain)>\">'\n```\n\nAn exploitation can be done via [jobs' error messages](https://gitlab.com/gitlab-org/gitlab/-/blob/38af35c2a4aa666f914484d3f119b813651a2041/app/assets/javascripts/jobs/components/job_app.vue#L215) which contain [CI job names](https://gitlab.com/gitlab-org/gitlab/-/blob/7f86b5b78c107f7124b54e1f797099741765b3d2/app/serializers/build_details_entity.rb#L154) which are provided by users.\n\n\n\n### Steps to reproduce\n\n1. In an existing project or create a new one, add `.gitlab.ci` file with the following content:\n\n```yaml\n'1. XSS when no CSP<a class=\"fixed-top fixed-bottom text-hide gl-font-size-42 cursor-default\" href=# data-disable-with=\"<img src=x onerror=alert(document.domain)>\">':\n  stage: build\n  script: echo \"hi\"\n\n'2. Admin escalation when having CSP<form action=/api/v4/users/5212593?_method=PUT&admin=true method=post><input type=submit class=\"fixed-top fixed-bottom text-hide cursor-default\" style=\"font-size:10000px\" value=Submit>':\n  stage: build\n  script: echo \"hi\"\n\ntrigger-xss:\n  stage: test\n  script: echo \"hi\"\n  dependencies:\n    - '1. XSS when no CSP<a class=\"fixed-top fixed-bottom text-hide gl-font-size-42 cursor-default\" href=# data-disable-with=\"<img src=x onerror=alert(document.domain)>\">'\n    - '2. Admin escalation when having CSP<form action=/api/v4/users/5212593?_method=PUT&admin=true method=post><input type=submit class=\"fixed-top fixed-bottom text-hide cursor-default\" style=\"font-size:10000px\" value=Submit>'\n```\n\n2. Go to `CI/CD`/`Jobs` tab and wait for the CI jobs finished\n\n3. If you are testing on a local instance without CSP protection, click on detail of the job `1. XSS when no CSP<a class=\"fixed-top fixed-bottom text-hide gl-font-size-42 cursor-default\" href=# data-disable-with=\"<img src=x onerror=alert(document.domain)>\">`, then click on the trash button on the right literal bar to `Erase job logs and artifacts`.\n\n3. Go back to the job list, click on `trigger-xss` link to view the detail of this job. Then click on `Retry` button on the right literal bar to retry the job.\n\n4. An error message appears: `This job could not start because it could not retrieve the needed artifacts: 1. XSS when no CSP`. Click anywher to trigger the alert\n\nNote: on gitlab.com or an instance having CSP protection (with `strict-dynamic` value of `script-src`), the inline script, such as `onerror` or the [`<iframe srcdoc='<script src=https://gitlab.com/yvvdwf/data/-/jobs/552156057/artifacts/raw/alert.js></script>'></iframe>`](https://gitlab.com/gitlab-org/gitlab/-/issues/233473), will be prevented to trigger. In such a case, we may use `<form>` tag to trigger arbitrary API requests on behalf of the user, for example, this allows escalate to admin permission when administrator *click anywhere* `2. Admin escalation when having CSP<form action=/api/v4/users/5212593?_method=PUT&admin=true method=post><input type=submit class=\"fixed-top fixed-bottom text-hide cursor-default\" style=\"font-size:10000px\" value=Submit>`\n\n### Impact\n\nXSS allow attackers to perform arbitrary actions on behalf of victims at client side.\n\n### Examples\n\nhttps://gitlab.com/yvvdwf/xss-in-job-dependencies/-/jobs/2498306483\n\nhttps://gitlab.com/yvvdwf/xss-in-job-dependencies/-/jobs/2498287882\n\n### Output of checks\n\nThis bug happens on GitLab.com\n\n## Impact\n\nXSS allow attackers to perform arbitrary actions on behalf of victims at client side.",
+  "weakness": {
+    "id": 60,
+    "name": "Cross-site Scripting (XSS) - Generic"
+  },
+  "original_report_id": null,
+  "original_report_url": null,
+  "attachments": [
+
+  ],
+  "allow_singular_disclosure_at": null,
+  "vote_count": 39,
+  "voters": [
+    "kathulu",
+    "jumpydata",
+    "n1m0",
+    "infected_tn",
+    "zy9ard3",
+    "neil-tsakatsa",
+    "address_below0",
+    "sudi",
+    "0xdln",
+    "f_m",
+    "and 29 more..."
+  ],
+  "severity": {
+    "rating": "high",
+    "score": 7.3,
+    "author_type": "Team",
+    "metrics": {
+      "attack_vector": "network",
+      "attack_complexity": "low",
+      "privileges_required": "low",
+      "user_interaction": "required",
+      "scope": "unchanged",
+      "confidentiality": "high",
+      "integrity": "high",
+      "availability": "none"
+    }
+  },
+  "structured_scope": {
+    "databaseId": 18138,
+    "asset_type": "URL",
+    "asset_identifier": "gitlab.com",
+    "max_severity": "critical"
+  },
+  "abilities": {
+    "assignable_team_members": [
+
+    ],
+    "assignable_team_member_groups": [
+
+    ]
+  },
+  "activities": [
+    {
+      "id": 16842848,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugNeedsMoreInfo",
+      "message": "Hello @yvvdwf,\n\nI hope all is well and thanks for leaving a message. \n\nI pushed the file up to the repository, I went to the jobs section of CI/CD, and I tried to set up the job and trigger the XSS, but I did not see the following that you mention:\n\n>`then click on the trash button on the right literal bar to Erase job logs and artifacts.`\n\nI never saw this, can you please try to clarify that step some more?\n\nThanks and regards,\n@golden__retriever",
+      "automated_response": false,
+      "created_at": "2022-05-25T02:50:46.404Z",
+      "updated_at": "2022-05-25T02:50:46.404Z",
+      "actor": {
+        "username": "h1_analyst_jack",
+        "cleared": false,
+        "verified": false,
+        "url": "/h1_analyst_jack",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/5d4phbudhwsbz0afcaaj9ziib4d4/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": true,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 16844536,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugNew",
+      "message": "Hi @golden__retriever ,\n\nPlease have a look at the demo video in the attached file.\n\nBest,",
+      "automated_response": false,
+      "created_at": "2022-05-25T08:13:09.107Z",
+      "updated_at": "2022-05-25T08:13:09.107Z",
+      "actor": {
+        "username": "yvvdwf",
+        "cleared": false,
+        "verified": false,
+        "url": "/yvvdwf",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/ubqmt760dugarh527x4qc4mkdn4n/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "attachments": [
+        {
+          "id": 1743390,
+          "filename": "demo.mp4",
+          "type": "video/mp4",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/fa6vcs15rsncw4ge8ozm1tbp0thi?response-content-disposition=attachment%3B%20filename%3D%22demo.mp4%22%3B%20filename%2A%3DUTF-8%27%27demo.mp4&response-content-type=video%2Fmp4&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQSQ2EO4J6%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065854Z&X-Amz-Expires=2358&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJGMEQCIDdaOxaU2Kc7XK%2BFPO0xwEcua0EmQNQ0KITjMo%2BKI7S%2FAiAzEGtwS8msUueXSru5QP82dF7uwkPFZmzhjY8laBf5ySqxBQgiEAMaDDAxMzYxOTI3NDg0OSIMMwqH%2BrtGLzp0nfFJKo4FfKwfKYelWDcX3DZmXtAToi%2BfdIW%2FTskJuWscWNQ76Tnp8xifpkkQJqzgVzQ1mNVCoJr7%2BHlI2zJhu0AXuqUf6FD0aST%2BKfWDBNuzGTpRcWWnx07Sch98UNn54OsKQbkd78QdkYbYIIydcW4rDyHcf69tkUPFukaryTwqFIQUzVC34LtpkpFeA9lDvrXGajNXbhcjKrAFt5HqSOZuuuzssNNlvHJE05jjBky2NSGdLPAbwZ5PyWIPopmg1W4zjYBUwa%2F0z3qTgn0zEoCTBSKgTZOxPGLRSTPuvxrR0mqU9OcBLyJp193C17CIZVqQgijrtvyXYk%2FM2oDDkUsD7oeMeAFi8iq1vQlGMOgky5Mb4a6rOsWjihhywKDJptVFAvuD5Dj3tbSEYMt48EBT7kCNQd8x2uZADjILGD3cpoZLKeNeqFmfFNRBUEpMfGc5V1%2FI9fJ%2FzgQyr2nb6tNoGRs2QoePdMvOr42ig5kYNAYT7qahQE3vKgClxMTOREjRXfYOrHcHAtPXN4664bTPb1qQrBbF3foKJfwP06KCyM3rFnllobDOLYckn%2FGBEHSl4G2Hnse7CaI%2BGpBkpP0Ud8awKHx3d9xgtFAnC85ks1%2BkhSBq2pHVohOXkjxj3RfmbctowIVuWZvY6MfJpBsaoYyVxDQv%2BMuQlcCUEHl9AJ8Xs%2BWTD7tNE9FfrC4KY2BGHedJYf52GgTsQ7CuCfr5uJg4YBvuTmWyYN78uJu3nhB86AstH1doFZFbBt%2FroDTEUJfBYlS40afyu2h749TRxoiU4xcWDNDUIi%2B6zINKu9qI5X4XfH%2BoRrq7ZYgkoHQQRAW7YCYdirZLXoO2ETACtWPa5nyukSpsZ%2F8mmmkr4uC7MPP6uKgGOrIBCrIPzsKyYiYmXbfpjP3Q51XNqU0RvILr5XTqNaH6BkaJc7iqpnIwN%2FwpnoQ9ykcsf6gSCQUk9Fr3CRZm11fApJXeKbQ3cP7fcLscjO5J9oxYuZzrFKcuMO2l1VecXevCmP4wSmgs9gPOQP%2BjPbUXioCzwZ3NoL2q1W%2Bdvc2hJhiDeOCAy58REfH1mTOf633Nzxlb510ZtNV%2FKoIE6XLQtlIo6pnGn%2FyDTqTX7RGJ0U39bA%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=eaa284b77d572463a27b32239bb044c16ddaac44118db64be4860f96f59292c1"
+        }
+      ],
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 16905972,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugNeedsMoreInfo",
+      "message": "Hello @yvvdwf,\n\nI hope all is well and thanks for leaving a message. \n\nIs this reproducible on a self-hosted version of GitLab on a Cloud provider's server? The reason why I ask is that I still do not see the button to delete that you can see in your PoC. I see an option to cancel while jobs are pending or running. But, I do not see a delete after the job has completed. This is what I see:\n\n{F1748973}\n{F1748972}\n\nI am logged in as the administrator of the GitLab instance as well, so I feel the permissions should not be an issue. Your video is very convincing, but I am not sure how to go about reproducing it. Do you need to be a specific user or maintainer or specific role?\n\nThanks and regards,\n@golden__retriever",
+      "automated_response": false,
+      "created_at": "2022-05-29T22:34:04.270Z",
+      "updated_at": "2022-05-29T22:34:04.270Z",
+      "actor": {
+        "username": "h1_analyst_jack",
+        "cleared": false,
+        "verified": false,
+        "url": "/h1_analyst_jack",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/5d4phbudhwsbz0afcaaj9ziib4d4/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": true,
+        "hackerone_employee": false
+      },
+      "attachments": [
+        {
+          "id": 1748973,
+          "filename": "Screen_Shot_2022-05-29_at_3.31.00_PM.png",
+          "type": "image/png",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/3wm38mdzr0ykbb7v9v38d6z5zijx?response-content-disposition=attachment%3B%20filename%3D%22Screen_Shot_2022-05-29_at_3.31.00_PM.png%22%3B%20filename%2A%3DUTF-8%27%27Screen_Shot_2022-05-29_at_3.31.00_PM.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQSQ2EO4J6%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065854Z&X-Amz-Expires=2358&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJGMEQCIDdaOxaU2Kc7XK%2BFPO0xwEcua0EmQNQ0KITjMo%2BKI7S%2FAiAzEGtwS8msUueXSru5QP82dF7uwkPFZmzhjY8laBf5ySqxBQgiEAMaDDAxMzYxOTI3NDg0OSIMMwqH%2BrtGLzp0nfFJKo4FfKwfKYelWDcX3DZmXtAToi%2BfdIW%2FTskJuWscWNQ76Tnp8xifpkkQJqzgVzQ1mNVCoJr7%2BHlI2zJhu0AXuqUf6FD0aST%2BKfWDBNuzGTpRcWWnx07Sch98UNn54OsKQbkd78QdkYbYIIydcW4rDyHcf69tkUPFukaryTwqFIQUzVC34LtpkpFeA9lDvrXGajNXbhcjKrAFt5HqSOZuuuzssNNlvHJE05jjBky2NSGdLPAbwZ5PyWIPopmg1W4zjYBUwa%2F0z3qTgn0zEoCTBSKgTZOxPGLRSTPuvxrR0mqU9OcBLyJp193C17CIZVqQgijrtvyXYk%2FM2oDDkUsD7oeMeAFi8iq1vQlGMOgky5Mb4a6rOsWjihhywKDJptVFAvuD5Dj3tbSEYMt48EBT7kCNQd8x2uZADjILGD3cpoZLKeNeqFmfFNRBUEpMfGc5V1%2FI9fJ%2FzgQyr2nb6tNoGRs2QoePdMvOr42ig5kYNAYT7qahQE3vKgClxMTOREjRXfYOrHcHAtPXN4664bTPb1qQrBbF3foKJfwP06KCyM3rFnllobDOLYckn%2FGBEHSl4G2Hnse7CaI%2BGpBkpP0Ud8awKHx3d9xgtFAnC85ks1%2BkhSBq2pHVohOXkjxj3RfmbctowIVuWZvY6MfJpBsaoYyVxDQv%2BMuQlcCUEHl9AJ8Xs%2BWTD7tNE9FfrC4KY2BGHedJYf52GgTsQ7CuCfr5uJg4YBvuTmWyYN78uJu3nhB86AstH1doFZFbBt%2FroDTEUJfBYlS40afyu2h749TRxoiU4xcWDNDUIi%2B6zINKu9qI5X4XfH%2BoRrq7ZYgkoHQQRAW7YCYdirZLXoO2ETACtWPa5nyukSpsZ%2F8mmmkr4uC7MPP6uKgGOrIBCrIPzsKyYiYmXbfpjP3Q51XNqU0RvILr5XTqNaH6BkaJc7iqpnIwN%2FwpnoQ9ykcsf6gSCQUk9Fr3CRZm11fApJXeKbQ3cP7fcLscjO5J9oxYuZzrFKcuMO2l1VecXevCmP4wSmgs9gPOQP%2BjPbUXioCzwZ3NoL2q1W%2Bdvc2hJhiDeOCAy58REfH1mTOf633Nzxlb510ZtNV%2FKoIE6XLQtlIo6pnGn%2FyDTqTX7RGJ0U39bA%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=4255f197771cc553da3bc50068d758ef52770d2a4cb0f9c4207698fc10f39e31"
+        },
+        {
+          "id": 1748972,
+          "filename": "Screen_Shot_2022-05-29_at_3.31.08_PM.png",
+          "type": "image/png",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/0mzmsqabbn00o17jnr8um0q56792?response-content-disposition=attachment%3B%20filename%3D%22Screen_Shot_2022-05-29_at_3.31.08_PM.png%22%3B%20filename%2A%3DUTF-8%27%27Screen_Shot_2022-05-29_at_3.31.08_PM.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQSQ2EO4J6%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065854Z&X-Amz-Expires=2358&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJGMEQCIDdaOxaU2Kc7XK%2BFPO0xwEcua0EmQNQ0KITjMo%2BKI7S%2FAiAzEGtwS8msUueXSru5QP82dF7uwkPFZmzhjY8laBf5ySqxBQgiEAMaDDAxMzYxOTI3NDg0OSIMMwqH%2BrtGLzp0nfFJKo4FfKwfKYelWDcX3DZmXtAToi%2BfdIW%2FTskJuWscWNQ76Tnp8xifpkkQJqzgVzQ1mNVCoJr7%2BHlI2zJhu0AXuqUf6FD0aST%2BKfWDBNuzGTpRcWWnx07Sch98UNn54OsKQbkd78QdkYbYIIydcW4rDyHcf69tkUPFukaryTwqFIQUzVC34LtpkpFeA9lDvrXGajNXbhcjKrAFt5HqSOZuuuzssNNlvHJE05jjBky2NSGdLPAbwZ5PyWIPopmg1W4zjYBUwa%2F0z3qTgn0zEoCTBSKgTZOxPGLRSTPuvxrR0mqU9OcBLyJp193C17CIZVqQgijrtvyXYk%2FM2oDDkUsD7oeMeAFi8iq1vQlGMOgky5Mb4a6rOsWjihhywKDJptVFAvuD5Dj3tbSEYMt48EBT7kCNQd8x2uZADjILGD3cpoZLKeNeqFmfFNRBUEpMfGc5V1%2FI9fJ%2FzgQyr2nb6tNoGRs2QoePdMvOr42ig5kYNAYT7qahQE3vKgClxMTOREjRXfYOrHcHAtPXN4664bTPb1qQrBbF3foKJfwP06KCyM3rFnllobDOLYckn%2FGBEHSl4G2Hnse7CaI%2BGpBkpP0Ud8awKHx3d9xgtFAnC85ks1%2BkhSBq2pHVohOXkjxj3RfmbctowIVuWZvY6MfJpBsaoYyVxDQv%2BMuQlcCUEHl9AJ8Xs%2BWTD7tNE9FfrC4KY2BGHedJYf52GgTsQ7CuCfr5uJg4YBvuTmWyYN78uJu3nhB86AstH1doFZFbBt%2FroDTEUJfBYlS40afyu2h749TRxoiU4xcWDNDUIi%2B6zINKu9qI5X4XfH%2BoRrq7ZYgkoHQQRAW7YCYdirZLXoO2ETACtWPa5nyukSpsZ%2F8mmmkr4uC7MPP6uKgGOrIBCrIPzsKyYiYmXbfpjP3Q51XNqU0RvILr5XTqNaH6BkaJc7iqpnIwN%2FwpnoQ9ykcsf6gSCQUk9Fr3CRZm11fApJXeKbQ3cP7fcLscjO5J9oxYuZzrFKcuMO2l1VecXevCmP4wSmgs9gPOQP%2BjPbUXioCzwZ3NoL2q1W%2Bdvc2hJhiDeOCAy58REfH1mTOf633Nzxlb510ZtNV%2FKoIE6XLQtlIo6pnGn%2FyDTqTX7RGJ0U39bA%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=0b542ee8c0bf5012d8918afdc2ef802700fcd52f38ecb854698fc7c2f823ce45"
+        }
+      ],
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 16906888,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportSeverityUpdated",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2022-05-30T05:06:10.246Z",
+      "updated_at": "2022-05-30T05:06:10.246Z",
+      "additional_data": {
+        "old_severity": "High",
+        "new_severity": "Medium",
+        "old_severity_id": 1513444,
+        "new_severity_id": 1521842
+      },
+      "actor": {
+        "username": "rshambhuni",
+        "cleared": false,
+        "verified": false,
+        "url": "/rshambhuni",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 16906944,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugTriaged",
+      "message": "Hello,\n\nThank you for submitting this report.\n\nWe are escalating this to our engineering team for further investigation.  We will be tracking progress internally at https://gitlab.com/gitlab-org/gitlab/-/issues/363725.  Although medium and high severity issues are typically awarded a partial bounty when triaged, at this time we will delay until we discuss the issue internally on the team. \n\nWe will continue to update you via HackerOne as the discussion continues, and if/when a patch is scheduled for release. GitLab issues for valid reports are made public 30 days following the release of a patch.\n\nBest regards,\nGitLab Security Team",
+      "automated_response": false,
+      "created_at": "2022-05-30T05:20:05.925Z",
+      "updated_at": "2022-05-30T05:20:05.925Z",
+      "actor": {
+        "username": "rshambhuni",
+        "cleared": false,
+        "verified": false,
+        "url": "/rshambhuni",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 17032158,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "ETA for fix:\n\nHi @yvvdwf,\n\nThe issue you reported is currently scheduled to be fixed by 2022-08-31.\n\nThank you again for contacting us!\n\nBest regards,\nGitLab Security Team\n",
+      "automated_response": true,
+      "created_at": "2022-06-08T04:04:12.217Z",
+      "updated_at": "2022-06-08T04:04:12.217Z",
+      "actor": {
+        "username": "gitlab-securitybot",
+        "cleared": false,
+        "verified": false,
+        "url": "/gitlab-securitybot",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 17362638,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportSeverityUpdated",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2022-06-30T10:51:59.229Z",
+      "updated_at": "2022-06-30T10:51:59.229Z",
+      "additional_data": {
+        "old_severity": "Medium",
+        "new_severity": "Medium (4.4)",
+        "old_severity_id": 1521842,
+        "new_severity_id": 1564247
+      },
+      "actor": {
+        "username": "rshambhuni",
+        "cleared": false,
+        "verified": false,
+        "url": "/rshambhuni",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 17362643,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BountyAwarded",
+      "message": "Hi,\n\nThank you again for the report! Your finding has been reviewed and we are awarding a bounty prior the release of a patch. Congratulations!\n\nWe will continue to keep you updated via HackerOne as a fix is scheduled.\n\nBest regards,\nGitLab Security Team",
+      "automated_response": false,
+      "created_at": "2022-06-30T10:53:06.792Z",
+      "updated_at": "2022-06-30T10:53:06.792Z",
+      "actor": {
+        "url": "/gitlab",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/f0hovtq73f9ap815a0r1w42bocp4/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "GitLab"
+        }
+      },
+      "bounty_currency": "usd",
+      "genius_execution_id": null,
+      "team_handle": "gitlab",
+      "collaborator": {
+        "username": "yvvdwf",
+        "url": "/yvvdwf"
+      }
+    },
+    {
+      "id": 17374318,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @rshambhuni, \n\nThank you for the bounty. However I think that it seems that its impact is underestimated. In brief, when users click anywhere attacker can (1) do XSS (without CSP bypass) or (2) issue arbitrary POST/PUT/DELETE requests. I see that there are existing some finding with `high` severity and they have the same impact.\n\nBest regards,",
+      "automated_response": false,
+      "created_at": "2022-07-01T07:27:43.296Z",
+      "updated_at": "2022-07-01T07:27:43.296Z",
+      "actor": {
+        "username": "yvvdwf",
+        "cleared": false,
+        "verified": false,
+        "url": "/yvvdwf",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/ubqmt760dugarh527x4qc4mkdn4n/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 17374489,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@yvvdwf Thanks for your question. We scored this for an XSS (that doesn't bypass CSP) scenario as we felt the CSRF attack vector isn't realistic for the following reasons:\n- Almost all of our API calls require a custom header to be present like `Authorization:` or `PRIVATE-TOKEN:` to be sent along with the request which would not make the CSRF attack possible.\n- For the scenario you mentioned above in your report, where an admin level user logs in goes this deep into artifacts and clicking somewhere on the page to trigger a CSRF attack, is not realistic in our context as that is not what admin users may do on a day-to-day basis (looking at and debugging job artifacts). I'm assuming CSRF is possible in the scenario you described as the API call you used is relying on admin's cookie for authentication? We haven't found other API calls that allow this kind of privilege escalation on normal users with just a cookie based authentication without requiring custom headers like `Authorization:` or `PRIVATE-TOKEN:` as I mentioned above. Please let us know if you don't think that is the case?\n\nThank you!",
+      "automated_response": false,
+      "created_at": "2022-07-01T07:54:42.640Z",
+      "updated_at": "2022-07-01T07:54:42.640Z",
+      "actor": {
+        "username": "rshambhuni",
+        "cleared": false,
+        "verified": false,
+        "url": "/rshambhuni",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 17423791,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @rshambhuni ,\n\nI really appreciate your explanation in details. However I would like to demand you to pay attention on the fact that this is not only a CSRF hijack attack but it allows to inject (almost) any html tags (that will be filled latter by `v-safe-html` directive). Consequently attackers may trick victims to give their passwords into a `<form>` that will be submitted to an attacker-controlled site, for example.\n\nFurthermore, attackers may inject *any* html tags when victim clicks *anywhere*. This leads to full-XSS although the XSS does not occur on Gitlab SaaS due to its CSP protection but it can totally occur on a self-managed instance (I recently saw on GitLab  security release note a no-bypass-CSP XSS that has `high` severity).\n\n\nOtherwise, please find below an example that allows to inject any `PUT` requests on Gitlab SaaS. These `PUT` requests use legitimate csrf-token thanks to axios library. Consequently this finding allows attackers to perform any `PUT` requests on behalf of victims. Some possible attack scenarios can be: admin escalation as mentioned in the initial report, [the victim can grant more permission (without knowing it) to one of its projects](https://gitlab.com/gitlab-org/gitlab/-/issues/211949#note_308558947), etc.\n\nI managed to automatically the steps of reproduction by using CI jobs. To do so, you need to create firstly a personal token that is required to erase a job to be able to trigger error in its dependencies. Steps to reproduce can be as the following:\n\n- Goto https://gitlab.com/-/profile/personal_access_tokens, then create `a personal access token` with `api` scope.\n- In an existing project or create a new project. Then goto its `Settings / CI/CD`. Then add a new variable with `Key` is `API_TOKEN` and `Value` is the token you've created\n{F1808833}\n- Add or replace `.gitlab-ci.yml` in the project by the one in this attached file\n- Wait for a few seconds when the pipeline finished its jobs\n- Go to `CI/CD / Jobs` page, you should see a list of finished jobs. The latest job, named `create-iframe` contains the attack. Go ahead, open this job. You may note that there exists a topmost transparent layer that intercepts any clicks. Click anywhere to issue a PUT request to `/any-put-request-url-here` (you can modify this url via  `PUT_REQUEST_URL` variable in `.gitlab-ci.yml` file). One thing I would like to note here is, the topmost transparent layer is hidden after the click. Thus victims may be not aware about the attack.\n{F1808831}\n{F1808832}\n- An example is available here: https://gitlab.com/yvvdwf/xss/-/jobs/2680191065  https://gitlab.com/yvvdwf/xss/-/tree/xss-in-job-dependencies (the repository is private)",
+      "automated_response": false,
+      "created_at": "2022-07-05T14:22:22.168Z",
+      "updated_at": "2022-07-05T14:22:22.168Z",
+      "actor": {
+        "username": "yvvdwf",
+        "cleared": false,
+        "verified": false,
+        "url": "/yvvdwf",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/ubqmt760dugarh527x4qc4mkdn4n/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "attachments": [
+        {
+          "id": 1808839,
+          "filename": "gitlab-ci.yml",
+          "type": "application/x-yaml",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/xetym7gllgxsmd52t3wentmoub5u?response-content-disposition=attachment%3B%20filename%3D%22gitlab-ci.yml%22%3B%20filename%2A%3DUTF-8%27%27gitlab-ci.yml&response-content-type=application%2Fx-yaml&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQSQ2EO4J6%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065854Z&X-Amz-Expires=2358&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJGMEQCIDdaOxaU2Kc7XK%2BFPO0xwEcua0EmQNQ0KITjMo%2BKI7S%2FAiAzEGtwS8msUueXSru5QP82dF7uwkPFZmzhjY8laBf5ySqxBQgiEAMaDDAxMzYxOTI3NDg0OSIMMwqH%2BrtGLzp0nfFJKo4FfKwfKYelWDcX3DZmXtAToi%2BfdIW%2FTskJuWscWNQ76Tnp8xifpkkQJqzgVzQ1mNVCoJr7%2BHlI2zJhu0AXuqUf6FD0aST%2BKfWDBNuzGTpRcWWnx07Sch98UNn54OsKQbkd78QdkYbYIIydcW4rDyHcf69tkUPFukaryTwqFIQUzVC34LtpkpFeA9lDvrXGajNXbhcjKrAFt5HqSOZuuuzssNNlvHJE05jjBky2NSGdLPAbwZ5PyWIPopmg1W4zjYBUwa%2F0z3qTgn0zEoCTBSKgTZOxPGLRSTPuvxrR0mqU9OcBLyJp193C17CIZVqQgijrtvyXYk%2FM2oDDkUsD7oeMeAFi8iq1vQlGMOgky5Mb4a6rOsWjihhywKDJptVFAvuD5Dj3tbSEYMt48EBT7kCNQd8x2uZADjILGD3cpoZLKeNeqFmfFNRBUEpMfGc5V1%2FI9fJ%2FzgQyr2nb6tNoGRs2QoePdMvOr42ig5kYNAYT7qahQE3vKgClxMTOREjRXfYOrHcHAtPXN4664bTPb1qQrBbF3foKJfwP06KCyM3rFnllobDOLYckn%2FGBEHSl4G2Hnse7CaI%2BGpBkpP0Ud8awKHx3d9xgtFAnC85ks1%2BkhSBq2pHVohOXkjxj3RfmbctowIVuWZvY6MfJpBsaoYyVxDQv%2BMuQlcCUEHl9AJ8Xs%2BWTD7tNE9FfrC4KY2BGHedJYf52GgTsQ7CuCfr5uJg4YBvuTmWyYN78uJu3nhB86AstH1doFZFbBt%2FroDTEUJfBYlS40afyu2h749TRxoiU4xcWDNDUIi%2B6zINKu9qI5X4XfH%2BoRrq7ZYgkoHQQRAW7YCYdirZLXoO2ETACtWPa5nyukSpsZ%2F8mmmkr4uC7MPP6uKgGOrIBCrIPzsKyYiYmXbfpjP3Q51XNqU0RvILr5XTqNaH6BkaJc7iqpnIwN%2FwpnoQ9ykcsf6gSCQUk9Fr3CRZm11fApJXeKbQ3cP7fcLscjO5J9oxYuZzrFKcuMO2l1VecXevCmP4wSmgs9gPOQP%2BjPbUXioCzwZ3NoL2q1W%2Bdvc2hJhiDeOCAy58REfH1mTOf633Nzxlb510ZtNV%2FKoIE6XLQtlIo6pnGn%2FyDTqTX7RGJ0U39bA%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=9f855a261a3ba36d9c05e6a7bf6cf2650fcd60c26286003e0ca061c1432a55dc"
+        },
+        {
+          "id": 1808833,
+          "filename": "set-variable.png",
+          "type": "image/png",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/sbrt3vh8fj71r3v8h97uvbl1a5yb?response-content-disposition=attachment%3B%20filename%3D%22set-variable.png%22%3B%20filename%2A%3DUTF-8%27%27set-variable.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQSQ2EO4J6%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065854Z&X-Amz-Expires=2358&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJGMEQCIDdaOxaU2Kc7XK%2BFPO0xwEcua0EmQNQ0KITjMo%2BKI7S%2FAiAzEGtwS8msUueXSru5QP82dF7uwkPFZmzhjY8laBf5ySqxBQgiEAMaDDAxMzYxOTI3NDg0OSIMMwqH%2BrtGLzp0nfFJKo4FfKwfKYelWDcX3DZmXtAToi%2BfdIW%2FTskJuWscWNQ76Tnp8xifpkkQJqzgVzQ1mNVCoJr7%2BHlI2zJhu0AXuqUf6FD0aST%2BKfWDBNuzGTpRcWWnx07Sch98UNn54OsKQbkd78QdkYbYIIydcW4rDyHcf69tkUPFukaryTwqFIQUzVC34LtpkpFeA9lDvrXGajNXbhcjKrAFt5HqSOZuuuzssNNlvHJE05jjBky2NSGdLPAbwZ5PyWIPopmg1W4zjYBUwa%2F0z3qTgn0zEoCTBSKgTZOxPGLRSTPuvxrR0mqU9OcBLyJp193C17CIZVqQgijrtvyXYk%2FM2oDDkUsD7oeMeAFi8iq1vQlGMOgky5Mb4a6rOsWjihhywKDJptVFAvuD5Dj3tbSEYMt48EBT7kCNQd8x2uZADjILGD3cpoZLKeNeqFmfFNRBUEpMfGc5V1%2FI9fJ%2FzgQyr2nb6tNoGRs2QoePdMvOr42ig5kYNAYT7qahQE3vKgClxMTOREjRXfYOrHcHAtPXN4664bTPb1qQrBbF3foKJfwP06KCyM3rFnllobDOLYckn%2FGBEHSl4G2Hnse7CaI%2BGpBkpP0Ud8awKHx3d9xgtFAnC85ks1%2BkhSBq2pHVohOXkjxj3RfmbctowIVuWZvY6MfJpBsaoYyVxDQv%2BMuQlcCUEHl9AJ8Xs%2BWTD7tNE9FfrC4KY2BGHedJYf52GgTsQ7CuCfr5uJg4YBvuTmWyYN78uJu3nhB86AstH1doFZFbBt%2FroDTEUJfBYlS40afyu2h749TRxoiU4xcWDNDUIi%2B6zINKu9qI5X4XfH%2BoRrq7ZYgkoHQQRAW7YCYdirZLXoO2ETACtWPa5nyukSpsZ%2F8mmmkr4uC7MPP6uKgGOrIBCrIPzsKyYiYmXbfpjP3Q51XNqU0RvILr5XTqNaH6BkaJc7iqpnIwN%2FwpnoQ9ykcsf6gSCQUk9Fr3CRZm11fApJXeKbQ3cP7fcLscjO5J9oxYuZzrFKcuMO2l1VecXevCmP4wSmgs9gPOQP%2BjPbUXioCzwZ3NoL2q1W%2Bdvc2hJhiDeOCAy58REfH1mTOf633Nzxlb510ZtNV%2FKoIE6XLQtlIo6pnGn%2FyDTqTX7RGJ0U39bA%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=3b74fc8a40574da368d551269ce8963e096ba0f9b9f257f3e803839f0f0ed160"
+        },
+        {
+          "id": 1808832,
+          "filename": "put-request.png",
+          "type": "image/png",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/e7ii9nsq51aiotowzln5bje5dz7m?response-content-disposition=attachment%3B%20filename%3D%22put-request.png%22%3B%20filename%2A%3DUTF-8%27%27put-request.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQSQ2EO4J6%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065854Z&X-Amz-Expires=2358&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJGMEQCIDdaOxaU2Kc7XK%2BFPO0xwEcua0EmQNQ0KITjMo%2BKI7S%2FAiAzEGtwS8msUueXSru5QP82dF7uwkPFZmzhjY8laBf5ySqxBQgiEAMaDDAxMzYxOTI3NDg0OSIMMwqH%2BrtGLzp0nfFJKo4FfKwfKYelWDcX3DZmXtAToi%2BfdIW%2FTskJuWscWNQ76Tnp8xifpkkQJqzgVzQ1mNVCoJr7%2BHlI2zJhu0AXuqUf6FD0aST%2BKfWDBNuzGTpRcWWnx07Sch98UNn54OsKQbkd78QdkYbYIIydcW4rDyHcf69tkUPFukaryTwqFIQUzVC34LtpkpFeA9lDvrXGajNXbhcjKrAFt5HqSOZuuuzssNNlvHJE05jjBky2NSGdLPAbwZ5PyWIPopmg1W4zjYBUwa%2F0z3qTgn0zEoCTBSKgTZOxPGLRSTPuvxrR0mqU9OcBLyJp193C17CIZVqQgijrtvyXYk%2FM2oDDkUsD7oeMeAFi8iq1vQlGMOgky5Mb4a6rOsWjihhywKDJptVFAvuD5Dj3tbSEYMt48EBT7kCNQd8x2uZADjILGD3cpoZLKeNeqFmfFNRBUEpMfGc5V1%2FI9fJ%2FzgQyr2nb6tNoGRs2QoePdMvOr42ig5kYNAYT7qahQE3vKgClxMTOREjRXfYOrHcHAtPXN4664bTPb1qQrBbF3foKJfwP06KCyM3rFnllobDOLYckn%2FGBEHSl4G2Hnse7CaI%2BGpBkpP0Ud8awKHx3d9xgtFAnC85ks1%2BkhSBq2pHVohOXkjxj3RfmbctowIVuWZvY6MfJpBsaoYyVxDQv%2BMuQlcCUEHl9AJ8Xs%2BWTD7tNE9FfrC4KY2BGHedJYf52GgTsQ7CuCfr5uJg4YBvuTmWyYN78uJu3nhB86AstH1doFZFbBt%2FroDTEUJfBYlS40afyu2h749TRxoiU4xcWDNDUIi%2B6zINKu9qI5X4XfH%2BoRrq7ZYgkoHQQRAW7YCYdirZLXoO2ETACtWPa5nyukSpsZ%2F8mmmkr4uC7MPP6uKgGOrIBCrIPzsKyYiYmXbfpjP3Q51XNqU0RvILr5XTqNaH6BkaJc7iqpnIwN%2FwpnoQ9ykcsf6gSCQUk9Fr3CRZm11fApJXeKbQ3cP7fcLscjO5J9oxYuZzrFKcuMO2l1VecXevCmP4wSmgs9gPOQP%2BjPbUXioCzwZ3NoL2q1W%2Bdvc2hJhiDeOCAy58REfH1mTOf633Nzxlb510ZtNV%2FKoIE6XLQtlIo6pnGn%2FyDTqTX7RGJ0U39bA%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=9854867e7f7da01b44ae2f6407ac8940f6fd091ecf9d7be3739e6cb5f07f118c"
+        },
+        {
+          "id": 1808831,
+          "filename": "job-page.png",
+          "type": "image/png",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/4zx5xhxjt6osdjhdpgd3j2oay8jd?response-content-disposition=attachment%3B%20filename%3D%22job-page.png%22%3B%20filename%2A%3DUTF-8%27%27job-page.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQSQ2EO4J6%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065854Z&X-Amz-Expires=2358&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJGMEQCIDdaOxaU2Kc7XK%2BFPO0xwEcua0EmQNQ0KITjMo%2BKI7S%2FAiAzEGtwS8msUueXSru5QP82dF7uwkPFZmzhjY8laBf5ySqxBQgiEAMaDDAxMzYxOTI3NDg0OSIMMwqH%2BrtGLzp0nfFJKo4FfKwfKYelWDcX3DZmXtAToi%2BfdIW%2FTskJuWscWNQ76Tnp8xifpkkQJqzgVzQ1mNVCoJr7%2BHlI2zJhu0AXuqUf6FD0aST%2BKfWDBNuzGTpRcWWnx07Sch98UNn54OsKQbkd78QdkYbYIIydcW4rDyHcf69tkUPFukaryTwqFIQUzVC34LtpkpFeA9lDvrXGajNXbhcjKrAFt5HqSOZuuuzssNNlvHJE05jjBky2NSGdLPAbwZ5PyWIPopmg1W4zjYBUwa%2F0z3qTgn0zEoCTBSKgTZOxPGLRSTPuvxrR0mqU9OcBLyJp193C17CIZVqQgijrtvyXYk%2FM2oDDkUsD7oeMeAFi8iq1vQlGMOgky5Mb4a6rOsWjihhywKDJptVFAvuD5Dj3tbSEYMt48EBT7kCNQd8x2uZADjILGD3cpoZLKeNeqFmfFNRBUEpMfGc5V1%2FI9fJ%2FzgQyr2nb6tNoGRs2QoePdMvOr42ig5kYNAYT7qahQE3vKgClxMTOREjRXfYOrHcHAtPXN4664bTPb1qQrBbF3foKJfwP06KCyM3rFnllobDOLYckn%2FGBEHSl4G2Hnse7CaI%2BGpBkpP0Ud8awKHx3d9xgtFAnC85ks1%2BkhSBq2pHVohOXkjxj3RfmbctowIVuWZvY6MfJpBsaoYyVxDQv%2BMuQlcCUEHl9AJ8Xs%2BWTD7tNE9FfrC4KY2BGHedJYf52GgTsQ7CuCfr5uJg4YBvuTmWyYN78uJu3nhB86AstH1doFZFbBt%2FroDTEUJfBYlS40afyu2h749TRxoiU4xcWDNDUIi%2B6zINKu9qI5X4XfH%2BoRrq7ZYgkoHQQRAW7YCYdirZLXoO2ETACtWPa5nyukSpsZ%2F8mmmkr4uC7MPP6uKgGOrIBCrIPzsKyYiYmXbfpjP3Q51XNqU0RvILr5XTqNaH6BkaJc7iqpnIwN%2FwpnoQ9ykcsf6gSCQUk9Fr3CRZm11fApJXeKbQ3cP7fcLscjO5J9oxYuZzrFKcuMO2l1VecXevCmP4wSmgs9gPOQP%2BjPbUXioCzwZ3NoL2q1W%2Bdvc2hJhiDeOCAy58REfH1mTOf633Nzxlb510ZtNV%2FKoIE6XLQtlIo6pnGn%2FyDTqTX7RGJ0U39bA%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=333c448d8ac54236fdf7af88f1b090ecd917cec852cb08e764450e980bb3063e"
+        }
+      ],
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 17467446,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @rshambhuni ,\n\nWhen set ` PUT_REQUEST_URL: /-/profile/password?user[new_password]=12345678`, we can takeover any Gitlab account that was created by logging in via third party application,  such as, a Google, Github, Twitter, Bitbucket, or Saleforce.\n\n{F1812532}\n\nTo perform this demo, you need to have an account from one of the above providers.\n\n- Following the steps I presented in the previous message above and change the value of `PUT_REQUEST_URL` to `/-/profile/password?user[new_password]=12345678`\n- After committing the modification in the `.gitlab-ci.yml` file, wait for few seconds until the CI/CD pipeline finishes its job.\n- Now logout Gitlab.com, then login with a thrid party provider to get a new account on Gitlab.com\n- (If the attack project is not public, then we need to invite the victim to be a member of the project so that the victim can access to the CI/CD jobs' pages)\n- As the victim, you visit the latest job page, named `create-iframe`, which contains the attack, then click anywhere to trigger attack\n- Refresh the page, you should now be logged out from Gitlab.com as your password was changed\n\nConsequently, this finding has an ability to allow attackers to takeover a Gitlab account.\n\nBest,\n",
+      "automated_response": false,
+      "created_at": "2022-07-07T16:33:02.961Z",
+      "updated_at": "2022-07-07T16:33:02.961Z",
+      "actor": {
+        "username": "yvvdwf",
+        "cleared": false,
+        "verified": false,
+        "url": "/yvvdwf",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/ubqmt760dugarh527x4qc4mkdn4n/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "attachments": [
+        {
+          "id": 1812532,
+          "filename": "third-party-app-login.png",
+          "type": "image/png",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/5iwv1wacw9m8j5wyvw7rhy17my1l?response-content-disposition=attachment%3B%20filename%3D%22third-party-app-login.png%22%3B%20filename%2A%3DUTF-8%27%27third-party-app-login.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQSQ2EO4J6%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065854Z&X-Amz-Expires=2358&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJGMEQCIDdaOxaU2Kc7XK%2BFPO0xwEcua0EmQNQ0KITjMo%2BKI7S%2FAiAzEGtwS8msUueXSru5QP82dF7uwkPFZmzhjY8laBf5ySqxBQgiEAMaDDAxMzYxOTI3NDg0OSIMMwqH%2BrtGLzp0nfFJKo4FfKwfKYelWDcX3DZmXtAToi%2BfdIW%2FTskJuWscWNQ76Tnp8xifpkkQJqzgVzQ1mNVCoJr7%2BHlI2zJhu0AXuqUf6FD0aST%2BKfWDBNuzGTpRcWWnx07Sch98UNn54OsKQbkd78QdkYbYIIydcW4rDyHcf69tkUPFukaryTwqFIQUzVC34LtpkpFeA9lDvrXGajNXbhcjKrAFt5HqSOZuuuzssNNlvHJE05jjBky2NSGdLPAbwZ5PyWIPopmg1W4zjYBUwa%2F0z3qTgn0zEoCTBSKgTZOxPGLRSTPuvxrR0mqU9OcBLyJp193C17CIZVqQgijrtvyXYk%2FM2oDDkUsD7oeMeAFi8iq1vQlGMOgky5Mb4a6rOsWjihhywKDJptVFAvuD5Dj3tbSEYMt48EBT7kCNQd8x2uZADjILGD3cpoZLKeNeqFmfFNRBUEpMfGc5V1%2FI9fJ%2FzgQyr2nb6tNoGRs2QoePdMvOr42ig5kYNAYT7qahQE3vKgClxMTOREjRXfYOrHcHAtPXN4664bTPb1qQrBbF3foKJfwP06KCyM3rFnllobDOLYckn%2FGBEHSl4G2Hnse7CaI%2BGpBkpP0Ud8awKHx3d9xgtFAnC85ks1%2BkhSBq2pHVohOXkjxj3RfmbctowIVuWZvY6MfJpBsaoYyVxDQv%2BMuQlcCUEHl9AJ8Xs%2BWTD7tNE9FfrC4KY2BGHedJYf52GgTsQ7CuCfr5uJg4YBvuTmWyYN78uJu3nhB86AstH1doFZFbBt%2FroDTEUJfBYlS40afyu2h749TRxoiU4xcWDNDUIi%2B6zINKu9qI5X4XfH%2BoRrq7ZYgkoHQQRAW7YCYdirZLXoO2ETACtWPa5nyukSpsZ%2F8mmmkr4uC7MPP6uKgGOrIBCrIPzsKyYiYmXbfpjP3Q51XNqU0RvILr5XTqNaH6BkaJc7iqpnIwN%2FwpnoQ9ykcsf6gSCQUk9Fr3CRZm11fApJXeKbQ3cP7fcLscjO5J9oxYuZzrFKcuMO2l1VecXevCmP4wSmgs9gPOQP%2BjPbUXioCzwZ3NoL2q1W%2Bdvc2hJhiDeOCAy58REfH1mTOf633Nzxlb510ZtNV%2FKoIE6XLQtlIo6pnGn%2FyDTqTX7RGJ0U39bA%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=89d01a366e753638e5400774238ad6187e50ff6c4ceee84686082f707c14950b"
+        }
+      ],
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 17760949,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @rshambhuni,\n\nAre you able to review the severity of this finding?\n\nBest",
+      "automated_response": false,
+      "created_at": "2022-07-28T20:36:34.063Z",
+      "updated_at": "2022-07-28T20:36:34.063Z",
+      "actor": {
+        "username": "yvvdwf",
+        "cleared": false,
+        "verified": false,
+        "url": "/yvvdwf",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/ubqmt760dugarh527x4qc4mkdn4n/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 17764107,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@yvvdwf You are chaining two different bugs (content injection which you reported in this report and the bug in the profile endpoint that allows password change) to get the impact of of an account takeover for users on a 3rd party OAuth provider. The bug with 3rd party OAuth providers that allows password change is a known issue and is being tracked under https://gitlab.com/gitlab-org/gitlab/-/issues/357952. Since you also reported the same type of attack in a new report, #1647446, the bounty given on this report will be final.\n\nThank you and we look forward to your next report!",
+      "automated_response": false,
+      "created_at": "2022-07-29T08:08:10.329Z",
+      "updated_at": "2022-07-29T08:08:10.329Z",
+      "actor": {
+        "username": "rshambhuni",
+        "cleared": false,
+        "verified": false,
+        "url": "/rshambhuni",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 17764112,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "Hi,\n\nThank you again for the report! Your finding has been patched in GitLab version 15.2.1. Congratulations!\n\nPlease let us know if you find that our patch does not mitigate your finding. Your report will be published in 30 days in GitLab's issue tracker. If you'd like to publicly disclose this report or details of it in a blog post or elsewhere, please allow 30 days to pass before doing so to give time to our customers to upgrade to a patched version.\n\nWe look forward to your next report!\n\nBest regards,\nGitLab Security Team",
+      "automated_response": false,
+      "created_at": "2022-07-29T08:09:12.996Z",
+      "updated_at": "2022-07-29T08:09:12.996Z",
+      "actor": {
+        "username": "rshambhuni",
+        "cleared": false,
+        "verified": false,
+        "url": "/rshambhuni",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "reporter": {
+        "username": "yvvdwf",
+        "url": "/yvvdwf"
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 17765953,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @rshambhuni \n\nThank you for the reply. However I cannot agree with your conclusion.  Although you closed the report, I'd like to clarify the impact of this finding one more times:\n\n- The first impact of this finding is stored-XSS without CSP by-pass. It is as you said above. \n- The second impact is to allow sending *any* requests on gitlab.com (with the presence of CSP). These requests are not prevented by CSRF protection (i.e., are accepted by the backend).  I think that you ignored this impact.\n\nBest",
+      "automated_response": false,
+      "created_at": "2022-07-29T08:42:56.750Z",
+      "updated_at": "2022-07-29T08:42:56.750Z",
+      "actor": {
+        "username": "yvvdwf",
+        "cleared": false,
+        "verified": false,
+        "url": "/yvvdwf",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/ubqmt760dugarh527x4qc4mkdn4n/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 17766130,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "> The second impact is to allow sending any requests on gitlab.com (with the presence of CSP). These requests are not prevented by CSRF protection (i.e., are accepted by the backend).\n\n@yvvdwf Without using the account takeover bug in 3rd party OAuth providers, since you have used that in #1647446, and since it is known to us, can you share a PoC for another endpoint that can be leveraged to cause impact using the arbitrary requests bug?",
+      "automated_response": false,
+      "created_at": "2022-07-29T08:52:39.918Z",
+      "updated_at": "2022-07-29T08:52:39.918Z",
+      "actor": {
+        "username": "rshambhuni",
+        "cleared": false,
+        "verified": false,
+        "url": "/rshambhuni",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 17768549,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "> @yvvdwf Without using the account takeover bug in 3rd party OAuth providers, since you have used that in #1647446, and since it is known to us, can you share a PoC for another endpoint that can be leveraged to cause impact using the arbitrary requests bug?\n\n@rshambhuni thank you for the reply. Indeed, as the above example allows to send any `PUT` requests, so attackers may execute (on behalf of victim) any API endpoints supporting PUT requests. \n\nThis leads to the admin escalation, as in the initial report. Otherwise, please find in the attached file a demo which allows escalating group permission. For example,  the following [API](https://docs.gitlab.com/ee/api/members.html#edit-a-member-of-a-group-or-project) endpoint can allow the attacker to be `owner` of a group: `/api/v4/groups/37/members/2?access_level=50`,  in which, `37` is ID of the group to take over, `2` is ID of the attacker, and `50` is the owner level. \n\nBecause this finding was mitigated  on gitlab.com, I do the demo on a self-hosted instance but the impact should be the same.",
+      "automated_response": false,
+      "created_at": "2022-07-29T10:34:00.886Z",
+      "updated_at": "2022-07-29T10:34:00.886Z",
+      "actor": {
+        "username": "yvvdwf",
+        "cleared": false,
+        "verified": false,
+        "url": "/yvvdwf",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/ubqmt760dugarh527x4qc4mkdn4n/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "attachments": [
+        {
+          "id": 1844183,
+          "filename": "Screen_Recording_2022-07-29_at_12.14.03.mov",
+          "type": "video/quicktime",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/k5hf68996ac3s3eushponf666epl?response-content-disposition=attachment%3B%20filename%3D%22Screen_Recording_2022-07-29_at_12.14.03.mov%22%3B%20filename%2A%3DUTF-8%27%27Screen_Recording_2022-07-29_at_12.14.03.mov&response-content-type=video%2Fquicktime&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQSQ2EO4J6%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065854Z&X-Amz-Expires=2358&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJGMEQCIDdaOxaU2Kc7XK%2BFPO0xwEcua0EmQNQ0KITjMo%2BKI7S%2FAiAzEGtwS8msUueXSru5QP82dF7uwkPFZmzhjY8laBf5ySqxBQgiEAMaDDAxMzYxOTI3NDg0OSIMMwqH%2BrtGLzp0nfFJKo4FfKwfKYelWDcX3DZmXtAToi%2BfdIW%2FTskJuWscWNQ76Tnp8xifpkkQJqzgVzQ1mNVCoJr7%2BHlI2zJhu0AXuqUf6FD0aST%2BKfWDBNuzGTpRcWWnx07Sch98UNn54OsKQbkd78QdkYbYIIydcW4rDyHcf69tkUPFukaryTwqFIQUzVC34LtpkpFeA9lDvrXGajNXbhcjKrAFt5HqSOZuuuzssNNlvHJE05jjBky2NSGdLPAbwZ5PyWIPopmg1W4zjYBUwa%2F0z3qTgn0zEoCTBSKgTZOxPGLRSTPuvxrR0mqU9OcBLyJp193C17CIZVqQgijrtvyXYk%2FM2oDDkUsD7oeMeAFi8iq1vQlGMOgky5Mb4a6rOsWjihhywKDJptVFAvuD5Dj3tbSEYMt48EBT7kCNQd8x2uZADjILGD3cpoZLKeNeqFmfFNRBUEpMfGc5V1%2FI9fJ%2FzgQyr2nb6tNoGRs2QoePdMvOr42ig5kYNAYT7qahQE3vKgClxMTOREjRXfYOrHcHAtPXN4664bTPb1qQrBbF3foKJfwP06KCyM3rFnllobDOLYckn%2FGBEHSl4G2Hnse7CaI%2BGpBkpP0Ud8awKHx3d9xgtFAnC85ks1%2BkhSBq2pHVohOXkjxj3RfmbctowIVuWZvY6MfJpBsaoYyVxDQv%2BMuQlcCUEHl9AJ8Xs%2BWTD7tNE9FfrC4KY2BGHedJYf52GgTsQ7CuCfr5uJg4YBvuTmWyYN78uJu3nhB86AstH1doFZFbBt%2FroDTEUJfBYlS40afyu2h749TRxoiU4xcWDNDUIi%2B6zINKu9qI5X4XfH%2BoRrq7ZYgkoHQQRAW7YCYdirZLXoO2ETACtWPa5nyukSpsZ%2F8mmmkr4uC7MPP6uKgGOrIBCrIPzsKyYiYmXbfpjP3Q51XNqU0RvILr5XTqNaH6BkaJc7iqpnIwN%2FwpnoQ9ykcsf6gSCQUk9Fr3CRZm11fApJXeKbQ3cP7fcLscjO5J9oxYuZzrFKcuMO2l1VecXevCmP4wSmgs9gPOQP%2BjPbUXioCzwZ3NoL2q1W%2Bdvc2hJhiDeOCAy58REfH1mTOf633Nzxlb510ZtNV%2FKoIE6XLQtlIo6pnGn%2FyDTqTX7RGJ0U39bA%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=77b553b5a5ffa36a01da0a129a8a2c5c4aaca31dc6b3e5541a3020bd8d1030c4"
+        }
+      ],
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 17768895,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@yvvdwf Ok, I'll review the PoC, discuss it internally and will get back to you. Thanks!",
+      "automated_response": false,
+      "created_at": "2022-07-29T11:10:24.434Z",
+      "updated_at": "2022-07-29T11:10:24.434Z",
+      "actor": {
+        "username": "rshambhuni",
+        "cleared": false,
+        "verified": false,
+        "url": "/rshambhuni",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 18033687,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @rshambhuni , \n\nAre you able to valid the PoC ?\n\nBest,",
+      "automated_response": false,
+      "created_at": "2022-08-18T14:30:22.038Z",
+      "updated_at": "2022-08-18T14:30:22.038Z",
+      "actor": {
+        "username": "yvvdwf",
+        "cleared": false,
+        "verified": false,
+        "url": "/yvvdwf",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/ubqmt760dugarh527x4qc4mkdn4n/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 18106688,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@yvvdwf My apologies for the delay. I was out of office for the last few weeks. I'll review your PoC and will get back to you soon. Thank you!",
+      "automated_response": false,
+      "created_at": "2022-08-24T10:13:12.551Z",
+      "updated_at": "2022-08-24T10:13:12.551Z",
+      "actor": {
+        "username": "rshambhuni",
+        "cleared": false,
+        "verified": false,
+        "url": "/rshambhuni",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 18211297,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@yvvdwf My apologies again for the delayed response here. I tried reproducing the arbitrary requests PoC you shared initially (admin escalation) and the owner escalation PoC you shared [here](https://hackerone.com/reports/1579645#activity-17768549) and both of them don't work with cookie based requests. For admin escalation PoC with the payload - `form action=/api/v4/users/6?_method=PUT&admin=true method=post`, when I visit the jobs page as an admin and do the necessary tasks to trigger the payload, I see the request to the above endpoint is being made but it is failing with a `404` error and the attacker does not get promoted to an admin.\n\nSame with the payload that promotes attacker to a group owner. It doesn't work when an admin user clicks anywhere on the `trigger-xss` job page (after doing the necessary steps to set up the payload). I see a `GET` request is made (not a `PUT` request) and the attacker is not promoted to a group owner. \n\nThe following curl command also doesn't work in the command line (where `29` is the group an attacker with user_id `6` wants to become an `Owner` on). I see `{\"message\":\"401 Unauthorized\"}` error in the response. Looks like API endpoints [like these](https://docs.gitlab.com/ee/api/members.html#edit-a-member-of-a-group-or-project) only accept an access token in the request.\n\n`curl --request PUT --cookie \"_gitlab_session=ADMIN_SESSION_COOKIE\" \"http://gitlab.example.com/api/v4/groups/29/members/6?access_level=50\"`",
+      "automated_response": false,
+      "created_at": "2022-09-01T08:05:40.634Z",
+      "updated_at": "2022-09-01T08:05:40.634Z",
+      "actor": {
+        "username": "rshambhuni",
+        "cleared": false,
+        "verified": false,
+        "url": "/rshambhuni",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 18224244,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @rshambhuni,\n\nThank you for your time.\n\nPlease find the file `.gitlab-ci.yml` in the attached file that I used for the video PoC. To reproduce, you need to update values of 3 variables:`PUT_REQUEST_URL`, `API_TOKEN` and `GL_HOST`\n\nOtherwise, we can see in the [docs](https://docs.gitlab.com/ee/api/index.html#session-cookie) that cookie is allowed to use to authenticate to API endpoint. I think that your command `curl` does not work because it has not `X-CSRF-Token` header. The following command works on my *local* Gitlab instance:\n\n```\ncurl 'http://gl.local/api/v4/groups/37/members/2?access_level=50' \\\n  -X 'PUT' \\\n  -H 'Cookie: _gitlab_session=cd5c3d9f38eb6d6c5fe0e6b6eeb7dcc0' \\\n  -H 'X-CSRF-Token: NCCZNxtc+jtgAnbQOvuoRD4Dzq1qSOOpscHlA/41+1ifGk+A0jWTkQfQcv+YStNH5wTRq1/zwgOSaTkRRXAzNg=='\n```\nBest regards",
+      "automated_response": false,
+      "created_at": "2022-09-01T21:43:36.015Z",
+      "updated_at": "2022-09-01T21:43:36.015Z",
+      "actor": {
+        "username": "yvvdwf",
+        "cleared": false,
+        "verified": false,
+        "url": "/yvvdwf",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/ubqmt760dugarh527x4qc4mkdn4n/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "attachments": [
+        {
+          "id": 1899094,
+          "filename": "gitlab-ci.yml",
+          "type": "application/x-yaml",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/w0zeud4vlt31xrpsgkcxcdhgq02e?response-content-disposition=attachment%3B%20filename%3D%22gitlab-ci.yml%22%3B%20filename%2A%3DUTF-8%27%27gitlab-ci.yml&response-content-type=application%2Fx-yaml&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQSQ2EO4J6%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065854Z&X-Amz-Expires=2358&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJGMEQCIDdaOxaU2Kc7XK%2BFPO0xwEcua0EmQNQ0KITjMo%2BKI7S%2FAiAzEGtwS8msUueXSru5QP82dF7uwkPFZmzhjY8laBf5ySqxBQgiEAMaDDAxMzYxOTI3NDg0OSIMMwqH%2BrtGLzp0nfFJKo4FfKwfKYelWDcX3DZmXtAToi%2BfdIW%2FTskJuWscWNQ76Tnp8xifpkkQJqzgVzQ1mNVCoJr7%2BHlI2zJhu0AXuqUf6FD0aST%2BKfWDBNuzGTpRcWWnx07Sch98UNn54OsKQbkd78QdkYbYIIydcW4rDyHcf69tkUPFukaryTwqFIQUzVC34LtpkpFeA9lDvrXGajNXbhcjKrAFt5HqSOZuuuzssNNlvHJE05jjBky2NSGdLPAbwZ5PyWIPopmg1W4zjYBUwa%2F0z3qTgn0zEoCTBSKgTZOxPGLRSTPuvxrR0mqU9OcBLyJp193C17CIZVqQgijrtvyXYk%2FM2oDDkUsD7oeMeAFi8iq1vQlGMOgky5Mb4a6rOsWjihhywKDJptVFAvuD5Dj3tbSEYMt48EBT7kCNQd8x2uZADjILGD3cpoZLKeNeqFmfFNRBUEpMfGc5V1%2FI9fJ%2FzgQyr2nb6tNoGRs2QoePdMvOr42ig5kYNAYT7qahQE3vKgClxMTOREjRXfYOrHcHAtPXN4664bTPb1qQrBbF3foKJfwP06KCyM3rFnllobDOLYckn%2FGBEHSl4G2Hnse7CaI%2BGpBkpP0Ud8awKHx3d9xgtFAnC85ks1%2BkhSBq2pHVohOXkjxj3RfmbctowIVuWZvY6MfJpBsaoYyVxDQv%2BMuQlcCUEHl9AJ8Xs%2BWTD7tNE9FfrC4KY2BGHedJYf52GgTsQ7CuCfr5uJg4YBvuTmWyYN78uJu3nhB86AstH1doFZFbBt%2FroDTEUJfBYlS40afyu2h749TRxoiU4xcWDNDUIi%2B6zINKu9qI5X4XfH%2BoRrq7ZYgkoHQQRAW7YCYdirZLXoO2ETACtWPa5nyukSpsZ%2F8mmmkr4uC7MPP6uKgGOrIBCrIPzsKyYiYmXbfpjP3Q51XNqU0RvILr5XTqNaH6BkaJc7iqpnIwN%2FwpnoQ9ykcsf6gSCQUk9Fr3CRZm11fApJXeKbQ3cP7fcLscjO5J9oxYuZzrFKcuMO2l1VecXevCmP4wSmgs9gPOQP%2BjPbUXioCzwZ3NoL2q1W%2Bdvc2hJhiDeOCAy58REfH1mTOf633Nzxlb510ZtNV%2FKoIE6XLQtlIo6pnGn%2FyDTqTX7RGJ0U39bA%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=a91898decf9c9d8c7fa5d8895dd6583ccca9172165660bbddc0bce8c42ab5ccb"
+        }
+      ],
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 18231332,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugReopened",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2022-09-02T11:52:21.311Z",
+      "updated_at": "2022-09-02T11:52:21.311Z",
+      "actor": {
+        "username": "rshambhuni",
+        "cleared": false,
+        "verified": false,
+        "url": "/rshambhuni",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 18231334,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportSeverityUpdated",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2022-09-02T11:52:41.178Z",
+      "updated_at": "2022-09-02T11:52:41.178Z",
+      "additional_data": {
+        "old_severity": "Medium (4.4)",
+        "new_severity": "High (7.3)",
+        "old_severity_id": 1564247,
+        "new_severity_id": 1646818
+      },
+      "actor": {
+        "username": "rshambhuni",
+        "cleared": false,
+        "verified": false,
+        "url": "/rshambhuni",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 18231356,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BountyAwarded",
+      "message": "Hi,\n\nThank you again for the report! Based on the additional impact you have [shown above](https://hackerone.com/reports/1579645#activity-18224244) for arbitrary requests attack vector, we have updated the severity of this report and are paying you the rest of the bounty. Congratulations!\n\nWe look forward to your next report!\n\nBest regards,\nGitLab Security Team",
+      "automated_response": false,
+      "created_at": "2022-09-02T11:54:57.552Z",
+      "updated_at": "2022-09-02T11:54:57.552Z",
+      "actor": {
+        "url": "/gitlab",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/f0hovtq73f9ap815a0r1w42bocp4/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "GitLab"
+        }
+      },
+      "bounty_currency": "usd",
+      "genius_execution_id": null,
+      "team_handle": "gitlab",
+      "collaborator": {
+        "username": "yvvdwf",
+        "url": "/yvvdwf"
+      }
+    },
+    {
+      "id": 18231358,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2022-09-02T11:55:25.099Z",
+      "updated_at": "2022-09-02T11:55:25.099Z",
+      "actor": {
+        "username": "rshambhuni",
+        "cleared": false,
+        "verified": false,
+        "url": "/rshambhuni",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "reporter": {
+        "username": "yvvdwf",
+        "url": "/yvvdwf"
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 18231453,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Awesome, thank you @rshambhuni for your patient while looking into this!!!",
+      "automated_response": false,
+      "created_at": "2022-09-02T12:05:56.340Z",
+      "updated_at": "2022-09-02T12:05:56.340Z",
+      "actor": {
+        "username": "yvvdwf",
+        "cleared": false,
+        "verified": false,
+        "url": "/yvvdwf",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/ubqmt760dugarh527x4qc4mkdn4n/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 19089757,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2022-11-04T16:53:01.173Z",
+      "updated_at": "2022-11-04T16:53:01.173Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "yvvdwf",
+        "cleared": false,
+        "verified": false,
+        "url": "/yvvdwf",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/ubqmt760dugarh527x4qc4mkdn4n/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 19234137,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2022-11-16T01:08:16.394Z",
+      "updated_at": "2022-11-16T01:08:16.394Z",
+      "actor": {
+        "username": "nmalcolm_gitlab",
+        "cleared": false,
+        "verified": false,
+        "url": "/nmalcolm_gitlab",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/qugqy57v49704ukw2816cro62zrc/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 19234138,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportBecamePublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2022-11-16T01:08:16.562Z",
+      "updated_at": "2022-11-16T01:08:16.562Z",
+      "actor": {
+        "username": "nmalcolm_gitlab",
+        "cleared": false,
+        "verified": false,
+        "url": "/nmalcolm_gitlab",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/qugqy57v49704ukw2816cro62zrc/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    }
+  ],
+  "activity_page_count": 1,
+  "activity_page_number": 1,
+  "summaries": [
+    {
+      "category": "team",
+      "can_view?": true,
+      "can_create?": false
+    },
+    {
+      "category": "researcher",
+      "can_view?": true,
+      "can_create?": false
+    }
+  ]
+}

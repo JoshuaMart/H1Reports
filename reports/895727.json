@@ -1,0 +1,479 @@
+{
+  "id": 895727,
+  "global_id": "Z2lkOi8vaGFja2Vyb25lL1JlcG9ydC84OTU3Mjc=",
+  "url": "https://hackerone.com/reports/895727",
+  "title": "Rack parses encoded cookie names allowing an attacker to send malicious `__Host-` and `__Secure-` prefixed cookies",
+  "state": "Closed",
+  "substate": "resolved",
+  "severity_rating": "low",
+  "readable_substate": "Resolved",
+  "created_at": "2020-06-10T23:58:33.703Z",
+  "submitted_at": "2020-06-10T23:58:33.703Z",
+  "is_member_of_team?": false,
+  "is_organization_group_member?": false,
+  "reporter": {
+    "disabled": false,
+    "username": "fletchto99",
+    "url": "/fletchto99",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/egeK1BGNaCNZkCgKcCQFvWHY/3c7b305354c9073c106ae3d1701798defaaf5be844fb8fdfa49ca62f991a2c2c"
+    },
+    "is_me?": false,
+    "cleared": false,
+    "verified": false,
+    "hackerone_triager": false,
+    "hacker_mediation": false
+  },
+  "team": {
+    "id": 22,
+    "url": "https://hackerone.com/rails",
+    "handle": "rails",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/000/022/5e2b46658c8b86bed62f574d8e1793f353cbbc63_original.png/d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98",
+      "medium": "https://profile-photos.hackerone-user-content.com/variants/000/000/022/5e2b46658c8b86bed62f574d8e1793f353cbbc63_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+    },
+    "permissions": [
+
+    ],
+    "submission_state": "open",
+    "default_currency": "usd",
+    "awards_miles": false,
+    "offers_bounties": true,
+    "state": "public_mode",
+    "only_cleared_hackers": false,
+    "pentest_feature_enabled?": false,
+    "profile": {
+      "name": "Ruby on Rails",
+      "twitter_handle": "rails",
+      "website": "http://rubyonrails.org/security",
+      "about": "Web development that doesn't hurt."
+    }
+  },
+  "has_bounty?": false,
+  "in_validation?": false,
+  "can_view_team": true,
+  "can_view_report": true,
+  "is_external_bug": false,
+  "is_published": false,
+  "is_participant": false,
+  "has_collaborators": false,
+  "submitted_by_team_member": false,
+  "stage": 4,
+  "public": true,
+  "visibility": "full",
+  "cve_ids": [
+    "CVE-2020-8184"
+  ],
+  "singular_disclosure_disabled": false,
+  "disclosed_at": "2020-06-16T13:27:52.001Z",
+  "bug_reporter_agreed_on_going_public_at": "2020-06-16T01:20:37.715Z",
+  "team_member_agreed_on_going_public_at": "2020-06-16T13:27:51.894Z",
+  "comments_closed?": false,
+  "facebook_team?": false,
+  "team_private?": false,
+  "vulnerability_information": "The [rack cookie parser](https://github.com/rack/rack/blob/c9ff9709afa70ca0e427aa06643c851f498359dc/lib/rack/utils.rb#L215) parses the cookie string using [`unescape`](https://github.com/rack/rack/blob/c9ff9709afa70ca0e427aa06643c851f498359dc/lib/rack/utils.rb#L215). This allows a malicious attacker to set a second cookie with the name being percent encoded. Typically it would be expected that we cannot trust cookies and in _most_ cases that's true. However in a couple of cases certain expectations are set. Cookies allow for [cookie prefixes](https://textslashplain.com/2015/10/09/duct-tape-and-baling-wirecookie-prefixes/) on the cookie name to indicate to the browser certain attributes. In this case there are 2 special attributes we care about: `__Secure-` and `__Host-`. When the browser sends these cookies to the server certain [assumptions](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Set-Cookie#Attributes) are be made around these cookies:\n\n1. `__Secure-` prefix: Cookies names starting with `__Secure-` (dash is part of the prefix) must be set with the secure flag from a secure page (HTTPS).\n2. `__Host-` prefix: Cookies with names starting with `__Host-` must be set with the secure flag, must be from a secure page (HTTPS), must not have a domain specified (and therefore aren't sent to subdomains) and the path must be `/`\n\nThe flaw in Rack allows for a `__%48ost-` or `__%53ecure-` cookie to be set **without** the required attributes (I.e. set without HTTPS, from root domain, or from a secure page). This means a malicious cookie set by an attacker could set a `__%48ost-` cookie from a subdomain knowing that Rack would parse it as `__Host-`. Furthermore, since the browser won't enforce the `HostOnly` attribute to `__%48ost-` cookies an attacker could control the `__Host-` prefixed cookie from a subdomain by setting a wildcard domain on the `__%48ost-` cookie.\n\nIt should be noted that while the [cookie spec](https://tools.ietf.org/html/rfc6265#section-4.1.1) recommends encoding for the value of a cookie it doesn't make any suggestions around the encoding of the name of a cookie.\n\nHere's a simple PoC test case which fails :\n\n```ruby\n# frozen_string_literal: true\n\nrequire_relative 'helper'\n\ndescribe Rack::Utils, \"malicious cookie\" do\n  # Fails and __Host-evil reads the malicious value and sets it as the cookie\n  # rather than reading the actual __Host cookie\n  #\n  # Furthermore, browsers enforce HostOnly for `__Host-` cookies but they would\n  # not enforce it for \"__%48ost\" cookies so a malicious script could potentially\n  # set this cookie knowing it would be parsed as the `__Host-` cookie\n  #\n  # Lastly, when the cookie is made it could be set with the `.example.com` domain\n  # wildcard, thus a malicious script on a subdomain could set the cookie and it\n  # would be parsed by the root domain\n  #\n  # This is due to the cookie being unescaped, thus:\n  # URI.unescape(\"__%48ost-evil\") => \"__Host-evil\"\n  #\n  # Currently fails, should be passing\n  it \"doesnt parse malicious __Host cookie\" do\n    env = Rack::MockRequest.env_for(\"\", \"HTTP_COOKIE\" => \"__%48ost-evil=evil;__Host-evil=abc\")\n    cookies = Rack::Utils.parse_cookies(env)\n    cookies.must_equal({ \"__%48ost-evil\" => \"evil\", \"__Host-evil\" => \"abc\"  })\n  end\n\n  # Less of a security issue and more of a bug\n  it \"generic foo=bar example\" do\n    env = Rack::MockRequest.env_for(\"\", \"HTTP_COOKIE\" => \"%66oo=baz;foo=bar\")\n    cookies = Rack::Utils.parse_cookies(env)\n    cookies.must_equal({ \"%66oo\" => \"baz\", \"foo\" => \"bar\" })\n  end\nend\n```\n\nAn attacker could potentially set the cookie from a malicious script on a subdomain like so, bypassing any expectations around the attributes of the cookie:\n```\ndocument.cookie = \"__%48ost-evil=evil; domain=.example.com\";\n```\n\nI should note I work for GitHub, I'm not sure if there's any conflict with payouts in this case (and I certainly don't want/need a payout), however should you chose to payout for this I'd like the money to be donated to charity. If possible could it please be donated to [NAACP Legal Defense and Education Fund](https://www.naacpldf.org/support/fiscal-responsibility/) their donaiton page can be found [here](https://org2.salsalabs.com/o/6857/p/salsa/donation/common/public/?donate_page_KEY=15780&_ga=2.63873391.1784282200.1591830687-771342060.1591210817).\n\n## Impact\n\nAn attacker can control cookies by encoding creating a second cookie with the name url encoded. This means that the `__Host-` and `__Secure-` prefixed cookies can be controlled. Furthermore, a malicious attacker could set this cookie from a subdomain and have it apply to the root domain, in which case the Rack would parse the attackers cookie.",
+  "weakness": {
+    "id": 97,
+    "name": "Reliance on Cookies without Validation and Integrity Checking in a Security Decision"
+  },
+  "original_report_id": null,
+  "original_report_url": null,
+  "attachments": [
+
+  ],
+  "allow_singular_disclosure_at": "2020-07-16T01:20:37.826Z",
+  "allow_singular_disclosure_after": -100591658.87834065,
+  "singular_disclosure_allowed": true,
+  "vote_count": 46,
+  "voters": [
+    "jatindhankhar",
+    "brahim_boufakri01",
+    "ali",
+    "amad3u6",
+    "0xwise",
+    "prinzhorn",
+    "d4rkm4tter",
+    "0619",
+    "sudoshekhar",
+    "safisecu",
+    "and 36 more..."
+  ],
+  "severity": {
+    "rating": "low",
+    "author_type": "Team"
+  },
+  "structured_scope": {
+    "databaseId": 160,
+    "asset_type": "SOURCE_CODE",
+    "asset_identifier": "https://github.com/rails/rails",
+    "max_severity": "critical"
+  },
+  "abilities": {
+    "assignable_team_members": [
+
+    ],
+    "assignable_team_member_groups": [
+
+    ]
+  },
+  "activities": [
+    {
+      "id": 8258674,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "I wanted to follow up with a note, while the cookie spec didn't have any indication around the encoding of cookie names the [Mozilla documentation](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Set-Cookie#Attributes) indicates how browser would expect the cookies in these cases:\n\n> A <cookie-name> can be any US-ASCII characters, except control characters, spaces, or tabs. It also must not contain a separator character like the following: ( ) < > @ , ; : \\ \" / [ ] ? = { }.",
+      "automated_response": false,
+      "created_at": "2020-06-11T00:12:28.036Z",
+      "updated_at": "2020-06-11T00:12:28.036Z",
+      "actor": {
+        "username": "fletchto99",
+        "cleared": false,
+        "verified": false,
+        "url": "/fletchto99",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/egeK1BGNaCNZkCgKcCQFvWHY/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "rails"
+    },
+    {
+      "id": 8266763,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "I had a go at attempting to patch the issue today. I'm not sure if it's the most performant solution but I figured I'd help out where possible. I'm not too sure what's required in terms of backports but hopefully this can help kickstart a fix.",
+      "automated_response": false,
+      "created_at": "2020-06-11T18:25:56.948Z",
+      "updated_at": "2020-06-11T18:25:56.948Z",
+      "actor": {
+        "username": "fletchto99",
+        "cleared": false,
+        "verified": false,
+        "url": "/fletchto99",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/egeK1BGNaCNZkCgKcCQFvWHY/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "attachments": [
+        {
+          "id": 864477,
+          "filename": "fix.patch",
+          "type": "text/x-patch",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/hdNfiHZc8oRdctZ7rrEdB7Xj?response-content-disposition=attachment%3B%20filename%3D%22fix.patch%22%3B%20filename%2A%3DUTF-8%27%27fix.patch&response-content-type=text%2Fx-patch&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQRWDIYOMA%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T072816Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEC8aCXVzLXdlc3QtMiJHMEUCIFNLdnPGtLwKMqDt0NQfrZo0FnfieCdt70b8x7mZltnYAiEAvoj8eBF%2Fz9RmxiwioQTjaAkY5y8glP7YJHIdVEiSRjIqsgUIKBADGgwwMTM2MTkyNzQ4NDkiDKwmuAj4%2Be1s5lbylSqPBcomyuxhildk0NUANV3%2BftlYYJCWX1M%2B1xqa23Q06%2By7YS%2BQATcLYhjMRKLHIGZfd3bianhW%2FgdFm4gpQAmwDHRw2igbV1zSavkNvXqacnFdw4Oln9SHRd2e4zuwk%2F2GviKwn1nZunhhdOuu6g7A2DA%2FQefyAlyQYpy%2FHRGl7J9kIPlFGlBK9CAul0kzKyTjlygr3Hz7DB5F6X4FcS71gvzmFC%2Fa6bf1tdfq46kICi9nBXV8Yep%2FEmkoi%2FkPVN6jpqZHrrqGL%2BeKOCEw6yXkZefklvRs%2Bmud%2BPdLs6D35uN9GpF0h2lyRl7mI1tGYSVdAxrxhb%2FnLZ%2BBbcvE%2FzPbIbOkYt%2F4kzBjPA33r7a6gRZo6xBI%2BqcHTUEoZlsC%2FePoA0bzI%2BY%2B9Kn7r266PdCrFtOI0TtLDtrt1a%2FsYB7r39ZReNeBUZjFy71DofxHhuMplWoZ%2B5suYOSkCpnX8ox%2FexG03tPH%2B%2BYi%2B7JKgMNo8Ywg0LUY4FIgqUOY3m9G4vsQ2yNVvhHzc1zFQ%2BaZDinuNqUJycV22%2Bal4yI7Vu8zRPT0XS8nU9mRxPyMOxBhqiEpipRhHvEk6ruVgSYpVrhEqZHRnwv%2FiS2CGZuiFnzVyfzzNc0a1K3NA%2Bqp8X%2FGc2IrCqLgJiIar1EgInaI6d3yXHytJb5boQ1Ym5HsML5oSphvP1hBCFvgtrkpt3teC9sz%2F02EwDEGzubXTtTxqnHBOiqeNpfNEReBvGYlciW1L%2FxLQxgqD5RpQ5CUBnf67bJivw%2BtoZ%2BpV3UvOdvkG99R3Yb6KV5k2Ly3LruRvseHIOA2KILhuT0Arnm9FUq1BvuB593ehUm8src6x4P2nT6wjhA9E2kekyi7othxiuSueSwwyp66qAY6sQGfl2fsTY6VWTPrJHQD%2BPDh1xgsgnaytGIcrwK1OGEf8WVcLpw6bEJ6BKLFS7l9GZDwFvjz7J48x%2Bl7YfFRkEZXRmoO3ak0duYeBuy3U2I6DbXdUZZIWlnrcVoExjgWQHiADxJVCKngMqQP1GNwrY9M5Of5s5Z3zUQwD3EqxVcljRFvNHznFkHj8b2eCVcdpPMI6JyXX4H9nyjUW4XvHJwg%2F0AQay6G%2BksUHKVQvEI2UA4%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=566c8e13cfed8c0f23732621ddf8ec2dec7fbf47d0969b7c50eb0841c550fb2e"
+        }
+      ],
+      "genius_execution_id": null,
+      "team_handle": "rails"
+    },
+    {
+      "id": 8276426,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@fletchto99 what do you think about this as a patch?  It's based off of your patch, but passes the test suite and should allocate fewer objects.  If you think it will work, can you send me a patch using `git format-patch` so I can retain your contribution information?",
+      "automated_response": false,
+      "created_at": "2020-06-12T18:48:23.952Z",
+      "updated_at": "2020-06-12T18:48:23.952Z",
+      "actor": {
+        "username": "tenderlove",
+        "cleared": false,
+        "verified": false,
+        "url": "/tenderlove",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/003/318/60d828744b5d16813ecbf975fdc453dc4a933f4f_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "attachments": [
+        {
+          "id": 866010,
+          "filename": "out.diff",
+          "type": "text/x-patch",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/Q1XGSZm3zAgRGTc7S3NKPwnA?response-content-disposition=attachment%3B%20filename%3D%22out.diff%22%3B%20filename%2A%3DUTF-8%27%27out.diff&response-content-type=text%2Fx-patch&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQRWDIYOMA%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T072816Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEC8aCXVzLXdlc3QtMiJHMEUCIFNLdnPGtLwKMqDt0NQfrZo0FnfieCdt70b8x7mZltnYAiEAvoj8eBF%2Fz9RmxiwioQTjaAkY5y8glP7YJHIdVEiSRjIqsgUIKBADGgwwMTM2MTkyNzQ4NDkiDKwmuAj4%2Be1s5lbylSqPBcomyuxhildk0NUANV3%2BftlYYJCWX1M%2B1xqa23Q06%2By7YS%2BQATcLYhjMRKLHIGZfd3bianhW%2FgdFm4gpQAmwDHRw2igbV1zSavkNvXqacnFdw4Oln9SHRd2e4zuwk%2F2GviKwn1nZunhhdOuu6g7A2DA%2FQefyAlyQYpy%2FHRGl7J9kIPlFGlBK9CAul0kzKyTjlygr3Hz7DB5F6X4FcS71gvzmFC%2Fa6bf1tdfq46kICi9nBXV8Yep%2FEmkoi%2FkPVN6jpqZHrrqGL%2BeKOCEw6yXkZefklvRs%2Bmud%2BPdLs6D35uN9GpF0h2lyRl7mI1tGYSVdAxrxhb%2FnLZ%2BBbcvE%2FzPbIbOkYt%2F4kzBjPA33r7a6gRZo6xBI%2BqcHTUEoZlsC%2FePoA0bzI%2BY%2B9Kn7r266PdCrFtOI0TtLDtrt1a%2FsYB7r39ZReNeBUZjFy71DofxHhuMplWoZ%2B5suYOSkCpnX8ox%2FexG03tPH%2B%2BYi%2B7JKgMNo8Ywg0LUY4FIgqUOY3m9G4vsQ2yNVvhHzc1zFQ%2BaZDinuNqUJycV22%2Bal4yI7Vu8zRPT0XS8nU9mRxPyMOxBhqiEpipRhHvEk6ruVgSYpVrhEqZHRnwv%2FiS2CGZuiFnzVyfzzNc0a1K3NA%2Bqp8X%2FGc2IrCqLgJiIar1EgInaI6d3yXHytJb5boQ1Ym5HsML5oSphvP1hBCFvgtrkpt3teC9sz%2F02EwDEGzubXTtTxqnHBOiqeNpfNEReBvGYlciW1L%2FxLQxgqD5RpQ5CUBnf67bJivw%2BtoZ%2BpV3UvOdvkG99R3Yb6KV5k2Ly3LruRvseHIOA2KILhuT0Arnm9FUq1BvuB593ehUm8src6x4P2nT6wjhA9E2kekyi7othxiuSueSwwyp66qAY6sQGfl2fsTY6VWTPrJHQD%2BPDh1xgsgnaytGIcrwK1OGEf8WVcLpw6bEJ6BKLFS7l9GZDwFvjz7J48x%2Bl7YfFRkEZXRmoO3ak0duYeBuy3U2I6DbXdUZZIWlnrcVoExjgWQHiADxJVCKngMqQP1GNwrY9M5Of5s5Z3zUQwD3EqxVcljRFvNHznFkHj8b2eCVcdpPMI6JyXX4H9nyjUW4XvHJwg%2F0AQay6G%2BksUHKVQvEI2UA4%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=5d31c73e9b3ff6be0e3601e9a53b1dfbf96e89f3920f7e9ce486894bb43d2803"
+        }
+      ],
+      "genius_execution_id": null,
+      "team_handle": "rails"
+    },
+    {
+      "id": 8276680,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hey @tenderlove, here's a patch file created via `format-patch`. Feel free to touch up the commit message if rack follows any guidelines around commit messages.\n\nCheers!",
+      "automated_response": false,
+      "created_at": "2020-06-12T19:03:27.600Z",
+      "updated_at": "2020-06-12T19:03:27.600Z",
+      "actor": {
+        "username": "fletchto99",
+        "cleared": false,
+        "verified": false,
+        "url": "/fletchto99",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/egeK1BGNaCNZkCgKcCQFvWHY/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "attachments": [
+        {
+          "id": 866020,
+          "filename": "0001-When-parsing-cookies-only-decode-the-values.patch",
+          "type": "text/x-patch",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/vDzpGYavXou9mEt4rzKSCN3V?response-content-disposition=attachment%3B%20filename%3D%220001-When-parsing-cookies-only-decode-the-values.patch%22%3B%20filename%2A%3DUTF-8%27%270001-When-parsing-cookies-only-decode-the-values.patch&response-content-type=text%2Fx-patch&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQRWDIYOMA%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T072816Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEC8aCXVzLXdlc3QtMiJHMEUCIFNLdnPGtLwKMqDt0NQfrZo0FnfieCdt70b8x7mZltnYAiEAvoj8eBF%2Fz9RmxiwioQTjaAkY5y8glP7YJHIdVEiSRjIqsgUIKBADGgwwMTM2MTkyNzQ4NDkiDKwmuAj4%2Be1s5lbylSqPBcomyuxhildk0NUANV3%2BftlYYJCWX1M%2B1xqa23Q06%2By7YS%2BQATcLYhjMRKLHIGZfd3bianhW%2FgdFm4gpQAmwDHRw2igbV1zSavkNvXqacnFdw4Oln9SHRd2e4zuwk%2F2GviKwn1nZunhhdOuu6g7A2DA%2FQefyAlyQYpy%2FHRGl7J9kIPlFGlBK9CAul0kzKyTjlygr3Hz7DB5F6X4FcS71gvzmFC%2Fa6bf1tdfq46kICi9nBXV8Yep%2FEmkoi%2FkPVN6jpqZHrrqGL%2BeKOCEw6yXkZefklvRs%2Bmud%2BPdLs6D35uN9GpF0h2lyRl7mI1tGYSVdAxrxhb%2FnLZ%2BBbcvE%2FzPbIbOkYt%2F4kzBjPA33r7a6gRZo6xBI%2BqcHTUEoZlsC%2FePoA0bzI%2BY%2B9Kn7r266PdCrFtOI0TtLDtrt1a%2FsYB7r39ZReNeBUZjFy71DofxHhuMplWoZ%2B5suYOSkCpnX8ox%2FexG03tPH%2B%2BYi%2B7JKgMNo8Ywg0LUY4FIgqUOY3m9G4vsQ2yNVvhHzc1zFQ%2BaZDinuNqUJycV22%2Bal4yI7Vu8zRPT0XS8nU9mRxPyMOxBhqiEpipRhHvEk6ruVgSYpVrhEqZHRnwv%2FiS2CGZuiFnzVyfzzNc0a1K3NA%2Bqp8X%2FGc2IrCqLgJiIar1EgInaI6d3yXHytJb5boQ1Ym5HsML5oSphvP1hBCFvgtrkpt3teC9sz%2F02EwDEGzubXTtTxqnHBOiqeNpfNEReBvGYlciW1L%2FxLQxgqD5RpQ5CUBnf67bJivw%2BtoZ%2BpV3UvOdvkG99R3Yb6KV5k2Ly3LruRvseHIOA2KILhuT0Arnm9FUq1BvuB593ehUm8src6x4P2nT6wjhA9E2kekyi7othxiuSueSwwyp66qAY6sQGfl2fsTY6VWTPrJHQD%2BPDh1xgsgnaytGIcrwK1OGEf8WVcLpw6bEJ6BKLFS7l9GZDwFvjz7J48x%2Bl7YfFRkEZXRmoO3ak0duYeBuy3U2I6DbXdUZZIWlnrcVoExjgWQHiADxJVCKngMqQP1GNwrY9M5Of5s5Z3zUQwD3EqxVcljRFvNHznFkHj8b2eCVcdpPMI6JyXX4H9nyjUW4XvHJwg%2F0AQay6G%2BksUHKVQvEI2UA4%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=91da6bb03959363e66042a858a4580cde6f1add4c4819561f40069a22cbf4712"
+        }
+      ],
+      "genius_execution_id": null,
+      "team_handle": "rails"
+    },
+    {
+      "id": 8277598,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hey @fletchto99,\n\nI've prepared the following advisory and final patchset. Let me know if you spot any errors.",
+      "automated_response": false,
+      "created_at": "2020-06-12T20:06:39.425Z",
+      "updated_at": "2020-06-12T20:06:39.425Z",
+      "actor": {
+        "username": "jack_mccracken",
+        "cleared": false,
+        "verified": false,
+        "url": "/jack_mccracken",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/164/342/6543dc397b4dbb2c24dc81f92a42de654a3e6a99_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "attachments": [
+        {
+          "id": 866122,
+          "filename": "895727_advisory.txt",
+          "type": "text/plain",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/6H2RCAUVSVTU8Nvfrjwtj6XD?response-content-disposition=attachment%3B%20filename%3D%22895727_advisory.txt%22%3B%20filename%2A%3DUTF-8%27%27895727_advisory.txt&response-content-type=text%2Fplain&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQRWDIYOMA%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T072816Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEC8aCXVzLXdlc3QtMiJHMEUCIFNLdnPGtLwKMqDt0NQfrZo0FnfieCdt70b8x7mZltnYAiEAvoj8eBF%2Fz9RmxiwioQTjaAkY5y8glP7YJHIdVEiSRjIqsgUIKBADGgwwMTM2MTkyNzQ4NDkiDKwmuAj4%2Be1s5lbylSqPBcomyuxhildk0NUANV3%2BftlYYJCWX1M%2B1xqa23Q06%2By7YS%2BQATcLYhjMRKLHIGZfd3bianhW%2FgdFm4gpQAmwDHRw2igbV1zSavkNvXqacnFdw4Oln9SHRd2e4zuwk%2F2GviKwn1nZunhhdOuu6g7A2DA%2FQefyAlyQYpy%2FHRGl7J9kIPlFGlBK9CAul0kzKyTjlygr3Hz7DB5F6X4FcS71gvzmFC%2Fa6bf1tdfq46kICi9nBXV8Yep%2FEmkoi%2FkPVN6jpqZHrrqGL%2BeKOCEw6yXkZefklvRs%2Bmud%2BPdLs6D35uN9GpF0h2lyRl7mI1tGYSVdAxrxhb%2FnLZ%2BBbcvE%2FzPbIbOkYt%2F4kzBjPA33r7a6gRZo6xBI%2BqcHTUEoZlsC%2FePoA0bzI%2BY%2B9Kn7r266PdCrFtOI0TtLDtrt1a%2FsYB7r39ZReNeBUZjFy71DofxHhuMplWoZ%2B5suYOSkCpnX8ox%2FexG03tPH%2B%2BYi%2B7JKgMNo8Ywg0LUY4FIgqUOY3m9G4vsQ2yNVvhHzc1zFQ%2BaZDinuNqUJycV22%2Bal4yI7Vu8zRPT0XS8nU9mRxPyMOxBhqiEpipRhHvEk6ruVgSYpVrhEqZHRnwv%2FiS2CGZuiFnzVyfzzNc0a1K3NA%2Bqp8X%2FGc2IrCqLgJiIar1EgInaI6d3yXHytJb5boQ1Ym5HsML5oSphvP1hBCFvgtrkpt3teC9sz%2F02EwDEGzubXTtTxqnHBOiqeNpfNEReBvGYlciW1L%2FxLQxgqD5RpQ5CUBnf67bJivw%2BtoZ%2BpV3UvOdvkG99R3Yb6KV5k2Ly3LruRvseHIOA2KILhuT0Arnm9FUq1BvuB593ehUm8src6x4P2nT6wjhA9E2kekyi7othxiuSueSwwyp66qAY6sQGfl2fsTY6VWTPrJHQD%2BPDh1xgsgnaytGIcrwK1OGEf8WVcLpw6bEJ6BKLFS7l9GZDwFvjz7J48x%2Bl7YfFRkEZXRmoO3ak0duYeBuy3U2I6DbXdUZZIWlnrcVoExjgWQHiADxJVCKngMqQP1GNwrY9M5Of5s5Z3zUQwD3EqxVcljRFvNHznFkHj8b2eCVcdpPMI6JyXX4H9nyjUW4XvHJwg%2F0AQay6G%2BksUHKVQvEI2UA4%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=d8877fe124cf70aa2fc07d748c7e4ce5ebb6f11ba26f321652753ce5658098d8"
+        },
+        {
+          "id": 866115,
+          "filename": "0001-2.2.2-When-parsing-cookies-only-decode-the-values.patch",
+          "type": "text/x-patch",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/Kuxgpxhef7Rr1sKDHnhVGVEY?response-content-disposition=attachment%3B%20filename%3D%220001-2.2.2-When-parsing-cookies-only-decode-the-values.patch%22%3B%20filename%2A%3DUTF-8%27%270001-2.2.2-When-parsing-cookies-only-decode-the-values.patch&response-content-type=text%2Fx-patch&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQRWDIYOMA%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T072816Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEC8aCXVzLXdlc3QtMiJHMEUCIFNLdnPGtLwKMqDt0NQfrZo0FnfieCdt70b8x7mZltnYAiEAvoj8eBF%2Fz9RmxiwioQTjaAkY5y8glP7YJHIdVEiSRjIqsgUIKBADGgwwMTM2MTkyNzQ4NDkiDKwmuAj4%2Be1s5lbylSqPBcomyuxhildk0NUANV3%2BftlYYJCWX1M%2B1xqa23Q06%2By7YS%2BQATcLYhjMRKLHIGZfd3bianhW%2FgdFm4gpQAmwDHRw2igbV1zSavkNvXqacnFdw4Oln9SHRd2e4zuwk%2F2GviKwn1nZunhhdOuu6g7A2DA%2FQefyAlyQYpy%2FHRGl7J9kIPlFGlBK9CAul0kzKyTjlygr3Hz7DB5F6X4FcS71gvzmFC%2Fa6bf1tdfq46kICi9nBXV8Yep%2FEmkoi%2FkPVN6jpqZHrrqGL%2BeKOCEw6yXkZefklvRs%2Bmud%2BPdLs6D35uN9GpF0h2lyRl7mI1tGYSVdAxrxhb%2FnLZ%2BBbcvE%2FzPbIbOkYt%2F4kzBjPA33r7a6gRZo6xBI%2BqcHTUEoZlsC%2FePoA0bzI%2BY%2B9Kn7r266PdCrFtOI0TtLDtrt1a%2FsYB7r39ZReNeBUZjFy71DofxHhuMplWoZ%2B5suYOSkCpnX8ox%2FexG03tPH%2B%2BYi%2B7JKgMNo8Ywg0LUY4FIgqUOY3m9G4vsQ2yNVvhHzc1zFQ%2BaZDinuNqUJycV22%2Bal4yI7Vu8zRPT0XS8nU9mRxPyMOxBhqiEpipRhHvEk6ruVgSYpVrhEqZHRnwv%2FiS2CGZuiFnzVyfzzNc0a1K3NA%2Bqp8X%2FGc2IrCqLgJiIar1EgInaI6d3yXHytJb5boQ1Ym5HsML5oSphvP1hBCFvgtrkpt3teC9sz%2F02EwDEGzubXTtTxqnHBOiqeNpfNEReBvGYlciW1L%2FxLQxgqD5RpQ5CUBnf67bJivw%2BtoZ%2BpV3UvOdvkG99R3Yb6KV5k2Ly3LruRvseHIOA2KILhuT0Arnm9FUq1BvuB593ehUm8src6x4P2nT6wjhA9E2kekyi7othxiuSueSwwyp66qAY6sQGfl2fsTY6VWTPrJHQD%2BPDh1xgsgnaytGIcrwK1OGEf8WVcLpw6bEJ6BKLFS7l9GZDwFvjz7J48x%2Bl7YfFRkEZXRmoO3ak0duYeBuy3U2I6DbXdUZZIWlnrcVoExjgWQHiADxJVCKngMqQP1GNwrY9M5Of5s5Z3zUQwD3EqxVcljRFvNHznFkHj8b2eCVcdpPMI6JyXX4H9nyjUW4XvHJwg%2F0AQay6G%2BksUHKVQvEI2UA4%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=fd1e045a90d2ec32941e615ce3f59fa91df8f8c02c5ea01efe1819c8ff4973ff"
+        },
+        {
+          "id": 866114,
+          "filename": "0001-2.1.3-When-parsing-cookies-only-decode-the-values.patch",
+          "type": "text/x-patch",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/BzsMzgYPTo5fueNfiYRFFkSV?response-content-disposition=attachment%3B%20filename%3D%220001-2.1.3-When-parsing-cookies-only-decode-the-values.patch%22%3B%20filename%2A%3DUTF-8%27%270001-2.1.3-When-parsing-cookies-only-decode-the-values.patch&response-content-type=text%2Fx-patch&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQRWDIYOMA%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T072816Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEC8aCXVzLXdlc3QtMiJHMEUCIFNLdnPGtLwKMqDt0NQfrZo0FnfieCdt70b8x7mZltnYAiEAvoj8eBF%2Fz9RmxiwioQTjaAkY5y8glP7YJHIdVEiSRjIqsgUIKBADGgwwMTM2MTkyNzQ4NDkiDKwmuAj4%2Be1s5lbylSqPBcomyuxhildk0NUANV3%2BftlYYJCWX1M%2B1xqa23Q06%2By7YS%2BQATcLYhjMRKLHIGZfd3bianhW%2FgdFm4gpQAmwDHRw2igbV1zSavkNvXqacnFdw4Oln9SHRd2e4zuwk%2F2GviKwn1nZunhhdOuu6g7A2DA%2FQefyAlyQYpy%2FHRGl7J9kIPlFGlBK9CAul0kzKyTjlygr3Hz7DB5F6X4FcS71gvzmFC%2Fa6bf1tdfq46kICi9nBXV8Yep%2FEmkoi%2FkPVN6jpqZHrrqGL%2BeKOCEw6yXkZefklvRs%2Bmud%2BPdLs6D35uN9GpF0h2lyRl7mI1tGYSVdAxrxhb%2FnLZ%2BBbcvE%2FzPbIbOkYt%2F4kzBjPA33r7a6gRZo6xBI%2BqcHTUEoZlsC%2FePoA0bzI%2BY%2B9Kn7r266PdCrFtOI0TtLDtrt1a%2FsYB7r39ZReNeBUZjFy71DofxHhuMplWoZ%2B5suYOSkCpnX8ox%2FexG03tPH%2B%2BYi%2B7JKgMNo8Ywg0LUY4FIgqUOY3m9G4vsQ2yNVvhHzc1zFQ%2BaZDinuNqUJycV22%2Bal4yI7Vu8zRPT0XS8nU9mRxPyMOxBhqiEpipRhHvEk6ruVgSYpVrhEqZHRnwv%2FiS2CGZuiFnzVyfzzNc0a1K3NA%2Bqp8X%2FGc2IrCqLgJiIar1EgInaI6d3yXHytJb5boQ1Ym5HsML5oSphvP1hBCFvgtrkpt3teC9sz%2F02EwDEGzubXTtTxqnHBOiqeNpfNEReBvGYlciW1L%2FxLQxgqD5RpQ5CUBnf67bJivw%2BtoZ%2BpV3UvOdvkG99R3Yb6KV5k2Ly3LruRvseHIOA2KILhuT0Arnm9FUq1BvuB593ehUm8src6x4P2nT6wjhA9E2kekyi7othxiuSueSwwyp66qAY6sQGfl2fsTY6VWTPrJHQD%2BPDh1xgsgnaytGIcrwK1OGEf8WVcLpw6bEJ6BKLFS7l9GZDwFvjz7J48x%2Bl7YfFRkEZXRmoO3ak0duYeBuy3U2I6DbXdUZZIWlnrcVoExjgWQHiADxJVCKngMqQP1GNwrY9M5Of5s5Z3zUQwD3EqxVcljRFvNHznFkHj8b2eCVcdpPMI6JyXX4H9nyjUW4XvHJwg%2F0AQay6G%2BksUHKVQvEI2UA4%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=72062eca33c8afdf47b8cd66c0deb42919618b1a2e321842837993c225d9c876"
+        }
+      ],
+      "genius_execution_id": null,
+      "team_handle": "rails"
+    },
+    {
+      "id": 8277732,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hey Jack. The advisory looks good. I just noticed I used my GitHub email for the patches. I've updated them to use my personal email. Besides that everything looks good, thanks!",
+      "automated_response": false,
+      "created_at": "2020-06-12T20:19:33.619Z",
+      "updated_at": "2020-06-12T20:19:33.619Z",
+      "actor": {
+        "username": "fletchto99",
+        "cleared": false,
+        "verified": false,
+        "url": "/fletchto99",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/egeK1BGNaCNZkCgKcCQFvWHY/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "attachments": [
+        {
+          "id": 866149,
+          "filename": "0001-2.2.2-When-parsing-cookies-only-decode-the-values.patch",
+          "type": "text/x-patch",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/4oFQPzpFGirVyeaKhiJSZvGV?response-content-disposition=attachment%3B%20filename%3D%220001-2.2.2-When-parsing-cookies-only-decode-the-values.patch%22%3B%20filename%2A%3DUTF-8%27%270001-2.2.2-When-parsing-cookies-only-decode-the-values.patch&response-content-type=text%2Fx-patch&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQRWDIYOMA%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T072816Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEC8aCXVzLXdlc3QtMiJHMEUCIFNLdnPGtLwKMqDt0NQfrZo0FnfieCdt70b8x7mZltnYAiEAvoj8eBF%2Fz9RmxiwioQTjaAkY5y8glP7YJHIdVEiSRjIqsgUIKBADGgwwMTM2MTkyNzQ4NDkiDKwmuAj4%2Be1s5lbylSqPBcomyuxhildk0NUANV3%2BftlYYJCWX1M%2B1xqa23Q06%2By7YS%2BQATcLYhjMRKLHIGZfd3bianhW%2FgdFm4gpQAmwDHRw2igbV1zSavkNvXqacnFdw4Oln9SHRd2e4zuwk%2F2GviKwn1nZunhhdOuu6g7A2DA%2FQefyAlyQYpy%2FHRGl7J9kIPlFGlBK9CAul0kzKyTjlygr3Hz7DB5F6X4FcS71gvzmFC%2Fa6bf1tdfq46kICi9nBXV8Yep%2FEmkoi%2FkPVN6jpqZHrrqGL%2BeKOCEw6yXkZefklvRs%2Bmud%2BPdLs6D35uN9GpF0h2lyRl7mI1tGYSVdAxrxhb%2FnLZ%2BBbcvE%2FzPbIbOkYt%2F4kzBjPA33r7a6gRZo6xBI%2BqcHTUEoZlsC%2FePoA0bzI%2BY%2B9Kn7r266PdCrFtOI0TtLDtrt1a%2FsYB7r39ZReNeBUZjFy71DofxHhuMplWoZ%2B5suYOSkCpnX8ox%2FexG03tPH%2B%2BYi%2B7JKgMNo8Ywg0LUY4FIgqUOY3m9G4vsQ2yNVvhHzc1zFQ%2BaZDinuNqUJycV22%2Bal4yI7Vu8zRPT0XS8nU9mRxPyMOxBhqiEpipRhHvEk6ruVgSYpVrhEqZHRnwv%2FiS2CGZuiFnzVyfzzNc0a1K3NA%2Bqp8X%2FGc2IrCqLgJiIar1EgInaI6d3yXHytJb5boQ1Ym5HsML5oSphvP1hBCFvgtrkpt3teC9sz%2F02EwDEGzubXTtTxqnHBOiqeNpfNEReBvGYlciW1L%2FxLQxgqD5RpQ5CUBnf67bJivw%2BtoZ%2BpV3UvOdvkG99R3Yb6KV5k2Ly3LruRvseHIOA2KILhuT0Arnm9FUq1BvuB593ehUm8src6x4P2nT6wjhA9E2kekyi7othxiuSueSwwyp66qAY6sQGfl2fsTY6VWTPrJHQD%2BPDh1xgsgnaytGIcrwK1OGEf8WVcLpw6bEJ6BKLFS7l9GZDwFvjz7J48x%2Bl7YfFRkEZXRmoO3ak0duYeBuy3U2I6DbXdUZZIWlnrcVoExjgWQHiADxJVCKngMqQP1GNwrY9M5Of5s5Z3zUQwD3EqxVcljRFvNHznFkHj8b2eCVcdpPMI6JyXX4H9nyjUW4XvHJwg%2F0AQay6G%2BksUHKVQvEI2UA4%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=4e1ede70b41b2065171a93e2a6f0e11ed43a263d5e5cd5340b51a898820474a4"
+        },
+        {
+          "id": 866148,
+          "filename": "0001-2.1.3-When-parsing-cookies-only-decode-the-values.patch",
+          "type": "text/x-patch",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/cwo2fyf7no68vtQhs4XE2fgF?response-content-disposition=attachment%3B%20filename%3D%220001-2.1.3-When-parsing-cookies-only-decode-the-values.patch%22%3B%20filename%2A%3DUTF-8%27%270001-2.1.3-When-parsing-cookies-only-decode-the-values.patch&response-content-type=text%2Fx-patch&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQRWDIYOMA%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T072816Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEC8aCXVzLXdlc3QtMiJHMEUCIFNLdnPGtLwKMqDt0NQfrZo0FnfieCdt70b8x7mZltnYAiEAvoj8eBF%2Fz9RmxiwioQTjaAkY5y8glP7YJHIdVEiSRjIqsgUIKBADGgwwMTM2MTkyNzQ4NDkiDKwmuAj4%2Be1s5lbylSqPBcomyuxhildk0NUANV3%2BftlYYJCWX1M%2B1xqa23Q06%2By7YS%2BQATcLYhjMRKLHIGZfd3bianhW%2FgdFm4gpQAmwDHRw2igbV1zSavkNvXqacnFdw4Oln9SHRd2e4zuwk%2F2GviKwn1nZunhhdOuu6g7A2DA%2FQefyAlyQYpy%2FHRGl7J9kIPlFGlBK9CAul0kzKyTjlygr3Hz7DB5F6X4FcS71gvzmFC%2Fa6bf1tdfq46kICi9nBXV8Yep%2FEmkoi%2FkPVN6jpqZHrrqGL%2BeKOCEw6yXkZefklvRs%2Bmud%2BPdLs6D35uN9GpF0h2lyRl7mI1tGYSVdAxrxhb%2FnLZ%2BBbcvE%2FzPbIbOkYt%2F4kzBjPA33r7a6gRZo6xBI%2BqcHTUEoZlsC%2FePoA0bzI%2BY%2B9Kn7r266PdCrFtOI0TtLDtrt1a%2FsYB7r39ZReNeBUZjFy71DofxHhuMplWoZ%2B5suYOSkCpnX8ox%2FexG03tPH%2B%2BYi%2B7JKgMNo8Ywg0LUY4FIgqUOY3m9G4vsQ2yNVvhHzc1zFQ%2BaZDinuNqUJycV22%2Bal4yI7Vu8zRPT0XS8nU9mRxPyMOxBhqiEpipRhHvEk6ruVgSYpVrhEqZHRnwv%2FiS2CGZuiFnzVyfzzNc0a1K3NA%2Bqp8X%2FGc2IrCqLgJiIar1EgInaI6d3yXHytJb5boQ1Ym5HsML5oSphvP1hBCFvgtrkpt3teC9sz%2F02EwDEGzubXTtTxqnHBOiqeNpfNEReBvGYlciW1L%2FxLQxgqD5RpQ5CUBnf67bJivw%2BtoZ%2BpV3UvOdvkG99R3Yb6KV5k2Ly3LruRvseHIOA2KILhuT0Arnm9FUq1BvuB593ehUm8src6x4P2nT6wjhA9E2kekyi7othxiuSueSwwyp66qAY6sQGfl2fsTY6VWTPrJHQD%2BPDh1xgsgnaytGIcrwK1OGEf8WVcLpw6bEJ6BKLFS7l9GZDwFvjz7J48x%2Bl7YfFRkEZXRmoO3ak0duYeBuy3U2I6DbXdUZZIWlnrcVoExjgWQHiADxJVCKngMqQP1GNwrY9M5Of5s5Z3zUQwD3EqxVcljRFvNHznFkHj8b2eCVcdpPMI6JyXX4H9nyjUW4XvHJwg%2F0AQay6G%2BksUHKVQvEI2UA4%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=927d561aa06c550bd5523fc923c250fabe57b7a576d3b0ba72ffa2c026bd324e"
+        }
+      ],
+      "genius_execution_id": null,
+      "team_handle": "rails"
+    },
+    {
+      "id": 8300381,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportSeverityUpdated",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2020-06-15T22:32:01.840Z",
+      "updated_at": "2020-06-15T22:32:01.840Z",
+      "additional_data": {
+        "old_severity": null,
+        "new_severity": "Low",
+        "old_severity_id": null,
+        "new_severity_id": 750474
+      },
+      "actor": {
+        "username": "tenderlove",
+        "cleared": false,
+        "verified": false,
+        "url": "/tenderlove",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/003/318/60d828744b5d16813ecbf975fdc453dc4a933f4f_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "rails"
+    },
+    {
+      "id": 8300383,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "This is shipped, thanks!",
+      "automated_response": false,
+      "created_at": "2020-06-15T22:32:06.208Z",
+      "updated_at": "2020-06-15T22:32:06.208Z",
+      "actor": {
+        "username": "tenderlove",
+        "cleared": false,
+        "verified": false,
+        "url": "/tenderlove",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/003/318/60d828744b5d16813ecbf975fdc453dc4a933f4f_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "reporter": {
+        "username": "fletchto99",
+        "url": "/fletchto99"
+      },
+      "genius_execution_id": null,
+      "team_handle": "rails"
+    },
+    {
+      "id": 8301043,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "Thanks @tenderlove and @jack_mccracken, unless there's any reservations any issues with disclosing?",
+      "automated_response": false,
+      "created_at": "2020-06-16T01:20:37.735Z",
+      "updated_at": "2020-06-16T01:20:37.735Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "fletchto99",
+        "cleared": false,
+        "verified": false,
+        "url": "/fletchto99",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/egeK1BGNaCNZkCgKcCQFvWHY/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "rails"
+    },
+    {
+      "id": 8306278,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2020-06-16T13:27:51.927Z",
+      "updated_at": "2020-06-16T13:27:51.927Z",
+      "actor": {
+        "username": "jack_mccracken",
+        "cleared": false,
+        "verified": false,
+        "url": "/jack_mccracken",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/164/342/6543dc397b4dbb2c24dc81f92a42de654a3e6a99_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "rails"
+    },
+    {
+      "id": 8306279,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportBecamePublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2020-06-16T13:27:52.028Z",
+      "updated_at": "2020-06-16T13:27:52.028Z",
+      "actor": {
+        "username": "jack_mccracken",
+        "cleared": false,
+        "verified": false,
+        "url": "/jack_mccracken",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/164/342/6543dc397b4dbb2c24dc81f92a42de654a3e6a99_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "rails"
+    },
+    {
+      "id": 10629567,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::NotEligibleForBounty",
+      "message": "Hi @fletchto99. No problems disclosing this, I just have completely forgotten to do that.  Also since this is a low severity bug I'm not awarding a bounty (as that is what our bounty rules say).",
+      "automated_response": false,
+      "created_at": "2021-02-09T21:42:36.149Z",
+      "updated_at": "2021-02-09T21:42:36.149Z",
+      "actor": {
+        "url": "/rails",
+        "ibb": true,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/000/022/5e2b46658c8b86bed62f574d8e1793f353cbbc63_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "Ruby on Rails"
+        }
+      },
+      "genius_execution_id": null,
+      "team_handle": "rails"
+    }
+  ],
+  "activity_page_count": 1,
+  "activity_page_number": 1,
+  "summaries": [
+    {
+      "category": "team",
+      "can_view?": true,
+      "can_create?": false
+    },
+    {
+      "category": "researcher",
+      "can_view?": true,
+      "can_create?": false
+    }
+  ]
+}

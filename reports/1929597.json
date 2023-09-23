@@ -1,0 +1,567 @@
+{
+  "id": 1929597,
+  "global_id": "Z2lkOi8vaGFja2Vyb25lL1JlcG9ydC8xOTI5NTk3",
+  "url": "https://hackerone.com/reports/1929597",
+  "title": "CVE-2023-28320: siglongjmp race condition",
+  "state": "Closed",
+  "substate": "resolved",
+  "severity_rating": "low",
+  "readable_substate": "Resolved",
+  "created_at": "2023-04-02T01:19:19.253Z",
+  "submitted_at": "2023-04-02T01:19:19.364Z",
+  "is_member_of_team?": false,
+  "is_organization_group_member?": false,
+  "reporter": {
+    "disabled": false,
+    "username": "nyymi",
+    "url": "/nyymi",
+    "profile_picture_urls": {
+      "small": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+    },
+    "is_me?": false,
+    "cleared": false,
+    "verified": false,
+    "hackerone_triager": false,
+    "hacker_mediation": false
+  },
+  "team": {
+    "id": 35663,
+    "url": "https://hackerone.com/curl",
+    "handle": "curl",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/035/663/2faf4c279d437d64bfda6d23d62ce1833813a4d9_original.png/d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98",
+      "medium": "https://profile-photos.hackerone-user-content.com/variants/000/035/663/2faf4c279d437d64bfda6d23d62ce1833813a4d9_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+    },
+    "permissions": [
+
+    ],
+    "submission_state": "open",
+    "default_currency": "usd",
+    "awards_miles": false,
+    "offers_bounties": true,
+    "state": "public_mode",
+    "only_cleared_hackers": false,
+    "pentest_feature_enabled?": false,
+    "profile": {
+      "name": "curl",
+      "twitter_handle": "",
+      "website": "https://curl.se",
+      "about": "cURL is an Open Source project providing a library and command-line tool for doing internet transfers"
+    }
+  },
+  "has_bounty?": false,
+  "in_validation?": false,
+  "can_view_team": true,
+  "can_view_report": true,
+  "is_external_bug": false,
+  "is_published": false,
+  "is_participant": false,
+  "has_collaborators": false,
+  "submitted_by_team_member": false,
+  "stage": 4,
+  "public": true,
+  "visibility": "full",
+  "cve_ids": [
+    "CVE-2023-28320"
+  ],
+  "singular_disclosure_disabled": false,
+  "disclosed_at": "2023-05-17T09:50:01.797Z",
+  "bug_reporter_agreed_on_going_public_at": "2023-05-17T09:49:33.663Z",
+  "team_member_agreed_on_going_public_at": "2023-05-17T09:50:01.704Z",
+  "comments_closed?": false,
+  "facebook_team?": false,
+  "team_private?": false,
+  "vulnerability_information": "## Summary:\nIf the system has no POSIX or Windows threading support, `USE_ALARM_TIMEOUT` codepath will be used in `lib/hostip.c`. If two threads will perform DNS resolving, a wrong register context can be used on  the signal handler`siglongjmp` call if DNS timeout occurs. Typically this results in segmentation fault, but depending on platform specifics other impacts might be possible (but unlikely).\n\nThe documentation warns against this very issue in https://curl.se/libcurl/c/threadsafe.html `It is important that libcurl can find and use thread safe versions of these and other system calls, as otherwise it cannot function fully thread safe.` The issue is that there is no way for the application using libcurl to know if the library is MT safe for DNS resolution or not. `CURL_VERSION_THREADSAFE` is mentioned, but this checks availability of atomic init, not MT safety of DNS resolution.\n\nA remote attacker in a privileged network position is able to selectively block the DNS responses and may thus induce the affected target application to crash.\n\n## Steps To Reproduce:\n\n  1. For quick testing on POSIX systems add `#define USE_ALARM_TIMEOUT` to `lib/hostip.c`, for example:\n ```\ndiff --git a/lib/hostip.c b/lib/hostip.c\nindex 2381290fd..0148f2861 100644\n--- a/lib/hostip.c\n+++ b/lib/hostip.c\n@@ -75,6 +75,7 @@\n /* alarm-based timeouts can only be used with all the dependencies satisfied */\n #define USE_ALARM_TIMEOUT\n #endif\n+#define USE_ALARM_TIMEOUT\n\n #define MAX_HOSTCACHE_LEN (255 + 7) /* max FQDN + colon + port number + zero */\n\n ```\n  2. Compile libcurl\n  3. Compile version of https://curl.se/libcurl/c/multithread.html but add `curl_easy_setopt(curl, CURLOPT_TIMEOUT, 2);` to  `pull_one_url` function.\n  4. Change DNS config to point to blackhole DNS server at `3.219.212.117` (blackhole.webpagetest.org)\n  5. Execute the compiled `multithread` and the application will segfault.\n\n```\n$ LD_LIBRARY_PATH=./lib/.libs:$LD_LIBRARY_PATH gdb ./multithread\nGNU gdb (Debian 13.1-2) 13.1\nCopyright (C) 2023 Free Software Foundation, Inc.\nLicense GPLv3+: GNU GPL version 3 or later <http://gnu.org/licenses/gpl.html>\nThis is free software: you are free to change and redistribute it.\nThere is NO WARRANTY, to the extent permitted by law.\nType \"show copying\" and \"show warranty\" for details.\nThis GDB was configured as \"x86_64-linux-gnu\".\nType \"show configuration\" for configuration details.\nFor bug reporting instructions, please see:\n<https://www.gnu.org/software/gdb/bugs/>.\nFind the GDB manual and other documentation resources online at:\n    <http://www.gnu.org/software/gdb/documentation/>.\n\nFor help, type \"help\".\nType \"apropos word\" to search for commands related to \"word\"...\nReading symbols from ./multithread...\n(No debugging symbols found in ./multithread)\n(gdb) r\nStarting program: /home/user/curl/multithread\n/home/user/curl/multithread: ./lib/.libs/libcurl.so.4: no version information available (required by /home/user/curl/multithread)\n[Thread debugging using libthread_db enabled]\nUsing host libthread_db library \"/lib/x86_64-linux-gnu/libthread_db.so.1\".\n[New Thread 0x7ffff6ffc6c0 (LWP 2733684)]\nThread 0, gets http://curl.haxx.se/\n[New Thread 0x7ffff67fb6c0 (LWP 2733685)]\nThread 1, gets ftp://cool.haxx.se/\n[New Thread 0x7ffff5ffa6c0 (LWP 2733686)]\n[New Thread 0x7ffff57f96c0 (LWP 2733687)]\nThread 2, gets http://www.contactor.se/\n[New Thread 0x7ffff4ff86c0 (LWP 2733688)]\n[New Thread 0x7fffe77fe6c0 (LWP 2733690)]\n[New Thread 0x7fffe7fff6c0 (LWP 2733689)]\nThread 3, gets www.haxx.se\n[New Thread 0x7fffe6ffd6c0 (LWP 2733691)]\n\nThread 1 \"multithread\" received signal SIGSEGV, Segmentation fault.\n0x00007ffff7f42b32 in Curl_failf () from ./lib/.libs/libcurl.so.4\n(gdb) bt\n#0  0x00007ffff7f42b32 in Curl_failf () from ./lib/.libs/libcurl.so.4\n#1  0x00007ffff7f546dd in Curl_resolv_timeout () from ./lib/.libs/libcurl.so.4\n#2  0x0000000000000000 in ?? ()\n```\n\n## Risk discussion\nI don't consider this issue a major risk since it likely will affect only small percentage of target platforms. Some rare windows configurations might be affected, as discussed in `lib/curl_setup.h`.\n\n## Remediation\nAdd an atomic locking to `USE_ALARM_TIMEOUT` code path to prevent multiple threads from using `sigjmp_buf` at the same time. The downside of this is that it makes DNS resolving serial, but at least it won't crash. Here's a crude proposal for this workaround:\n```\ndiff --git a/lib/hostip.c b/lib/hostip.c\nindex 2381290fd..0c0c3b258 100644\n--- a/lib/hostip.c\n+++ b/lib/hostip.c\n@@ -76,6 +76,10 @@\n #define USE_ALARM_TIMEOUT\n #endif\n \n+#ifdef USE_ALARM_TIMEOUT\n+#include \"easy_lock.h\"\n+#endif\n+\n #define MAX_HOSTCACHE_LEN (255 + 7) /* max FQDN + colon + port number + zero */\n \n /*\n@@ -254,11 +258,14 @@ void Curl_hostcache_prune(struct Curl_easy *data)\n     Curl_share_unlock(data, CURL_LOCK_DATA_DNS);\n }\n \n-#ifdef HAVE_SIGSETJMP\n+#ifdef USE_ALARM_TIMEOUT\n /* Beware this is a global and unique instance. This is used to store the\n    return address that we can jump back to from inside a signal handler. This\n    is not thread-safe stuff. */\n sigjmp_buf curl_jmpenv;\n+#ifdef GLOBAL_INIT_IS_THREADSAFE\n+curl_simple_lock curl_jmpenv_lock;\n+#endif\n #endif\n \n /* lookup address, returns entry if found and not stale */\n@@ -912,8 +919,15 @@ enum resolve_t Curl_resolv_timeout(struct Curl_easy *data,\n      This should be the last thing we do before calling Curl_resolv(),\n      as otherwise we'd have to worry about variables that get modified\n      before we invoke Curl_resolv() (and thus use \"volatile\"). */\n+#ifdef GLOBAL_INIT_IS_THREADSAFE\n+  curl_simple_lock_lock(&curl_jmpenv_lock);\n+#endif\n+\n   if(sigsetjmp(curl_jmpenv, 1)) {\n     /* this is coming from a siglongjmp() after an alarm signal */\n+#ifdef GLOBAL_INIT_IS_THREADSAFE\n+    curl_simple_lock_unlock(&curl_jmpenv_lock);\n+#endif\n     failf(data, \"name lookup timed out\");\n     rc = CURLRESOLV_ERROR;\n     goto clean_up;\n@@ -980,6 +994,10 @@ clean_up:\n #endif\n #endif /* HAVE_SIGACTION */\n \n+#ifdef GLOBAL_INIT_IS_THREADSAFE\n+  curl_simple_lock_unlock(&curl_jmpenv_lock);\n+#endif\n+\n   /* switch back the alarm() to either zero or to what it was before minus\n      the time we spent until now! */\n   if(prev_alarm) {\n```\nThis fix isn't very optimal however as `curl_simple_lock_lock` is intended for short held locks. It maybe should also refuse to build if `GLOBAL_INIT_IS_THREADSAFE` is not available.\n\nAnother (easier) option would be to make the `Curl_resolv_timeout` `USE_ALARM_TIMEOUT` codepath fail if some other call of the function is in flight. This is quite crude, however.\n\n## Impact\n\nDenial of service.",
+  "weakness": {
+    "id": 845,
+    "name": "Improper Synchronization"
+  },
+  "original_report_id": null,
+  "original_report_url": null,
+  "attachments": [
+
+  ],
+  "allow_singular_disclosure_at": "2023-06-16T09:49:33.764Z",
+  "allow_singular_disclosure_after": -8543145.852983905,
+  "singular_disclosure_allowed": true,
+  "vote_count": 4,
+  "voters": [
+    "team_tsk",
+    "zy9ard3",
+    "shivammusic",
+    "w0x42"
+  ],
+  "severity": {
+    "rating": "low",
+    "author_type": "User"
+  },
+  "structured_scope": {
+    "databaseId": 18844,
+    "asset_type": "SOURCE_CODE",
+    "asset_identifier": "https://github.com/curl/curl",
+    "max_severity": "critical"
+  },
+  "abilities": {
+    "assignable_team_members": [
+
+    ],
+    "assignable_team_member_groups": [
+
+    ]
+  },
+  "activities": [
+    {
+      "id": 21078225,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Thank you for your report!\n\nWe will take some time and investigate your reports and get back to you with details and possible follow-up questions as soon as we can!",
+      "automated_response": false,
+      "created_at": "2023-04-02T07:07:10.235Z",
+      "updated_at": "2023-04-02T07:07:10.235Z",
+      "actor": {
+        "username": "bagder",
+        "cleared": false,
+        "verified": false,
+        "url": "/bagder",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/y9xzl5ayi7du4kz3l6pa6sff2ha5/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22final-12-1000x1000.jpg%22%3B%20filename%2A%3DUTF-8%27%27final-12-1000x1000.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQSQ2EO4J6%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065519Z&X-Amz-Expires=2573&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJGMEQCIDdaOxaU2Kc7XK%2BFPO0xwEcua0EmQNQ0KITjMo%2BKI7S%2FAiAzEGtwS8msUueXSru5QP82dF7uwkPFZmzhjY8laBf5ySqxBQgiEAMaDDAxMzYxOTI3NDg0OSIMMwqH%2BrtGLzp0nfFJKo4FfKwfKYelWDcX3DZmXtAToi%2BfdIW%2FTskJuWscWNQ76Tnp8xifpkkQJqzgVzQ1mNVCoJr7%2BHlI2zJhu0AXuqUf6FD0aST%2BKfWDBNuzGTpRcWWnx07Sch98UNn54OsKQbkd78QdkYbYIIydcW4rDyHcf69tkUPFukaryTwqFIQUzVC34LtpkpFeA9lDvrXGajNXbhcjKrAFt5HqSOZuuuzssNNlvHJE05jjBky2NSGdLPAbwZ5PyWIPopmg1W4zjYBUwa%2F0z3qTgn0zEoCTBSKgTZOxPGLRSTPuvxrR0mqU9OcBLyJp193C17CIZVqQgijrtvyXYk%2FM2oDDkUsD7oeMeAFi8iq1vQlGMOgky5Mb4a6rOsWjihhywKDJptVFAvuD5Dj3tbSEYMt48EBT7kCNQd8x2uZADjILGD3cpoZLKeNeqFmfFNRBUEpMfGc5V1%2FI9fJ%2FzgQyr2nb6tNoGRs2QoePdMvOr42ig5kYNAYT7qahQE3vKgClxMTOREjRXfYOrHcHAtPXN4664bTPb1qQrBbF3foKJfwP06KCyM3rFnllobDOLYckn%2FGBEHSl4G2Hnse7CaI%2BGpBkpP0Ud8awKHx3d9xgtFAnC85ks1%2BkhSBq2pHVohOXkjxj3RfmbctowIVuWZvY6MfJpBsaoYyVxDQv%2BMuQlcCUEHl9AJ8Xs%2BWTD7tNE9FfrC4KY2BGHedJYf52GgTsQ7CuCfr5uJg4YBvuTmWyYN78uJu3nhB86AstH1doFZFbBt%2FroDTEUJfBYlS40afyu2h749TRxoiU4xcWDNDUIi%2B6zINKu9qI5X4XfH%2BoRrq7ZYgkoHQQRAW7YCYdirZLXoO2ETACtWPa5nyukSpsZ%2F8mmmkr4uC7MPP6uKgGOrIBCrIPzsKyYiYmXbfpjP3Q51XNqU0RvILr5XTqNaH6BkaJc7iqpnIwN%2FwpnoQ9ykcsf6gSCQUk9Fr3CRZm11fApJXeKbQ3cP7fcLscjO5J9oxYuZzrFKcuMO2l1VecXevCmP4wSmgs9gPOQP%2BjPbUXioCzwZ3NoL2q1W%2Bdvc2hJhiDeOCAy58REfH1mTOf633Nzxlb510ZtNV%2FKoIE6XLQtlIo6pnGn%2FyDTqTX7RGJ0U39bA%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=68f3f34d6fbf26e6442532c4807379d665a9a284393a5ee18f7f474dd84a7c39"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 21081591,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Oops, the patch is buggy, it has a double `curl_simple_lock_unlock` call. Here's a fixed patch:\n```\ndiff --git a/lib/hostip.c b/lib/hostip.c\nindex 2381290fd..b9b3ded07 100644\n--- a/lib/hostip.c\n+++ b/lib/hostip.c\n@@ -76,6 +76,10 @@\n #define USE_ALARM_TIMEOUT\n #endif\n \n+#ifdef USE_ALARM_TIMEOUT\n+#include \"easy_lock.h\"\n+#endif\n+\n #define MAX_HOSTCACHE_LEN (255 + 7) /* max FQDN + colon + port number + zero */\n \n /*\n@@ -254,11 +258,14 @@ void Curl_hostcache_prune(struct Curl_easy *data)\n     Curl_share_unlock(data, CURL_LOCK_DATA_DNS);\n }\n \n-#ifdef HAVE_SIGSETJMP\n+#ifdef USE_ALARM_TIMEOUT\n /* Beware this is a global and unique instance. This is used to store the\n    return address that we can jump back to from inside a signal handler. This\n    is not thread-safe stuff. */\n sigjmp_buf curl_jmpenv;\n+#ifdef GLOBAL_INIT_IS_THREADSAFE\n+curl_simple_lock curl_jmpenv_lock;\n+#endif\n #endif\n \n /* lookup address, returns entry if found and not stale */\n@@ -912,6 +919,10 @@ enum resolve_t Curl_resolv_timeout(struct Curl_easy *data,\n      This should be the last thing we do before calling Curl_resolv(),\n      as otherwise we'd have to worry about variables that get modified\n      before we invoke Curl_resolv() (and thus use \"volatile\"). */\n+#ifdef GLOBAL_INIT_IS_THREADSAFE\n+  curl_simple_lock_lock(&curl_jmpenv_lock);\n+#endif\n+\n   if(sigsetjmp(curl_jmpenv, 1)) {\n     /* this is coming from a siglongjmp() after an alarm signal */\n     failf(data, \"name lookup timed out\");\n@@ -980,6 +991,10 @@ clean_up:\n #endif\n #endif /* HAVE_SIGACTION */\n \n+#ifdef GLOBAL_INIT_IS_THREADSAFE\n+  curl_simple_lock_unlock(&curl_jmpenv_lock);\n+#endif\n+\n   /* switch back the alarm() to either zero or to what it was before minus\n      the time we spent until now! */\n   if(prev_alarm) {\n```\n",
+      "automated_response": false,
+      "created_at": "2023-04-02T12:13:29.310Z",
+      "updated_at": "2023-04-02T12:13:29.310Z",
+      "actor": {
+        "username": "nyymi",
+        "cleared": false,
+        "verified": false,
+        "url": "/nyymi",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 21116745,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugTriaged",
+      "message": "Clearly a race condition that I presume can lead to badness if unlucky.\n\nI think maybe we should protect the use of this even more so that we #ifdef the whole signal-timeout operation on GLOBAL_INIT_IS_THREADSAFE as well. So that we *know* the locking function is present when this is done.",
+      "automated_response": false,
+      "created_at": "2023-04-04T07:40:41.405Z",
+      "updated_at": "2023-04-04T07:40:41.405Z",
+      "actor": {
+        "username": "bagder",
+        "cleared": false,
+        "verified": false,
+        "url": "/bagder",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/y9xzl5ayi7du4kz3l6pa6sff2ha5/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22final-12-1000x1000.jpg%22%3B%20filename%2A%3DUTF-8%27%27final-12-1000x1000.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQSQ2EO4J6%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065519Z&X-Amz-Expires=2573&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJGMEQCIDdaOxaU2Kc7XK%2BFPO0xwEcua0EmQNQ0KITjMo%2BKI7S%2FAiAzEGtwS8msUueXSru5QP82dF7uwkPFZmzhjY8laBf5ySqxBQgiEAMaDDAxMzYxOTI3NDg0OSIMMwqH%2BrtGLzp0nfFJKo4FfKwfKYelWDcX3DZmXtAToi%2BfdIW%2FTskJuWscWNQ76Tnp8xifpkkQJqzgVzQ1mNVCoJr7%2BHlI2zJhu0AXuqUf6FD0aST%2BKfWDBNuzGTpRcWWnx07Sch98UNn54OsKQbkd78QdkYbYIIydcW4rDyHcf69tkUPFukaryTwqFIQUzVC34LtpkpFeA9lDvrXGajNXbhcjKrAFt5HqSOZuuuzssNNlvHJE05jjBky2NSGdLPAbwZ5PyWIPopmg1W4zjYBUwa%2F0z3qTgn0zEoCTBSKgTZOxPGLRSTPuvxrR0mqU9OcBLyJp193C17CIZVqQgijrtvyXYk%2FM2oDDkUsD7oeMeAFi8iq1vQlGMOgky5Mb4a6rOsWjihhywKDJptVFAvuD5Dj3tbSEYMt48EBT7kCNQd8x2uZADjILGD3cpoZLKeNeqFmfFNRBUEpMfGc5V1%2FI9fJ%2FzgQyr2nb6tNoGRs2QoePdMvOr42ig5kYNAYT7qahQE3vKgClxMTOREjRXfYOrHcHAtPXN4664bTPb1qQrBbF3foKJfwP06KCyM3rFnllobDOLYckn%2FGBEHSl4G2Hnse7CaI%2BGpBkpP0Ud8awKHx3d9xgtFAnC85ks1%2BkhSBq2pHVohOXkjxj3RfmbctowIVuWZvY6MfJpBsaoYyVxDQv%2BMuQlcCUEHl9AJ8Xs%2BWTD7tNE9FfrC4KY2BGHedJYf52GgTsQ7CuCfr5uJg4YBvuTmWyYN78uJu3nhB86AstH1doFZFbBt%2FroDTEUJfBYlS40afyu2h749TRxoiU4xcWDNDUIi%2B6zINKu9qI5X4XfH%2BoRrq7ZYgkoHQQRAW7YCYdirZLXoO2ETACtWPa5nyukSpsZ%2F8mmmkr4uC7MPP6uKgGOrIBCrIPzsKyYiYmXbfpjP3Q51XNqU0RvILr5XTqNaH6BkaJc7iqpnIwN%2FwpnoQ9ykcsf6gSCQUk9Fr3CRZm11fApJXeKbQ3cP7fcLscjO5J9oxYuZzrFKcuMO2l1VecXevCmP4wSmgs9gPOQP%2BjPbUXioCzwZ3NoL2q1W%2Bdvc2hJhiDeOCAy58REfH1mTOf633Nzxlb510ZtNV%2FKoIE6XLQtlIo6pnGn%2FyDTqTX7RGJ0U39bA%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=68f3f34d6fbf26e6442532c4807379d665a9a284393a5ee18f7f474dd84a7c39"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 21117399,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Yeah, that'd be safer.\n\nI wonder though if that'd break some currently supported platforms? Then again, if it would break, they can then sort it out by adding their own locking implementation to `lib/easy_lock.h`.",
+      "automated_response": false,
+      "created_at": "2023-04-04T08:14:57.941Z",
+      "updated_at": "2023-04-04T08:15:41.125Z",
+      "actor": {
+        "username": "nyymi",
+        "cleared": false,
+        "verified": false,
+        "url": "/nyymi",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 21208250,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Exactly. I estimate that it is highly unlikely to hurt more than a tiny fraction of users. And they can then fix it.",
+      "automated_response": false,
+      "created_at": "2023-04-10T13:41:18.304Z",
+      "updated_at": "2023-04-10T13:41:18.304Z",
+      "actor": {
+        "username": "bagder",
+        "cleared": false,
+        "verified": false,
+        "url": "/bagder",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/y9xzl5ayi7du4kz3l6pa6sff2ha5/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22final-12-1000x1000.jpg%22%3B%20filename%2A%3DUTF-8%27%27final-12-1000x1000.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQSQ2EO4J6%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065519Z&X-Amz-Expires=2573&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJGMEQCIDdaOxaU2Kc7XK%2BFPO0xwEcua0EmQNQ0KITjMo%2BKI7S%2FAiAzEGtwS8msUueXSru5QP82dF7uwkPFZmzhjY8laBf5ySqxBQgiEAMaDDAxMzYxOTI3NDg0OSIMMwqH%2BrtGLzp0nfFJKo4FfKwfKYelWDcX3DZmXtAToi%2BfdIW%2FTskJuWscWNQ76Tnp8xifpkkQJqzgVzQ1mNVCoJr7%2BHlI2zJhu0AXuqUf6FD0aST%2BKfWDBNuzGTpRcWWnx07Sch98UNn54OsKQbkd78QdkYbYIIydcW4rDyHcf69tkUPFukaryTwqFIQUzVC34LtpkpFeA9lDvrXGajNXbhcjKrAFt5HqSOZuuuzssNNlvHJE05jjBky2NSGdLPAbwZ5PyWIPopmg1W4zjYBUwa%2F0z3qTgn0zEoCTBSKgTZOxPGLRSTPuvxrR0mqU9OcBLyJp193C17CIZVqQgijrtvyXYk%2FM2oDDkUsD7oeMeAFi8iq1vQlGMOgky5Mb4a6rOsWjihhywKDJptVFAvuD5Dj3tbSEYMt48EBT7kCNQd8x2uZADjILGD3cpoZLKeNeqFmfFNRBUEpMfGc5V1%2FI9fJ%2FzgQyr2nb6tNoGRs2QoePdMvOr42ig5kYNAYT7qahQE3vKgClxMTOREjRXfYOrHcHAtPXN4664bTPb1qQrBbF3foKJfwP06KCyM3rFnllobDOLYckn%2FGBEHSl4G2Hnse7CaI%2BGpBkpP0Ud8awKHx3d9xgtFAnC85ks1%2BkhSBq2pHVohOXkjxj3RfmbctowIVuWZvY6MfJpBsaoYyVxDQv%2BMuQlcCUEHl9AJ8Xs%2BWTD7tNE9FfrC4KY2BGHedJYf52GgTsQ7CuCfr5uJg4YBvuTmWyYN78uJu3nhB86AstH1doFZFbBt%2FroDTEUJfBYlS40afyu2h749TRxoiU4xcWDNDUIi%2B6zINKu9qI5X4XfH%2BoRrq7ZYgkoHQQRAW7YCYdirZLXoO2ETACtWPa5nyukSpsZ%2F8mmmkr4uC7MPP6uKgGOrIBCrIPzsKyYiYmXbfpjP3Q51XNqU0RvILr5XTqNaH6BkaJc7iqpnIwN%2FwpnoQ9ykcsf6gSCQUk9Fr3CRZm11fApJXeKbQ3cP7fcLscjO5J9oxYuZzrFKcuMO2l1VecXevCmP4wSmgs9gPOQP%2BjPbUXioCzwZ3NoL2q1W%2Bdvc2hJhiDeOCAy58REfH1mTOf633Nzxlb510ZtNV%2FKoIE6XLQtlIo6pnGn%2FyDTqTX7RGJ0U39bA%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=68f3f34d6fbf26e6442532c4807379d665a9a284393a5ee18f7f474dd84a7c39"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 21537739,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Here's @nyymi's patch with my tweak added:\n~~~diff\nFrom 482f6acee24dd1394691b87c31b474ca7d801157 Mon Sep 17 00:00:00 2001\nFrom: Daniel Stenberg <daniel@haxx.se>\nDate: Tue, 25 Apr 2023 09:22:26 +0200\nSubject: [PATCH] hostip: add locks around use of global buffer for alarm()\n\n---\n lib/hostip.c | 19 +++++++++++++++----\n 1 file changed, 15 insertions(+), 4 deletions(-)\n\ndiff --git a/lib/hostip.c b/lib/hostip.c\nindex 2381290fd..e410cda69 100644\n--- a/lib/hostip.c\n+++ b/lib/hostip.c\n@@ -68,16 +68,23 @@\n \n #if defined(ENABLE_IPV6) && defined(CURL_OSX_CALL_COPYPROXIES)\n #include <SystemConfiguration/SCDynamicStoreCopySpecific.h>\n #endif\n \n-#if defined(CURLRES_SYNCH) && \\\n-    defined(HAVE_ALARM) && defined(SIGALRM) && defined(HAVE_SIGSETJMP)\n+#if defined(CURLRES_SYNCH) &&                   \\\n+  defined(HAVE_ALARM) &&                        \\\n+  defined(SIGALRM) &&                           \\\n+  defined(HAVE_SIGSETJMP) &&                    \\\n+  defined(GLOBAL_INIT_IS_THREADSAFE)\n /* alarm-based timeouts can only be used with all the dependencies satisfied */\n #define USE_ALARM_TIMEOUT\n #endif\n \n+#ifdef USE_ALARM_TIMEOUT\n+#include \"easy_lock.h\"\n+#endif\n+\n #define MAX_HOSTCACHE_LEN (255 + 7) /* max FQDN + colon + port number + zero */\n \n /*\n  * hostip.c explained\n  * ==================\n@@ -252,15 +259,16 @@ void Curl_hostcache_prune(struct Curl_easy *data)\n \n   if(data->share)\n     Curl_share_unlock(data, CURL_LOCK_DATA_DNS);\n }\n \n-#ifdef HAVE_SIGSETJMP\n+#ifdef USE_ALARM_TIMEOUT\n /* Beware this is a global and unique instance. This is used to store the\n    return address that we can jump back to from inside a signal handler. This\n    is not thread-safe stuff. */\n sigjmp_buf curl_jmpenv;\n+curl_simple_lock curl_jmpenv_lock;\n #endif\n \n /* lookup address, returns entry if found and not stale */\n static struct Curl_dns_entry *fetch_addr(struct Curl_easy *data,\n                                          const char *hostname,\n@@ -830,11 +838,10 @@ enum resolve_t Curl_resolv(struct Curl_easy *data,\n  * within a signal handler which is nonportable and could lead to problems.\n  */\n static\n void alarmfunc(int sig)\n {\n-  /* this is for \"-ansi -Wall -pedantic\" to stop complaining!   (rabe) */\n   (void)sig;\n   siglongjmp(curl_jmpenv, 1);\n }\n #endif /* USE_ALARM_TIMEOUT */\n \n@@ -910,10 +917,12 @@ enum resolve_t Curl_resolv_timeout(struct Curl_easy *data,\n      will generate a signal and we will siglongjmp() from that here.\n      This technique has problems (see alarmfunc).\n      This should be the last thing we do before calling Curl_resolv(),\n      as otherwise we'd have to worry about variables that get modified\n      before we invoke Curl_resolv() (and thus use \"volatile\"). */\n+  curl_simple_lock_lock(&curl_jmpenv_lock);\n+\n   if(sigsetjmp(curl_jmpenv, 1)) {\n     /* this is coming from a siglongjmp() after an alarm signal */\n     failf(data, \"name lookup timed out\");\n     rc = CURLRESOLV_ERROR;\n     goto clean_up;\n@@ -978,10 +987,12 @@ clean_up:\n   /* restore the previous SIGALRM handler */\n   signal(SIGALRM, keep_sigact);\n #endif\n #endif /* HAVE_SIGACTION */\n \n+  curl_simple_lock_unlock(&curl_jmpenv_lock);\n+\n   /* switch back the alarm() to either zero or to what it was before minus\n      the time we spent until now! */\n   if(prev_alarm) {\n     /* there was an alarm() set before us, now put it back */\n     timediff_t elapsed_secs = Curl_timediff(Curl_now(),\n-- \n2.40.0\n\n",
+      "automated_response": false,
+      "created_at": "2023-04-25T07:26:32.814Z",
+      "updated_at": "2023-04-25T07:26:32.814Z",
+      "actor": {
+        "username": "bagder",
+        "cleared": false,
+        "verified": false,
+        "url": "/bagder",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/y9xzl5ayi7du4kz3l6pa6sff2ha5/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22final-12-1000x1000.jpg%22%3B%20filename%2A%3DUTF-8%27%27final-12-1000x1000.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQSQ2EO4J6%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065519Z&X-Amz-Expires=2573&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJGMEQCIDdaOxaU2Kc7XK%2BFPO0xwEcua0EmQNQ0KITjMo%2BKI7S%2FAiAzEGtwS8msUueXSru5QP82dF7uwkPFZmzhjY8laBf5ySqxBQgiEAMaDDAxMzYxOTI3NDg0OSIMMwqH%2BrtGLzp0nfFJKo4FfKwfKYelWDcX3DZmXtAToi%2BfdIW%2FTskJuWscWNQ76Tnp8xifpkkQJqzgVzQ1mNVCoJr7%2BHlI2zJhu0AXuqUf6FD0aST%2BKfWDBNuzGTpRcWWnx07Sch98UNn54OsKQbkd78QdkYbYIIydcW4rDyHcf69tkUPFukaryTwqFIQUzVC34LtpkpFeA9lDvrXGajNXbhcjKrAFt5HqSOZuuuzssNNlvHJE05jjBky2NSGdLPAbwZ5PyWIPopmg1W4zjYBUwa%2F0z3qTgn0zEoCTBSKgTZOxPGLRSTPuvxrR0mqU9OcBLyJp193C17CIZVqQgijrtvyXYk%2FM2oDDkUsD7oeMeAFi8iq1vQlGMOgky5Mb4a6rOsWjihhywKDJptVFAvuD5Dj3tbSEYMt48EBT7kCNQd8x2uZADjILGD3cpoZLKeNeqFmfFNRBUEpMfGc5V1%2FI9fJ%2FzgQyr2nb6tNoGRs2QoePdMvOr42ig5kYNAYT7qahQE3vKgClxMTOREjRXfYOrHcHAtPXN4664bTPb1qQrBbF3foKJfwP06KCyM3rFnllobDOLYckn%2FGBEHSl4G2Hnse7CaI%2BGpBkpP0Ud8awKHx3d9xgtFAnC85ks1%2BkhSBq2pHVohOXkjxj3RfmbctowIVuWZvY6MfJpBsaoYyVxDQv%2BMuQlcCUEHl9AJ8Xs%2BWTD7tNE9FfrC4KY2BGHedJYf52GgTsQ7CuCfr5uJg4YBvuTmWyYN78uJu3nhB86AstH1doFZFbBt%2FroDTEUJfBYlS40afyu2h749TRxoiU4xcWDNDUIi%2B6zINKu9qI5X4XfH%2BoRrq7ZYgkoHQQRAW7YCYdirZLXoO2ETACtWPa5nyukSpsZ%2F8mmmkr4uC7MPP6uKgGOrIBCrIPzsKyYiYmXbfpjP3Q51XNqU0RvILr5XTqNaH6BkaJc7iqpnIwN%2FwpnoQ9ykcsf6gSCQUk9Fr3CRZm11fApJXeKbQ3cP7fcLscjO5J9oxYuZzrFKcuMO2l1VecXevCmP4wSmgs9gPOQP%2BjPbUXioCzwZ3NoL2q1W%2Bdvc2hJhiDeOCAy58REfH1mTOf633Nzxlb510ZtNV%2FKoIE6XLQtlIo6pnGn%2FyDTqTX7RGJ0U39bA%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=68f3f34d6fbf26e6442532c4807379d665a9a284393a5ee18f7f474dd84a7c39"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 21557951,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "https://github.com/curl/curl/pull/11030",
+      "automated_response": false,
+      "created_at": "2023-04-26T08:53:58.840Z",
+      "updated_at": "2023-04-26T08:53:58.840Z",
+      "actor": {
+        "username": "bagder",
+        "cleared": false,
+        "verified": false,
+        "url": "/bagder",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/y9xzl5ayi7du4kz3l6pa6sff2ha5/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22final-12-1000x1000.jpg%22%3B%20filename%2A%3DUTF-8%27%27final-12-1000x1000.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQSQ2EO4J6%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065519Z&X-Amz-Expires=2573&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJGMEQCIDdaOxaU2Kc7XK%2BFPO0xwEcua0EmQNQ0KITjMo%2BKI7S%2FAiAzEGtwS8msUueXSru5QP82dF7uwkPFZmzhjY8laBf5ySqxBQgiEAMaDDAxMzYxOTI3NDg0OSIMMwqH%2BrtGLzp0nfFJKo4FfKwfKYelWDcX3DZmXtAToi%2BfdIW%2FTskJuWscWNQ76Tnp8xifpkkQJqzgVzQ1mNVCoJr7%2BHlI2zJhu0AXuqUf6FD0aST%2BKfWDBNuzGTpRcWWnx07Sch98UNn54OsKQbkd78QdkYbYIIydcW4rDyHcf69tkUPFukaryTwqFIQUzVC34LtpkpFeA9lDvrXGajNXbhcjKrAFt5HqSOZuuuzssNNlvHJE05jjBky2NSGdLPAbwZ5PyWIPopmg1W4zjYBUwa%2F0z3qTgn0zEoCTBSKgTZOxPGLRSTPuvxrR0mqU9OcBLyJp193C17CIZVqQgijrtvyXYk%2FM2oDDkUsD7oeMeAFi8iq1vQlGMOgky5Mb4a6rOsWjihhywKDJptVFAvuD5Dj3tbSEYMt48EBT7kCNQd8x2uZADjILGD3cpoZLKeNeqFmfFNRBUEpMfGc5V1%2FI9fJ%2FzgQyr2nb6tNoGRs2QoePdMvOr42ig5kYNAYT7qahQE3vKgClxMTOREjRXfYOrHcHAtPXN4664bTPb1qQrBbF3foKJfwP06KCyM3rFnllobDOLYckn%2FGBEHSl4G2Hnse7CaI%2BGpBkpP0Ud8awKHx3d9xgtFAnC85ks1%2BkhSBq2pHVohOXkjxj3RfmbctowIVuWZvY6MfJpBsaoYyVxDQv%2BMuQlcCUEHl9AJ8Xs%2BWTD7tNE9FfrC4KY2BGHedJYf52GgTsQ7CuCfr5uJg4YBvuTmWyYN78uJu3nhB86AstH1doFZFbBt%2FroDTEUJfBYlS40afyu2h749TRxoiU4xcWDNDUIi%2B6zINKu9qI5X4XfH%2BoRrq7ZYgkoHQQRAW7YCYdirZLXoO2ETACtWPa5nyukSpsZ%2F8mmmkr4uC7MPP6uKgGOrIBCrIPzsKyYiYmXbfpjP3Q51XNqU0RvILr5XTqNaH6BkaJc7iqpnIwN%2FwpnoQ9ykcsf6gSCQUk9Fr3CRZm11fApJXeKbQ3cP7fcLscjO5J9oxYuZzrFKcuMO2l1VecXevCmP4wSmgs9gPOQP%2BjPbUXioCzwZ3NoL2q1W%2Bdvc2hJhiDeOCAy58REfH1mTOf633Nzxlb510ZtNV%2FKoIE6XLQtlIo6pnGn%2FyDTqTX7RGJ0U39bA%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=68f3f34d6fbf26e6442532c4807379d665a9a284393a5ee18f7f474dd84a7c39"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 21561498,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Looking good to me.",
+      "automated_response": false,
+      "created_at": "2023-04-26T14:16:20.914Z",
+      "updated_at": "2023-04-26T14:16:20.914Z",
+      "actor": {
+        "username": "nyymi",
+        "cleared": false,
+        "verified": false,
+        "url": "/nyymi",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 21613054,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::CveIdAdded",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2023-04-30T10:43:53.822Z",
+      "updated_at": "2023-04-30T10:43:53.822Z",
+      "cve_ids": [
+        "CVE-2023-28320"
+      ],
+      "actor": {
+        "username": "bagder",
+        "cleared": false,
+        "verified": false,
+        "url": "/bagder",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/y9xzl5ayi7du4kz3l6pa6sff2ha5/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22final-12-1000x1000.jpg%22%3B%20filename%2A%3DUTF-8%27%27final-12-1000x1000.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQSQ2EO4J6%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065519Z&X-Amz-Expires=2573&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJGMEQCIDdaOxaU2Kc7XK%2BFPO0xwEcua0EmQNQ0KITjMo%2BKI7S%2FAiAzEGtwS8msUueXSru5QP82dF7uwkPFZmzhjY8laBf5ySqxBQgiEAMaDDAxMzYxOTI3NDg0OSIMMwqH%2BrtGLzp0nfFJKo4FfKwfKYelWDcX3DZmXtAToi%2BfdIW%2FTskJuWscWNQ76Tnp8xifpkkQJqzgVzQ1mNVCoJr7%2BHlI2zJhu0AXuqUf6FD0aST%2BKfWDBNuzGTpRcWWnx07Sch98UNn54OsKQbkd78QdkYbYIIydcW4rDyHcf69tkUPFukaryTwqFIQUzVC34LtpkpFeA9lDvrXGajNXbhcjKrAFt5HqSOZuuuzssNNlvHJE05jjBky2NSGdLPAbwZ5PyWIPopmg1W4zjYBUwa%2F0z3qTgn0zEoCTBSKgTZOxPGLRSTPuvxrR0mqU9OcBLyJp193C17CIZVqQgijrtvyXYk%2FM2oDDkUsD7oeMeAFi8iq1vQlGMOgky5Mb4a6rOsWjihhywKDJptVFAvuD5Dj3tbSEYMt48EBT7kCNQd8x2uZADjILGD3cpoZLKeNeqFmfFNRBUEpMfGc5V1%2FI9fJ%2FzgQyr2nb6tNoGRs2QoePdMvOr42ig5kYNAYT7qahQE3vKgClxMTOREjRXfYOrHcHAtPXN4664bTPb1qQrBbF3foKJfwP06KCyM3rFnllobDOLYckn%2FGBEHSl4G2Hnse7CaI%2BGpBkpP0Ud8awKHx3d9xgtFAnC85ks1%2BkhSBq2pHVohOXkjxj3RfmbctowIVuWZvY6MfJpBsaoYyVxDQv%2BMuQlcCUEHl9AJ8Xs%2BWTD7tNE9FfrC4KY2BGHedJYf52GgTsQ7CuCfr5uJg4YBvuTmWyYN78uJu3nhB86AstH1doFZFbBt%2FroDTEUJfBYlS40afyu2h749TRxoiU4xcWDNDUIi%2B6zINKu9qI5X4XfH%2BoRrq7ZYgkoHQQRAW7YCYdirZLXoO2ETACtWPa5nyukSpsZ%2F8mmmkr4uC7MPP6uKgGOrIBCrIPzsKyYiYmXbfpjP3Q51XNqU0RvILr5XTqNaH6BkaJc7iqpnIwN%2FwpnoQ9ykcsf6gSCQUk9Fr3CRZm11fApJXeKbQ3cP7fcLscjO5J9oxYuZzrFKcuMO2l1VecXevCmP4wSmgs9gPOQP%2BjPbUXioCzwZ3NoL2q1W%2Bdvc2hJhiDeOCAy58REfH1mTOf633Nzxlb510ZtNV%2FKoIE6XLQtlIo6pnGn%2FyDTqTX7RGJ0U39bA%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=68f3f34d6fbf26e6442532c4807379d665a9a284393a5ee18f7f474dd84a7c39"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 21613057,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportTitleUpdated",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2023-04-30T10:44:33.563Z",
+      "updated_at": "2023-04-30T10:44:33.563Z",
+      "additional_data": {
+        "old_title": "DNS timeout sigjmp_buf race",
+        "new_title": "CVE-2023-28320: siglongjmp race condition"
+      },
+      "actor": {
+        "username": "bagder",
+        "cleared": false,
+        "verified": false,
+        "url": "/bagder",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/y9xzl5ayi7du4kz3l6pa6sff2ha5/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22final-12-1000x1000.jpg%22%3B%20filename%2A%3DUTF-8%27%27final-12-1000x1000.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQSQ2EO4J6%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065519Z&X-Amz-Expires=2573&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJGMEQCIDdaOxaU2Kc7XK%2BFPO0xwEcua0EmQNQ0KITjMo%2BKI7S%2FAiAzEGtwS8msUueXSru5QP82dF7uwkPFZmzhjY8laBf5ySqxBQgiEAMaDDAxMzYxOTI3NDg0OSIMMwqH%2BrtGLzp0nfFJKo4FfKwfKYelWDcX3DZmXtAToi%2BfdIW%2FTskJuWscWNQ76Tnp8xifpkkQJqzgVzQ1mNVCoJr7%2BHlI2zJhu0AXuqUf6FD0aST%2BKfWDBNuzGTpRcWWnx07Sch98UNn54OsKQbkd78QdkYbYIIydcW4rDyHcf69tkUPFukaryTwqFIQUzVC34LtpkpFeA9lDvrXGajNXbhcjKrAFt5HqSOZuuuzssNNlvHJE05jjBky2NSGdLPAbwZ5PyWIPopmg1W4zjYBUwa%2F0z3qTgn0zEoCTBSKgTZOxPGLRSTPuvxrR0mqU9OcBLyJp193C17CIZVqQgijrtvyXYk%2FM2oDDkUsD7oeMeAFi8iq1vQlGMOgky5Mb4a6rOsWjihhywKDJptVFAvuD5Dj3tbSEYMt48EBT7kCNQd8x2uZADjILGD3cpoZLKeNeqFmfFNRBUEpMfGc5V1%2FI9fJ%2FzgQyr2nb6tNoGRs2QoePdMvOr42ig5kYNAYT7qahQE3vKgClxMTOREjRXfYOrHcHAtPXN4664bTPb1qQrBbF3foKJfwP06KCyM3rFnllobDOLYckn%2FGBEHSl4G2Hnse7CaI%2BGpBkpP0Ud8awKHx3d9xgtFAnC85ks1%2BkhSBq2pHVohOXkjxj3RfmbctowIVuWZvY6MfJpBsaoYyVxDQv%2BMuQlcCUEHl9AJ8Xs%2BWTD7tNE9FfrC4KY2BGHedJYf52GgTsQ7CuCfr5uJg4YBvuTmWyYN78uJu3nhB86AstH1doFZFbBt%2FroDTEUJfBYlS40afyu2h749TRxoiU4xcWDNDUIi%2B6zINKu9qI5X4XfH%2BoRrq7ZYgkoHQQRAW7YCYdirZLXoO2ETACtWPa5nyukSpsZ%2F8mmmkr4uC7MPP6uKgGOrIBCrIPzsKyYiYmXbfpjP3Q51XNqU0RvILr5XTqNaH6BkaJc7iqpnIwN%2FwpnoQ9ykcsf6gSCQUk9Fr3CRZm11fApJXeKbQ3cP7fcLscjO5J9oxYuZzrFKcuMO2l1VecXevCmP4wSmgs9gPOQP%2BjPbUXioCzwZ3NoL2q1W%2Bdvc2hJhiDeOCAy58REfH1mTOf633Nzxlb510ZtNV%2FKoIE6XLQtlIo6pnGn%2FyDTqTX7RGJ0U39bA%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=68f3f34d6fbf26e6442532c4807379d665a9a284393a5ee18f7f474dd84a7c39"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 21613095,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "This bug shipped in curl 7.9.8. Almost 21 years ago.",
+      "automated_response": false,
+      "created_at": "2023-04-30T10:53:23.434Z",
+      "updated_at": "2023-04-30T10:53:23.434Z",
+      "actor": {
+        "username": "bagder",
+        "cleared": false,
+        "verified": false,
+        "url": "/bagder",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/y9xzl5ayi7du4kz3l6pa6sff2ha5/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22final-12-1000x1000.jpg%22%3B%20filename%2A%3DUTF-8%27%27final-12-1000x1000.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQSQ2EO4J6%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065519Z&X-Amz-Expires=2573&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJGMEQCIDdaOxaU2Kc7XK%2BFPO0xwEcua0EmQNQ0KITjMo%2BKI7S%2FAiAzEGtwS8msUueXSru5QP82dF7uwkPFZmzhjY8laBf5ySqxBQgiEAMaDDAxMzYxOTI3NDg0OSIMMwqH%2BrtGLzp0nfFJKo4FfKwfKYelWDcX3DZmXtAToi%2BfdIW%2FTskJuWscWNQ76Tnp8xifpkkQJqzgVzQ1mNVCoJr7%2BHlI2zJhu0AXuqUf6FD0aST%2BKfWDBNuzGTpRcWWnx07Sch98UNn54OsKQbkd78QdkYbYIIydcW4rDyHcf69tkUPFukaryTwqFIQUzVC34LtpkpFeA9lDvrXGajNXbhcjKrAFt5HqSOZuuuzssNNlvHJE05jjBky2NSGdLPAbwZ5PyWIPopmg1W4zjYBUwa%2F0z3qTgn0zEoCTBSKgTZOxPGLRSTPuvxrR0mqU9OcBLyJp193C17CIZVqQgijrtvyXYk%2FM2oDDkUsD7oeMeAFi8iq1vQlGMOgky5Mb4a6rOsWjihhywKDJptVFAvuD5Dj3tbSEYMt48EBT7kCNQd8x2uZADjILGD3cpoZLKeNeqFmfFNRBUEpMfGc5V1%2FI9fJ%2FzgQyr2nb6tNoGRs2QoePdMvOr42ig5kYNAYT7qahQE3vKgClxMTOREjRXfYOrHcHAtPXN4664bTPb1qQrBbF3foKJfwP06KCyM3rFnllobDOLYckn%2FGBEHSl4G2Hnse7CaI%2BGpBkpP0Ud8awKHx3d9xgtFAnC85ks1%2BkhSBq2pHVohOXkjxj3RfmbctowIVuWZvY6MfJpBsaoYyVxDQv%2BMuQlcCUEHl9AJ8Xs%2BWTD7tNE9FfrC4KY2BGHedJYf52GgTsQ7CuCfr5uJg4YBvuTmWyYN78uJu3nhB86AstH1doFZFbBt%2FroDTEUJfBYlS40afyu2h749TRxoiU4xcWDNDUIi%2B6zINKu9qI5X4XfH%2BoRrq7ZYgkoHQQRAW7YCYdirZLXoO2ETACtWPa5nyukSpsZ%2F8mmmkr4uC7MPP6uKgGOrIBCrIPzsKyYiYmXbfpjP3Q51XNqU0RvILr5XTqNaH6BkaJc7iqpnIwN%2FwpnoQ9ykcsf6gSCQUk9Fr3CRZm11fApJXeKbQ3cP7fcLscjO5J9oxYuZzrFKcuMO2l1VecXevCmP4wSmgs9gPOQP%2BjPbUXioCzwZ3NoL2q1W%2Bdvc2hJhiDeOCAy58REfH1mTOf633Nzxlb510ZtNV%2FKoIE6XLQtlIo6pnGn%2FyDTqTX7RGJ0U39bA%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=68f3f34d6fbf26e6442532c4807379d665a9a284393a5ee18f7f474dd84a7c39"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 21613097,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "First advisory draft:\n\n---\nCVE-2023-28320: siglongjmp race condition\n=========================================\n\nProject curl Security Advisory, May 17th 2023 -\n[Permalink](https://curl.se/docs/CVE-2023-28320.html)\n\nVULNERABILITY\n-------------\n\nlibcurl provides several different backends for resolving host names, selected\nat build time. If it is built to use the synchronous resolver, it allows name\nresolves to time-out slow operations using `alarm()` and `siglongjmp()`.\n\nWhen doing this, libcurl used a global buffer that was not mutex protected and\na multi-threaded application might therefore crash or otherwise misbehave.\n\nWe are not aware of any exploit of this flaw.\n\nINFO\n----\n\nMost platforms and systems build libcurl to use the threaded resolver or with\nc-ares, neither of those suffer from this flaw. Most platforms that build with\nthe synchronous resolver don't feature `alarm()` and `siglongjmp()` and\ntherefor are not vulnerabile either.\n\nSince `alarm()` uses signals, it is unadvisable to use in a multi-threaded\nenvironment (signals and threads rarely mix very well) which reduces the risk\nthat this flaw hurts many users.\n\nThe Common Vulnerabilities and Exposures (CVE) project has assigned the name\nCVE-2023-28320 to this issue.\n\nCWE-662: Improper Synchronization\n\nSeverity: Low\n\nAFFECTED VERSIONS\n-----------------\n\nThis bug was introduced in [commit\n3c49b405de4fbf1f](https://github.com/curl/curl/commit/3c49b405de4fbf1f),\nshipped in curl 7.9.8\n\n- Affected versions: curl 7.9.8 to and including 8.0.1\n- Not affected versions: curl < 7.9.8 and curl >= 8.1.0\n\nlibcurl is used by many applications, but not always advertised as such!\n\nTHE SOLUTION\n------------\n\nThe fix is to only support this timeout ability if curl has and can properly\nmutex protect the buffer.\n\nThe fix for [CVE-2023-28320](https://github.com/curl/curl/commit/13718030ad4b3209a7583b)\n\nRECOMMENDATIONS\n--------------\n\n A - Upgrade curl to version 8.1.0\n\n B - Apply the patch to your local version\n\n C - Do not use the synchronous name resolver option\n \nTIMELINE\n--------\n\nThis issue was reported to the curl project on April 2 2023. We contacted\ndistros@openwall on May XX, 2023.\n\ncurl 8.1.0 was released on May 17 2023, coordinated with the publication of\nthis advisory.\n\nCREDITS\n-------\n\n- Reported-by: Harry Sintonen\n- Patched-by: Harry Sintonen and Daniel Stenberg\n\nThanks a lot!\n",
+      "automated_response": false,
+      "created_at": "2023-04-30T10:53:56.354Z",
+      "updated_at": "2023-04-30T10:53:56.354Z",
+      "actor": {
+        "username": "bagder",
+        "cleared": false,
+        "verified": false,
+        "url": "/bagder",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/y9xzl5ayi7du4kz3l6pa6sff2ha5/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22final-12-1000x1000.jpg%22%3B%20filename%2A%3DUTF-8%27%27final-12-1000x1000.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQSQ2EO4J6%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065519Z&X-Amz-Expires=2573&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJGMEQCIDdaOxaU2Kc7XK%2BFPO0xwEcua0EmQNQ0KITjMo%2BKI7S%2FAiAzEGtwS8msUueXSru5QP82dF7uwkPFZmzhjY8laBf5ySqxBQgiEAMaDDAxMzYxOTI3NDg0OSIMMwqH%2BrtGLzp0nfFJKo4FfKwfKYelWDcX3DZmXtAToi%2BfdIW%2FTskJuWscWNQ76Tnp8xifpkkQJqzgVzQ1mNVCoJr7%2BHlI2zJhu0AXuqUf6FD0aST%2BKfWDBNuzGTpRcWWnx07Sch98UNn54OsKQbkd78QdkYbYIIydcW4rDyHcf69tkUPFukaryTwqFIQUzVC34LtpkpFeA9lDvrXGajNXbhcjKrAFt5HqSOZuuuzssNNlvHJE05jjBky2NSGdLPAbwZ5PyWIPopmg1W4zjYBUwa%2F0z3qTgn0zEoCTBSKgTZOxPGLRSTPuvxrR0mqU9OcBLyJp193C17CIZVqQgijrtvyXYk%2FM2oDDkUsD7oeMeAFi8iq1vQlGMOgky5Mb4a6rOsWjihhywKDJptVFAvuD5Dj3tbSEYMt48EBT7kCNQd8x2uZADjILGD3cpoZLKeNeqFmfFNRBUEpMfGc5V1%2FI9fJ%2FzgQyr2nb6tNoGRs2QoePdMvOr42ig5kYNAYT7qahQE3vKgClxMTOREjRXfYOrHcHAtPXN4664bTPb1qQrBbF3foKJfwP06KCyM3rFnllobDOLYckn%2FGBEHSl4G2Hnse7CaI%2BGpBkpP0Ud8awKHx3d9xgtFAnC85ks1%2BkhSBq2pHVohOXkjxj3RfmbctowIVuWZvY6MfJpBsaoYyVxDQv%2BMuQlcCUEHl9AJ8Xs%2BWTD7tNE9FfrC4KY2BGHedJYf52GgTsQ7CuCfr5uJg4YBvuTmWyYN78uJu3nhB86AstH1doFZFbBt%2FroDTEUJfBYlS40afyu2h749TRxoiU4xcWDNDUIi%2B6zINKu9qI5X4XfH%2BoRrq7ZYgkoHQQRAW7YCYdirZLXoO2ETACtWPa5nyukSpsZ%2F8mmmkr4uC7MPP6uKgGOrIBCrIPzsKyYiYmXbfpjP3Q51XNqU0RvILr5XTqNaH6BkaJc7iqpnIwN%2FwpnoQ9ykcsf6gSCQUk9Fr3CRZm11fApJXeKbQ3cP7fcLscjO5J9oxYuZzrFKcuMO2l1VecXevCmP4wSmgs9gPOQP%2BjPbUXioCzwZ3NoL2q1W%2Bdvc2hJhiDeOCAy58REfH1mTOf633Nzxlb510ZtNV%2FKoIE6XLQtlIo6pnGn%2FyDTqTX7RGJ0U39bA%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=68f3f34d6fbf26e6442532c4807379d665a9a284393a5ee18f7f474dd84a7c39"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 21887646,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "Published. This issue is now eligible for a bounty claim from [IBB](https://hackerone.com/ibb).",
+      "automated_response": false,
+      "created_at": "2023-05-17T09:48:36.405Z",
+      "updated_at": "2023-05-17T09:48:36.405Z",
+      "actor": {
+        "username": "bagder",
+        "cleared": false,
+        "verified": false,
+        "url": "/bagder",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/y9xzl5ayi7du4kz3l6pa6sff2ha5/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22final-12-1000x1000.jpg%22%3B%20filename%2A%3DUTF-8%27%27final-12-1000x1000.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQSQ2EO4J6%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065519Z&X-Amz-Expires=2573&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJGMEQCIDdaOxaU2Kc7XK%2BFPO0xwEcua0EmQNQ0KITjMo%2BKI7S%2FAiAzEGtwS8msUueXSru5QP82dF7uwkPFZmzhjY8laBf5ySqxBQgiEAMaDDAxMzYxOTI3NDg0OSIMMwqH%2BrtGLzp0nfFJKo4FfKwfKYelWDcX3DZmXtAToi%2BfdIW%2FTskJuWscWNQ76Tnp8xifpkkQJqzgVzQ1mNVCoJr7%2BHlI2zJhu0AXuqUf6FD0aST%2BKfWDBNuzGTpRcWWnx07Sch98UNn54OsKQbkd78QdkYbYIIydcW4rDyHcf69tkUPFukaryTwqFIQUzVC34LtpkpFeA9lDvrXGajNXbhcjKrAFt5HqSOZuuuzssNNlvHJE05jjBky2NSGdLPAbwZ5PyWIPopmg1W4zjYBUwa%2F0z3qTgn0zEoCTBSKgTZOxPGLRSTPuvxrR0mqU9OcBLyJp193C17CIZVqQgijrtvyXYk%2FM2oDDkUsD7oeMeAFi8iq1vQlGMOgky5Mb4a6rOsWjihhywKDJptVFAvuD5Dj3tbSEYMt48EBT7kCNQd8x2uZADjILGD3cpoZLKeNeqFmfFNRBUEpMfGc5V1%2FI9fJ%2FzgQyr2nb6tNoGRs2QoePdMvOr42ig5kYNAYT7qahQE3vKgClxMTOREjRXfYOrHcHAtPXN4664bTPb1qQrBbF3foKJfwP06KCyM3rFnllobDOLYckn%2FGBEHSl4G2Hnse7CaI%2BGpBkpP0Ud8awKHx3d9xgtFAnC85ks1%2BkhSBq2pHVohOXkjxj3RfmbctowIVuWZvY6MfJpBsaoYyVxDQv%2BMuQlcCUEHl9AJ8Xs%2BWTD7tNE9FfrC4KY2BGHedJYf52GgTsQ7CuCfr5uJg4YBvuTmWyYN78uJu3nhB86AstH1doFZFbBt%2FroDTEUJfBYlS40afyu2h749TRxoiU4xcWDNDUIi%2B6zINKu9qI5X4XfH%2BoRrq7ZYgkoHQQRAW7YCYdirZLXoO2ETACtWPa5nyukSpsZ%2F8mmmkr4uC7MPP6uKgGOrIBCrIPzsKyYiYmXbfpjP3Q51XNqU0RvILr5XTqNaH6BkaJc7iqpnIwN%2FwpnoQ9ykcsf6gSCQUk9Fr3CRZm11fApJXeKbQ3cP7fcLscjO5J9oxYuZzrFKcuMO2l1VecXevCmP4wSmgs9gPOQP%2BjPbUXioCzwZ3NoL2q1W%2Bdvc2hJhiDeOCAy58REfH1mTOf633Nzxlb510ZtNV%2FKoIE6XLQtlIo6pnGn%2FyDTqTX7RGJ0U39bA%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=68f3f34d6fbf26e6442532c4807379d665a9a284393a5ee18f7f474dd84a7c39"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "reporter": {
+        "username": "nyymi",
+        "url": "/nyymi"
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 21887656,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2023-05-17T09:49:33.723Z",
+      "updated_at": "2023-05-17T09:49:33.723Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "nyymi",
+        "cleared": false,
+        "verified": false,
+        "url": "/nyymi",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 21887662,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2023-05-17T09:50:01.742Z",
+      "updated_at": "2023-05-17T09:50:01.742Z",
+      "actor": {
+        "username": "bagder",
+        "cleared": false,
+        "verified": false,
+        "url": "/bagder",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/y9xzl5ayi7du4kz3l6pa6sff2ha5/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22final-12-1000x1000.jpg%22%3B%20filename%2A%3DUTF-8%27%27final-12-1000x1000.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQSQ2EO4J6%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065519Z&X-Amz-Expires=2573&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJGMEQCIDdaOxaU2Kc7XK%2BFPO0xwEcua0EmQNQ0KITjMo%2BKI7S%2FAiAzEGtwS8msUueXSru5QP82dF7uwkPFZmzhjY8laBf5ySqxBQgiEAMaDDAxMzYxOTI3NDg0OSIMMwqH%2BrtGLzp0nfFJKo4FfKwfKYelWDcX3DZmXtAToi%2BfdIW%2FTskJuWscWNQ76Tnp8xifpkkQJqzgVzQ1mNVCoJr7%2BHlI2zJhu0AXuqUf6FD0aST%2BKfWDBNuzGTpRcWWnx07Sch98UNn54OsKQbkd78QdkYbYIIydcW4rDyHcf69tkUPFukaryTwqFIQUzVC34LtpkpFeA9lDvrXGajNXbhcjKrAFt5HqSOZuuuzssNNlvHJE05jjBky2NSGdLPAbwZ5PyWIPopmg1W4zjYBUwa%2F0z3qTgn0zEoCTBSKgTZOxPGLRSTPuvxrR0mqU9OcBLyJp193C17CIZVqQgijrtvyXYk%2FM2oDDkUsD7oeMeAFi8iq1vQlGMOgky5Mb4a6rOsWjihhywKDJptVFAvuD5Dj3tbSEYMt48EBT7kCNQd8x2uZADjILGD3cpoZLKeNeqFmfFNRBUEpMfGc5V1%2FI9fJ%2FzgQyr2nb6tNoGRs2QoePdMvOr42ig5kYNAYT7qahQE3vKgClxMTOREjRXfYOrHcHAtPXN4664bTPb1qQrBbF3foKJfwP06KCyM3rFnllobDOLYckn%2FGBEHSl4G2Hnse7CaI%2BGpBkpP0Ud8awKHx3d9xgtFAnC85ks1%2BkhSBq2pHVohOXkjxj3RfmbctowIVuWZvY6MfJpBsaoYyVxDQv%2BMuQlcCUEHl9AJ8Xs%2BWTD7tNE9FfrC4KY2BGHedJYf52GgTsQ7CuCfr5uJg4YBvuTmWyYN78uJu3nhB86AstH1doFZFbBt%2FroDTEUJfBYlS40afyu2h749TRxoiU4xcWDNDUIi%2B6zINKu9qI5X4XfH%2BoRrq7ZYgkoHQQRAW7YCYdirZLXoO2ETACtWPa5nyukSpsZ%2F8mmmkr4uC7MPP6uKgGOrIBCrIPzsKyYiYmXbfpjP3Q51XNqU0RvILr5XTqNaH6BkaJc7iqpnIwN%2FwpnoQ9ykcsf6gSCQUk9Fr3CRZm11fApJXeKbQ3cP7fcLscjO5J9oxYuZzrFKcuMO2l1VecXevCmP4wSmgs9gPOQP%2BjPbUXioCzwZ3NoL2q1W%2Bdvc2hJhiDeOCAy58REfH1mTOf633Nzxlb510ZtNV%2FKoIE6XLQtlIo6pnGn%2FyDTqTX7RGJ0U39bA%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=68f3f34d6fbf26e6442532c4807379d665a9a284393a5ee18f7f474dd84a7c39"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 21887663,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportBecamePublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2023-05-17T09:50:01.937Z",
+      "updated_at": "2023-05-17T09:50:01.937Z",
+      "actor": {
+        "username": "bagder",
+        "cleared": false,
+        "verified": false,
+        "url": "/bagder",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/y9xzl5ayi7du4kz3l6pa6sff2ha5/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22final-12-1000x1000.jpg%22%3B%20filename%2A%3DUTF-8%27%27final-12-1000x1000.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQSQ2EO4J6%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065519Z&X-Amz-Expires=2573&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJGMEQCIDdaOxaU2Kc7XK%2BFPO0xwEcua0EmQNQ0KITjMo%2BKI7S%2FAiAzEGtwS8msUueXSru5QP82dF7uwkPFZmzhjY8laBf5ySqxBQgiEAMaDDAxMzYxOTI3NDg0OSIMMwqH%2BrtGLzp0nfFJKo4FfKwfKYelWDcX3DZmXtAToi%2BfdIW%2FTskJuWscWNQ76Tnp8xifpkkQJqzgVzQ1mNVCoJr7%2BHlI2zJhu0AXuqUf6FD0aST%2BKfWDBNuzGTpRcWWnx07Sch98UNn54OsKQbkd78QdkYbYIIydcW4rDyHcf69tkUPFukaryTwqFIQUzVC34LtpkpFeA9lDvrXGajNXbhcjKrAFt5HqSOZuuuzssNNlvHJE05jjBky2NSGdLPAbwZ5PyWIPopmg1W4zjYBUwa%2F0z3qTgn0zEoCTBSKgTZOxPGLRSTPuvxrR0mqU9OcBLyJp193C17CIZVqQgijrtvyXYk%2FM2oDDkUsD7oeMeAFi8iq1vQlGMOgky5Mb4a6rOsWjihhywKDJptVFAvuD5Dj3tbSEYMt48EBT7kCNQd8x2uZADjILGD3cpoZLKeNeqFmfFNRBUEpMfGc5V1%2FI9fJ%2FzgQyr2nb6tNoGRs2QoePdMvOr42ig5kYNAYT7qahQE3vKgClxMTOREjRXfYOrHcHAtPXN4664bTPb1qQrBbF3foKJfwP06KCyM3rFnllobDOLYckn%2FGBEHSl4G2Hnse7CaI%2BGpBkpP0Ud8awKHx3d9xgtFAnC85ks1%2BkhSBq2pHVohOXkjxj3RfmbctowIVuWZvY6MfJpBsaoYyVxDQv%2BMuQlcCUEHl9AJ8Xs%2BWTD7tNE9FfrC4KY2BGHedJYf52GgTsQ7CuCfr5uJg4YBvuTmWyYN78uJu3nhB86AstH1doFZFbBt%2FroDTEUJfBYlS40afyu2h749TRxoiU4xcWDNDUIi%2B6zINKu9qI5X4XfH%2BoRrq7ZYgkoHQQRAW7YCYdirZLXoO2ETACtWPa5nyukSpsZ%2F8mmmkr4uC7MPP6uKgGOrIBCrIPzsKyYiYmXbfpjP3Q51XNqU0RvILr5XTqNaH6BkaJc7iqpnIwN%2FwpnoQ9ykcsf6gSCQUk9Fr3CRZm11fApJXeKbQ3cP7fcLscjO5J9oxYuZzrFKcuMO2l1VecXevCmP4wSmgs9gPOQP%2BjPbUXioCzwZ3NoL2q1W%2Bdvc2hJhiDeOCAy58REfH1mTOf633Nzxlb510ZtNV%2FKoIE6XLQtlIo6pnGn%2FyDTqTX7RGJ0U39bA%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=68f3f34d6fbf26e6442532c4807379d665a9a284393a5ee18f7f474dd84a7c39"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 21887685,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::NotEligibleForBounty",
+      "message": "Thanks for your work. The actual monetary reward part for this issue is managed by the [Internet Bug Bounty](https://hackerone.com/ibb) so the curl project itself therefor sets the reward amount to **zero USD**. If you haven't already, please submit your reward request to them and refer back to this issue.\n",
+      "automated_response": false,
+      "created_at": "2023-05-17T09:51:45.612Z",
+      "updated_at": "2023-05-17T09:51:45.612Z",
+      "actor": {
+        "url": "/curl",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/035/663/2faf4c279d437d64bfda6d23d62ce1833813a4d9_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "curl"
+        }
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 22123369,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportVulnerabilityTypesUpdated",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2023-06-01T07:41:19.925Z",
+      "updated_at": "2023-06-01T07:41:19.925Z",
+      "additional_data": {
+        "added_weaknesses": [
+          {
+            "id": 845,
+            "name": "Improper Synchronization"
+          }
+        ],
+        "removed_weaknesses": [
+          {
+            "id": 48,
+            "name": "Denial of Service"
+          }
+        ]
+      },
+      "actor": {
+        "username": "bagder",
+        "cleared": false,
+        "verified": false,
+        "url": "/bagder",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/y9xzl5ayi7du4kz3l6pa6sff2ha5/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22final-12-1000x1000.jpg%22%3B%20filename%2A%3DUTF-8%27%27final-12-1000x1000.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQSQ2EO4J6%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065519Z&X-Amz-Expires=2573&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJGMEQCIDdaOxaU2Kc7XK%2BFPO0xwEcua0EmQNQ0KITjMo%2BKI7S%2FAiAzEGtwS8msUueXSru5QP82dF7uwkPFZmzhjY8laBf5ySqxBQgiEAMaDDAxMzYxOTI3NDg0OSIMMwqH%2BrtGLzp0nfFJKo4FfKwfKYelWDcX3DZmXtAToi%2BfdIW%2FTskJuWscWNQ76Tnp8xifpkkQJqzgVzQ1mNVCoJr7%2BHlI2zJhu0AXuqUf6FD0aST%2BKfWDBNuzGTpRcWWnx07Sch98UNn54OsKQbkd78QdkYbYIIydcW4rDyHcf69tkUPFukaryTwqFIQUzVC34LtpkpFeA9lDvrXGajNXbhcjKrAFt5HqSOZuuuzssNNlvHJE05jjBky2NSGdLPAbwZ5PyWIPopmg1W4zjYBUwa%2F0z3qTgn0zEoCTBSKgTZOxPGLRSTPuvxrR0mqU9OcBLyJp193C17CIZVqQgijrtvyXYk%2FM2oDDkUsD7oeMeAFi8iq1vQlGMOgky5Mb4a6rOsWjihhywKDJptVFAvuD5Dj3tbSEYMt48EBT7kCNQd8x2uZADjILGD3cpoZLKeNeqFmfFNRBUEpMfGc5V1%2FI9fJ%2FzgQyr2nb6tNoGRs2QoePdMvOr42ig5kYNAYT7qahQE3vKgClxMTOREjRXfYOrHcHAtPXN4664bTPb1qQrBbF3foKJfwP06KCyM3rFnllobDOLYckn%2FGBEHSl4G2Hnse7CaI%2BGpBkpP0Ud8awKHx3d9xgtFAnC85ks1%2BkhSBq2pHVohOXkjxj3RfmbctowIVuWZvY6MfJpBsaoYyVxDQv%2BMuQlcCUEHl9AJ8Xs%2BWTD7tNE9FfrC4KY2BGHedJYf52GgTsQ7CuCfr5uJg4YBvuTmWyYN78uJu3nhB86AstH1doFZFbBt%2FroDTEUJfBYlS40afyu2h749TRxoiU4xcWDNDUIi%2B6zINKu9qI5X4XfH%2BoRrq7ZYgkoHQQRAW7YCYdirZLXoO2ETACtWPa5nyukSpsZ%2F8mmmkr4uC7MPP6uKgGOrIBCrIPzsKyYiYmXbfpjP3Q51XNqU0RvILr5XTqNaH6BkaJc7iqpnIwN%2FwpnoQ9ykcsf6gSCQUk9Fr3CRZm11fApJXeKbQ3cP7fcLscjO5J9oxYuZzrFKcuMO2l1VecXevCmP4wSmgs9gPOQP%2BjPbUXioCzwZ3NoL2q1W%2Bdvc2hJhiDeOCAy58REfH1mTOf633Nzxlb510ZtNV%2FKoIE6XLQtlIo6pnGn%2FyDTqTX7RGJ0U39bA%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=68f3f34d6fbf26e6442532c4807379d665a9a284393a5ee18f7f474dd84a7c39"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    }
+  ],
+  "activity_page_count": 1,
+  "activity_page_number": 1,
+  "summaries": [
+    {
+      "category": "team",
+      "can_view?": true,
+      "can_create?": false
+    },
+    {
+      "category": "researcher",
+      "can_view?": true,
+      "can_create?": false
+    }
+  ]
+}

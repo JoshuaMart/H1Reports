@@ -1,0 +1,534 @@
+{
+  "id": 541502,
+  "global_id": "Z2lkOi8vaGFja2Vyb25lL1JlcG9ydC81NDE1MDI=",
+  "url": "https://hackerone.com/reports/541502",
+  "title": "[https-proxy-agent] Socket returned without TLS upgrade on non-200 CONNECT response, allowing request data to be sent over unencrypted connection",
+  "state": "Closed",
+  "substate": "resolved",
+  "severity_rating": "medium",
+  "readable_substate": "Resolved",
+  "created_at": "2019-04-17T19:20:28.876Z",
+  "submitted_at": "2019-04-17T19:20:28.876Z",
+  "is_member_of_team?": false,
+  "is_organization_group_member?": false,
+  "reporter": {
+    "disabled": false,
+    "username": "kadler15",
+    "url": "/kadler15",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/584/250/fa85e1dd3a7776efef9277c99178cadb5fe2efe1_original.jpg/3c7b305354c9073c106ae3d1701798defaaf5be844fb8fdfa49ca62f991a2c2c"
+    },
+    "is_me?": false,
+    "cleared": false,
+    "verified": false,
+    "hackerone_triager": false,
+    "hacker_mediation": false
+  },
+  "team": {
+    "id": 23949,
+    "url": "https://hackerone.com/nodejs-ecosystem",
+    "handle": "nodejs-ecosystem",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/023/949/3ea3b2ae039a8f955a4a8fe65d99fe85dc817398_original./d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98",
+      "medium": "https://profile-photos.hackerone-user-content.com/variants/000/023/949/3ea3b2ae039a8f955a4a8fe65d99fe85dc817398_original./5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+    },
+    "permissions": [
+
+    ],
+    "submission_state": "disabled",
+    "default_currency": "usd",
+    "awards_miles": false,
+    "offers_bounties": true,
+    "state": "public_mode",
+    "only_cleared_hackers": false,
+    "pentest_feature_enabled?": false,
+    "profile": {
+      "name": "Node.js third-party modules",
+      "twitter_handle": "",
+      "website": "https://nodejs.org/en/security/",
+      "about": "This program was used to handle vulnerabilities in the Node.js ecosystem."
+    }
+  },
+  "has_bounty?": false,
+  "in_validation?": false,
+  "can_view_team": true,
+  "can_view_report": true,
+  "is_external_bug": false,
+  "is_published": false,
+  "is_participant": false,
+  "has_collaborators": false,
+  "submitted_by_team_member": false,
+  "stage": 4,
+  "public": true,
+  "visibility": "full",
+  "cve_ids": [
+
+  ],
+  "singular_disclosure_disabled": false,
+  "disclosed_at": "2019-09-25T08:21:57.569Z",
+  "bug_reporter_agreed_on_going_public_at": null,
+  "team_member_agreed_on_going_public_at": "2019-08-26T08:21:57.268Z",
+  "comments_closed?": false,
+  "facebook_team?": false,
+  "team_private?": false,
+  "vulnerability_information": "I would like to report a man-in-the-middle vulnerability in `https-proxy-agent`.\nIt allows an attacker with access to the network firewall or targeted proxy server to obtain secrets (e.g. a HTTP basic auth header) from the client trying to send HTTPS traffic via HTTP proxy.\n\n# Module\n\n**module name:** `https-proxy-agent`\n**version:** 2.2.1\n**npm page:** `https://www.npmjs.com/package/https-proxy-agent`\n\n## Module Description\n\n> This module provides an http.Agent implementation that connects to a specified HTTP or HTTPS proxy server, and can be used with the built-in https module.\n\n## Module Stats\n\n4314908 downloads in the last week\n\n# Vulnerability\n\n## Vulnerability Description\n\nWhen targeting a HTTP proxy, `https-proxy-agent` [opens a socket](https://github.com/TooTallNate/node-https-proxy-agent/blob/2.2.1/index.js#L77) to the proxy, and sends the proxy server a [CONNECT request](https://github.com/TooTallNate/node-https-proxy-agent/blob/2.2.1/index.js#L203). E.g.:\n\n```\nCONNECT www.google.com:443 HTTP/1.1\nHost: www.google.com\nConnection: close\n```\n\nIf the proxy server responds with 200 and the client is targeting a secure endpoint, `https-proxy-agent` [TLS-upgrades](https://github.com/TooTallNate/node-https-proxy-agent/blob/2.2.1/index.js#L154) the socket before returning it for use. This is normal and expected.\n\nHowever, if the proxy server (or firewall blocking the request) responds with something other than a 200, `https-proxy-agent` incorrectly [returns the socket](https://github.com/TooTallNate/node-https-proxy-agent/blob/2.2.1/index.js#L170) without any TLS upgrade. Companion library `agent-base` [passes the socket off](https://github.com/TooTallNate/node-agent-base/blob/4.2.1/index.js#L141) to Node HTTP internals, which will write the pending request data to the socket. E.g.:\n\n```\nGET / HTTP/1.1\nHost: www.google.com\nAuthorization: Basic dXNlcm5hbWU6cGFzc3dvcmQ=\nConnection: close\n```\n\nThe request data, which may contain basic auth credentials or other secrets, is sent over an unencrypted connection. An attacker with access to tcpdump contents at the firewall or proxy server can steal these secrets and impersonate the client.\n\n## Steps To Reproduce:\n\nRun a simple web server on port 80 that returns 403 in response to any request:\n```bash\n#!/bin/bash\nwhile true; do\n  echo -e \"HTTP/1.1 403 FORBIDDEN\\r\\n$(date)\\r\\n\\r\\n<h1>hello world from $(hostname) on $(date)</h1>\" |  nc -vl 80;\ndone\n```\n\nSend a a request to a remote server using the simple web server as a proxy:\n```javascript\nvar url = require('url');\nvar https = require('https');\nvar HttpsProxyAgent = require('https-proxy-agent');\n\nvar proxyOpts = url.parse('http://127.0.0.1:80');\nvar opts = url.parse('https://www.google.com');\nvar agent = new HttpsProxyAgent(proxyOpts);\nopts.agent = agent;\nopts.auth = 'username:password';\nhttps.get(opts);\n```\n\nLogs observed on the simple web server:\n```\nCONNECT www.google.com:443 HTTP/1.1\nHost: www.google.com\nConnection: close\n\nGET / HTTP/1.1\nHost: www.google.com\nAuthorization: Basic dXNlcm5hbWU6cGFzc3dvcmQ=\nConnection: close\n```\n\n## Patch\n\nChanges in a [commit from 2013](https://github.com/TooTallNate/node-https-proxy-agent/commit/ae03c687bd5667e4088f13bd1eda6228cb10f62d) to buffer and replay incoming proxy data in case of error should be reconsidered. Maybe the replaying can still be done when targeting an insecure endpoint, but it seems unsafe to return the socket without TLS upgrade in the secure endpoint case. It would be better to do something like:\n\n```javascript\nif (200 == statusCode) {\n  // Happy path\n} else if (secureEndpoint) {\n  cleanup();\n  socket.destroy();\n  fn(new Error(`Could not establish TLS connection. Status code: ${statusCode}`));\n} else {\n  // Replay on insecure endpoint\n}\n```\n\nThere may also be a way for the agent to replay the incoming proxy data on and then destroy the socket before returning it.\n\n## Supporting Material/References:\n\n- Ubuntu 16.04 / Linux 4.15.0-43\n- Node 10.15.3\n- npm 6.4.1\n- gnu-netcat 0.7.1\n\n# Wrap up\n\n- I contacted the maintainer to let them know: N\n- I opened an issue in the related repository: N\n\n## Impact\n\nThe vulnerability allows a determined attacker with access to the network firewall or targeted proxy server to see plaintext request data, which could expose auth credentials or other secrets.",
+  "weakness": {
+    "id": 30,
+    "name": "Man-in-the-Middle"
+  },
+  "original_report_id": null,
+  "original_report_url": null,
+  "attachments": [
+
+  ],
+  "allow_singular_disclosure_at": "2019-09-25T08:21:57.379Z",
+  "allow_singular_disclosure_after": -126055061.63563171,
+  "singular_disclosure_allowed": true,
+  "vote_count": 4,
+  "voters": [
+    "sameerphad72",
+    "praveen211",
+    "2801881804",
+    "asdasdasdqqqqqqqqqqqqqqqqqqqqq"
+  ],
+  "severity": {
+    "rating": "medium",
+    "score": 6.1,
+    "author_type": "User",
+    "metrics": {
+      "attack_vector": "adjacent",
+      "attack_complexity": "high",
+      "privileges_required": "none",
+      "user_interaction": "none",
+      "scope": "changed",
+      "confidentiality": "high",
+      "integrity": "none",
+      "availability": "none"
+    }
+  },
+  "structured_scope": {
+    "databaseId": 6412,
+    "asset_type": "SOURCE_CODE",
+    "asset_identifier": "https-proxy-agent",
+    "max_severity": "critical"
+  },
+  "abilities": {
+    "assignable_team_members": [
+
+    ],
+    "assignable_team_member_groups": [
+
+    ]
+  },
+  "activities": [
+    {
+      "id": 4586440,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hello,\nThanks for reporting this to us. Someone will quickly look at this report and triage it.",
+      "automated_response": true,
+      "created_at": "2019-04-17T19:20:34.661Z",
+      "updated_at": "2019-04-17T19:20:34.661Z",
+      "actor": {
+        "username": "vdeturckheim_dev",
+        "cleared": false,
+        "verified": false,
+        "url": "/vdeturckheim_dev",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 4629713,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@nrajlich",
+      "automated_response": false,
+      "created_at": "2019-04-23T20:47:40.468Z",
+      "updated_at": "2019-04-23T20:47:40.468Z",
+      "actor": {
+        "username": "kadler15",
+        "cleared": false,
+        "verified": false,
+        "url": "/kadler15",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/584/250/fa85e1dd3a7776efef9277c99178cadb5fe2efe1_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 4809580,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugNeedsMoreInfo",
+      "message": "Hello @kadler15,\n\nYour time and effort in submitting this report are much appreciated, however, could you please let me know if you are assuming that the request is being made through HTTP? if so I don't think this qualifies as an issue, since the packets will be in plaintext already and what has been reported here doesn't make it any worst if an attacker is already in between.\n\nYour input is much appreciated.\n\nRegards,\n@nasr0x01",
+      "automated_response": false,
+      "created_at": "2019-05-10T13:03:51.977Z",
+      "updated_at": "2019-05-10T13:03:51.977Z",
+      "actor": {
+        "username": "nasr0x01",
+        "cleared": false,
+        "verified": false,
+        "url": "/nasr0x01",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/386/674/ec2e2c825a554851c42c122ffd61aa8f18b08174_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 4809952,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugNew",
+      "message": "Hi @nasr0x01,\n\nNo, I'm exclusively using the `https` module, and targeting secure web servers. Sorry if my example in steps to reproduce is misleading -- ignore the use of port 80... port 3128 might have been clearer. The test server in the example is a mock proxy server. Note that the client-side logic uses `https.get`. E.g.:\n\n```javascript\nvar proxyOpts = url.parse('http://127.0.0.1:3128'); # Mock proxy server\nvar opts = url.parse('https://www.google.com'); # Defaults to port 443\n...\nhttps.get(opts);\n```\n\nMy expectation when using `https` for requests is the hostname is plaintext, but headers, payload and URL path are encrypted.\n\nThanks,\n@kadler15\n",
+      "automated_response": false,
+      "created_at": "2019-05-10T14:39:36.694Z",
+      "updated_at": "2019-05-10T14:43:44.056Z",
+      "actor": {
+        "username": "kadler15",
+        "cleared": false,
+        "verified": false,
+        "url": "/kadler15",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/584/250/fa85e1dd3a7776efef9277c99178cadb5fe2efe1_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 4871400,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugTriaged",
+      "message": "Hi @kadler15,\n\nThanks for your submission! I need to check further with the product team to see if this is an issue they intend to fix. If not, it's possible this issue will be closed accordingly.\n\nYour patience is much appreciated.\n\nBest regards,\n@nasr0x01 ",
+      "automated_response": false,
+      "created_at": "2019-05-18T11:17:24.056Z",
+      "updated_at": "2019-05-18T11:17:24.056Z",
+      "actor": {
+        "username": "nasr0x01",
+        "cleared": false,
+        "verified": false,
+        "url": "/nasr0x01",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/386/674/ec2e2c825a554851c42c122ffd61aa8f18b08174_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 5140642,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @nasr0x01, has anyone from the product team given feedback on this? Thanks!",
+      "automated_response": false,
+      "created_at": "2019-06-19T22:12:32.041Z",
+      "updated_at": "2019-06-19T22:12:32.041Z",
+      "actor": {
+        "username": "kadler15",
+        "cleared": false,
+        "verified": false,
+        "url": "/kadler15",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/584/250/fa85e1dd3a7776efef9277c99178cadb5fe2efe1_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 5429944,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ExternalUserJoined",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2019-07-25T18:19:40.904Z",
+      "updated_at": "2019-07-25T18:19:40.904Z",
+      "actor": {
+        "username": "nrajlich",
+        "cleared": false,
+        "verified": false,
+        "url": "/nrajlich",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 5460750,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@nrajlich can you let us know when the fix has been released?",
+      "automated_response": false,
+      "created_at": "2019-07-30T10:15:35.529Z",
+      "updated_at": "2019-07-30T10:15:35.529Z",
+      "actor": {
+        "username": "marcinhoppe",
+        "cleared": false,
+        "verified": false,
+        "url": "/marcinhoppe",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 5612978,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@nrajlich Is there any way we can help coordinate release of this fix?",
+      "automated_response": false,
+      "created_at": "2019-08-20T07:29:14.659Z",
+      "updated_at": "2019-08-20T07:29:14.659Z",
+      "actor": {
+        "username": "marcinhoppe",
+        "cleared": false,
+        "verified": false,
+        "url": "/marcinhoppe",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 5663239,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "I will close this report and schedule it for public disclosure.",
+      "automated_response": false,
+      "created_at": "2019-08-26T08:21:37.575Z",
+      "updated_at": "2019-08-26T08:21:37.575Z",
+      "actor": {
+        "username": "marcinhoppe",
+        "cleared": false,
+        "verified": false,
+        "url": "/marcinhoppe",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 5663241,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2019-08-26T08:21:45.647Z",
+      "updated_at": "2019-08-26T08:21:45.647Z",
+      "actor": {
+        "username": "marcinhoppe",
+        "cleared": false,
+        "verified": false,
+        "url": "/marcinhoppe",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "reporter": {
+        "username": "kadler15",
+        "url": "/kadler15"
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 5663242,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2019-08-26T08:21:57.299Z",
+      "updated_at": "2019-08-26T08:21:57.299Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "marcinhoppe",
+        "cleared": false,
+        "verified": false,
+        "url": "/marcinhoppe",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 5882966,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "I've been in touch with @nrajlich. He's aware of this issue, but hasn't found the time to fix it yet.\n\nHere's a patch I've been using in a private registry:\n\n```patch\ndiff --git a/index.js b/index.js\nindex 0a2fdab..a331ce1 100644\n--- a/index.js\n+++ b/index.js\n@@ -157,17 +157,16 @@ HttpsProxyAgent.prototype.callback = function connect(req, opts, fn) {\n       cleanup();\n       fn(null, sock);\n     } else {\n-      // some other status code that's not 200... need to re-play the HTTP header\n-      // \"data\" events onto the socket once the HTTP machinery is attached so that\n-      // the user can parse and handle the error status code\n+      // We got a bad response to the CONNECT request, so we will not attempt\n+      // to upgrade the socket to a TLS connection.\n+      //\n+      // Destroy the socket and return an error, as the socket has not been\n+      // upgraded to a TLS connection. If the socket were returned for use,\n+      // plaintext secrets could leak to a network firewall or remote server.\n+      buffers = buffered = null;\n+      socket.destroy();\n       cleanup();\n-\n-      // save a reference to the concat'd Buffer for the `onsocket` callback\n-      buffers = buffered;\n-\n-      // need to wait for the \"socket\" event to re-play the \"data\" events\n-      req.once('socket', onsocket);\n-      fn(null, socket);\n+      fn(new Error(`Could not establish TLS connection. Status code: ${statusCode}`));\n     }\n   }\n```",
+      "automated_response": false,
+      "created_at": "2019-09-25T02:35:38.166Z",
+      "updated_at": "2019-09-25T02:35:38.166Z",
+      "actor": {
+        "username": "kadler15",
+        "cleared": false,
+        "verified": false,
+        "url": "/kadler15",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/584/250/fa85e1dd3a7776efef9277c99178cadb5fe2efe1_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 5884110,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@kadler15 thanks! The report will be disclosed today and I think it is good that a patch is available in the report description so people can apply it in the meantime if they want.",
+      "automated_response": false,
+      "created_at": "2019-09-25T07:30:04.802Z",
+      "updated_at": "2019-09-25T07:30:04.802Z",
+      "actor": {
+        "username": "marcinhoppe",
+        "cleared": false,
+        "verified": false,
+        "url": "/marcinhoppe",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 5884316,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportBecamePublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2019-09-25T08:21:57.684Z",
+      "updated_at": "2019-09-25T08:21:57.684Z",
+      "actor": {
+        "url": "/nodejs-ecosystem",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/023/949/3ea3b2ae039a8f955a4a8fe65d99fe85dc817398_original./5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "Node.js third-party modules"
+        }
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 5980736,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi there. I wanted to report that this vulnerability has been fixed as of `https-proxy-agent` v3.0.0. Please see the release notes: https://github.com/TooTallNate/node-https-proxy-agent/releases/tag/3.0.0",
+      "automated_response": false,
+      "created_at": "2019-10-07T21:35:21.525Z",
+      "updated_at": "2019-10-07T21:35:21.525Z",
+      "actor": {
+        "username": "nrajlich",
+        "cleared": false,
+        "verified": false,
+        "url": "/nrajlich",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 5980822,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "I'll update the Security WG vuln entry for that. Thanks Nathan.",
+      "automated_response": false,
+      "created_at": "2019-10-07T21:57:16.087Z",
+      "updated_at": "2019-10-07T21:57:16.087Z",
+      "actor": {
+        "username": "lirantal",
+        "cleared": false,
+        "verified": false,
+        "url": "/lirantal",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/096/045/7e9d9170c9862d8d3697b11b0bb7160d40444c16_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    }
+  ],
+  "activity_page_count": 1,
+  "activity_page_number": 1,
+  "summaries": [
+    {
+      "category": "team",
+      "can_view?": true,
+      "can_create?": false
+    },
+    {
+      "category": "researcher",
+      "can_view?": true,
+      "can_create?": false
+    }
+  ]
+}

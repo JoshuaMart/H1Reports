@@ -1,0 +1,491 @@
+{
+  "id": 402753,
+  "global_id": "Z2lkOi8vaGFja2Vyb25lL1JlcG9ydC80MDI3NTM=",
+  "url": "https://hackerone.com/reports/402753",
+  "title": "Stored XSS in Jetpack's Simple Payment Module by Contributors / Authors",
+  "state": "Closed",
+  "substate": "resolved",
+  "severity_rating": "medium",
+  "readable_substate": "Resolved",
+  "created_at": "2018-08-30T08:50:43.915Z",
+  "submitted_at": "2018-08-30T08:50:43.915Z",
+  "is_member_of_team?": false,
+  "is_organization_group_member?": false,
+  "reporter": {
+    "disabled": false,
+    "username": "simonscannell",
+    "url": "/simonscannell",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/HvE5FGgP56eXFMNMr4rwmunu/3c7b305354c9073c106ae3d1701798defaaf5be844fb8fdfa49ca62f991a2c2c"
+    },
+    "is_me?": false,
+    "cleared": false,
+    "verified": false,
+    "hackerone_triager": false,
+    "hacker_mediation": false
+  },
+  "team": {
+    "id": 111,
+    "url": "https://hackerone.com/automattic",
+    "handle": "automattic",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/000/111/7f89e1ea233f92916202521a069fdbfe9eced339_original.png/d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98",
+      "medium": "https://profile-photos.hackerone-user-content.com/variants/000/000/111/7f89e1ea233f92916202521a069fdbfe9eced339_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+    },
+    "permissions": [
+
+    ],
+    "submission_state": "open",
+    "default_currency": "usd",
+    "awards_miles": false,
+    "offers_bounties": true,
+    "state": "public_mode",
+    "only_cleared_hackers": false,
+    "pentest_feature_enabled?": false,
+    "profile": {
+      "name": "Automattic",
+      "twitter_handle": "",
+      "website": "https://automattic.com",
+      "about": "WordPress.com, VaultPress, Akismet, Gravatar, WooCommerce, Polldaddy, Tumblr and more!"
+    }
+  },
+  "has_bounty?": true,
+  "in_validation?": false,
+  "can_view_team": true,
+  "can_view_report": true,
+  "is_external_bug": false,
+  "is_published": false,
+  "is_participant": false,
+  "has_collaborators": false,
+  "submitted_by_team_member": false,
+  "stage": 4,
+  "public": true,
+  "visibility": "full",
+  "cve_ids": [
+
+  ],
+  "singular_disclosure_disabled": true,
+  "disclosed_at": "2019-12-19T14:24:27.025Z",
+  "bug_reporter_agreed_on_going_public_at": "2019-11-19T14:24:24.000Z",
+  "team_member_agreed_on_going_public_at": null,
+  "comments_closed?": false,
+  "facebook_team?": false,
+  "team_private?": false,
+  "vulnerability_information": "Jetpack's implementation of the Simple Payment Module is as follows:\n\nA custom post type is registered for each product. When an admin creates a product, a post is internally created and information about the product, such as the price is then stored as post meta information. After the post has been created, any user who can create posts can use the [simple-payment] shortcode with the id of the post representing the product. So for example, if the product was internally saved as a post with ID 17, the shortcode [simple-payment id=\"17\"] would then render the product.\n\nWith this information, I began looking for weaknesses and noticed something interesting here:\n\n```\n\t\t/*\n\t\t * PRODUCT data structure. Holds:\n\t\t * title - title\n\t\t * content - description\n\t\t * thumbnail - image\n\t\t * metadata:\n\t\t * spay_price - price\n\t\t * spay_formatted_price\n\t\t * spay_currency - currency code\n\t\t * spay_cta - text with \"Buy\" or other CTA\n\t\t * spay_email - paypal email\n\t\t * spay_multiple - allow for multiple items\n\t\t * spay_status - status. { enabled | disabled }\n\t\t */\n\t\t$product_capabilities = array(\n\t\t\t'edit_post'             => 'edit_posts',\n\t\t\t'read_post'             => 'read_private_posts',\n\t\t\t'delete_post'           => 'delete_posts',\n\t\t\t'edit_posts'            => 'edit_posts',\n\t\t\t'edit_others_posts'     => 'edit_others_posts',\n\t\t\t'publish_posts'         => 'publish_posts',\n\t\t\t'read_private_posts'    => 'read_private_posts',\n\t\t);\n\t\t$product_args = array(\n\t\t\t'label'                 => esc_html__( 'Product', 'jetpack' ),\n\t\t\t'description'           => esc_html__( 'Simple Payments products', 'jetpack' ),\n\t\t\t'supports'              => array( 'title', 'editor','thumbnail', 'custom-fields', 'author' ),\n\t\t\t'hierarchical'          => false,\n\t\t\t'public'                => false,\n\t\t\t'show_ui'               => false,\n\t\t\t'show_in_menu'          => false,\n\t\t\t'show_in_admin_bar'     => false,\n\t\t\t'show_in_nav_menus'     => false,\n\t\t\t'can_export'            => true,\n\t\t\t'has_archive'           => false,\n\t\t\t'exclude_from_search'   => true,\n\t\t\t'publicly_queryable'    => false,\n\t\t\t'rewrite'               => false,\n\t\t\t'capabilities'          => $product_capabilities,\n\t\t\t'show_in_rest'          => true,\n\t\t);\n\t\tregister_post_type( self::$post_type_product, $product_args );\n```\n\nAs can be seen, the capabilities of a product are explicitly set to 'edit_post'. This means contributors and authors have access to these products and can create them in the database. Since none of the post_meta keys are protected, it is also possible for contributors and authors to fill them with arbitrary values. (Either when creating the post or via the wp_ajax_add_meta handler). This meant if during the process of rendering the shortcode some post meta values would be echo'd into the markup unsanitized, I could achieve stored XSS.\n\nSo, ofcourse my next step was to look at the function that renders the shortcode:\n\n```\n\tfunction output_shortcode( $data ) {\n\t\t$items = '';\n\t\t$css_prefix = self::$css_classname_prefix;\n\n\t\tif ( $data['multiple'] ) {\n\t\t\t$items=\"<div class='${css_prefix}-items'>\n\t\t\t\t<input class='${css_prefix}-items-number' type='number' value='1' min='1' id='{$data['dom_id']}_number' />\n\t\t\t</div>\";\n\t\t}\n\t\t$image = \"\";\n\t\tif( has_post_thumbnail( $data['id'] ) ) {\n\t\t\t$image = \"<div class='${css_prefix}-product-image'><div class='${css_prefix}-image'>\" . get_the_post_thumbnail( $data['id'], 'full' ) . \"</div></div>\";\n\t\t}\n\t\treturn \"\n<div class='{$data['class']} ${css_prefix}-wrapper'>\n\t<div class='${css_prefix}-product'>\n\t\t{$image}\n\t\t<div class='${css_prefix}-details'>\n\t\t\t<div class='${css_prefix}-title'><p>{$data['title']}</p></div>\n\t\t\t<div class='${css_prefix}-description'><p>{$data['description']}</p></div>\n\t\t\t<div class='${css_prefix}-price'><p>{$data['price']}</p></div>\n\t\t\t<div class='${css_prefix}-purchase-message' id='{$data['dom_id']}-message-container'></div>\n\t\t\t<div class='${css_prefix}-purchase-box'>\n\t\t\t\t{$items}\n\t\t\t\t<div class='${css_prefix}-button' id='{$data['dom_id']}_button'></div>\n\t\t\t</div>\n\t\t</div>\n\t</div>\n</div>\n\t\t\";\n\t}\n```\n\nThis line here was particularly interesting to me, as the price is outputted unsanitized.\n\n```\n\t\t\t<div class='${css_prefix}-price'><p>{$data['price']}</p></div>\n```\n\nNow all that was left to figure out was to see how the price was received from the database and if it would be sanitized. The function in which it is received is the parse_shortcode method (I have removed the code that doesn't matter to this explanation):\n\n```\n\tfunction parse_shortcode( $attrs, $content = false ) {\n\t\tif ( empty( $attrs['id'] ) ) {\n\t\t\treturn;\n\t\t}\n\t\t$product = get_post( $attrs['id'] );\n...\n\t\t$data['price'] = $this->format_price(\n\t\t\tget_post_meta( $product->ID, 'spay_formatted_price', true ),\n\t\t\tget_post_meta( $product->ID, 'spay_price', true ),\n\t\t\tget_post_meta( $product->ID, 'spay_currency', true ),\n\t\t\t$data\n\t\t);\n...\n\t\treturn $this->output_shortcode( $data );\n\t}\n```\n\nAs can be seen, the price is simply retrieved from the database as post meta values and then passed to format_price, however this function does not perform any sanitization whatsoever:\n\n```\n\tfunction format_price( $formatted_price, $price, $currency, $all_data ) {\n\t\tif ( $formatted_price ) {\n\t\t\treturn $formatted_price;\n\t\t}\n\t\treturn \"$price $currency\";\n\t}\n```\n\nThis means that we indeed have a Stored XSS vulnerability. \n\nHere is a PoC video of me getting a Stored XSS payload as a contributor\nhttps://www.youtube.com/watch?v=gMHOse_8ywI\n\n## Impact\n\nSince Simple Payments is only available to premium and professional users, this fortunaly lowers the impact. Since Stored XSS easily leads to a privilege escalation in WordPress, this is still of high impact.",
+  "weakness": {
+    "id": 62,
+    "name": "Cross-site Scripting (XSS) - Stored"
+  },
+  "original_report_id": null,
+  "original_report_url": null,
+  "attachments": [
+
+  ],
+  "allow_singular_disclosure_at": "2019-12-19T14:24:24.136Z",
+  "allow_singular_disclosure_after": -118689013.72872648,
+  "singular_disclosure_allowed": true,
+  "vote_count": 41,
+  "voters": [
+    "snorlhax",
+    "mashoud1122",
+    "sameerphad72",
+    "tess",
+    "ali",
+    "bcobain23",
+    "khizer47",
+    "cryptographer",
+    "robotsam225",
+    "0xm1racle",
+    "and 31 more..."
+  ],
+  "severity": {
+    "rating": "medium",
+    "author_type": "User"
+  },
+  "structured_scope": null,
+  "abilities": {
+    "assignable_team_members": [
+
+    ],
+    "assignable_team_member_groups": [
+
+    ]
+  },
+  "activities": [
+    {
+      "id": 3276335,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Thanks for the report, we're investigating the issue and will get back to you with any updates shortly.",
+      "automated_response": false,
+      "created_at": "2018-08-31T17:52:36.587Z",
+      "updated_at": "2018-08-31T17:52:36.587Z",
+      "actor": {
+        "username": "vortfu",
+        "cleared": false,
+        "verified": false,
+        "url": "/vortfu",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/004/982/1ef285fb263d30f189dc6a8038e1d5c46086e9d9_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "automattic"
+    },
+    {
+      "id": 3277736,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Thanks for the detailed report, @simonscannell. I agree there should be sanitation in this output.\n\nI've been able to reproduce the bug via a different route, but yours looks simpler. How did you generate the nonce you used in the request?",
+      "automated_response": false,
+      "created_at": "2018-09-01T00:04:05.865Z",
+      "updated_at": "2018-09-01T00:04:05.865Z",
+      "actor": {
+        "username": "mdawaffe",
+        "cleared": false,
+        "verified": false,
+        "url": "/mdawaffe",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/004/980/361d223c60a3868eb44f3eb91cdb964118362ff4_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "automattic"
+    },
+    {
+      "id": 3277916,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugNeedsMoreInfo",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2018-09-01T01:43:42.036Z",
+      "updated_at": "2018-09-01T01:43:42.036Z",
+      "actor": {
+        "username": "mdawaffe",
+        "cleared": false,
+        "verified": false,
+        "url": "/mdawaffe",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/004/980/361d223c60a3868eb44f3eb91cdb964118362ff4_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "automattic"
+    },
+    {
+      "id": 3282779,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugNew",
+      "message": "Hi @mdawaffe ,\n\nI abused a bug in the WordPress core that allows me to create posts without having the post related nonce. I am done researching said bug and will report it today to the WordPress team. I just used that route in the PoC since it, as you said, is way simpler. I'm sorry for any confusion or inconvience caused. The two bugs are seperate of each other, I just didn't have the Jetpack Premium Plan and could only create Simple Payment posts via this bug. \n",
+      "automated_response": false,
+      "created_at": "2018-09-03T07:22:17.658Z",
+      "updated_at": "2018-09-03T07:27:33.794Z",
+      "actor": {
+        "username": "simonscannell",
+        "cleared": false,
+        "verified": false,
+        "url": "/simonscannell",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/HvE5FGgP56eXFMNMr4rwmunu/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "automattic"
+    },
+    {
+      "id": 3287018,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Thanks for the extra information, @simonscannell. Sounds like another interesting bug :)\n\nAttached is the patch we're thinking about for Jetpack. We're still testing some things, but wanted to get it to you in case you had any feedback or if you see any other cases the patch doesn't cover.",
+      "automated_response": false,
+      "created_at": "2018-09-03T23:43:06.981Z",
+      "updated_at": "2018-09-03T23:43:06.981Z",
+      "actor": {
+        "username": "mdawaffe",
+        "cleared": false,
+        "verified": false,
+        "url": "/mdawaffe",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/004/980/361d223c60a3868eb44f3eb91cdb964118362ff4_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "attachments": [
+        {
+          "id": 342042,
+          "filename": "402753.diff",
+          "type": "text/x-diff",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/342/042/1b9e64417e0208eff91224ba27d7e51947175396/402753.diff?response-content-disposition=attachment%3B%20filename%3D%22402753.diff%22%3B%20filename%2A%3DUTF-8%27%27402753.diff&response-content-type=text%2Fx-diff&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ7IF72EGR%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T073437Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEC8aCXVzLXdlc3QtMiJIMEYCIQD0TAEi1peTsxNRMRsx2vBHR2pUGB7uHpbMRYg22KJXXAIhAOfNKRDia06ZOZMyd%2Fls3%2FTdPcLekbPiNmiZSXFYcx5uKrEFCCgQAxoMMDEzNjE5Mjc0ODQ5IgwjRpsfqQF%2BFfykAFMqjgXdivFzeRynUaxnCxzNhWzgVNVya2lqgNeJCfGD3wMjYG5xSgEab7GM4w5o9oGAL8%2BfjsZ7blKNrUlARcDh6fKoJ4rUV9jhNZz%2FvPSgXu6wzQtWtT5a2Ana5wpZSTzm8K62COIpOoBhJTTkJTT%2FdALIxUIidxqFRrLKAi89qr9bgJyQDu33TMI14lRF%2Bvauvx%2Bl9XKOvUSvEFRVuXhxrd%2FQ2SR68RCv05i8EW6Rw11j76ipoSR9CW95fmmNJg%2FEV4hGCi%2FyNDsBu4CQ2GM3PH2T%2ByfbJw85lnD6T%2Bcos3FcMzWc%2BVDZLk2j5FrFa0YExa9%2BN8LdhGVphEYnfjt9OFFnxcoC%2BnrZCSna21kk9sD1g0D8YjpQnNJmMJP%2BnOM7I%2Fk%2F77n4v30KuuC6hpT8twhDKILhks8yAwVuiyDBLgEMMdV1PeuUZFokagw0ONgLFZMZ5ElGYijYV8Dv0UlVGFJRzrpaxVl2Dy%2FWWgy0XMx%2FwG5k95kd%2FLkZ7w7o0%2FM%2FDJToli3C27uWWejCiuq95TXpXKCEzEWb0J4rh29e4hk7hq7OWOtQQTUde2q9wchyksu1rYzq2RCV2gM10O1mMJunqQSg6lES7Z5AvaCVheBpt2uRDsodnl9KD2I3VWF0kgJXSmcDVcQ4UxMShaao7WC7bcYWs%2BIjKN6C9mY9CzgacHoYHms6kZzPz2NrN%2F3cHhxk0zzINkWgZhR8IaHWOGyuyiZIbmQ2sv86YBVwYSb0hQj6n4rBtD8jilSYSnBbvxlJnRSCSIaYwiHuOcQhzmmbIT4pWyAbV4%2FmXomyu0ZvHzcxJiqRiIaBq0fx4B8qyvHCZ0MAWnqCAAlgmS%2BHlRuvxigPCB4nXZ59bhSNtaQw6pq6qAY6sAHlFHUDOcxyHvFiK44%2BbKKoa8xJyrD9kvKV1skKJvix2qkHIcCQAaIne5%2FQOqOFhO25Mu%2BP%2FIg08%2BZTLOQt7xdkt%2FsKZut84hBLHJYAq9vY1kXUeIPQ1avQ9%2FT2wWy9L5CTYbnxh26j%2Bo3NcBtG0oDQg%2BqPGSdORofiFd9dZKqJouuppKCv20%2FFJzBNvMZPpqAVejqiWUAwyYGwtPQUNvmJniwGk0kv1X8Rcycp1eaOEg%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=bd8f75b4bacdf9fa2db28a06fb033c5ee3d9b9fa2177182221f0538e3b1d5f52"
+        }
+      ],
+      "genius_execution_id": null,
+      "team_handle": "automattic"
+    },
+    {
+      "id": 3288189,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "The patch seems good! Although post_content and post_title are sanitized when stored in the database, I'd still escape them just to be extra safe in case some other plugin does something weird and makes WordPress skip the sanitization process (I've seen that before).",
+      "automated_response": false,
+      "created_at": "2018-09-04T07:42:34.241Z",
+      "updated_at": "2018-09-04T07:42:34.241Z",
+      "actor": {
+        "username": "simonscannell",
+        "cleared": false,
+        "verified": false,
+        "url": "/simonscannell",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/HvE5FGgP56eXFMNMr4rwmunu/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "automattic"
+    },
+    {
+      "id": 3288220,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Yes, we're considering adding additional escaping there. We'll keep you posted about what we decide. Thank you for the insight.\n\nWe're not yet sure when we will release this change. It could be quite soon, but there may be a delay. When we do release the fix, how would you like to be credited: name?, link?, company?",
+      "automated_response": false,
+      "created_at": "2018-09-04T07:54:09.290Z",
+      "updated_at": "2018-09-04T07:54:09.290Z",
+      "actor": {
+        "username": "mdawaffe",
+        "cleared": false,
+        "verified": false,
+        "url": "/mdawaffe",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/004/980/361d223c60a3868eb44f3eb91cdb964118362ff4_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "automattic"
+    },
+    {
+      "id": 3288247,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Thanks for asking! I'd be happy if it said my name and company (which is RIPS Technologies).",
+      "automated_response": false,
+      "created_at": "2018-09-04T08:04:44.794Z",
+      "updated_at": "2018-09-04T08:04:44.794Z",
+      "actor": {
+        "username": "simonscannell",
+        "cleared": false,
+        "verified": false,
+        "url": "/simonscannell",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/HvE5FGgP56eXFMNMr4rwmunu/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "automattic"
+    },
+    {
+      "id": 3298080,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "We released Jetpack 6.5 yesterday with the patch you saw earlier.\n\nhttps://jetpack.com/2018/09/04/jetpack-6-5-general-maintenance-and-security-update/\n\nIn a future release, we'll probably add more escaping/sanitation to the title and description as you suggested as well. We don't think those changes are as critical, though, and wanted to get the more important changes out sooner.\n\nThanks again for the report!\n\n(@vortfu will follow up with report resolutions, etc.)",
+      "automated_response": false,
+      "created_at": "2018-09-05T18:41:15.282Z",
+      "updated_at": "2018-09-05T18:41:15.282Z",
+      "actor": {
+        "username": "mdawaffe",
+        "cleared": false,
+        "verified": false,
+        "url": "/mdawaffe",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/004/980/361d223c60a3868eb44f3eb91cdb964118362ff4_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "automattic"
+    },
+    {
+      "id": 3299672,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Thank you for the fast responses @mdawaffe ! I'm happy to help.",
+      "automated_response": false,
+      "created_at": "2018-09-06T07:55:22.059Z",
+      "updated_at": "2018-09-06T07:55:22.059Z",
+      "actor": {
+        "username": "simonscannell",
+        "cleared": false,
+        "verified": false,
+        "url": "/simonscannell",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/HvE5FGgP56eXFMNMr4rwmunu/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "automattic"
+    },
+    {
+      "id": 3308513,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2018-09-07T18:38:24.504Z",
+      "updated_at": "2018-09-07T18:38:24.504Z",
+      "actor": {
+        "username": "vortfu",
+        "cleared": false,
+        "verified": false,
+        "url": "/vortfu",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/004/982/1ef285fb263d30f189dc6a8038e1d5c46086e9d9_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "reporter": {
+        "username": "simonscannell",
+        "url": "/simonscannell"
+      },
+      "genius_execution_id": null,
+      "team_handle": "automattic"
+    },
+    {
+      "id": 3308521,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BountyAwarded",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2018-09-07T18:40:49.319Z",
+      "updated_at": "2018-09-07T18:40:49.319Z",
+      "actor": {
+        "url": "/automattic",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/000/111/7f89e1ea233f92916202521a069fdbfe9eced339_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "Automattic"
+        }
+      },
+      "bounty_currency": "usd",
+      "genius_execution_id": null,
+      "team_handle": "automattic",
+      "collaborator": {
+        "username": "simonscannell",
+        "url": "/simonscannell"
+      }
+    },
+    {
+      "id": 3315014,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Thank you very much. :)",
+      "automated_response": false,
+      "created_at": "2018-09-10T08:01:22.236Z",
+      "updated_at": "2018-09-10T08:01:22.236Z",
+      "actor": {
+        "username": "simonscannell",
+        "cleared": false,
+        "verified": false,
+        "url": "/simonscannell",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/HvE5FGgP56eXFMNMr4rwmunu/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "automattic"
+    },
+    {
+      "id": 6346177,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2019-11-19T14:24:24.067Z",
+      "updated_at": "2019-11-19T14:24:24.067Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "simonscannell",
+        "cleared": false,
+        "verified": false,
+        "url": "/simonscannell",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/HvE5FGgP56eXFMNMr4rwmunu/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "automattic"
+    },
+    {
+      "id": 6589177,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportBecamePublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2019-12-19T14:24:27.240Z",
+      "updated_at": "2019-12-19T14:24:27.240Z",
+      "actor": {
+        "url": "/automattic",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/000/111/7f89e1ea233f92916202521a069fdbfe9eced339_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "Automattic"
+        }
+      },
+      "genius_execution_id": null,
+      "team_handle": "automattic"
+    }
+  ],
+  "activity_page_count": 1,
+  "activity_page_number": 1,
+  "summaries": [
+    {
+      "category": "team",
+      "can_view?": true,
+      "can_create?": false
+    },
+    {
+      "category": "researcher",
+      "can_view?": true,
+      "can_create?": false
+    }
+  ]
+}

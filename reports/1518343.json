@@ -1,0 +1,455 @@
+{
+  "id": 1518343,
+  "global_id": "Z2lkOi8vaGFja2Vyb25lL1JlcG9ydC8xNTE4MzQz",
+  "url": "https://hackerone.com/reports/1518343",
+  "title": "Reflected XSS in the shared note view on https://evernote.com",
+  "state": "Closed",
+  "substate": "resolved",
+  "severity_rating": "medium",
+  "readable_substate": "Resolved",
+  "created_at": "2022-03-22T03:38:49.579Z",
+  "submitted_at": "2022-03-22T03:38:49.646Z",
+  "is_member_of_team?": false,
+  "is_organization_group_member?": false,
+  "reporter": {
+    "disabled": false,
+    "username": "sarka",
+    "url": "/sarka",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/aVYrxegtA9z2tYqvAxtBoE3P/3c7b305354c9073c106ae3d1701798defaaf5be844fb8fdfa49ca62f991a2c2c"
+    },
+    "is_me?": false,
+    "cleared": false,
+    "verified": false,
+    "hackerone_triager": false,
+    "hacker_mediation": false
+  },
+  "team": {
+    "id": 44211,
+    "url": "https://hackerone.com/evernote",
+    "handle": "evernote",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/9jjpi96bDMknk4JEkhSEyk8z/d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98",
+      "medium": "https://profile-photos.hackerone-user-content.com/variants/9jjpi96bDMknk4JEkhSEyk8z/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+    },
+    "permissions": [
+
+    ],
+    "submission_state": "open",
+    "default_currency": "usd",
+    "awards_miles": false,
+    "offers_bounties": true,
+    "state": "public_mode",
+    "only_cleared_hackers": false,
+    "pentest_feature_enabled?": false,
+    "profile": {
+      "name": "Evernote",
+      "twitter_handle": "",
+      "website": "http://evernote.com",
+      "about": ""
+    }
+  },
+  "has_bounty?": true,
+  "in_validation?": false,
+  "can_view_team": true,
+  "can_view_report": true,
+  "is_external_bug": false,
+  "is_published": false,
+  "is_participant": false,
+  "has_collaborators": false,
+  "submitted_by_team_member": false,
+  "stage": 4,
+  "public": true,
+  "visibility": "full",
+  "cve_ids": [
+
+  ],
+  "singular_disclosure_disabled": false,
+  "disclosed_at": "2022-04-20T19:37:48.052Z",
+  "bug_reporter_agreed_on_going_public_at": "2022-04-20T19:37:47.944Z",
+  "team_member_agreed_on_going_public_at": "2022-04-20T19:30:10.112Z",
+  "comments_closed?": false,
+  "facebook_team?": false,
+  "team_private?": false,
+  "vulnerability_information": "## Summary:\n\nThere is a reflected XSS vulnerability on https://evernote.com, in the shared web note view, triggered through the ```view``` and ```ionUrl``` parameters of the ***/shard/s[SHARD_NUMBER]/client/snv*** endpoint.\n\n## Description:\n\n\nWhen a user creates a note and shares it, it is stored in the following endpoint, being accessible by its ```GUID``` and generated ```KEY```: ***https://www.evernote.com/shard/s[SHARD_NUMBER]/sh/[NOTE_GUID]/[NOTE_KEY]***.\n\nThe above link redirects to another generated link this is going to be used to access the ressource in the web note viewer, and has the following format:\n***https://www.evernote.com/shard/s[SHARD_NUMBER]/client/snv?noteGuid=[NOTE_GUID]&noteKey=[NOTE_KEY]&sn=[PREVIOUS_LINK]&title=[NOTE_TITLE]***\n\nWhen accessing from this web note viewer link, a script named ***main.68d4af6d45d9dcaab6e6.js*** is fetched from ***https://dashboard.svc.www.evernote.com/app/nv/***, used to format and display the note properly.\n\nAfter analyzing this file, we can observe at line 3353 of this script (beautify the script first) a function named ```renderWithContext()``` that handles different ways of rendering the note:\n\n```javascript\nrenderWithContext() {\n    switch (this.view) {\n\t\tcase \"content-unavailable\":\n\t\t\treturn this.renderContentUnavailable({\n\t\t\t\theader: this.state.i18n.t(\"SharedNote.contentUnavailable.info\"),\n\t\t\t\tbody: this.state.i18n.t(\"SharedNote.contentUnavailable.downloadInfo\")\n\t\t\t});\n\t\tcase \"saved\":\n\t\t\treturn this.renderContentUnavailable({\n\t\t\t\theader: this.state.i18n.t(\"SharedNote.contentUnavailable.savedOnMobile.info\"),\n\t\t\t\tbody: this.state.i18n.t(\"SharedNote.contentUnavailable.savedOnMobile.downloadInfo\")\n\t\t\t});\n\t\tcase \"notelink\":\n\t\t\treturn this.renderNoteLinkView();\n\t\tcase \"after-save-note\":\n\t\t\treturn this.renderAfterSaveNoteView()\n\t}\n\tconst { embedMode: e } = this.state;\n\treturn e ? this.renderContent() : o.createElement(\"div\", {\n\t\tclassName: Gn.appContainer\n\t}, this.renderHeader(), this.renderContent())\n}\n```\n\nSince the ```this``` object represent the current URL parameters, the switch statement ```switch (this.view)``` gives away that we can reach this function by adding a ```view``` parameter in the URL. \n\nThe vulnerable case here is ```after-save-note```. Here is what the ```renderAfterSaveNoteView()``` function looks like:\n\n```javascript\nrenderAfterSaveNoteView() {\n\tif (W())\n\t\tif (R.isMobile) {\n\t\t\tconst e = oe(R.isMobile);\n\t\t\te && (window.location.href = e)\n\t\t} else {\n\t\t\tconst e = function () {\n\t\t\t\tconst e = W();\n\t\t\t\tlet n = e && e.ionUrl;\n\t\t\t\treturn n && -1 === n.indexOf(J.baseUrl) ? null : n\n\t\t\t}();\n\t\t\te && (window.location.href = e)\n\t\t}\n\treturn null\n}\n```\n\nWe can observe line 12 that this script sets the ```window.location.href ``` attribute to the variable ```e```.  As line 9 shows, we also control this variable ```e``` as it represents an additional parameter we have to add in the URL: ```ionUrl```.\n\nHowever, we can see at line 10 a security measure that will try to prevent attacker from setting the ```window.location.href``` attribute to anything outside evernote.com: ```J.baseUrl``` contains the value \"https://www.evernote.com/\". This line basically checks if the substring \"https://www.evernote.com/\" is present in the provided ```ionUrl``` URL parameter.\n\nThat's where the vulnerability resides; it only checks if the substring \"https://www.evernote.com/\" is in the provided ```ionUrl``` URL parameter, but not that it starts by it.\n\n**I was then able to execute javascript by passing the following payload to ```ionUrl``` : ```javascript:alert(document.cookie)//https://www.evernote.com/```, using javascript comments to comment-out the evernote link (and setting ```view``` to ```after-save-note``` in order to reach this function).**\n\nHere is the POC that will display current cookies in an alert box:\nhttps://www.evernote.com/shard/s1/client/snv?view=after-save-note&ionUrl=javascript:alert(document.cookie)//https://www.evernote.com/\n\n***The link to the note doesn't have to valid, only the view and ionUrl parameters matter. An attacker could also have a valid note link that is properly displayed, and still execute the javascript silently. He can also force the user to sign-in beforehand to make sure to get his cookies.***\n\nThis has been tested  and working on up-to-date Firefox and up-to-date Chrome.\nThis exploit works on the latest version of Evernote.\n\n## Steps To Reproduce:\n\n  1. Click on the following link: https://www.evernote.com/shard/s1/client/snv?view=after-save-note&ionUrl=javascript:alert(document.cookie)//https://www.evernote.com/\n\n## Supporting Material/References:\n\n  {F1663424}   {F1663430}\n\n## Impact\n\nAn attacker can execute script in a victim's browser, making him able to take over accounts of victims, make victims perform action without their consent, steal their private data, install malware, and so on.",
+  "bounty_amount": "500.0",
+  "formatted_bounty": "$500",
+  "weakness": {
+    "id": 61,
+    "name": "Cross-site Scripting (XSS) - Reflected"
+  },
+  "original_report_id": null,
+  "original_report_url": null,
+  "attachments": [
+    {
+      "id": 1663424,
+      "file_name": "POC_Firefox.png",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/z8usduastzkc3pus4oz9hzi2tqen?response-content-disposition=attachment%3B%20filename%3D%22POC_Firefox.png%22%3B%20filename%2A%3DUTF-8%27%27POC_Firefox.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQX3NXO7QZ%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070352Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQCbnlzM5i9WfTN9kNxGF%2BjO0%2FfzKIA0Hp70NjlTDwNasQIhAJyYEwtXT0%2BRZZxjv1NrFggoNOCoT3mU%2F7cjdG7P8rDbKrIFCCMQAxoMMDEzNjE5Mjc0ODQ5IgwINFq%2BLpY0xrM%2FogAqjwUr4hE%2FkGSCvZilvvzrBYsaW3zlott55AeXoNO%2Bj2HYvHW%2BaezLi6ZkzkofawG98TuqywgTo7pw1vT4K6IwMSLMTshH9WVsgHZCGplgQndh%2Byc9RHbjS5Vd8xr5Fz7oZobSe67MtQjAZRksk3xOS%2BnG%2BZdi591LH9JYcScpJi0a%2BayucR6SqtCTx3Ftfh0nKTYnFl4CvyKfDu3DIWu3N160aQ5ZH1xNmIB9u47MR7Y%2FPbUZ5zdMdhuN%2BDnB6z0vnZh9O8IR0bH5KF%2ByhW0ZDS5R8jyaDV%2F0lRV0O2taMMTbpJ%2F4EytVsnWR8sWfSzo6bVTiN%2B6mY%2BNLQChX0a8SL8ihPkK%2FueXSSAY9I4jT7HudO2YQwibAD%2Bdw9LKl35cfz7DRajTkq040qmhm91Yh3sPZpP1fuPVTsbSN7HfsvQGrZtNjEnMLOtMu61iHPDuEaC758m54aA56cSVZV6XrnGQQALFIgk7YTJ7APtpigQswVRHwyJyM2TOrarCDkx9FDWB3LkhBMfQjPTJwND4p0zsU2Td9KXP6Bl1O2xgmciDdmUWMsx45ZfUjMNiZ3PGvFGBzFZPsNJYuApSxy4oSGjI5o9WW0zLSETGgoUS4NFp1Kcv9YofmvzBSA08hDc2URAMdhmLCBhvZYKMA5IxeYX71XFIXJGVv9PamSlGZYUe5KPaagnP1MwmX3L227L9ytSPgmQEbhiZbUHzZrvRSB%2B5MnRZL225Rk0T7bKyORaST7iwdfCIhKdgDfuIPjykoBeXqMp8oE8hzVcNSrDaMqfYp%2FiMD99n6D4Q3kET9pMITkEi88Jw%2F5KSj9g77aiqCOhq8wf6%2FN7cEzwE1hPG9khV7asG7w7q5Ap09NS%2FoP0vPMJmGuagGOrAB55LPfipuctKTaGiNyV3c0qioH29nw%2FCxvbTC1WGAXoLJb3L25AlAYuDH8k1piCJEu5XYB84c%2B4aAb7sJGB2l8gv8cgewyAB1JuKmSpWOJ0dkGfMtQr627YQZFkefX%2B%2FekQoLWMLa6BWMaFqWi58mr23nneygiJiXGTTBD39ixLpEJxvuWk4%2F2pMnbJuQOLi8wolfYl8yYnBKLBKFqMTRVnYPYBE%2BTjE6e5FUUt0vkA4%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=a48660b6f5d42a0a7c04f602b04f750b335d3e8e30d6ca3974ed5ac3712b7cff",
+      "file_size": 61597,
+      "type": "image/png",
+      "moderated": null
+    },
+    {
+      "id": 1663430,
+      "file_name": "POC_Chrome.png",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/4al6rudfs8el7x2mc7qzhsov327d?response-content-disposition=attachment%3B%20filename%3D%22POC_Chrome.png%22%3B%20filename%2A%3DUTF-8%27%27POC_Chrome.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQX3NXO7QZ%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070352Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQCbnlzM5i9WfTN9kNxGF%2BjO0%2FfzKIA0Hp70NjlTDwNasQIhAJyYEwtXT0%2BRZZxjv1NrFggoNOCoT3mU%2F7cjdG7P8rDbKrIFCCMQAxoMMDEzNjE5Mjc0ODQ5IgwINFq%2BLpY0xrM%2FogAqjwUr4hE%2FkGSCvZilvvzrBYsaW3zlott55AeXoNO%2Bj2HYvHW%2BaezLi6ZkzkofawG98TuqywgTo7pw1vT4K6IwMSLMTshH9WVsgHZCGplgQndh%2Byc9RHbjS5Vd8xr5Fz7oZobSe67MtQjAZRksk3xOS%2BnG%2BZdi591LH9JYcScpJi0a%2BayucR6SqtCTx3Ftfh0nKTYnFl4CvyKfDu3DIWu3N160aQ5ZH1xNmIB9u47MR7Y%2FPbUZ5zdMdhuN%2BDnB6z0vnZh9O8IR0bH5KF%2ByhW0ZDS5R8jyaDV%2F0lRV0O2taMMTbpJ%2F4EytVsnWR8sWfSzo6bVTiN%2B6mY%2BNLQChX0a8SL8ihPkK%2FueXSSAY9I4jT7HudO2YQwibAD%2Bdw9LKl35cfz7DRajTkq040qmhm91Yh3sPZpP1fuPVTsbSN7HfsvQGrZtNjEnMLOtMu61iHPDuEaC758m54aA56cSVZV6XrnGQQALFIgk7YTJ7APtpigQswVRHwyJyM2TOrarCDkx9FDWB3LkhBMfQjPTJwND4p0zsU2Td9KXP6Bl1O2xgmciDdmUWMsx45ZfUjMNiZ3PGvFGBzFZPsNJYuApSxy4oSGjI5o9WW0zLSETGgoUS4NFp1Kcv9YofmvzBSA08hDc2URAMdhmLCBhvZYKMA5IxeYX71XFIXJGVv9PamSlGZYUe5KPaagnP1MwmX3L227L9ytSPgmQEbhiZbUHzZrvRSB%2B5MnRZL225Rk0T7bKyORaST7iwdfCIhKdgDfuIPjykoBeXqMp8oE8hzVcNSrDaMqfYp%2FiMD99n6D4Q3kET9pMITkEi88Jw%2F5KSj9g77aiqCOhq8wf6%2FN7cEzwE1hPG9khV7asG7w7q5Ap09NS%2FoP0vPMJmGuagGOrAB55LPfipuctKTaGiNyV3c0qioH29nw%2FCxvbTC1WGAXoLJb3L25AlAYuDH8k1piCJEu5XYB84c%2B4aAb7sJGB2l8gv8cgewyAB1JuKmSpWOJ0dkGfMtQr627YQZFkefX%2B%2FekQoLWMLa6BWMaFqWi58mr23nneygiJiXGTTBD39ixLpEJxvuWk4%2F2pMnbJuQOLi8wolfYl8yYnBKLBKFqMTRVnYPYBE%2BTjE6e5FUUt0vkA4%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=ccd9f52b8901f60074f36a7d91ceee045bed79271303cdb111ad01a7df22c66e",
+      "file_size": 34877,
+      "type": "image/png",
+      "moderated": null
+    }
+  ],
+  "allow_singular_disclosure_at": "2022-05-20T19:30:10.325Z",
+  "allow_singular_disclosure_after": -42377621.77614201,
+  "singular_disclosure_allowed": true,
+  "vote_count": 13,
+  "voters": [
+    "similardisaster",
+    "alp",
+    "zy9ard3",
+    "grolar",
+    "mattberg",
+    "sa1tama0",
+    "shivammusic",
+    "reshwanth",
+    "gabrielcs0",
+    "csdpl",
+    "and 3 more..."
+  ],
+  "severity": {
+    "rating": "medium",
+    "score": 6.1,
+    "author_type": "Team",
+    "metrics": {
+      "attack_vector": "network",
+      "attack_complexity": "low",
+      "privileges_required": "none",
+      "user_interaction": "required",
+      "scope": "changed",
+      "confidentiality": "low",
+      "integrity": "low",
+      "availability": "none"
+    }
+  },
+  "structured_scope": {
+    "databaseId": 39302,
+    "asset_type": "URL",
+    "asset_identifier": "www.evernote.com",
+    "max_severity": "critical"
+  },
+  "abilities": {
+    "assignable_team_members": [
+
+    ],
+    "assignable_team_member_groups": [
+
+    ]
+  },
+  "activities": [
+    {
+      "id": 15975342,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportSeverityUpdated",
+      "message": null,
+      "automated_response": false,
+      "created_at": "2022-03-22T07:38:47.226Z",
+      "updated_at": "2022-03-22T07:38:47.226Z",
+      "additional_data": {
+        "old_severity": "Critical",
+        "new_severity": "Medium (6.1)",
+        "old_severity_id": 1440119,
+        "new_severity_id": 1440198
+      },
+      "actor": {
+        "username": "h1_analyst_grace",
+        "cleared": false,
+        "verified": false,
+        "url": "/h1_analyst_grace",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/r2xlydcui5w3ttamd7hq3kclygla/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22wave2.jpg%22%3B%20filename%2A%3DUTF-8%27%27wave2.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQX3NXO7QZ%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070352Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQCbnlzM5i9WfTN9kNxGF%2BjO0%2FfzKIA0Hp70NjlTDwNasQIhAJyYEwtXT0%2BRZZxjv1NrFggoNOCoT3mU%2F7cjdG7P8rDbKrIFCCMQAxoMMDEzNjE5Mjc0ODQ5IgwINFq%2BLpY0xrM%2FogAqjwUr4hE%2FkGSCvZilvvzrBYsaW3zlott55AeXoNO%2Bj2HYvHW%2BaezLi6ZkzkofawG98TuqywgTo7pw1vT4K6IwMSLMTshH9WVsgHZCGplgQndh%2Byc9RHbjS5Vd8xr5Fz7oZobSe67MtQjAZRksk3xOS%2BnG%2BZdi591LH9JYcScpJi0a%2BayucR6SqtCTx3Ftfh0nKTYnFl4CvyKfDu3DIWu3N160aQ5ZH1xNmIB9u47MR7Y%2FPbUZ5zdMdhuN%2BDnB6z0vnZh9O8IR0bH5KF%2ByhW0ZDS5R8jyaDV%2F0lRV0O2taMMTbpJ%2F4EytVsnWR8sWfSzo6bVTiN%2B6mY%2BNLQChX0a8SL8ihPkK%2FueXSSAY9I4jT7HudO2YQwibAD%2Bdw9LKl35cfz7DRajTkq040qmhm91Yh3sPZpP1fuPVTsbSN7HfsvQGrZtNjEnMLOtMu61iHPDuEaC758m54aA56cSVZV6XrnGQQALFIgk7YTJ7APtpigQswVRHwyJyM2TOrarCDkx9FDWB3LkhBMfQjPTJwND4p0zsU2Td9KXP6Bl1O2xgmciDdmUWMsx45ZfUjMNiZ3PGvFGBzFZPsNJYuApSxy4oSGjI5o9WW0zLSETGgoUS4NFp1Kcv9YofmvzBSA08hDc2URAMdhmLCBhvZYKMA5IxeYX71XFIXJGVv9PamSlGZYUe5KPaagnP1MwmX3L227L9ytSPgmQEbhiZbUHzZrvRSB%2B5MnRZL225Rk0T7bKyORaST7iwdfCIhKdgDfuIPjykoBeXqMp8oE8hzVcNSrDaMqfYp%2FiMD99n6D4Q3kET9pMITkEi88Jw%2F5KSj9g77aiqCOhq8wf6%2FN7cEzwE1hPG9khV7asG7w7q5Ap09NS%2FoP0vPMJmGuagGOrAB55LPfipuctKTaGiNyV3c0qioH29nw%2FCxvbTC1WGAXoLJb3L25AlAYuDH8k1piCJEu5XYB84c%2B4aAb7sJGB2l8gv8cgewyAB1JuKmSpWOJ0dkGfMtQr627YQZFkefX%2B%2FekQoLWMLa6BWMaFqWi58mr23nneygiJiXGTTBD39ixLpEJxvuWk4%2F2pMnbJuQOLi8wolfYl8yYnBKLBKFqMTRVnYPYBE%2BTjE6e5FUUt0vkA4%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=693ca1e46dca8c7d992c6696a14e759189462d26a92f0aeae73e5d705c52bc8a"
+        },
+        "hackerone_triager": true,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "evernote"
+    },
+    {
+      "id": 15975343,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugTriaged",
+      "message": "Hello @sarka,\n\nThank you for your submission! We were able to validate your report, and have submitted it to the appropriate remediation team for review. They will let us know the final ruling on this report, and when/if a fix will be implemented. Please note that the status and severity are subject to change.\n\nThanks,\n@cool_wave",
+      "automated_response": false,
+      "created_at": "2022-03-22T07:39:13.032Z",
+      "updated_at": "2022-03-22T07:39:13.032Z",
+      "actor": {
+        "username": "h1_analyst_grace",
+        "cleared": false,
+        "verified": false,
+        "url": "/h1_analyst_grace",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/r2xlydcui5w3ttamd7hq3kclygla/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22wave2.jpg%22%3B%20filename%2A%3DUTF-8%27%27wave2.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQX3NXO7QZ%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070352Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQCbnlzM5i9WfTN9kNxGF%2BjO0%2FfzKIA0Hp70NjlTDwNasQIhAJyYEwtXT0%2BRZZxjv1NrFggoNOCoT3mU%2F7cjdG7P8rDbKrIFCCMQAxoMMDEzNjE5Mjc0ODQ5IgwINFq%2BLpY0xrM%2FogAqjwUr4hE%2FkGSCvZilvvzrBYsaW3zlott55AeXoNO%2Bj2HYvHW%2BaezLi6ZkzkofawG98TuqywgTo7pw1vT4K6IwMSLMTshH9WVsgHZCGplgQndh%2Byc9RHbjS5Vd8xr5Fz7oZobSe67MtQjAZRksk3xOS%2BnG%2BZdi591LH9JYcScpJi0a%2BayucR6SqtCTx3Ftfh0nKTYnFl4CvyKfDu3DIWu3N160aQ5ZH1xNmIB9u47MR7Y%2FPbUZ5zdMdhuN%2BDnB6z0vnZh9O8IR0bH5KF%2ByhW0ZDS5R8jyaDV%2F0lRV0O2taMMTbpJ%2F4EytVsnWR8sWfSzo6bVTiN%2B6mY%2BNLQChX0a8SL8ihPkK%2FueXSSAY9I4jT7HudO2YQwibAD%2Bdw9LKl35cfz7DRajTkq040qmhm91Yh3sPZpP1fuPVTsbSN7HfsvQGrZtNjEnMLOtMu61iHPDuEaC758m54aA56cSVZV6XrnGQQALFIgk7YTJ7APtpigQswVRHwyJyM2TOrarCDkx9FDWB3LkhBMfQjPTJwND4p0zsU2Td9KXP6Bl1O2xgmciDdmUWMsx45ZfUjMNiZ3PGvFGBzFZPsNJYuApSxy4oSGjI5o9WW0zLSETGgoUS4NFp1Kcv9YofmvzBSA08hDc2URAMdhmLCBhvZYKMA5IxeYX71XFIXJGVv9PamSlGZYUe5KPaagnP1MwmX3L227L9ytSPgmQEbhiZbUHzZrvRSB%2B5MnRZL225Rk0T7bKyORaST7iwdfCIhKdgDfuIPjykoBeXqMp8oE8hzVcNSrDaMqfYp%2FiMD99n6D4Q3kET9pMITkEi88Jw%2F5KSj9g77aiqCOhq8wf6%2FN7cEzwE1hPG9khV7asG7w7q5Ap09NS%2FoP0vPMJmGuagGOrAB55LPfipuctKTaGiNyV3c0qioH29nw%2FCxvbTC1WGAXoLJb3L25AlAYuDH8k1piCJEu5XYB84c%2B4aAb7sJGB2l8gv8cgewyAB1JuKmSpWOJ0dkGfMtQr627YQZFkefX%2B%2FekQoLWMLa6BWMaFqWi58mr23nneygiJiXGTTBD39ixLpEJxvuWk4%2F2pMnbJuQOLi8wolfYl8yYnBKLBKFqMTRVnYPYBE%2BTjE6e5FUUt0vkA4%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=693ca1e46dca8c7d992c6696a14e759189462d26a92f0aeae73e5d705c52bc8a"
+        },
+        "hackerone_triager": true,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "evernote"
+    },
+    {
+      "id": 16356194,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hello @sarka, thank you for reporting this. A fix has been deployed into production, and we'll request a retest from you to validate it's working as intended.",
+      "automated_response": false,
+      "created_at": "2022-04-19T22:16:54.142Z",
+      "updated_at": "2022-04-19T22:16:54.142Z",
+      "actor": {
+        "username": "msilvas",
+        "cleared": false,
+        "verified": false,
+        "url": "/msilvas",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/6r56vbknlb6l16l8hwz045fvkrvy/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "evernote"
+    },
+    {
+      "id": 16356199,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BountyAwarded",
+      "message": "Thanks @sarka for helping make Evernote more secure!\n\nBest,\n@msilvas.",
+      "automated_response": false,
+      "created_at": "2022-04-19T22:17:58.554Z",
+      "updated_at": "2022-04-19T22:17:58.554Z",
+      "actor": {
+        "url": "/evernote",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/9jjpi96bDMknk4JEkhSEyk8z/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "Evernote"
+        }
+      },
+      "bounty_amount": "500.0",
+      "bonus_amount": "0.0",
+      "bounty_currency": "usd",
+      "genius_execution_id": null,
+      "team_handle": "evernote",
+      "collaborator": {
+        "username": "sarka",
+        "url": "/sarka"
+      }
+    },
+    {
+      "id": 16356200,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugRetesting",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2022-04-19T22:18:20.253Z",
+      "updated_at": "2022-04-19T22:18:20.411Z",
+      "actor": {
+        "username": "msilvas",
+        "cleared": false,
+        "verified": false,
+        "url": "/msilvas",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/6r56vbknlb6l16l8hwz045fvkrvy/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "evernote"
+    },
+    {
+      "id": 16356328,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::UserCompletedRetest",
+      "message": "Hello @msilvas, I confirm the fix works as intented!",
+      "automated_response": false,
+      "created_at": "2022-04-19T22:43:18.129Z",
+      "updated_at": "2022-04-19T22:43:18.129Z",
+      "actor": {
+        "username": "sarka",
+        "cleared": false,
+        "verified": false,
+        "url": "/sarka",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/aVYrxegtA9z2tYqvAxtBoE3P/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "evernote"
+    },
+    {
+      "id": 16356339,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hello @msilvas, thanks for the bounty! I confirm the fix works as intended.\n\nCould we please publicly disclose this report? That'd be much appreciated.",
+      "automated_response": false,
+      "created_at": "2022-04-19T22:45:26.712Z",
+      "updated_at": "2022-04-19T22:45:26.712Z",
+      "actor": {
+        "username": "sarka",
+        "cleared": false,
+        "verified": false,
+        "url": "/sarka",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/aVYrxegtA9z2tYqvAxtBoE3P/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "evernote"
+    },
+    {
+      "id": 16376199,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportRetestApproved",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2022-04-20T19:21:31.611Z",
+      "updated_at": "2022-04-20T19:21:31.611Z",
+      "actor": {
+        "url": "/evernote",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/9jjpi96bDMknk4JEkhSEyk8z/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "Evernote"
+        }
+      },
+      "genius_execution_id": null,
+      "team_handle": "evernote"
+    },
+    {
+      "id": 16376200,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2022-04-20T19:21:31.712Z",
+      "updated_at": "2022-04-20T19:21:31.712Z",
+      "actor": {
+        "username": "msilvas",
+        "cleared": false,
+        "verified": false,
+        "url": "/msilvas",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/6r56vbknlb6l16l8hwz045fvkrvy/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "reporter": {
+        "username": "sarka",
+        "url": "/sarka"
+      },
+      "genius_execution_id": null,
+      "team_handle": "evernote"
+    },
+    {
+      "id": 16376250,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "Thank you for retesting, @sarka. About the disclosure, it has been accepted by our team. Please let us know if you find anything else in the future.\n\nRegards,\n@msilvas ",
+      "automated_response": false,
+      "created_at": "2022-04-20T19:30:10.144Z",
+      "updated_at": "2022-04-20T19:30:10.144Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "msilvas",
+        "cleared": false,
+        "verified": false,
+        "url": "/msilvas",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/6r56vbknlb6l16l8hwz045fvkrvy/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "evernote"
+    },
+    {
+      "id": 16376298,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "Great, thank you!\n\nRegards,\n@sarka ",
+      "automated_response": false,
+      "created_at": "2022-04-20T19:37:47.969Z",
+      "updated_at": "2022-04-20T19:37:47.969Z",
+      "actor": {
+        "username": "sarka",
+        "cleared": false,
+        "verified": false,
+        "url": "/sarka",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/aVYrxegtA9z2tYqvAxtBoE3P/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "evernote"
+    },
+    {
+      "id": 16376299,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportBecamePublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2022-04-20T19:37:48.112Z",
+      "updated_at": "2022-04-20T19:37:48.112Z",
+      "actor": {
+        "username": "sarka",
+        "cleared": false,
+        "verified": false,
+        "url": "/sarka",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/aVYrxegtA9z2tYqvAxtBoE3P/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "evernote"
+    }
+  ],
+  "activity_page_count": 1,
+  "activity_page_number": 1,
+  "summaries": [
+    {
+      "category": "team",
+      "can_view?": true,
+      "can_create?": false
+    },
+    {
+      "category": "researcher",
+      "can_view?": true,
+      "can_create?": false
+    }
+  ]
+}

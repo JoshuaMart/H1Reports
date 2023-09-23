@@ -1,0 +1,407 @@
+{
+  "id": 191884,
+  "global_id": "Z2lkOi8vaGFja2Vyb25lL1JlcG9ydC8xOTE4ODQ=",
+  "url": "https://hackerone.com/reports/191884",
+  "title": "Remote Unrestricted file Creation/Deletion and Possible RCE.",
+  "state": "Closed",
+  "substate": "resolved",
+  "severity_rating": "low",
+  "readable_substate": "Resolved",
+  "created_at": "2016-12-17T06:45:02.720Z",
+  "submitted_at": "2016-12-17T06:45:02.720Z",
+  "is_member_of_team?": false,
+  "is_organization_group_member?": false,
+  "reporter": {
+    "disabled": false,
+    "username": "zigoo0",
+    "url": "/zigoo0",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/002/225/337418e0c96cd26a1216020da6829f78411881f6_original.png/d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98"
+    },
+    "is_me?": false,
+    "cleared": false,
+    "verified": false,
+    "hackerone_triager": false,
+    "hacker_mediation": false
+  },
+  "team": {
+    "id": 61,
+    "url": "https://hackerone.com/x",
+    "handle": "x",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/ikx4ept298unt534kpz4am2bd4zs/3c7b305354c9073c106ae3d1701798defaaf5be844fb8fdfa49ca62f991a2c2c",
+      "medium": "https://profile-photos.hackerone-user-content.com/variants/ikx4ept298unt534kpz4am2bd4zs/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+    },
+    "permissions": [
+
+    ],
+    "submission_state": "open",
+    "default_currency": "usd",
+    "awards_miles": false,
+    "offers_bounties": true,
+    "state": "public_mode",
+    "only_cleared_hackers": false,
+    "pentest_feature_enabled?": false,
+    "profile": {
+      "name": "X (Formerly Twitter)",
+      "twitter_handle": "XSecurity",
+      "website": "https://x.com",
+      "about": "X helps you create and share ideas and information instantly, without barriers."
+    }
+  },
+  "has_bounty?": false,
+  "in_validation?": false,
+  "can_view_team": true,
+  "can_view_report": true,
+  "is_external_bug": false,
+  "is_published": false,
+  "is_participant": false,
+  "has_collaborators": false,
+  "submitted_by_team_member": false,
+  "stage": 4,
+  "public": true,
+  "visibility": "full",
+  "cve_ids": [
+
+  ],
+  "singular_disclosure_disabled": true,
+  "disclosed_at": "2017-02-26T21:13:08.032Z",
+  "bug_reporter_agreed_on_going_public_at": "2017-01-27T21:13:03.813Z",
+  "team_member_agreed_on_going_public_at": null,
+  "comments_closed?": false,
+  "facebook_team?": false,
+  "team_private?": false,
+  "vulnerability_information": "Hello Gents,\n\nDuring my research on Twitter BBP, I found below domain name: **Reverb.twitter.com**\n\n###Background:\n>We worked with Twitter to develop TwitterReverb, an application that reveals how conversations arise and reverberate across the entire Twitter landscape. The custom application allows visitors to reveal patterns in Twitter activities related to keywords, hashtags, topics, people, and individual tweets through the use of a backend administrative tool that dynamically generates a custom data visualization.\n>\"TheRealPeriscopic\" -> https://www.youtube.com/watch?v=bm5eyTeBBDE\n\n###Description:\nReverb.twitter.com (also uses **reverb.guru**) is vulnerable to unauthenticated remote file Creation/Deletion and Possible RCE vulnerability.\nBelow URL is an API file used to generate png images based on 3 given inputs:\nhttps://reverb.twitter.com/api/actions/saveImage.php\n\nThe 3 given inputs are: **image**=SomeContent&**filename**=test&**extension**=png\n\nIt was found that the file doesn't require authentication or authorization in order to be able to initiate the API call to generate a new png file. it doesn't even validate the created file name.\n\nIn normal scenario, to use the file you have to send a POST request as below:\nhttps://reverb.twitter.com/api/actions/saveImage.php\n**POST:**\nimage=SomeContent&filename=test&extension=png\n\nthe a/m example should create a png file named as \"preview-test.png\" in below directory:\n/var/www/html/view/data/image/preview-test.png\n\n**Example of normal file operation output:**\nhttps://go.reverb.guru/view/data/image/preview-069772811858678284.png\n\nSince I've the ability to choose the file name & ext, i've manipulated the file ext to be php and the file name to be /../../zigo (Directory Traversal) which allowed me escape the \"preview-\" added to the filename and to escape the uploads directory to create a file as below:\n\nhttps://reverb.twitter.com/api/actions/saveImage.php\n**POST:**\nimage=SomeContent&filename=/../../zigoo&extension=php\n\n**POC:** https://reverb.twitter.com/view/data/zigoo.php\n**PATH:** /var/www/html/view/data/zigoo.php\n\nIt is noticed that user input under the parameter \"image\" is passed to some function that would treat it as image stream and convert it as well to a png image. I imagine that backend code that handles the input of parameter \"image\" looks like:\n\n><?php\n $data = $_POST['image'];\n $im = imagecreatefromstring($data);\n if ($im !== false) {\n    imagepng($im);\n    imagedestroy($im);\n }\n else {\n    exit;\n }\n> ?>\n\nI've wrote a python script (Attached as: F144335) to simulate the same scenario, unfortunately i couldn't trigger the RCE. BUT ......\n\n**Vulnerability Consequences:**\n1. Since i can control the filename, ext, and file content, the RCE is still possible if given enough time to research and try, but i always thought that FileDescriptor would have reported it if i delayed :D\n2. An attacker can submit the same request over and over with large file size, even if the files contents are not understood, it is still consuming the server space which would cause the server to go down (Space Exhaustion, refer to function **DDOS()** in the attached python file)\n3. File deletion and defacement is also possible since Directory traversal were found. for example, an attacker can submit the file name as: **../../../../index.php** which will replace the main page of the vulnerable site!\n4. The above mentioned scenario could also be used to cause the **TwitterReverb** application to stop working permanently by overwriting the file **\"api/twitter/twitterLogin.php\"** which is responsible for the authentication of application users.\n5. Also directory traversal scenario could be used to create \".htaccess\" file at any directory which would cause all the pages inside that directory to stop working!\n\n**How to Fix:**\n1. Set proper authentication/authorization on the affected file.\n2. Filename, ext & input content should be validated before being submitted to the backend server. for example the file ext should be restricted to '.png' only & filename should never contain dots or other special characters.\n3. A filesize limit must be applied on the created files to avoid DDOS attacks via exhausting the server disk space.\n\nKindly note that the affected server holds large amount of Twitter users authentication tokens for the TwitterRiverb application.\n\nAnd finally, below is a POC video to demonstrate the vulnerability and how to reproduce it.\n\n**POC:** https://youtu.be/OPlexp-1XxU\n\nThank you and have a nice day.\n",
+  "weakness": {
+    "id": 70,
+    "name": "Code Injection"
+  },
+  "original_report_id": null,
+  "original_report_url": null,
+  "attachments": [
+    {
+      "id": 144335,
+      "file_name": "RCE-Tester.py",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/144/335/e14f3a0267584f426384a7072cd27c6e5bb7c4fe/RCE-Tester.py?response-content-disposition=attachment%3B%20filename%3D%22RCE-Tester.py%22%3B%20filename%2A%3DUTF-8%27%27RCE-Tester.py&response-content-type=text%2Fx-python&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ5KGXRBGU%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T080934Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEDAaCXVzLXdlc3QtMiJIMEYCIQDiu73PCn5l7l3wlMXq817tsLto7FX5g79UonFNj20jJgIhAPuMVuO5S%2FlWb9Y7jys%2FFmIqLfD455lH6tb3c8te%2BkaWKrIFCCkQAxoMMDEzNjE5Mjc0ODQ5IgyezhDoMIz09gQiiD0qjwVi6M8Iw%2BYchcUo89cd%2FUxbwmI3perpG0vPlDA5e2%2FiLDPg6k8NNfGVbfa98LLEY3SrEG4oS1iJV9UBA4UBpdHDL7MSAwaw54zlG1HPvOpHUTuH9EQ1XWnHt5U64A5mJI3tV9FW83PEajArU2uAhgOXB5JsY45y%2FEa%2BLr788B3HOVgfJAAetE116YdMCcuv03h3Ty4dLFKN7JuFITHP2DFoK%2FTv1%2BWTXdVDmhENMs60DoJcCBNM8p5tVWMy%2FDrXmy8laSpzT1P6dPLd%2F658Evbke%2FxHHPPHoA5yZSvNHWnPCGDtFH48waIv0IS3qo%2FWyGQKkexPozxIr7Bg4%2BGg%2FdaBSVKstyQciV8oAhqQdm1mnuBNk1e2gjlshxJVSSNnTiEBIDLcTrQjaAEcHGe2WTsw4Y0Zq5dPejGtGEAh82ITyFWvj%2FMJ6Qhup5LV0V5HRaGfBKxkp6eWDhC%2FPqwyvKKjzamL7pIyrhJPrs%2Ffsv136WFKldjOyLWdZARWpcM5%2F22aL16ZoPk9JSu88DmP7crL1l1H%2BR1FeAP4SGMiW2FiQcZQVNDd75UtFPVIhUMrafO0zrtk3cSUi1abRyovgpi16dGkXTOCrwgL7UQXJkSspnuOG9NB%2B3sGnJBrB9HtCXxhO9K2FEg6QXsqDI%2FJyyfAYZIX1WvGcuYlt5ThB6ADvHta3uPauAOyXmdaHbmXdvcwS%2BeZpGqTAbjpLckaWZYNc9ZPXIqadLa2hl%2FR0CYST%2FvuY9ZdcrOw3lUHCx2ZxW%2B0i3yZHzBNfnJ0TkTxnbSRue4Bz7XtuDDV1wQUwMok%2BScMiNvbVVmgZg18zI8uc4BDF1NJSK31O54xKtQfRY3ovaNOZVUjeohMO%2FW8sTVwMLStuqgGOrABlX%2BoKKtD0OvX0tUoWppcBBx%2BVWFGu3swUjlDtOmRr5iw9d9x30GSnk6a0UYsc42MAdcAkhhXMvYQ9ZC%2Frgy2Rog4LYc706Aor8HSqEZZj2j85x7VqdBzK6oZ6aZZixoiaYBZXHruuiuTubSyME8bT9iYkP632lu0G6dDXBzqnZwwZ54GwWzMSKmEidSNaewLPuu6Q%2FfaZ6rI5mpn5t7gT0iJ0FId6JybKFedx2eqln0%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=b0b8565339e3a4cfc8fe3e163e6ae852fbb33861ec405a307f6c8103c4f4d722",
+      "file_size": 2318,
+      "type": "text/x-python",
+      "moderated": null
+    },
+    {
+      "id": 144341,
+      "file_name": "Screen_Shot_2016-12-17_at_8.09.12_AM.png",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/144/341/6316099747a4c583bbab4f33e511a7dc8f8505a4/Screen_Shot_2016-12-17_at_8.09.12_AM.png?response-content-disposition=attachment%3B%20filename%3D%22Screen_Shot_2016-12-17_at_8.09.12_AM.png%22%3B%20filename%2A%3DUTF-8%27%27Screen_Shot_2016-12-17_at_8.09.12_AM.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ5KGXRBGU%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T080934Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEDAaCXVzLXdlc3QtMiJIMEYCIQDiu73PCn5l7l3wlMXq817tsLto7FX5g79UonFNj20jJgIhAPuMVuO5S%2FlWb9Y7jys%2FFmIqLfD455lH6tb3c8te%2BkaWKrIFCCkQAxoMMDEzNjE5Mjc0ODQ5IgyezhDoMIz09gQiiD0qjwVi6M8Iw%2BYchcUo89cd%2FUxbwmI3perpG0vPlDA5e2%2FiLDPg6k8NNfGVbfa98LLEY3SrEG4oS1iJV9UBA4UBpdHDL7MSAwaw54zlG1HPvOpHUTuH9EQ1XWnHt5U64A5mJI3tV9FW83PEajArU2uAhgOXB5JsY45y%2FEa%2BLr788B3HOVgfJAAetE116YdMCcuv03h3Ty4dLFKN7JuFITHP2DFoK%2FTv1%2BWTXdVDmhENMs60DoJcCBNM8p5tVWMy%2FDrXmy8laSpzT1P6dPLd%2F658Evbke%2FxHHPPHoA5yZSvNHWnPCGDtFH48waIv0IS3qo%2FWyGQKkexPozxIr7Bg4%2BGg%2FdaBSVKstyQciV8oAhqQdm1mnuBNk1e2gjlshxJVSSNnTiEBIDLcTrQjaAEcHGe2WTsw4Y0Zq5dPejGtGEAh82ITyFWvj%2FMJ6Qhup5LV0V5HRaGfBKxkp6eWDhC%2FPqwyvKKjzamL7pIyrhJPrs%2Ffsv136WFKldjOyLWdZARWpcM5%2F22aL16ZoPk9JSu88DmP7crL1l1H%2BR1FeAP4SGMiW2FiQcZQVNDd75UtFPVIhUMrafO0zrtk3cSUi1abRyovgpi16dGkXTOCrwgL7UQXJkSspnuOG9NB%2B3sGnJBrB9HtCXxhO9K2FEg6QXsqDI%2FJyyfAYZIX1WvGcuYlt5ThB6ADvHta3uPauAOyXmdaHbmXdvcwS%2BeZpGqTAbjpLckaWZYNc9ZPXIqadLa2hl%2FR0CYST%2FvuY9ZdcrOw3lUHCx2ZxW%2B0i3yZHzBNfnJ0TkTxnbSRue4Bz7XtuDDV1wQUwMok%2BScMiNvbVVmgZg18zI8uc4BDF1NJSK31O54xKtQfRY3ovaNOZVUjeohMO%2FW8sTVwMLStuqgGOrABlX%2BoKKtD0OvX0tUoWppcBBx%2BVWFGu3swUjlDtOmRr5iw9d9x30GSnk6a0UYsc42MAdcAkhhXMvYQ9ZC%2Frgy2Rog4LYc706Aor8HSqEZZj2j85x7VqdBzK6oZ6aZZixoiaYBZXHruuiuTubSyME8bT9iYkP632lu0G6dDXBzqnZwwZ54GwWzMSKmEidSNaewLPuu6Q%2FfaZ6rI5mpn5t7gT0iJ0FId6JybKFedx2eqln0%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=23b4ba1093e6dd0ee30f304ed323dbe939243ca9354880f8a1145e36d560e26e",
+      "file_size": 186798,
+      "type": "image/png",
+      "moderated": null
+    }
+  ],
+  "allow_singular_disclosure_at": "2017-02-26T21:13:03.862Z",
+  "allow_singular_disclosure_after": -207312990.1731215,
+  "singular_disclosure_allowed": true,
+  "vote_count": 86,
+  "voters": [
+    "zoom7",
+    "delimitry",
+    "sp1d3rs",
+    "hunter0x000",
+    "badcracker",
+    "bogdantcaciuc",
+    "bobrov",
+    "hunter",
+    "bl4de",
+    "icanthack",
+    "and 76 more..."
+  ],
+  "severity": {
+    "rating": "low",
+    "author_type": "Team"
+  },
+  "structured_scope": null,
+  "abilities": {
+    "assignable_team_members": [
+
+    ],
+    "assignable_team_member_groups": [
+
+    ]
+  },
+  "activities": [
+    {
+      "id": 1374603,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Thank you for your report.\n\nWe are looking into this and will update you when we have more informatoin.",
+      "automated_response": false,
+      "created_at": "2016-12-19T18:41:40.398Z",
+      "updated_at": "2016-12-19T18:41:40.398Z",
+      "actor": {
+        "username": "bugtriage-jason",
+        "cleared": false,
+        "verified": false,
+        "url": "/bugtriage-jason",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "x"
+    },
+    {
+      "id": 1375188,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugTriaged",
+      "message": "Thank you for your report. We believe it may be a valid security issue and will investigate it further. It could take some time to find and update the root cause for an issue, so we thank you for your patience.\n\nThank you for helping keep Twitter secure!",
+      "automated_response": false,
+      "created_at": "2016-12-19T21:11:43.726Z",
+      "updated_at": "2016-12-19T21:11:43.726Z",
+      "actor": {
+        "username": "apinter",
+        "cleared": false,
+        "verified": false,
+        "url": "/apinter",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/021/688/53801559ec10573f82935ef2c1682b2ce25f2d38_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "x"
+    },
+    {
+      "id": 1378339,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportSeverityUpdated",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2016-12-21T01:12:56.807Z",
+      "updated_at": "2016-12-21T01:12:56.807Z",
+      "additional_data": {
+        "old_severity": "Critical (10.0)",
+        "new_severity": "Low",
+        "old_severity_id": 14365,
+        "new_severity_id": 15205
+      },
+      "actor": {
+        "username": "apinter",
+        "cleared": false,
+        "verified": false,
+        "url": "/apinter",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/021/688/53801559ec10573f82935ef2c1682b2ce25f2d38_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "x"
+    },
+    {
+      "id": 1385630,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi,\nI know you still need time to investigate this report which is fine of course, but may i ask why the report severity were changed to \"Low\"?\nThank you.",
+      "automated_response": false,
+      "created_at": "2016-12-26T02:55:01.040Z",
+      "updated_at": "2016-12-26T02:55:01.040Z",
+      "actor": {
+        "username": "zigoo0",
+        "cleared": false,
+        "verified": false,
+        "url": "/zigoo0",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/002/225/337418e0c96cd26a1216020da6829f78411881f6_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "x"
+    },
+    {
+      "id": 1424022,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi,\nKind reminder, Any updates?\nThanks.",
+      "automated_response": false,
+      "created_at": "2017-01-17T01:51:56.293Z",
+      "updated_at": "2017-01-17T01:51:56.293Z",
+      "actor": {
+        "username": "zigoo0",
+        "cleared": false,
+        "verified": false,
+        "url": "/zigoo0",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/002/225/337418e0c96cd26a1216020da6829f78411881f6_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "x"
+    },
+    {
+      "id": 1425471,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "We consider this issue to be fixed now. Can you please confirm?\n\nThank you for helping keep Twitter secure!",
+      "automated_response": false,
+      "created_at": "2017-01-17T18:45:11.955Z",
+      "updated_at": "2017-01-17T18:45:11.955Z",
+      "actor": {
+        "username": "apinter",
+        "cleared": false,
+        "verified": false,
+        "url": "/apinter",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/021/688/53801559ec10573f82935ef2c1682b2ce25f2d38_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "reporter": {
+        "username": "zigoo0",
+        "url": "/zigoo0"
+      },
+      "genius_execution_id": null,
+      "team_handle": "x"
+    },
+    {
+      "id": 1425481,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @zigoo0, the severity was set to 'low' because of a few factors. First, the service itself is not in scope for our program. Second, we were unable to produce an RCE on this system. Third, the system itself is isolated from any high sensitivity data.\n\nThank you for bringing this issue to our attention. Unfortunately, this report does not fall in scope for a monetary reward at this time. However, you will still be listed in our Hall of Fame. Thanks again.",
+      "automated_response": false,
+      "created_at": "2017-01-17T18:46:52.310Z",
+      "updated_at": "2017-01-17T18:46:52.310Z",
+      "actor": {
+        "username": "apinter",
+        "cleared": false,
+        "verified": false,
+        "url": "/apinter",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/021/688/53801559ec10573f82935ef2c1682b2ce25f2d38_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "x"
+    },
+    {
+      "id": 1431261,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Well, regarding 'the system itself is isolated from any high sensitivity data.' i thought you already noticed from the video POC that the system is responsible of handling an official twitter application and the system holds all the application users tokens!! Even if you can't reproduce an RCE the bug still able to replace files on the server including the index files or the application files itself!!\n",
+      "automated_response": false,
+      "created_at": "2017-01-19T21:21:25.818Z",
+      "updated_at": "2017-01-19T21:21:25.818Z",
+      "actor": {
+        "username": "zigoo0",
+        "cleared": false,
+        "verified": false,
+        "url": "/zigoo0",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/002/225/337418e0c96cd26a1216020da6829f78411881f6_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "x"
+    },
+    {
+      "id": 1439951,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::NotEligibleForBounty",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2017-01-24T00:57:49.614Z",
+      "updated_at": "2017-01-24T00:57:49.614Z",
+      "actor": {
+        "url": "/x",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/ikx4ept298unt534kpz4am2bd4zs/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "profile": {
+          "name": "X (Formerly Twitter)"
+        }
+      },
+      "genius_execution_id": null,
+      "team_handle": "x"
+    },
+    {
+      "id": 1448755,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2017-01-27T21:13:03.831Z",
+      "updated_at": "2017-01-27T21:13:03.831Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "zigoo0",
+        "cleared": false,
+        "verified": false,
+        "url": "/zigoo0",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/002/225/337418e0c96cd26a1216020da6829f78411881f6_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "x"
+    },
+    {
+      "id": 1506875,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportBecamePublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2017-02-26T21:13:08.049Z",
+      "updated_at": "2017-02-26T21:13:08.049Z",
+      "actor": {
+        "url": "/x",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/ikx4ept298unt534kpz4am2bd4zs/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "profile": {
+          "name": "X (Formerly Twitter)"
+        }
+      },
+      "genius_execution_id": null,
+      "team_handle": "x"
+    }
+  ],
+  "activity_page_count": 1,
+  "activity_page_number": 1,
+  "summaries": [
+    {
+      "category": "team",
+      "can_view?": true,
+      "can_create?": false
+    },
+    {
+      "category": "researcher",
+      "can_view?": true,
+      "can_create?": false
+    }
+  ]
+}

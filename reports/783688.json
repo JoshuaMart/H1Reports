@@ -1,0 +1,520 @@
+{
+  "id": 783688,
+  "global_id": "Z2lkOi8vaGFja2Vyb25lL1JlcG9ydC83ODM2ODg=",
+  "url": "https://hackerone.com/reports/783688",
+  "title": "Ability to buy PRO subscriptions by arbitrary reduced prices",
+  "state": "Closed",
+  "substate": "resolved",
+  "severity_rating": "low",
+  "readable_substate": "Resolved",
+  "created_at": "2020-01-26T17:23:46.298Z",
+  "submitted_at": "2020-01-26T17:23:46.298Z",
+  "is_member_of_team?": false,
+  "is_organization_group_member?": false,
+  "reporter": {
+    "disabled": false,
+    "username": "skavans",
+    "url": "/skavans",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/014/089/00a08f6b566bcdfe82b2f0be62bdde605a030823_original.jpg/3c7b305354c9073c106ae3d1701798defaaf5be844fb8fdfa49ca62f991a2c2c"
+    },
+    "is_me?": false,
+    "cleared": false,
+    "verified": false,
+    "hackerone_triager": false,
+    "hacker_mediation": false
+  },
+  "team": {
+    "id": 17011,
+    "url": "https://hackerone.com/newrelic",
+    "handle": "newrelic",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/3813a300hyp02ziarjcgo7ph6uxv/d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98",
+      "medium": "https://profile-photos.hackerone-user-content.com/variants/3813a300hyp02ziarjcgo7ph6uxv/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+    },
+    "permissions": [
+
+    ],
+    "submission_state": "open",
+    "default_currency": "usd",
+    "awards_miles": false,
+    "offers_bounties": true,
+    "state": "public_mode",
+    "only_cleared_hackers": false,
+    "pentest_feature_enabled?": false,
+    "profile": {
+      "name": "New Relic",
+      "twitter_handle": "newrelic",
+      "website": "https://newrelic.com",
+      "about": "New Relic's Coordinated Disclosure Program"
+    }
+  },
+  "has_bounty?": true,
+  "in_validation?": false,
+  "can_view_team": true,
+  "can_view_report": true,
+  "is_external_bug": false,
+  "is_published": false,
+  "is_participant": false,
+  "has_collaborators": false,
+  "submitted_by_team_member": false,
+  "stage": 4,
+  "public": true,
+  "visibility": "full",
+  "cve_ids": [
+
+  ],
+  "singular_disclosure_disabled": true,
+  "disclosed_at": "2020-08-13T15:37:41.512Z",
+  "bug_reporter_agreed_on_going_public_at": "2020-08-11T09:41:25.207Z",
+  "team_member_agreed_on_going_public_at": "2020-08-13T15:37:41.405Z",
+  "comments_closed?": false,
+  "facebook_team?": false,
+  "team_private?": false,
+  "vulnerability_information": "Hey team,\n\nI've found that a malicious user can buy PRO subscriptions by arbitrarily reduced prices.\n\n##Steps to reproduce\n0) Make sure you have an account without subscriptions at APM PRO bought. If you don't – register a new one. It works for me inside the EU accounts at least.\n1) Sign in this account with the owner\n2) Navigate to Account settings -> Account -> Subscription\n3) Click the `Upgrade` link near the `APM lite` product.\n4) Choose the following options: `Cloud-based`, `Essentials`, `Monthly`, `1500` Compute Units\n5) Click `Add to cart`\n6) You should use the Burp Suite here. Navigate to Proxy -> Options, scroll down to `Match and Replace`, then click `Add`\n{F696810}\n7) Choose options: `Request body`, `0.025`, `0.00001` and click `OK`\n{F696811}\n8) Make sure the rule is enabled\n9) Go back to the NR and click `Proceed to checkout`\n{F696813}\n10) If the account billing info wasn't yet filled, you should fill it correctly at the checkout page\n{F696814}\n11) If there is no card added to your account, you should add one. **Important**: please do not use a card with a lot of funds (to protect them in a potential case when the purchase would be charged for a whole price).\n12) When the `TOTAL CHARGES` has appeared, look at the last Burp Suite request to the `https://self-serve.service.newrelic.com/accounts/2600636/zuora_api/subscription_preview`.\nThe **original request** looks like the following:\n```http\nPOST /accounts/2600636/zuora_api/subscription_preview HTTP/1.1\nHost: self-serve.service.newrelic.com\n<redacted>\n\n{\"products\":...{\"product_id\":\"2c92a0fe6667909901667bc2acaf5842\",\"commitment_period\":\"monthly\",\"price\":0.025,\"pricing_quantity\":1500,...\n```\nYou can see that the origin request contains original APM Essentials price: 1500 computing units X $0.025 per unit.\nClick the **auto-modified request** tab, you will see that the price is changed here according to `Match and replace` rules you've added at step 7:\n```http\n\"product_id\":\"2c92a0fe6667909901667bc2acaf5842\",\"commitment_period\":\"monthly\",\"price\":0.00001,\"pricing_quantity\":1500,\n```\nAs you can see we've asked the Zuora to sell this 1500 units by reduced price of $0.00001 per unit.\nNow look at the response:\n```json\n{\"meta\":{\"timestamp\":\"2020-01-26T17:07:28.126131Z\",\"count\":1},\"data\":{\"proration\":0,\"nextPaymentDate\":null,\"new_monthly_total\":37.5,\"early_termination_fee\":null}}\n```\nThis is where the magic begins :) As you can see, the Zuora has ignored our reduced price and tries to bill us for $37.5 (which is 0.025 * 1500). And this is what you see at `TOTAL CHARGES` at the checkout page. But don't pay an attention to this :)\n13) Press `Submit payment`\n14) Make sure your card was actually charged for only $0.02, which is the rounded value of our reduced price (0.00001 * 1500 = 0.015).\n{F696838}\n15) Navigate to `Subscriptions` and make sure you are now an \"account which has special pricing terms and privileges\" and you have a subscription to 1500 APM Essentials units practically for nothing 😎\n{F696835}\n\nP.S.: while researching this, I've bought a full-price Synthetics PRO subscription for $103.50 so I would much appreciate if you can compensate it in a bonus 😅\nMy invoice:\nhttps://self-serve.service.newrelic.com/accounts/2600488/zuora_api/invoice/2c92a0de6fcbe889016fe0a8d5b3261f\n {F696798}\n\n## Impact\n\nMalicious users can buy PRO subscriptions for a dramatically reduced price.",
+  "weakness": {
+    "id": 65,
+    "name": "Business Logic Errors"
+  },
+  "original_report_id": null,
+  "original_report_url": null,
+  "attachments": [
+    {
+      "id": 696798,
+      "file_name": "______________2020-01-26___19.23.27.png",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/3DUTyBHZTUSqSNg8QPdibuGZ?response-content-disposition=attachment%3B%20filename%3D%22______________2020-01-26___19.23.27.png%22%3B%20filename%2A%3DUTF-8%27%27______________2020-01-26___19.23.27.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ6MB2MFGG%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T072516Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEDAaCXVzLXdlc3QtMiJIMEYCIQCYIr2SSYJfi35%2Bx%2Fejzst0Y9ig0v%2FJscMh9NmdM4t5VAIhAM3tVHHjt2e0sz7iLl%2BDuXOX6%2B7Qkvgs1KealcH7ElMXKrIFCCkQAxoMMDEzNjE5Mjc0ODQ5IgxubweTaMPp5L8Q1YQqjwX98aLIa%2F1BpdVLQC%2BToIBwbGklZ8ygTNCI4x1qYQEmOGsQ1%2F6p4MCPMLXSqoXVF5QxpRt%2BdZrK%2FNcRu%2FY3QoE9gFJoqRHKBQN0hea7VJkz7uo3Rwjv0%2Bs1TjLNvF9Gx9DxVw5gmaNJzFBUsDj05h8b86dmkhqjUzC21gXGs9t4qXslxrGTOenOwfga0eb8fEHnz%2FUG0yD%2FjVQklap45v4C30R4WSycoTBHd2IKfDAZJaqt3smArxbtWItscCWCfFJ5YbB9hQ02lZMGvLB8srO38zC0kWDBR3RWPsI8%2FCT9AQl3xDcTmEbRo8%2BEfRAGkXLHOo5AKqatyHEmPm882mSsghu%2Brspdz%2FeqOhEpYUj4ySBMH0b17ZliROXJKxLzh%2BCpk4fUxbvq89yWnq1oE%2FG%2BGZ8LqH%2BHdDoUgMjnt03ecbuj8wAqebD0M9EeKqj1vXVd7ZWocJ%2FV6oYrm7S7UQivyKhDfuckG4YQxqwGm504IsXFkkTNFI0%2FbAlQyc8oZWIdoVgeThWvi6pw0uZ7M%2BmXEBvYfmy7YzbRIQolLeZ2Ib2tXdc%2Bn5HFgml1zzqu2ZZ8UvtnGce7z5fSnCBmszEnO8llVSoINOleTxGjyvKpO7VdXBdZ6vHaJIqLP4SNZcKEx5MZL7DunikcKcJc1Dh%2BeVNTGBTEwRQo2kmUtWbkmUUiASlDd8HgSnAP4RZOLdiDukVkx7gl6gOh42A5qWddn32TVRG2IDpeFfTYENewkfdTm7VCYmxkxmsP3Y%2Fcw%2BNkYV5PmiGgPIv2Zg9PDt27P3dzVbO0BkrT2UairLaxhj6VzUa%2BsdGMoet2DUfQzKVnGNHKxUFEljtFY%2FFiJHinwQ9Y75x2c9j9UzL1wI6TMI2luqgGOrABYyeNRUxeluFl7y58tZIFLbCliCc92oq3AvL8gskghuI3JnKg7R1ezYwY7GVa14ik6vEtnhisXGNuJh6mNjwDpIIr2%2BnDJR4O60ugIm%2B2U5%2B3g%2BQpzkDorZygbT57TjRGr122tik3dcMk17NAyWA%2FDaZNLlJwiU%2BS%2FxyTsJLLALvI9zlCoPT7U9wokT6nPEdV1VKFKSAm9jewkYUEeI%2FFWCVu2DqEd9C51abS8Y6I8lw%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=1a3dffaf4ddc3a7f07c6b8d5b54c81250fe0eab0f33aba70ae9128873db8853a",
+      "file_size": 518518,
+      "type": "image/png",
+      "moderated": null
+    },
+    {
+      "id": 696810,
+      "file_name": "______________2020-01-26___19.44.19.png",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/itjrh2vN3XuYCALhvfyMzBXF?response-content-disposition=attachment%3B%20filename%3D%22______________2020-01-26___19.44.19.png%22%3B%20filename%2A%3DUTF-8%27%27______________2020-01-26___19.44.19.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ6MB2MFGG%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T072516Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEDAaCXVzLXdlc3QtMiJIMEYCIQCYIr2SSYJfi35%2Bx%2Fejzst0Y9ig0v%2FJscMh9NmdM4t5VAIhAM3tVHHjt2e0sz7iLl%2BDuXOX6%2B7Qkvgs1KealcH7ElMXKrIFCCkQAxoMMDEzNjE5Mjc0ODQ5IgxubweTaMPp5L8Q1YQqjwX98aLIa%2F1BpdVLQC%2BToIBwbGklZ8ygTNCI4x1qYQEmOGsQ1%2F6p4MCPMLXSqoXVF5QxpRt%2BdZrK%2FNcRu%2FY3QoE9gFJoqRHKBQN0hea7VJkz7uo3Rwjv0%2Bs1TjLNvF9Gx9DxVw5gmaNJzFBUsDj05h8b86dmkhqjUzC21gXGs9t4qXslxrGTOenOwfga0eb8fEHnz%2FUG0yD%2FjVQklap45v4C30R4WSycoTBHd2IKfDAZJaqt3smArxbtWItscCWCfFJ5YbB9hQ02lZMGvLB8srO38zC0kWDBR3RWPsI8%2FCT9AQl3xDcTmEbRo8%2BEfRAGkXLHOo5AKqatyHEmPm882mSsghu%2Brspdz%2FeqOhEpYUj4ySBMH0b17ZliROXJKxLzh%2BCpk4fUxbvq89yWnq1oE%2FG%2BGZ8LqH%2BHdDoUgMjnt03ecbuj8wAqebD0M9EeKqj1vXVd7ZWocJ%2FV6oYrm7S7UQivyKhDfuckG4YQxqwGm504IsXFkkTNFI0%2FbAlQyc8oZWIdoVgeThWvi6pw0uZ7M%2BmXEBvYfmy7YzbRIQolLeZ2Ib2tXdc%2Bn5HFgml1zzqu2ZZ8UvtnGce7z5fSnCBmszEnO8llVSoINOleTxGjyvKpO7VdXBdZ6vHaJIqLP4SNZcKEx5MZL7DunikcKcJc1Dh%2BeVNTGBTEwRQo2kmUtWbkmUUiASlDd8HgSnAP4RZOLdiDukVkx7gl6gOh42A5qWddn32TVRG2IDpeFfTYENewkfdTm7VCYmxkxmsP3Y%2Fcw%2BNkYV5PmiGgPIv2Zg9PDt27P3dzVbO0BkrT2UairLaxhj6VzUa%2BsdGMoet2DUfQzKVnGNHKxUFEljtFY%2FFiJHinwQ9Y75x2c9j9UzL1wI6TMI2luqgGOrABYyeNRUxeluFl7y58tZIFLbCliCc92oq3AvL8gskghuI3JnKg7R1ezYwY7GVa14ik6vEtnhisXGNuJh6mNjwDpIIr2%2BnDJR4O60ugIm%2B2U5%2B3g%2BQpzkDorZygbT57TjRGr122tik3dcMk17NAyWA%2FDaZNLlJwiU%2BS%2FxyTsJLLALvI9zlCoPT7U9wokT6nPEdV1VKFKSAm9jewkYUEeI%2FFWCVu2DqEd9C51abS8Y6I8lw%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=92a9e58f42e0d9056ed4055673bcdbc61e43e10d6490df7ad904d9d90bdbb364",
+      "file_size": 127099,
+      "type": "image/png",
+      "moderated": null
+    },
+    {
+      "id": 696811,
+      "file_name": "______________2020-01-26___19.45.37.png",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/x8gDwR3ERo3hKL5SgbHgitcg?response-content-disposition=attachment%3B%20filename%3D%22______________2020-01-26___19.45.37.png%22%3B%20filename%2A%3DUTF-8%27%27______________2020-01-26___19.45.37.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ6MB2MFGG%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T072516Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEDAaCXVzLXdlc3QtMiJIMEYCIQCYIr2SSYJfi35%2Bx%2Fejzst0Y9ig0v%2FJscMh9NmdM4t5VAIhAM3tVHHjt2e0sz7iLl%2BDuXOX6%2B7Qkvgs1KealcH7ElMXKrIFCCkQAxoMMDEzNjE5Mjc0ODQ5IgxubweTaMPp5L8Q1YQqjwX98aLIa%2F1BpdVLQC%2BToIBwbGklZ8ygTNCI4x1qYQEmOGsQ1%2F6p4MCPMLXSqoXVF5QxpRt%2BdZrK%2FNcRu%2FY3QoE9gFJoqRHKBQN0hea7VJkz7uo3Rwjv0%2Bs1TjLNvF9Gx9DxVw5gmaNJzFBUsDj05h8b86dmkhqjUzC21gXGs9t4qXslxrGTOenOwfga0eb8fEHnz%2FUG0yD%2FjVQklap45v4C30R4WSycoTBHd2IKfDAZJaqt3smArxbtWItscCWCfFJ5YbB9hQ02lZMGvLB8srO38zC0kWDBR3RWPsI8%2FCT9AQl3xDcTmEbRo8%2BEfRAGkXLHOo5AKqatyHEmPm882mSsghu%2Brspdz%2FeqOhEpYUj4ySBMH0b17ZliROXJKxLzh%2BCpk4fUxbvq89yWnq1oE%2FG%2BGZ8LqH%2BHdDoUgMjnt03ecbuj8wAqebD0M9EeKqj1vXVd7ZWocJ%2FV6oYrm7S7UQivyKhDfuckG4YQxqwGm504IsXFkkTNFI0%2FbAlQyc8oZWIdoVgeThWvi6pw0uZ7M%2BmXEBvYfmy7YzbRIQolLeZ2Ib2tXdc%2Bn5HFgml1zzqu2ZZ8UvtnGce7z5fSnCBmszEnO8llVSoINOleTxGjyvKpO7VdXBdZ6vHaJIqLP4SNZcKEx5MZL7DunikcKcJc1Dh%2BeVNTGBTEwRQo2kmUtWbkmUUiASlDd8HgSnAP4RZOLdiDukVkx7gl6gOh42A5qWddn32TVRG2IDpeFfTYENewkfdTm7VCYmxkxmsP3Y%2Fcw%2BNkYV5PmiGgPIv2Zg9PDt27P3dzVbO0BkrT2UairLaxhj6VzUa%2BsdGMoet2DUfQzKVnGNHKxUFEljtFY%2FFiJHinwQ9Y75x2c9j9UzL1wI6TMI2luqgGOrABYyeNRUxeluFl7y58tZIFLbCliCc92oq3AvL8gskghuI3JnKg7R1ezYwY7GVa14ik6vEtnhisXGNuJh6mNjwDpIIr2%2BnDJR4O60ugIm%2B2U5%2B3g%2BQpzkDorZygbT57TjRGr122tik3dcMk17NAyWA%2FDaZNLlJwiU%2BS%2FxyTsJLLALvI9zlCoPT7U9wokT6nPEdV1VKFKSAm9jewkYUEeI%2FFWCVu2DqEd9C51abS8Y6I8lw%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=2bc0ac8b1e376435f2f7dd7bf372041ba7841a1732b174b8118abc09c33d12c7",
+      "file_size": 81180,
+      "type": "image/png",
+      "moderated": null
+    },
+    {
+      "id": 696813,
+      "file_name": "______________2020-01-26___19.48.48.png",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/xX2Cnu5XMm8raZh6uzUd37uA?response-content-disposition=attachment%3B%20filename%3D%22______________2020-01-26___19.48.48.png%22%3B%20filename%2A%3DUTF-8%27%27______________2020-01-26___19.48.48.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ6MB2MFGG%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T072516Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEDAaCXVzLXdlc3QtMiJIMEYCIQCYIr2SSYJfi35%2Bx%2Fejzst0Y9ig0v%2FJscMh9NmdM4t5VAIhAM3tVHHjt2e0sz7iLl%2BDuXOX6%2B7Qkvgs1KealcH7ElMXKrIFCCkQAxoMMDEzNjE5Mjc0ODQ5IgxubweTaMPp5L8Q1YQqjwX98aLIa%2F1BpdVLQC%2BToIBwbGklZ8ygTNCI4x1qYQEmOGsQ1%2F6p4MCPMLXSqoXVF5QxpRt%2BdZrK%2FNcRu%2FY3QoE9gFJoqRHKBQN0hea7VJkz7uo3Rwjv0%2Bs1TjLNvF9Gx9DxVw5gmaNJzFBUsDj05h8b86dmkhqjUzC21gXGs9t4qXslxrGTOenOwfga0eb8fEHnz%2FUG0yD%2FjVQklap45v4C30R4WSycoTBHd2IKfDAZJaqt3smArxbtWItscCWCfFJ5YbB9hQ02lZMGvLB8srO38zC0kWDBR3RWPsI8%2FCT9AQl3xDcTmEbRo8%2BEfRAGkXLHOo5AKqatyHEmPm882mSsghu%2Brspdz%2FeqOhEpYUj4ySBMH0b17ZliROXJKxLzh%2BCpk4fUxbvq89yWnq1oE%2FG%2BGZ8LqH%2BHdDoUgMjnt03ecbuj8wAqebD0M9EeKqj1vXVd7ZWocJ%2FV6oYrm7S7UQivyKhDfuckG4YQxqwGm504IsXFkkTNFI0%2FbAlQyc8oZWIdoVgeThWvi6pw0uZ7M%2BmXEBvYfmy7YzbRIQolLeZ2Ib2tXdc%2Bn5HFgml1zzqu2ZZ8UvtnGce7z5fSnCBmszEnO8llVSoINOleTxGjyvKpO7VdXBdZ6vHaJIqLP4SNZcKEx5MZL7DunikcKcJc1Dh%2BeVNTGBTEwRQo2kmUtWbkmUUiASlDd8HgSnAP4RZOLdiDukVkx7gl6gOh42A5qWddn32TVRG2IDpeFfTYENewkfdTm7VCYmxkxmsP3Y%2Fcw%2BNkYV5PmiGgPIv2Zg9PDt27P3dzVbO0BkrT2UairLaxhj6VzUa%2BsdGMoet2DUfQzKVnGNHKxUFEljtFY%2FFiJHinwQ9Y75x2c9j9UzL1wI6TMI2luqgGOrABYyeNRUxeluFl7y58tZIFLbCliCc92oq3AvL8gskghuI3JnKg7R1ezYwY7GVa14ik6vEtnhisXGNuJh6mNjwDpIIr2%2BnDJR4O60ugIm%2B2U5%2B3g%2BQpzkDorZygbT57TjRGr122tik3dcMk17NAyWA%2FDaZNLlJwiU%2BS%2FxyTsJLLALvI9zlCoPT7U9wokT6nPEdV1VKFKSAm9jewkYUEeI%2FFWCVu2DqEd9C51abS8Y6I8lw%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=eb522f1530263b16059de06675f14f95d115ed7bdebf3b2906865f90bb4f1173",
+      "file_size": 33788,
+      "type": "image/png",
+      "moderated": null
+    },
+    {
+      "id": 696814,
+      "file_name": "______________2020-01-26___19.51.36.png",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/hggCrpwF8sNFXRaj2xcpszxL?response-content-disposition=attachment%3B%20filename%3D%22______________2020-01-26___19.51.36.png%22%3B%20filename%2A%3DUTF-8%27%27______________2020-01-26___19.51.36.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ6MB2MFGG%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T072516Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEDAaCXVzLXdlc3QtMiJIMEYCIQCYIr2SSYJfi35%2Bx%2Fejzst0Y9ig0v%2FJscMh9NmdM4t5VAIhAM3tVHHjt2e0sz7iLl%2BDuXOX6%2B7Qkvgs1KealcH7ElMXKrIFCCkQAxoMMDEzNjE5Mjc0ODQ5IgxubweTaMPp5L8Q1YQqjwX98aLIa%2F1BpdVLQC%2BToIBwbGklZ8ygTNCI4x1qYQEmOGsQ1%2F6p4MCPMLXSqoXVF5QxpRt%2BdZrK%2FNcRu%2FY3QoE9gFJoqRHKBQN0hea7VJkz7uo3Rwjv0%2Bs1TjLNvF9Gx9DxVw5gmaNJzFBUsDj05h8b86dmkhqjUzC21gXGs9t4qXslxrGTOenOwfga0eb8fEHnz%2FUG0yD%2FjVQklap45v4C30R4WSycoTBHd2IKfDAZJaqt3smArxbtWItscCWCfFJ5YbB9hQ02lZMGvLB8srO38zC0kWDBR3RWPsI8%2FCT9AQl3xDcTmEbRo8%2BEfRAGkXLHOo5AKqatyHEmPm882mSsghu%2Brspdz%2FeqOhEpYUj4ySBMH0b17ZliROXJKxLzh%2BCpk4fUxbvq89yWnq1oE%2FG%2BGZ8LqH%2BHdDoUgMjnt03ecbuj8wAqebD0M9EeKqj1vXVd7ZWocJ%2FV6oYrm7S7UQivyKhDfuckG4YQxqwGm504IsXFkkTNFI0%2FbAlQyc8oZWIdoVgeThWvi6pw0uZ7M%2BmXEBvYfmy7YzbRIQolLeZ2Ib2tXdc%2Bn5HFgml1zzqu2ZZ8UvtnGce7z5fSnCBmszEnO8llVSoINOleTxGjyvKpO7VdXBdZ6vHaJIqLP4SNZcKEx5MZL7DunikcKcJc1Dh%2BeVNTGBTEwRQo2kmUtWbkmUUiASlDd8HgSnAP4RZOLdiDukVkx7gl6gOh42A5qWddn32TVRG2IDpeFfTYENewkfdTm7VCYmxkxmsP3Y%2Fcw%2BNkYV5PmiGgPIv2Zg9PDt27P3dzVbO0BkrT2UairLaxhj6VzUa%2BsdGMoet2DUfQzKVnGNHKxUFEljtFY%2FFiJHinwQ9Y75x2c9j9UzL1wI6TMI2luqgGOrABYyeNRUxeluFl7y58tZIFLbCliCc92oq3AvL8gskghuI3JnKg7R1ezYwY7GVa14ik6vEtnhisXGNuJh6mNjwDpIIr2%2BnDJR4O60ugIm%2B2U5%2B3g%2BQpzkDorZygbT57TjRGr122tik3dcMk17NAyWA%2FDaZNLlJwiU%2BS%2FxyTsJLLALvI9zlCoPT7U9wokT6nPEdV1VKFKSAm9jewkYUEeI%2FFWCVu2DqEd9C51abS8Y6I8lw%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=74240e28ec12c86b316f295d3ee6dd24205496bc2e55b4fc4a838279a8311280",
+      "file_size": 60578,
+      "type": "image/png",
+      "moderated": null
+    },
+    {
+      "id": 696835,
+      "file_name": "______________2020-01-26___20.20.21.png",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/qDELBexWMA9KCcygGPT7jhsS?response-content-disposition=attachment%3B%20filename%3D%22______________2020-01-26___20.20.21.png%22%3B%20filename%2A%3DUTF-8%27%27______________2020-01-26___20.20.21.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ6MB2MFGG%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T072516Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEDAaCXVzLXdlc3QtMiJIMEYCIQCYIr2SSYJfi35%2Bx%2Fejzst0Y9ig0v%2FJscMh9NmdM4t5VAIhAM3tVHHjt2e0sz7iLl%2BDuXOX6%2B7Qkvgs1KealcH7ElMXKrIFCCkQAxoMMDEzNjE5Mjc0ODQ5IgxubweTaMPp5L8Q1YQqjwX98aLIa%2F1BpdVLQC%2BToIBwbGklZ8ygTNCI4x1qYQEmOGsQ1%2F6p4MCPMLXSqoXVF5QxpRt%2BdZrK%2FNcRu%2FY3QoE9gFJoqRHKBQN0hea7VJkz7uo3Rwjv0%2Bs1TjLNvF9Gx9DxVw5gmaNJzFBUsDj05h8b86dmkhqjUzC21gXGs9t4qXslxrGTOenOwfga0eb8fEHnz%2FUG0yD%2FjVQklap45v4C30R4WSycoTBHd2IKfDAZJaqt3smArxbtWItscCWCfFJ5YbB9hQ02lZMGvLB8srO38zC0kWDBR3RWPsI8%2FCT9AQl3xDcTmEbRo8%2BEfRAGkXLHOo5AKqatyHEmPm882mSsghu%2Brspdz%2FeqOhEpYUj4ySBMH0b17ZliROXJKxLzh%2BCpk4fUxbvq89yWnq1oE%2FG%2BGZ8LqH%2BHdDoUgMjnt03ecbuj8wAqebD0M9EeKqj1vXVd7ZWocJ%2FV6oYrm7S7UQivyKhDfuckG4YQxqwGm504IsXFkkTNFI0%2FbAlQyc8oZWIdoVgeThWvi6pw0uZ7M%2BmXEBvYfmy7YzbRIQolLeZ2Ib2tXdc%2Bn5HFgml1zzqu2ZZ8UvtnGce7z5fSnCBmszEnO8llVSoINOleTxGjyvKpO7VdXBdZ6vHaJIqLP4SNZcKEx5MZL7DunikcKcJc1Dh%2BeVNTGBTEwRQo2kmUtWbkmUUiASlDd8HgSnAP4RZOLdiDukVkx7gl6gOh42A5qWddn32TVRG2IDpeFfTYENewkfdTm7VCYmxkxmsP3Y%2Fcw%2BNkYV5PmiGgPIv2Zg9PDt27P3dzVbO0BkrT2UairLaxhj6VzUa%2BsdGMoet2DUfQzKVnGNHKxUFEljtFY%2FFiJHinwQ9Y75x2c9j9UzL1wI6TMI2luqgGOrABYyeNRUxeluFl7y58tZIFLbCliCc92oq3AvL8gskghuI3JnKg7R1ezYwY7GVa14ik6vEtnhisXGNuJh6mNjwDpIIr2%2BnDJR4O60ugIm%2B2U5%2B3g%2BQpzkDorZygbT57TjRGr122tik3dcMk17NAyWA%2FDaZNLlJwiU%2BS%2FxyTsJLLALvI9zlCoPT7U9wokT6nPEdV1VKFKSAm9jewkYUEeI%2FFWCVu2DqEd9C51abS8Y6I8lw%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=8650d4eebd8029841926466743f7632cdcb8b0254b12df651282467c416437c2",
+      "file_size": 124957,
+      "type": "image/png",
+      "moderated": null
+    },
+    {
+      "id": 696838,
+      "file_name": "IMG_FA494B86CC7C-1.jpeg",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/iv3BXoMN7wyLc7fymt79JRZX?response-content-disposition=attachment%3B%20filename%3D%22IMG_FA494B86CC7C-1.jpeg%22%3B%20filename%2A%3DUTF-8%27%27IMG_FA494B86CC7C-1.jpeg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ6MB2MFGG%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T072516Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEDAaCXVzLXdlc3QtMiJIMEYCIQCYIr2SSYJfi35%2Bx%2Fejzst0Y9ig0v%2FJscMh9NmdM4t5VAIhAM3tVHHjt2e0sz7iLl%2BDuXOX6%2B7Qkvgs1KealcH7ElMXKrIFCCkQAxoMMDEzNjE5Mjc0ODQ5IgxubweTaMPp5L8Q1YQqjwX98aLIa%2F1BpdVLQC%2BToIBwbGklZ8ygTNCI4x1qYQEmOGsQ1%2F6p4MCPMLXSqoXVF5QxpRt%2BdZrK%2FNcRu%2FY3QoE9gFJoqRHKBQN0hea7VJkz7uo3Rwjv0%2Bs1TjLNvF9Gx9DxVw5gmaNJzFBUsDj05h8b86dmkhqjUzC21gXGs9t4qXslxrGTOenOwfga0eb8fEHnz%2FUG0yD%2FjVQklap45v4C30R4WSycoTBHd2IKfDAZJaqt3smArxbtWItscCWCfFJ5YbB9hQ02lZMGvLB8srO38zC0kWDBR3RWPsI8%2FCT9AQl3xDcTmEbRo8%2BEfRAGkXLHOo5AKqatyHEmPm882mSsghu%2Brspdz%2FeqOhEpYUj4ySBMH0b17ZliROXJKxLzh%2BCpk4fUxbvq89yWnq1oE%2FG%2BGZ8LqH%2BHdDoUgMjnt03ecbuj8wAqebD0M9EeKqj1vXVd7ZWocJ%2FV6oYrm7S7UQivyKhDfuckG4YQxqwGm504IsXFkkTNFI0%2FbAlQyc8oZWIdoVgeThWvi6pw0uZ7M%2BmXEBvYfmy7YzbRIQolLeZ2Ib2tXdc%2Bn5HFgml1zzqu2ZZ8UvtnGce7z5fSnCBmszEnO8llVSoINOleTxGjyvKpO7VdXBdZ6vHaJIqLP4SNZcKEx5MZL7DunikcKcJc1Dh%2BeVNTGBTEwRQo2kmUtWbkmUUiASlDd8HgSnAP4RZOLdiDukVkx7gl6gOh42A5qWddn32TVRG2IDpeFfTYENewkfdTm7VCYmxkxmsP3Y%2Fcw%2BNkYV5PmiGgPIv2Zg9PDt27P3dzVbO0BkrT2UairLaxhj6VzUa%2BsdGMoet2DUfQzKVnGNHKxUFEljtFY%2FFiJHinwQ9Y75x2c9j9UzL1wI6TMI2luqgGOrABYyeNRUxeluFl7y58tZIFLbCliCc92oq3AvL8gskghuI3JnKg7R1ezYwY7GVa14ik6vEtnhisXGNuJh6mNjwDpIIr2%2BnDJR4O60ugIm%2B2U5%2B3g%2BQpzkDorZygbT57TjRGr122tik3dcMk17NAyWA%2FDaZNLlJwiU%2BS%2FxyTsJLLALvI9zlCoPT7U9wokT6nPEdV1VKFKSAm9jewkYUEeI%2FFWCVu2DqEd9C51abS8Y6I8lw%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=cf57b135cc9401390cfcfc0d38b2771640b899c712a16f0f6095af1e99a383f1",
+      "file_size": 216470,
+      "type": "image/jpeg",
+      "moderated": null
+    }
+  ],
+  "allow_singular_disclosure_at": "2020-09-10T09:41:25.266Z",
+  "allow_singular_disclosure_after": -95723030.86459729,
+  "singular_disclosure_allowed": true,
+  "vote_count": 3,
+  "voters": [
+    "wi11",
+    "xprto",
+    "cryptographer"
+  ],
+  "severity": {
+    "rating": "low",
+    "author_type": "Team"
+  },
+  "structured_scope": {
+    "databaseId": 4405,
+    "asset_type": "WILDCARD",
+    "asset_identifier": "*.newrelic.com",
+    "max_severity": "critical"
+  },
+  "abilities": {
+    "assignable_team_members": [
+
+    ],
+    "assignable_team_member_groups": [
+
+    ]
+  },
+  "activities": [
+    {
+      "id": 6875520,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Guys, can you please help me with making my new account 2600488 the Partnership owner or at least a simple Partnership one? I've bought a Synthetics subscription there but I still can only create one-layer subaccounts, not do something like here:\n{F696839}\nThe Partnership console is still not working inside also.",
+      "automated_response": false,
+      "created_at": "2020-01-26T17:29:02.527Z",
+      "updated_at": "2020-01-26T17:29:02.527Z",
+      "actor": {
+        "username": "skavans",
+        "cleared": false,
+        "verified": false,
+        "url": "/skavans",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/014/089/00a08f6b566bcdfe82b2f0be62bdde605a030823_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "attachments": [
+        {
+          "id": 696839,
+          "filename": "______________2020-01-24___08.26.00.png",
+          "type": "image/png",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/4nY58qbRHRur1L4NkUu3xT26?response-content-disposition=attachment%3B%20filename%3D%22______________2020-01-24___08.26.00.png%22%3B%20filename%2A%3DUTF-8%27%27______________2020-01-24___08.26.00.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ6MB2MFGG%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T072516Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEDAaCXVzLXdlc3QtMiJIMEYCIQCYIr2SSYJfi35%2Bx%2Fejzst0Y9ig0v%2FJscMh9NmdM4t5VAIhAM3tVHHjt2e0sz7iLl%2BDuXOX6%2B7Qkvgs1KealcH7ElMXKrIFCCkQAxoMMDEzNjE5Mjc0ODQ5IgxubweTaMPp5L8Q1YQqjwX98aLIa%2F1BpdVLQC%2BToIBwbGklZ8ygTNCI4x1qYQEmOGsQ1%2F6p4MCPMLXSqoXVF5QxpRt%2BdZrK%2FNcRu%2FY3QoE9gFJoqRHKBQN0hea7VJkz7uo3Rwjv0%2Bs1TjLNvF9Gx9DxVw5gmaNJzFBUsDj05h8b86dmkhqjUzC21gXGs9t4qXslxrGTOenOwfga0eb8fEHnz%2FUG0yD%2FjVQklap45v4C30R4WSycoTBHd2IKfDAZJaqt3smArxbtWItscCWCfFJ5YbB9hQ02lZMGvLB8srO38zC0kWDBR3RWPsI8%2FCT9AQl3xDcTmEbRo8%2BEfRAGkXLHOo5AKqatyHEmPm882mSsghu%2Brspdz%2FeqOhEpYUj4ySBMH0b17ZliROXJKxLzh%2BCpk4fUxbvq89yWnq1oE%2FG%2BGZ8LqH%2BHdDoUgMjnt03ecbuj8wAqebD0M9EeKqj1vXVd7ZWocJ%2FV6oYrm7S7UQivyKhDfuckG4YQxqwGm504IsXFkkTNFI0%2FbAlQyc8oZWIdoVgeThWvi6pw0uZ7M%2BmXEBvYfmy7YzbRIQolLeZ2Ib2tXdc%2Bn5HFgml1zzqu2ZZ8UvtnGce7z5fSnCBmszEnO8llVSoINOleTxGjyvKpO7VdXBdZ6vHaJIqLP4SNZcKEx5MZL7DunikcKcJc1Dh%2BeVNTGBTEwRQo2kmUtWbkmUUiASlDd8HgSnAP4RZOLdiDukVkx7gl6gOh42A5qWddn32TVRG2IDpeFfTYENewkfdTm7VCYmxkxmsP3Y%2Fcw%2BNkYV5PmiGgPIv2Zg9PDt27P3dzVbO0BkrT2UairLaxhj6VzUa%2BsdGMoet2DUfQzKVnGNHKxUFEljtFY%2FFiJHinwQ9Y75x2c9j9UzL1wI6TMI2luqgGOrABYyeNRUxeluFl7y58tZIFLbCliCc92oq3AvL8gskghuI3JnKg7R1ezYwY7GVa14ik6vEtnhisXGNuJh6mNjwDpIIr2%2BnDJR4O60ugIm%2B2U5%2B3g%2BQpzkDorZygbT57TjRGr122tik3dcMk17NAyWA%2FDaZNLlJwiU%2BS%2FxyTsJLLALvI9zlCoPT7U9wokT6nPEdV1VKFKSAm9jewkYUEeI%2FFWCVu2DqEd9C51abS8Y6I8lw%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=808b4ba71ace4f3cc8d4981ab7c8b94788340e224a4b6d7e50011d28f6f3b2f1"
+        }
+      ],
+      "genius_execution_id": null,
+      "team_handle": "newrelic"
+    },
+    {
+      "id": 6875532,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Here is an invoice confirming we've bought the 1500 APM units for $0.02.\n{F696841}",
+      "automated_response": false,
+      "created_at": "2020-01-26T17:35:30.907Z",
+      "updated_at": "2020-01-26T17:35:30.907Z",
+      "actor": {
+        "username": "skavans",
+        "cleared": false,
+        "verified": false,
+        "url": "/skavans",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/014/089/00a08f6b566bcdfe82b2f0be62bdde605a030823_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "attachments": [
+        {
+          "id": 696841,
+          "filename": "______________2020-01-26___20.34.15.png",
+          "type": "image/png",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/cpiFooiAgYkMGEwkN7qgKune?response-content-disposition=attachment%3B%20filename%3D%22______________2020-01-26___20.34.15.png%22%3B%20filename%2A%3DUTF-8%27%27______________2020-01-26___20.34.15.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ6MB2MFGG%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T072516Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEDAaCXVzLXdlc3QtMiJIMEYCIQCYIr2SSYJfi35%2Bx%2Fejzst0Y9ig0v%2FJscMh9NmdM4t5VAIhAM3tVHHjt2e0sz7iLl%2BDuXOX6%2B7Qkvgs1KealcH7ElMXKrIFCCkQAxoMMDEzNjE5Mjc0ODQ5IgxubweTaMPp5L8Q1YQqjwX98aLIa%2F1BpdVLQC%2BToIBwbGklZ8ygTNCI4x1qYQEmOGsQ1%2F6p4MCPMLXSqoXVF5QxpRt%2BdZrK%2FNcRu%2FY3QoE9gFJoqRHKBQN0hea7VJkz7uo3Rwjv0%2Bs1TjLNvF9Gx9DxVw5gmaNJzFBUsDj05h8b86dmkhqjUzC21gXGs9t4qXslxrGTOenOwfga0eb8fEHnz%2FUG0yD%2FjVQklap45v4C30R4WSycoTBHd2IKfDAZJaqt3smArxbtWItscCWCfFJ5YbB9hQ02lZMGvLB8srO38zC0kWDBR3RWPsI8%2FCT9AQl3xDcTmEbRo8%2BEfRAGkXLHOo5AKqatyHEmPm882mSsghu%2Brspdz%2FeqOhEpYUj4ySBMH0b17ZliROXJKxLzh%2BCpk4fUxbvq89yWnq1oE%2FG%2BGZ8LqH%2BHdDoUgMjnt03ecbuj8wAqebD0M9EeKqj1vXVd7ZWocJ%2FV6oYrm7S7UQivyKhDfuckG4YQxqwGm504IsXFkkTNFI0%2FbAlQyc8oZWIdoVgeThWvi6pw0uZ7M%2BmXEBvYfmy7YzbRIQolLeZ2Ib2tXdc%2Bn5HFgml1zzqu2ZZ8UvtnGce7z5fSnCBmszEnO8llVSoINOleTxGjyvKpO7VdXBdZ6vHaJIqLP4SNZcKEx5MZL7DunikcKcJc1Dh%2BeVNTGBTEwRQo2kmUtWbkmUUiASlDd8HgSnAP4RZOLdiDukVkx7gl6gOh42A5qWddn32TVRG2IDpeFfTYENewkfdTm7VCYmxkxmsP3Y%2Fcw%2BNkYV5PmiGgPIv2Zg9PDt27P3dzVbO0BkrT2UairLaxhj6VzUa%2BsdGMoet2DUfQzKVnGNHKxUFEljtFY%2FFiJHinwQ9Y75x2c9j9UzL1wI6TMI2luqgGOrABYyeNRUxeluFl7y58tZIFLbCliCc92oq3AvL8gskghuI3JnKg7R1ezYwY7GVa14ik6vEtnhisXGNuJh6mNjwDpIIr2%2BnDJR4O60ugIm%2B2U5%2B3g%2BQpzkDorZygbT57TjRGr122tik3dcMk17NAyWA%2FDaZNLlJwiU%2BS%2FxyTsJLLALvI9zlCoPT7U9wokT6nPEdV1VKFKSAm9jewkYUEeI%2FFWCVu2DqEd9C51abS8Y6I8lw%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=92e3213dbf44c221d05154b03abf7fd1dfd459c108eb5f04359d826767f021fa"
+        }
+      ],
+      "genius_execution_id": null,
+      "team_handle": "newrelic"
+    },
+    {
+      "id": 6891006,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @skavans,\n\nThanks for bringing this to our attention.\n\nI'm currently discussing the potential scope of this issue with the team and once decided I will triage appropriately.\n\nI appreciate your patience while we continue to investigate this.\n\nThanks,\nJoe",
+      "automated_response": false,
+      "created_at": "2020-01-28T13:42:30.180Z",
+      "updated_at": "2020-01-28T13:42:30.180Z",
+      "actor": {
+        "username": "jmcevoy",
+        "cleared": false,
+        "verified": false,
+        "url": "/jmcevoy",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "newrelic"
+    },
+    {
+      "id": 6921757,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportSeverityUpdated",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2020-01-30T16:30:37.105Z",
+      "updated_at": "2020-01-30T16:30:37.105Z",
+      "additional_data": {
+        "old_severity": "Medium",
+        "new_severity": "Low",
+        "old_severity_id": 618389,
+        "new_severity_id": 621629
+      },
+      "actor": {
+        "username": "jmcevoy",
+        "cleared": false,
+        "verified": false,
+        "url": "/jmcevoy",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "newrelic"
+    },
+    {
+      "id": 6921785,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugTriaged",
+      "message": "Hi @skavans,\n\nI have now triaged this with the teams responsible to resolve.\n\nWe don't consider this to be a security vulnerability exactly and view it as more of a business logic error with a low likelihood of exploitation that would eventually be caught by our billing and auditing services.\n\nAs such I'm setting the severity here to \"Low\".\n\nI understand that you have accidentally purchased a subscription in the process of testing this, in this case as an exception I will add the amount paid as a bonus to this report.\n\nIn future please be aware that any further charges incurred in testing vulnerabilities will not be reimbursed and you would need to follow standard cancellation policies.\n\nThanks for helping to make New Relic safer!",
+      "automated_response": false,
+      "created_at": "2020-01-30T16:35:54.052Z",
+      "updated_at": "2020-01-30T16:35:54.052Z",
+      "actor": {
+        "username": "jmcevoy",
+        "cleared": false,
+        "verified": false,
+        "url": "/jmcevoy",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "newrelic"
+    },
+    {
+      "id": 6921807,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BountyAwarded",
+      "message": "{F701296}",
+      "automated_response": false,
+      "created_at": "2020-01-30T16:37:48.783Z",
+      "updated_at": "2020-01-30T16:37:48.783Z",
+      "actor": {
+        "url": "/newrelic",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/3813a300hyp02ziarjcgo7ph6uxv/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "New Relic"
+        }
+      },
+      "bounty_currency": "usd",
+      "attachments": [
+        {
+          "id": 701296,
+          "filename": "money.jpg",
+          "type": "image/jpeg",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/5Qp2XAXWBMSXB5SjRcntp8oY?response-content-disposition=attachment%3B%20filename%3D%22money.jpg%22%3B%20filename%2A%3DUTF-8%27%27money.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ6MB2MFGG%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T072516Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEDAaCXVzLXdlc3QtMiJIMEYCIQCYIr2SSYJfi35%2Bx%2Fejzst0Y9ig0v%2FJscMh9NmdM4t5VAIhAM3tVHHjt2e0sz7iLl%2BDuXOX6%2B7Qkvgs1KealcH7ElMXKrIFCCkQAxoMMDEzNjE5Mjc0ODQ5IgxubweTaMPp5L8Q1YQqjwX98aLIa%2F1BpdVLQC%2BToIBwbGklZ8ygTNCI4x1qYQEmOGsQ1%2F6p4MCPMLXSqoXVF5QxpRt%2BdZrK%2FNcRu%2FY3QoE9gFJoqRHKBQN0hea7VJkz7uo3Rwjv0%2Bs1TjLNvF9Gx9DxVw5gmaNJzFBUsDj05h8b86dmkhqjUzC21gXGs9t4qXslxrGTOenOwfga0eb8fEHnz%2FUG0yD%2FjVQklap45v4C30R4WSycoTBHd2IKfDAZJaqt3smArxbtWItscCWCfFJ5YbB9hQ02lZMGvLB8srO38zC0kWDBR3RWPsI8%2FCT9AQl3xDcTmEbRo8%2BEfRAGkXLHOo5AKqatyHEmPm882mSsghu%2Brspdz%2FeqOhEpYUj4ySBMH0b17ZliROXJKxLzh%2BCpk4fUxbvq89yWnq1oE%2FG%2BGZ8LqH%2BHdDoUgMjnt03ecbuj8wAqebD0M9EeKqj1vXVd7ZWocJ%2FV6oYrm7S7UQivyKhDfuckG4YQxqwGm504IsXFkkTNFI0%2FbAlQyc8oZWIdoVgeThWvi6pw0uZ7M%2BmXEBvYfmy7YzbRIQolLeZ2Ib2tXdc%2Bn5HFgml1zzqu2ZZ8UvtnGce7z5fSnCBmszEnO8llVSoINOleTxGjyvKpO7VdXBdZ6vHaJIqLP4SNZcKEx5MZL7DunikcKcJc1Dh%2BeVNTGBTEwRQo2kmUtWbkmUUiASlDd8HgSnAP4RZOLdiDukVkx7gl6gOh42A5qWddn32TVRG2IDpeFfTYENewkfdTm7VCYmxkxmsP3Y%2Fcw%2BNkYV5PmiGgPIv2Zg9PDt27P3dzVbO0BkrT2UairLaxhj6VzUa%2BsdGMoet2DUfQzKVnGNHKxUFEljtFY%2FFiJHinwQ9Y75x2c9j9UzL1wI6TMI2luqgGOrABYyeNRUxeluFl7y58tZIFLbCliCc92oq3AvL8gskghuI3JnKg7R1ezYwY7GVa14ik6vEtnhisXGNuJh6mNjwDpIIr2%2BnDJR4O60ugIm%2B2U5%2B3g%2BQpzkDorZygbT57TjRGr122tik3dcMk17NAyWA%2FDaZNLlJwiU%2BS%2FxyTsJLLALvI9zlCoPT7U9wokT6nPEdV1VKFKSAm9jewkYUEeI%2FFWCVu2DqEd9C51abS8Y6I8lw%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=3a94cdf06195254b57520a35b65d21473fb8c2002ccb24f47022adc5f248dff0"
+        }
+      ],
+      "genius_execution_id": null,
+      "team_handle": "newrelic",
+      "collaborator": {
+        "username": "skavans",
+        "url": "/skavans"
+      }
+    },
+    {
+      "id": 6923202,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hey @jmcevoy,\n\nThanks for the bonus provided! However, it is disappointing that you rate this submission so low. It’s my lowest bounty here despite the fact that:\n- the pretty similar issue #219356 was triaged as Medium;\n- you said that your audit system detects this, however my own exploitations weren’t detected;\n- it’s pretty easy to exploit;\n- it leads to the direct funds loss.",
+      "automated_response": false,
+      "created_at": "2020-01-30T19:17:16.116Z",
+      "updated_at": "2020-01-30T19:18:10.755Z",
+      "actor": {
+        "username": "skavans",
+        "cleared": false,
+        "verified": false,
+        "url": "/skavans",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/014/089/00a08f6b566bcdfe82b2f0be62bdde605a030823_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "newrelic"
+    },
+    {
+      "id": 6931242,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @skavans,\n\nThe issue in #219356 was reported to us much earlier in our program (nearly 3 years ago) and our policies and procedures have shifted a bit since then.\n\nAs @jmcevoy mentioned, accounts are audited internally, but this is not a fully automated process. Anyone can get a free account or sign up for a Developer account and use New Relic to some extent. But when usage exceeds what is expected vs. the overall money spent, accounts are flagged to our Sales and/or Finance teams.",
+      "automated_response": false,
+      "created_at": "2020-01-31T11:31:26.935Z",
+      "updated_at": "2020-01-31T11:31:26.935Z",
+      "actor": {
+        "username": "nr-dm",
+        "cleared": false,
+        "verified": false,
+        "url": "/nr-dm",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "newrelic"
+    },
+    {
+      "id": 7904135,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "I believe this has been resolved. Feel free to re-open or comment in the ticket if you see an incomplete fix.",
+      "automated_response": false,
+      "created_at": "2020-05-05T21:22:05.676Z",
+      "updated_at": "2020-05-05T21:22:05.676Z",
+      "actor": {
+        "username": "scutler",
+        "cleared": false,
+        "verified": false,
+        "url": "/scutler",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/460/179/2c3ae155f2d3e021cae9e7e75456335c3c5514cd_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "reporter": {
+        "username": "skavans",
+        "url": "/skavans"
+      },
+      "genius_execution_id": null,
+      "team_handle": "newrelic"
+    },
+    {
+      "id": 8902656,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2020-08-11T09:41:25.234Z",
+      "updated_at": "2020-08-11T09:41:25.234Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "skavans",
+        "cleared": false,
+        "verified": false,
+        "url": "/skavans",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/014/089/00a08f6b566bcdfe82b2f0be62bdde605a030823_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "newrelic"
+    },
+    {
+      "id": 8923151,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Can we disclose this?",
+      "automated_response": false,
+      "created_at": "2020-08-13T08:30:47.164Z",
+      "updated_at": "2020-08-13T08:30:47.164Z",
+      "actor": {
+        "username": "skavans",
+        "cleared": false,
+        "verified": false,
+        "url": "/skavans",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/014/089/00a08f6b566bcdfe82b2f0be62bdde605a030823_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "newrelic"
+    },
+    {
+      "id": 8927936,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2020-08-13T15:37:41.432Z",
+      "updated_at": "2020-08-13T15:37:41.432Z",
+      "actor": {
+        "username": "nr-dm",
+        "cleared": false,
+        "verified": false,
+        "url": "/nr-dm",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "newrelic"
+    },
+    {
+      "id": 8927937,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportBecamePublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2020-08-13T15:37:41.545Z",
+      "updated_at": "2020-08-13T15:37:41.545Z",
+      "actor": {
+        "username": "nr-dm",
+        "cleared": false,
+        "verified": false,
+        "url": "/nr-dm",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "newrelic"
+    }
+  ],
+  "activity_page_count": 1,
+  "activity_page_number": 1,
+  "summaries": [
+    {
+      "category": "team",
+      "can_view?": true,
+      "can_create?": false
+    },
+    {
+      "category": "researcher",
+      "can_view?": true,
+      "can_create?": false
+    }
+  ]
+}

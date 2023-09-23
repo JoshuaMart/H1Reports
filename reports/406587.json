@@ -1,0 +1,425 @@
+{
+  "id": 406587,
+  "global_id": "Z2lkOi8vaGFja2Vyb25lL1JlcG9ydC80MDY1ODc=",
+  "url": "https://hackerone.com/reports/406587",
+  "title": "Self DOM-Based XSS in www.hackerone.com",
+  "state": "Closed",
+  "substate": "resolved",
+  "severity_rating": "low",
+  "readable_substate": "Resolved",
+  "created_at": "2018-09-06T19:11:11.340Z",
+  "submitted_at": "2018-09-06T19:11:11.340Z",
+  "is_member_of_team?": false,
+  "is_organization_group_member?": false,
+  "reporter": {
+    "disabled": false,
+    "username": "adac95",
+    "url": "/adac95",
+    "profile_picture_urls": {
+      "small": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+    },
+    "is_me?": false,
+    "cleared": false,
+    "verified": false,
+    "hackerone_triager": false,
+    "hacker_mediation": false
+  },
+  "team": {
+    "id": 13,
+    "url": "https://hackerone.com/security",
+    "handle": "security",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/000/013/fa942b9b1cbf4faf37482bf68458e1195aab9c02_original.png/d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98",
+      "medium": "https://profile-photos.hackerone-user-content.com/variants/000/000/013/fa942b9b1cbf4faf37482bf68458e1195aab9c02_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+    },
+    "permissions": [
+
+    ],
+    "submission_state": "open",
+    "default_currency": "usd",
+    "awards_miles": false,
+    "offers_bounties": true,
+    "state": "public_mode",
+    "only_cleared_hackers": false,
+    "pentest_feature_enabled?": false,
+    "profile": {
+      "name": "HackerOne",
+      "twitter_handle": "Hacker0x01",
+      "website": "https://hackerone.com",
+      "about": "Vulnerability disclosure should be safe, transparent, and rewarding."
+    }
+  },
+  "has_bounty?": false,
+  "in_validation?": false,
+  "can_view_team": true,
+  "can_view_report": true,
+  "is_external_bug": false,
+  "is_published": false,
+  "is_participant": false,
+  "has_collaborators": false,
+  "submitted_by_team_member": false,
+  "stage": 4,
+  "public": true,
+  "visibility": "full",
+  "cve_ids": [
+
+  ],
+  "singular_disclosure_disabled": false,
+  "disclosed_at": "2018-11-08T10:46:50.735Z",
+  "bug_reporter_agreed_on_going_public_at": "2018-11-08T10:46:50.641Z",
+  "team_member_agreed_on_going_public_at": "2018-11-07T18:51:29.870Z",
+  "comments_closed?": false,
+  "facebook_team?": false,
+  "team_private?": false,
+  "vulnerability_information": "**Summary:**\nThere is a 'self' DOM-based cross-site scripting vulnerability in the contact form available on the www.hackerone.com website. This could allow an attacker to perform cross-site scripting, or other client-side attacks, against users of the application. However, the risk presented by this issue is significantly reduced because exploitation would require an element of social engineering to succeed, and the website's Content Security Policy (CSP) blocked the execution of inline scripts.\n\n**Description:**\nThe HackerOne contact form is automatically displayed when the string  'contact/' is detected in the URI fragment on any page under the www.hackerone.com domain (for example, https://www.hackerone.com/#contact/). When the 'submit' button is clicked, the following JavaScript functions are executed:\n\n```javascript\n//Marketo Form Code\nfunction strip(html) {\n    var tmp = document.createElement(\"DIV\");\n    tmp.innerHTML = html;\n    return tmp.textContent || tmp.innerText || \"\";\n}\n\n$('form').submit(function() {\n    $('textarea').val(function() {\n        return strip($(this).val());\n    });\n});\n```\nThe 'submit' event handler passes the current value of any 'textarea' elements to the 'strip' function. This function creates a new 'div' element, sets the 'innerHTML'  property to the provided value, and then returns the 'textContent' property of the resulting div. This type of code is typically used to remove HTML tags from a string, as the textContent property contains the String which was rendered by the browser when the HTML was parsed. (A reference to this exact function was also found on Stack Overflow: https://stackoverflow.com/questions/12941663/removing-html-tags-from-a-string-and-keeping-colon) \n\nHowever , this particular method is inherently insecure because it uses 'innerHTML'. When user input is provided to the 'innerHTML' property, it is parsed by the web browser and can therefore lead to the execution of malicious JavaScript. A screenshot has been attached to this report showing the result in the web browser when the following payload was typed into the 'Message' textarea of the HackerOne contact form, and the 'send message' button was clicked:\n\n```html\n<img src=x onerror=alert(1) />\n```\nThe developer console (in Google Chrome) displayed two errors - one which stated that https://www.hackerone.com/x was requested and returned a 404 (due to the src attribute of the img tag), and another which reported a violation of the website's CSP. This second error occurred because the browser attempted to execute the JavaScript code in the 'onerror' attribute, but the website's CSP did not allow it. Performing the same actions in a browser with CSP disabled allowed the JavaScript in the 'onerror' attribute to execute.\n\nAn attacker could exploit this vulnerability by convincing a user (ideally with a browser which does not support CSP) to paste a malicious payload into the 'message' field of the contact form and then click the 'send message' button.\n\nIt should also be noted that, if the 'strip' function was implemented to prevent an attacker from sending malicious HTML to Marketo or the server, it can be trivially bypassed using an intercepting proxy tool such as Burp Suite. By intercepting the HTTP request sent once the form submission is complete, any HTML 'stripped' by the JavaScript can simply be replaced. In light of this, developers should consider whether the 'strip' function is required - any validation or sanitization should  be performed by the server, where it cannot be influenced by an attacker.\n\nIf the 'strip' function is required, it is recommended that it is replaced with a solution which does not require the use of 'innerHTML'. A suitable alternative may be the use of a regex to remove common HTML characters.\n\n### Steps To Reproduce\n\n1. Open the https://www.hackerone.com/#contact/ page and open the browser's developer tools\n2.  Type \"<img src=x onerror=alert(1) />\" into the 'message' textarea\n3.  Click the 'send message' button\n4. Check the developer console to view the two errors\n\n(alternatively, disable CSP in your web browser and repeat the steps above. The JavaScript code 'alert(1)' should execute)\n\n## Impact\n\nThe attacker could achieve XSS in the www.hackerone.com website.",
+  "weakness": {
+    "id": 63,
+    "name": "Cross-site Scripting (XSS) - DOM"
+  },
+  "original_report_id": null,
+  "original_report_url": null,
+  "attachments": [
+    {
+      "id": 343117,
+      "file_name": "self-XSS.PNG",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/343/117/4a6c2b7af987bf851a33e53be22dda1e7565ce5a/self-XSS.PNG?response-content-disposition=attachment%3B%20filename%3D%22self-XSS.PNG%22%3B%20filename%2A%3DUTF-8%27%27self-XSS.PNG&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ764WDPOT%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T074736Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEDAaCXVzLXdlc3QtMiJGMEQCIEJCpOT%2FnLAxlJy%2B%2B%2Fa0A%2Fuz9UJx%2BTkeR616HCfZ%2Bl5TAiBPgAvOCdyFK%2Fsu0e4HNruMfHePWlQ2%2B7jDR3qgABsc6SqwBQgpEAMaDDAxMzYxOTI3NDg0OSIMf%2BnUXay0WVRe0QUAKo0FTe%2F3%2F5R16%2FajyCApoURehraE8bgx4wMDslPTf6h5vkZ7QkD6mew0zmZSVVL71O%2BS%2FAAsUL9gjR64cxjTN0fyO6swbmSDfmOouN8529hjbJrHwKh%2Bg%2FqR14Qh%2FwtS9MNlvaaaFYjm15dxLjR1qbkNoM2VW66X%2BaIjFo%2Bjm1L3h4YvC7uD%2BkF5SvvermW8bkX9PbMNWbV0ri7d4nxEYyfmSygHPF3jBUj9qKtE5jIFlUFX7quLROd7IFutIjfbr9BzD5XjBcfDBgOelMJO%2FkBoiNdwlfV9uTG7ZKjiTRJNivEEwodRejMzwiSEZ6GcGSmQR9RpewFhhM%2Fz%2BYkhlE7gFMjx24KTCJ1K3CyskWpwdC68JN9Y8hXezAl7pK2gf3r62LKzvw1%2FJhkqmVuo8i7XCkeS0MYtV7XnpE5p3jBHKTK7q%2FumHS%2FwzVymb2EeSXBP6qNbvr3O18rzDvbqY5uBkazVycShPwpL%2BBDoPdQ%2FbeFqcglYv2oAounyiTXR9eWNtzw8kEZw6AKflmPiQ0DprqSHaiMMAb55fo7dbXjwr20ktZwBZZqenOtvB7eyoQN%2BG2WqO0K44it4aGb6g8ehgYvsRelS0oR5XwTwu2o4F0Fj%2BADJ3%2F5TzGpfal1VqsaCMrr4em0aQJ3rb4Remj%2F%2BJTVleGnaKGbF2teDXflsoK2zwP9nkJ4nvashggxSrAZooM%2BU4pbkYzpxDwMNvMOJWFOf9GozT%2FooeLq5CYQghwJHMTpJ71dTOR%2FqvCNyL8BZYjJA7Wc19LQQ%2FS016DeF1wTf5sdMO0l86aHqv8BSk77LD335DPvtqsjzrJ7qieEjW9dMYJJFmqBMM1OoakNug2zY166La6bNXU3UQhYwjai6qAY6sgHNsBk5AOLuBX1agqrXZLp%2BOkzGnqFdy%2FkFHE6bDXd5K%2BxlNQa21ZdjhDZitHh8OyVITBolLS2EIAdcZfL%2FRZstKTGRFPqW5I%2BMNOHFKWShLCpyVIcbI8q0Una9aOqcZOJOiV54v4hLyirFWKBhoo1td8jT%2BsTbcVm%2BjosOM7etsoiTgM%2FlTBDyy%2BG06%2FdRbqpBa7eB3ENMxwVCTWHA0QHkY6jW1%2F7VKmtouFFTKpcdL3mX&X-Amz-SignedHeaders=host&X-Amz-Signature=0c916c7fb34747d24dc0dcbfe0eb143e8fc5b35c9d23766b30f841463b4a8d9a",
+      "file_size": 84297,
+      "type": "image/png",
+      "moderated": null
+    }
+  ],
+  "allow_singular_disclosure_at": "2018-12-07T18:51:30.010Z",
+  "allow_singular_disclosure_after": -151246566.60483643,
+  "singular_disclosure_allowed": true,
+  "vote_count": 22,
+  "voters": [
+    "sameerphad72",
+    "ali",
+    "romesful",
+    "0nlymohammed",
+    "savitar0x01",
+    "eveeez",
+    "khizer47",
+    "t4ym",
+    "bb00x",
+    "japz",
+    "and 12 more..."
+  ],
+  "severity": {
+    "rating": "low",
+    "author_type": "User"
+  },
+  "structured_scope": {
+    "databaseId": 6,
+    "asset_type": "URL",
+    "asset_identifier": "www.hackerone.com",
+    "max_severity": "critical"
+  },
+  "abilities": {
+    "assignable_team_members": [
+
+    ],
+    "assignable_team_member_groups": [
+
+    ]
+  },
+  "activities": [
+    {
+      "id": 3303152,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugNeedsMoreInfo",
+      "message": "This fix originated from #220009. Given the CSP is in place and this is a self XSS I'm leaning towards us accepting this risk. It seems like there should be an easy fix to this though. Do you have an idea on a more accepted html striping approach that works in these cases?",
+      "automated_response": false,
+      "created_at": "2018-09-06T20:32:30.475Z",
+      "updated_at": "2018-09-06T20:32:30.475Z",
+      "actor": {
+        "username": "bencode",
+        "cleared": false,
+        "verified": false,
+        "url": "/bencode",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/013/117/ddaa1da4e004e1234c6857c42f9bfa8df85b5ccf_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": true
+      },
+      "genius_execution_id": null,
+      "team_handle": "security"
+    },
+    {
+      "id": 3303218,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugNew",
+      "message": "That's interesting, I hadn't seen this report before.\n\nIs this the only change Marketo made to address this bug? Or were there changes made to the backend? I would assume that, if no other changes were made, an attacker could still exploit the SSRF (or HTML injection) on the backend by adding the HTML back in to their request, or by overriding the strip function in their browser to do nothing. The strip function is a client-side control after all, and an attacker can therefore still modify the request after the strip function has made its changes.\n\nThe only way to prevent the HTML injection described in 220009 would be to check the message contents on the server-side and encode the HTML there, before using it anywhere else. I've just used Burp to add an img tag to a message sent in the contact form and I am monitoring for requests to see if the HTML injection is still exploitable. I'll let you know if I get anything back.\n\nMy suggestion would be to remove the strip function entirely (eliminating the self XSS) and clarify whether Marketo added a protection for the previous vulnerability on the server-side.",
+      "automated_response": false,
+      "created_at": "2018-09-06T20:53:10.296Z",
+      "updated_at": "2018-09-06T20:53:10.296Z",
+      "actor": {
+        "username": "adac95",
+        "cleared": false,
+        "verified": false,
+        "url": "/adac95",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "security"
+    },
+    {
+      "id": 3308354,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugTriaged",
+      "message": "Hi @adac95 - \n\nWe have confirmed with Marketo that the original SSRF vulnerability was mitigated by enabling HTML encode token in the settings. \n\nThis is their response:\n> Marketo has a setting to HTML encode tokens used in Marketo emails. Customers can control this setting themselves in Admin > Field Management > Field Actions > HTML Encode Settings. We also have a feature slated for Q4 to make the default of this option ON for all customers (still with ability to override at the field level for customers who want to use HTML in a token).\n> \n> If token contents within emails are set to be HTML-encoded, there’s not much more we can do other than “clean” content when it comes into Marketo. That’s a long-term goal but I wouldn’t say it is in any way critical. Using the features described above, should resolve these concerns.\n\nGiven this, we think it makes sense to remove our home-brewed `strip()` function. Do you see any problem with the removal? \n",
+      "automated_response": false,
+      "created_at": "2018-09-07T17:49:52.196Z",
+      "updated_at": "2018-09-07T17:53:59.748Z",
+      "actor": {
+        "username": "pei",
+        "cleared": false,
+        "verified": false,
+        "url": "/pei",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/016/939/2d83322336a492279dc84d8f92f280c2d54fcb5b_original.png/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "security"
+    },
+    {
+      "id": 3309015,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @pei,\n\nThanks for clarifying. Given it is trivial to bypass the strip function, and any HTML tags sent in the contact form by an attacker will be encoded by the Marketo server, I am confident that it can be safely removed.\n\nIf it helps, I retested the original SSRF vulnerability by bypassing the strip function and did not receive any requests to my server. This suggests to me that the HTML encoding performed by Marketo is working as intended.",
+      "automated_response": false,
+      "created_at": "2018-09-07T20:47:02.877Z",
+      "updated_at": "2018-09-07T20:47:02.877Z",
+      "actor": {
+        "username": "adac95",
+        "cleared": false,
+        "verified": false,
+        "url": "/adac95",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "security"
+    },
+    {
+      "id": 3338739,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::SwagAwarded",
+      "message": "Hi @adac95 -\n\nThanks for verifying! There isn't a real attack scenario here, though we really appreciate your creative finding and have decided to award you swag. \n\nHappy Friday!\n-Pei",
+      "automated_response": false,
+      "created_at": "2018-09-14T16:47:40.743Z",
+      "updated_at": "2018-09-14T16:47:40.743Z",
+      "actor": {
+        "url": "/security",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/000/013/fa942b9b1cbf4faf37482bf68458e1195aab9c02_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "HackerOne"
+        }
+      },
+      "reporter": {
+        "username": "adac95",
+        "url": "/adac95"
+      },
+      "genius_execution_id": null,
+      "team_handle": "security"
+    },
+    {
+      "id": 3338741,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::NotEligibleForBounty",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2018-09-14T16:47:53.661Z",
+      "updated_at": "2018-09-14T16:47:53.661Z",
+      "actor": {
+        "url": "/security",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/000/013/fa942b9b1cbf4faf37482bf68458e1195aab9c02_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "HackerOne"
+        }
+      },
+      "genius_execution_id": null,
+      "team_handle": "security"
+    },
+    {
+      "id": 3347288,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Thank you @pei! ",
+      "automated_response": false,
+      "created_at": "2018-09-17T09:35:18.927Z",
+      "updated_at": "2018-09-17T09:35:18.927Z",
+      "actor": {
+        "username": "adac95",
+        "cleared": false,
+        "verified": false,
+        "url": "/adac95",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "security"
+    },
+    {
+      "id": 3552878,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "Hi @adac95 - thanks again for bringing this to our attention! This should be resolved by now. Can you confirm this? Thanks!",
+      "automated_response": false,
+      "created_at": "2018-10-29T23:37:14.119Z",
+      "updated_at": "2018-10-29T23:37:14.119Z",
+      "actor": {
+        "username": "jobert",
+        "cleared": true,
+        "verified": true,
+        "url": "/jobert",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/ht4b9SmcYNqmpbyCFXd7cxHB/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": true
+      },
+      "reporter": {
+        "username": "adac95",
+        "url": "/adac95"
+      },
+      "genius_execution_id": null,
+      "team_handle": "security"
+    },
+    {
+      "id": 3586147,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @jobert, sorry for the delay! I have just taken another look at the main contact form and it seems that this is fixed. The old strip() function has been removed and I can no longer cause HTML to be injected into the page.\n\nIt looks like there are still some client-side sanitisation functions though. For example, this function is used on the HackerOne Go contact form (https://www.hackerone.com/hackerone-go):\n\n```javascript\nMktoForms2.loadForm(\"//app-sj17.marketo.com\", \"168-NAU-732\", 1079);         \nMktoForms2.whenReady(function (form){\n  vals = form.vals();\n  $('#preview-modal').click(function() {        \n    $('strong.company').each(function () {\n      $(this).text($('input#Company').val()?$('input#Company').val():\"Your Company\"); \n    })\n    var tmpDiv = jQuery(document.createElement('div'));\n    var sanitizedDomains = [];\n\n    var unsanitizedDomains = $('textarea#Customer_Defined_Scope__c').val().split('\\n');\n    for (var i = 0 ; i < unsanitizedDomains.length ; i++) {\n      sanitizedDomains.push(tmpDiv.text(unsanitizedDomains[i]).html());\n    }\n    $('ul.scope li').remove();\n    $.each(sanitizedDomains, function(){\n      $('ul.scope').append('<li>'+this+'</li>');\n    });\n    $('#preview').dialog({\n      title: \"Preview\",\n        buttons: {\n            Ok: function () {\n                $(this).dialog('close');\n            }\n        },\n        modal: true,\n        width: \"80%\"\n    });\n    return false; \n  })\n```\nHowever, the use of JQuery's text() on the user's input means that this can't be used to inject HTML into the page.  I don't see the value in encoding a user's input before a request but this appears to be a safe way to do it.",
+      "automated_response": false,
+      "created_at": "2018-11-05T09:18:13.684Z",
+      "updated_at": "2018-11-05T09:18:13.684Z",
+      "actor": {
+        "username": "adac95",
+        "cleared": false,
+        "verified": false,
+        "url": "/adac95",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "security"
+    },
+    {
+      "id": 3602503,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "Hi @adac95 - thanks for confirming the fix. We believe that this is ready to be disclosed!",
+      "automated_response": false,
+      "created_at": "2018-11-07T18:51:29.918Z",
+      "updated_at": "2018-11-07T18:52:34.920Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "jobert",
+        "cleared": true,
+        "verified": true,
+        "url": "/jobert",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/ht4b9SmcYNqmpbyCFXd7cxHB/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": true
+      },
+      "genius_execution_id": null,
+      "team_handle": "security"
+    },
+    {
+      "id": 3608491,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2018-11-08T10:46:50.680Z",
+      "updated_at": "2018-11-08T10:46:50.680Z",
+      "actor": {
+        "username": "adac95",
+        "cleared": false,
+        "verified": false,
+        "url": "/adac95",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "security"
+    },
+    {
+      "id": 3608492,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportBecamePublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2018-11-08T10:46:50.760Z",
+      "updated_at": "2018-11-08T10:46:50.760Z",
+      "actor": {
+        "username": "adac95",
+        "cleared": false,
+        "verified": false,
+        "url": "/adac95",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "security"
+    }
+  ],
+  "activity_page_count": 1,
+  "activity_page_number": 1,
+  "summaries": [
+    {
+      "category": "team",
+      "can_view?": true,
+      "can_create?": false
+    },
+    {
+      "category": "researcher",
+      "can_view?": true,
+      "can_create?": false
+    }
+  ]
+}

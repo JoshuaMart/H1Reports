@@ -1,0 +1,425 @@
+{
+  "id": 1636382,
+  "global_id": "Z2lkOi8vaGFja2Vyb25lL1JlcG9ydC8xNjM2Mzgy",
+  "url": "https://hackerone.com/reports/1636382",
+  "title": "Synthetics Recorder: Code injection when recording website with malicious content",
+  "state": "Closed",
+  "substate": "resolved",
+  "severity_rating": "high",
+  "readable_substate": "Resolved",
+  "created_at": "2022-07-14T04:21:15.339Z",
+  "submitted_at": "2022-07-14T04:21:15.478Z",
+  "is_member_of_team?": false,
+  "is_organization_group_member?": false,
+  "reporter": {
+    "disabled": false,
+    "username": "dee-see",
+    "url": "/dee-see",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/220/115/9a655d51cb400a5743966e9856918ed02ee8d042_original.jpg/3c7b305354c9073c106ae3d1701798defaaf5be844fb8fdfa49ca62f991a2c2c"
+    },
+    "is_me?": false,
+    "cleared": true,
+    "verified": true,
+    "hackerone_triager": false,
+    "hacker_mediation": false
+  },
+  "team": {
+    "id": 23607,
+    "url": "https://hackerone.com/elastic",
+    "handle": "elastic",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/023/607/c5cce6a2e2d95af85e014db95c2d7560e73e9bec_original./d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98",
+      "medium": "https://profile-photos.hackerone-user-content.com/variants/000/023/607/c5cce6a2e2d95af85e014db95c2d7560e73e9bec_original./5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+    },
+    "permissions": [
+
+    ],
+    "submission_state": "open",
+    "default_currency": "usd",
+    "awards_miles": false,
+    "offers_bounties": true,
+    "state": "public_mode",
+    "only_cleared_hackers": false,
+    "pentest_feature_enabled?": false,
+    "profile": {
+      "name": "Elastic",
+      "twitter_handle": "elastic",
+      "website": "https://www.elastic.co/",
+      "about": "Search, solve, and succeed with one platform, three search-powered solutions, built on a single technology stack"
+    }
+  },
+  "has_bounty?": true,
+  "in_validation?": false,
+  "can_view_team": true,
+  "can_view_report": true,
+  "is_external_bug": false,
+  "is_published": false,
+  "is_participant": false,
+  "has_collaborators": false,
+  "submitted_by_team_member": false,
+  "stage": 4,
+  "public": true,
+  "visibility": "full",
+  "cve_ids": [
+
+  ],
+  "singular_disclosure_disabled": true,
+  "disclosed_at": "2023-04-08T17:25:08.056Z",
+  "bug_reporter_agreed_on_going_public_at": "2023-03-09T17:25:06.491Z",
+  "team_member_agreed_on_going_public_at": null,
+  "comments_closed?": false,
+  "facebook_team?": false,
+  "team_private?": false,
+  "vulnerability_information": "## Summary\n\nHello team! Synthetics recorder has a `quote` function to escape user-controlled input, but in one particular scenario the escaping isn't enough and a malicious website can inject arbitrary code in the recorder session.\n\n## Description\n\nThe `waitForNavigation` event calls `quote` within the context of a multi-line comment (`/* ... */`) so we can break out of that without using the escaped characters ([reference](https://github.com/elastic/synthetics-recorder/blob/v0.0.1-beta.3/electron/syntheticsGenerator.ts#L217=))\n\nIn a normal situation the code generated looks like this for a navigation event to `https://example.com`\n\n```javascript\n    page.waitForNavigation(/*{ url: 'https://example.com' }*/),\n```\n\nbut it's possible to escape out of the comment without using single quotes (which would be escaped) with a specially crafted URL like `https://example.com?q=*/require(`child_process`).exec(`touch$IFS/tmp/haxx`)/*`\n\n```javascript\n    page.waitForNavigation(/*{ url: 'https://example.com?q=*/require(`child_process`).exec(`touch$IFS/tmp/dee-see`)/*' }*/),\n```\n\nThe syntax highlighting here on HackerOne helps visualizing how that works. `$IFS` is used because spaces get encoded to `%20`.\n\nIt's possible to have code execution when the victim uses the `test` feature inside of the synthetic recorder but the code we're allowed to use is fairly limited because the `require` function isn't available. The maximum impact is when the user saves the recorded session as a project and executes it using the synthetic runner.\n\n## Steps To Reproduce\n\n### Preparation\n\nInstall the synthetics recorder (See https://github.com/elastic/synthetics-recorder/, I'm following the instructions to run it in development mode (`nvm install; nvm use; npm install; npm run dev`) but you could also download the binary on the releases page)\n\n### Reproduction\n\n1. Start Synthetics Recorder and enter `http://deesee.xyz:4567` in the text box where it says \"Enter a Starting URL\"\n1. Click \"Start Recording\"\n1. A browser has opened, this website is a modified clone of my blog. Click the GitLab icon in the top right\n\n    {F1820934}\n\n1. Close the browser window\n\n    In a normal Synthetics Recorder session there would be much more steps to record but here we only did what's necessary to trigger the issue.\n\n1. Click the \"Export\" button and you'll see this code\n\n    ```javascript\n    step('Go to http://deesee.xyz:4567/', async () => {\n      await page.goto('http://deesee.xyz:4567/');\n      await Promise.all([\n        page.waitForNavigation(/*{ url: 'https://gitlab.com/dee-see?query=*/require(`child_process`).exec(`touch$IFS/tmp/dee-see`)/*' }*/),\n        page.click('[aria-label=\"GitLab\"] svg')\n      ]);\n    });\n    ```\n\n    We can see the payload is in place. It's fairly obvious because we only recorded one step, but in a long recording session it would be buried deeper.\n\n1. Click the \"Export\" button and save the file in a directory\n1. In that directory run `npm init -y; npm install @elastic/synthetics; npx @elastic/synthetics .`\n1. When the tests finished running observe that the `touch /tmp/dee-see` command ran\n\nThose last steps seem contrived, but that's how a synthetics test suite is setup and how a developer would make sure the session they just recorded would be integrated into their builds and whatnot.\n\n## Supporting Material/References:\n\n{F1820942}\n\n## CVSS\n\nConfidentiality and Integrity impact are High because of the arbitrary command execution. I also included Availability impact because those commands can shut down the system. I will concede though that Attack Complexity could be \"very high\" if that existed on the Attack Complexity scale. :)\n\n## Impact\n\nSomeone with control over the website's content can run arbitrary code where ever the synthetics recorded session will be re-executed.\n\nDeveloper computers and CI systems come to mind. The most realistic attack scenario would be privilege escalation from within a company.",
+  "weakness": {
+    "id": 70,
+    "name": "Code Injection"
+  },
+  "original_report_id": null,
+  "original_report_url": null,
+  "attachments": [
+    {
+      "id": 1820934,
+      "file_name": "gl.png",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/gl9oh0ecthzdki9e10peyaogknz6?response-content-disposition=attachment%3B%20filename%3D%22gl.png%22%3B%20filename%2A%3DUTF-8%27%27gl.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ2ECAEJ7T%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065610Z&X-Amz-Expires=2731&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQCDDxB3Q7XXN0MoClgzQmAHL%2B69tZPS%2BE24gR82nPqEdwIhANHQem4W9wXhLoFuofJDx%2FqAIGjY8c0SBI3ehY047uyzKrEFCCMQAxoMMDEzNjE5Mjc0ODQ5Igyma9oQLknRc2EMvTIqjgUdkBAFKeYB0BNxfLIf7yrAK9StAZOAVOqAB2nDAVvZzdGdBpPbafCMX5iFXBElENteTYhD1oHUWNwxHkgt5u5wkdb1iAfAk%2FDc45r%2BH68hwPWE4%2F4Eg9mj91Gun9FDT%2Fnix4%2FEA2ruJyu%2Fvv8ND3MdQJTBAb%2FEwMm37dxSUNFwZSPa5MB5rq7rxHkclV5GeZunw6wxjwnNKSWVzYIrega6azXoJKiHMO2LiXpow9VWmsyKGgoEVjCT3DrNFDLcDRAV7ZYYR%2FBtTEABLI6VBConZfyStVnLgIo3M0177TGG%2FEwQtxOc%2FlceHrcBhQ0l7g20BSRWTkcQdLfc5JjEvPfwN9EK9RZhIOZ26tEogh%2BE4wBA%2BGu1V59BSJEhNWRkZAMN4cfgvY00s%2B3lIi68i86n%2BXIinldM4hWHIi0WaKxhXr%2FBxJ3V7aB3pVfr8OPryPuZl2aTGClP4OHeLNIXiLLjXmPbDQ5rW4U6iO4bvWwQWAPij%2BIFWZMHk9aBT1tISa3sOSasbVTImEeMobt4kpKo%2BryuAcc3u3EyM2UBO5deDXG8FaXy7AA9sPIk42uvn1Rd2Ag6nUqz8GU25dMmhElHL0BU3XvBqc7imweolUyi5cWZHfaDsWKNcnXY8%2F8isxc3j6IfzvExaAAYTJtu7SSY4YpZM0ZSR7JnGK7nskqZPpcefIgtvsbRCB66vMGMLOEho1guaaKayJOP73YtV0HPPhVVzAYDHVc3s26zrlAnHXeqIC6pNt1mOGj%2BnQiGXmm9Agdxh0r0sgUCfCim%2BhnABVjU%2B3RbEn6e1WbqO2Q03ONg4c9OO3k4bR%2BCNvXJnN9UTE%2FRLA0cpWO4zvunZXEm8L9swIaU7CrIhAYCjI0w4v24qAY6sAGjzoEBIxaLDI6WGCHCkPMIuEHQ%2FgGwXuek3FzYMK5VklHKwExgNFnXkauQNdNGpARLJN0Cc6Fnp9zyBu5xmCMFjYPUxaVqEWLLoS1mYlcM8Pup6CI96cb%2B6dKTyHRivKTQECSe1yKBMEmrZgx2s7cqUkvEQEHk4RqiabnQJpgWjtZ5iYpbKCctjviGGkxvRRl4efqx5y77zgpojnaOfOyZyUY3%2BaxxrQU2c%2FcoK81iHg%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=0b6bd28380303bf193afbab4e888cb10ea5d20589d20194507ea7c054d422ce8",
+      "file_size": 1223,
+      "type": "image/png",
+      "moderated": null
+    },
+    {
+      "id": 1820942,
+      "file_name": "2022-07-14_00-09-26.mp4",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/sowbjos0246v06t5qrwp6x4rpkfu?response-content-disposition=attachment%3B%20filename%3D%222022-07-14_00-09-26.mp4%22%3B%20filename%2A%3DUTF-8%27%272022-07-14_00-09-26.mp4&response-content-type=video%2Fmp4&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ2ECAEJ7T%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065610Z&X-Amz-Expires=2731&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQCDDxB3Q7XXN0MoClgzQmAHL%2B69tZPS%2BE24gR82nPqEdwIhANHQem4W9wXhLoFuofJDx%2FqAIGjY8c0SBI3ehY047uyzKrEFCCMQAxoMMDEzNjE5Mjc0ODQ5Igyma9oQLknRc2EMvTIqjgUdkBAFKeYB0BNxfLIf7yrAK9StAZOAVOqAB2nDAVvZzdGdBpPbafCMX5iFXBElENteTYhD1oHUWNwxHkgt5u5wkdb1iAfAk%2FDc45r%2BH68hwPWE4%2F4Eg9mj91Gun9FDT%2Fnix4%2FEA2ruJyu%2Fvv8ND3MdQJTBAb%2FEwMm37dxSUNFwZSPa5MB5rq7rxHkclV5GeZunw6wxjwnNKSWVzYIrega6azXoJKiHMO2LiXpow9VWmsyKGgoEVjCT3DrNFDLcDRAV7ZYYR%2FBtTEABLI6VBConZfyStVnLgIo3M0177TGG%2FEwQtxOc%2FlceHrcBhQ0l7g20BSRWTkcQdLfc5JjEvPfwN9EK9RZhIOZ26tEogh%2BE4wBA%2BGu1V59BSJEhNWRkZAMN4cfgvY00s%2B3lIi68i86n%2BXIinldM4hWHIi0WaKxhXr%2FBxJ3V7aB3pVfr8OPryPuZl2aTGClP4OHeLNIXiLLjXmPbDQ5rW4U6iO4bvWwQWAPij%2BIFWZMHk9aBT1tISa3sOSasbVTImEeMobt4kpKo%2BryuAcc3u3EyM2UBO5deDXG8FaXy7AA9sPIk42uvn1Rd2Ag6nUqz8GU25dMmhElHL0BU3XvBqc7imweolUyi5cWZHfaDsWKNcnXY8%2F8isxc3j6IfzvExaAAYTJtu7SSY4YpZM0ZSR7JnGK7nskqZPpcefIgtvsbRCB66vMGMLOEho1guaaKayJOP73YtV0HPPhVVzAYDHVc3s26zrlAnHXeqIC6pNt1mOGj%2BnQiGXmm9Agdxh0r0sgUCfCim%2BhnABVjU%2B3RbEn6e1WbqO2Q03ONg4c9OO3k4bR%2BCNvXJnN9UTE%2FRLA0cpWO4zvunZXEm8L9swIaU7CrIhAYCjI0w4v24qAY6sAGjzoEBIxaLDI6WGCHCkPMIuEHQ%2FgGwXuek3FzYMK5VklHKwExgNFnXkauQNdNGpARLJN0Cc6Fnp9zyBu5xmCMFjYPUxaVqEWLLoS1mYlcM8Pup6CI96cb%2B6dKTyHRivKTQECSe1yKBMEmrZgx2s7cqUkvEQEHk4RqiabnQJpgWjtZ5iYpbKCctjviGGkxvRRl4efqx5y77zgpojnaOfOyZyUY3%2BaxxrQU2c%2FcoK81iHg%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=7de92e62e40cd24eba62e1d7811a20b14c2f35f1d6847f725cb10e9cda771839",
+      "file_size": 7973305,
+      "type": "video/mp4",
+      "moderated": null
+    }
+  ],
+  "allow_singular_disclosure_at": "2023-04-08T17:25:06.779Z",
+  "allow_singular_disclosure_after": -14477464.084503828,
+  "singular_disclosure_allowed": true,
+  "vote_count": 45,
+  "voters": [
+    "datsuraku147",
+    "pmnh",
+    "surya_ganesan_",
+    "n1m0",
+    "dee-see",
+    "ajxchapman",
+    "w31rd0",
+    "zy9ard3",
+    "1trick",
+    "shubham_srt",
+    "and 35 more..."
+  ],
+  "severity": {
+    "rating": "high",
+    "score": 8.2,
+    "author_type": "Team",
+    "metrics": {
+      "attack_vector": "network",
+      "attack_complexity": "high",
+      "privileges_required": "none",
+      "user_interaction": "required",
+      "scope": "changed",
+      "confidentiality": "high",
+      "integrity": "high",
+      "availability": "low"
+    }
+  },
+  "structured_scope": {
+    "databaseId": 161869,
+    "asset_type": "OTHER",
+    "asset_identifier": "Elastic Synthetics Monitoring",
+    "max_severity": "critical"
+  },
+  "abilities": {
+    "assignable_team_members": [
+
+    ],
+    "assignable_team_member_groups": [
+
+    ]
+  },
+  "activities": [
+    {
+      "id": 17549603,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportTitleUpdated",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2022-07-14T04:21:46.077Z",
+      "updated_at": "2022-07-14T04:21:46.077Z",
+      "additional_data": {
+        "old_title": "Synthetics Recorder: Code injection when recording malicious website",
+        "new_title": "Synthetics Recorder: Code injection when recording website with malicious content"
+      },
+      "actor": {
+        "username": "dee-see",
+        "cleared": true,
+        "verified": true,
+        "url": "/dee-see",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/220/115/9a655d51cb400a5743966e9856918ed02ee8d042_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "elastic"
+    },
+    {
+      "id": 17606208,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugTriaged",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2022-07-18T14:57:45.932Z",
+      "updated_at": "2022-07-18T14:57:45.932Z",
+      "actor": {
+        "username": "douglas_day",
+        "cleared": false,
+        "verified": false,
+        "url": "/douglas_day",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/1ALNLRqrFXt23SDSBvAqPZAH/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "elastic"
+    },
+    {
+      "id": 17606709,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ChangedScope",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2022-07-18T15:05:49.718Z",
+      "updated_at": "2022-07-18T15:05:49.718Z",
+      "actor": {
+        "username": "douglas_day",
+        "cleared": false,
+        "verified": false,
+        "url": "/douglas_day",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/1ALNLRqrFXt23SDSBvAqPZAH/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "old_scope": "All Elastic Products",
+      "new_scope": "Elastic Synthetics Monitoring",
+      "genius_execution_id": null,
+      "team_handle": "elastic"
+    },
+    {
+      "id": 17610144,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportSeverityUpdated",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2022-07-18T20:00:56.997Z",
+      "updated_at": "2022-07-18T20:00:56.997Z",
+      "additional_data": {
+        "old_severity": "High (8.2)",
+        "new_severity": "High (8.0)",
+        "old_severity_id": 1583391,
+        "new_severity_id": 1589045
+      },
+      "actor": {
+        "username": "douglas_day",
+        "cleared": false,
+        "verified": false,
+        "url": "/douglas_day",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/1ALNLRqrFXt23SDSBvAqPZAH/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "elastic"
+    },
+    {
+      "id": 17610146,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportSeverityUpdated",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2022-07-18T20:01:02.619Z",
+      "updated_at": "2022-07-18T20:01:02.619Z",
+      "additional_data": {
+        "old_severity": "High (8.0)",
+        "new_severity": "High (8.2)",
+        "old_severity_id": 1589045,
+        "new_severity_id": 1589046
+      },
+      "actor": {
+        "username": "douglas_day",
+        "cleared": false,
+        "verified": false,
+        "url": "/douglas_day",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/1ALNLRqrFXt23SDSBvAqPZAH/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "elastic"
+    },
+    {
+      "id": 17645685,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "Thanks ! This is now resolved and the fix will be released in one of our next releases. We are looking forward to more awesome reports from you!",
+      "automated_response": true,
+      "created_at": "2022-07-20T18:47:00.330Z",
+      "updated_at": "2022-07-20T18:47:00.330Z",
+      "actor": {
+        "username": "elastic-h1-integration",
+        "cleared": false,
+        "verified": false,
+        "url": "/elastic-h1-integration",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "reporter": {
+        "username": "dee-see",
+        "url": "/dee-see"
+      },
+      "genius_execution_id": null,
+      "team_handle": "elastic"
+    },
+    {
+      "id": 17705153,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BountyAwarded",
+      "message": "Thanks @dee-see ! We agree with your CVSS assessment",
+      "automated_response": false,
+      "created_at": "2022-07-25T15:15:49.465Z",
+      "updated_at": "2022-07-25T15:15:49.465Z",
+      "actor": {
+        "url": "/elastic",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/023/607/c5cce6a2e2d95af85e014db95c2d7560e73e9bec_original./5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "Elastic"
+        }
+      },
+      "bounty_currency": "usd",
+      "genius_execution_id": null,
+      "team_handle": "elastic",
+      "collaborator": {
+        "username": "dee-see",
+        "url": "/dee-see"
+      }
+    },
+    {
+      "id": 17706269,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Thank you very much! With this I now have >1000 rep on the Elastic program yay :)\n\n{F1837643}",
+      "automated_response": false,
+      "created_at": "2022-07-25T16:32:56.328Z",
+      "updated_at": "2022-07-25T16:32:56.328Z",
+      "actor": {
+        "username": "dee-see",
+        "cleared": true,
+        "verified": true,
+        "url": "/dee-see",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/220/115/9a655d51cb400a5743966e9856918ed02ee8d042_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "attachments": [
+        {
+          "id": 1837643,
+          "filename": "rep.png",
+          "type": "image/png",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/9yc5sevgdnqtub6pza8nl458557t?response-content-disposition=attachment%3B%20filename%3D%22rep.png%22%3B%20filename%2A%3DUTF-8%27%27rep.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ2ECAEJ7T%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065610Z&X-Amz-Expires=2731&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQCDDxB3Q7XXN0MoClgzQmAHL%2B69tZPS%2BE24gR82nPqEdwIhANHQem4W9wXhLoFuofJDx%2FqAIGjY8c0SBI3ehY047uyzKrEFCCMQAxoMMDEzNjE5Mjc0ODQ5Igyma9oQLknRc2EMvTIqjgUdkBAFKeYB0BNxfLIf7yrAK9StAZOAVOqAB2nDAVvZzdGdBpPbafCMX5iFXBElENteTYhD1oHUWNwxHkgt5u5wkdb1iAfAk%2FDc45r%2BH68hwPWE4%2F4Eg9mj91Gun9FDT%2Fnix4%2FEA2ruJyu%2Fvv8ND3MdQJTBAb%2FEwMm37dxSUNFwZSPa5MB5rq7rxHkclV5GeZunw6wxjwnNKSWVzYIrega6azXoJKiHMO2LiXpow9VWmsyKGgoEVjCT3DrNFDLcDRAV7ZYYR%2FBtTEABLI6VBConZfyStVnLgIo3M0177TGG%2FEwQtxOc%2FlceHrcBhQ0l7g20BSRWTkcQdLfc5JjEvPfwN9EK9RZhIOZ26tEogh%2BE4wBA%2BGu1V59BSJEhNWRkZAMN4cfgvY00s%2B3lIi68i86n%2BXIinldM4hWHIi0WaKxhXr%2FBxJ3V7aB3pVfr8OPryPuZl2aTGClP4OHeLNIXiLLjXmPbDQ5rW4U6iO4bvWwQWAPij%2BIFWZMHk9aBT1tISa3sOSasbVTImEeMobt4kpKo%2BryuAcc3u3EyM2UBO5deDXG8FaXy7AA9sPIk42uvn1Rd2Ag6nUqz8GU25dMmhElHL0BU3XvBqc7imweolUyi5cWZHfaDsWKNcnXY8%2F8isxc3j6IfzvExaAAYTJtu7SSY4YpZM0ZSR7JnGK7nskqZPpcefIgtvsbRCB66vMGMLOEho1guaaKayJOP73YtV0HPPhVVzAYDHVc3s26zrlAnHXeqIC6pNt1mOGj%2BnQiGXmm9Agdxh0r0sgUCfCim%2BhnABVjU%2B3RbEn6e1WbqO2Q03ONg4c9OO3k4bR%2BCNvXJnN9UTE%2FRLA0cpWO4zvunZXEm8L9swIaU7CrIhAYCjI0w4v24qAY6sAGjzoEBIxaLDI6WGCHCkPMIuEHQ%2FgGwXuek3FzYMK5VklHKwExgNFnXkauQNdNGpARLJN0Cc6Fnp9zyBu5xmCMFjYPUxaVqEWLLoS1mYlcM8Pup6CI96cb%2B6dKTyHRivKTQECSe1yKBMEmrZgx2s7cqUkvEQEHk4RqiabnQJpgWjtZ5iYpbKCctjviGGkxvRRl4efqx5y77zgpojnaOfOyZyUY3%2BaxxrQU2c%2FcoK81iHg%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=77ceaea9862e55ef116637f0b579085fed50db0e93735160551b96c7d5f20575"
+        }
+      ],
+      "genius_execution_id": null,
+      "team_handle": "elastic"
+    },
+    {
+      "id": 20724096,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "This was kind of fun so I'll request disclosure!",
+      "automated_response": false,
+      "created_at": "2023-03-09T17:25:06.569Z",
+      "updated_at": "2023-03-09T17:25:06.569Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "dee-see",
+        "cleared": true,
+        "verified": true,
+        "url": "/dee-see",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/220/115/9a655d51cb400a5743966e9856918ed02ee8d042_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "elastic"
+    },
+    {
+      "id": 21189032,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportBecamePublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2023-04-08T17:25:09.323Z",
+      "updated_at": "2023-04-08T17:25:09.323Z",
+      "actor": {
+        "url": "/elastic",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/023/607/c5cce6a2e2d95af85e014db95c2d7560e73e9bec_original./5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "Elastic"
+        }
+      },
+      "genius_execution_id": null,
+      "team_handle": "elastic"
+    }
+  ],
+  "activity_page_count": 1,
+  "activity_page_number": 1,
+  "summaries": [
+    {
+      "category": "team",
+      "can_view?": true,
+      "can_create?": false
+    },
+    {
+      "category": "researcher",
+      "can_view?": true,
+      "can_create?": false
+    }
+  ]
+}

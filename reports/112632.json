@@ -1,0 +1,389 @@
+{
+  "id": 112632,
+  "global_id": "Z2lkOi8vaGFja2Vyb25lL1JlcG9ydC8xMTI2MzI=",
+  "url": "https://hackerone.com/reports/112632",
+  "title": "[tor] libevent dns remote stack overread vulnerability",
+  "state": "Closed",
+  "substate": "resolved",
+  "readable_substate": "Resolved",
+  "created_at": "2016-01-25T02:27:56.487Z",
+  "submitted_at": "2016-01-25T02:27:56.487Z",
+  "is_member_of_team?": false,
+  "is_organization_group_member?": false,
+  "reporter": {
+    "disabled": false,
+    "username": "guido",
+    "url": "/guido",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/002/983/e55b0b2324777fb7efc2de4212fd8d337ca816bd_original.jpg/3c7b305354c9073c106ae3d1701798defaaf5be844fb8fdfa49ca62f991a2c2c"
+    },
+    "is_me?": false,
+    "cleared": false,
+    "verified": false,
+    "hackerone_triager": false,
+    "hacker_mediation": false
+  },
+  "team": {
+    "id": 1800,
+    "url": "https://hackerone.com/torproject",
+    "handle": "torproject",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/001/800/6e575d0a9127b91e83833cf4a9e6be6e8b30cbc3_original.jpg/3c7b305354c9073c106ae3d1701798defaaf5be844fb8fdfa49ca62f991a2c2c",
+      "medium": "https://profile-photos.hackerone-user-content.com/variants/000/001/800/6e575d0a9127b91e83833cf4a9e6be6e8b30cbc3_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+    },
+    "permissions": [
+
+    ],
+    "submission_state": "open",
+    "default_currency": "usd",
+    "awards_miles": false,
+    "offers_bounties": true,
+    "state": "public_mode",
+    "only_cleared_hackers": false,
+    "pentest_feature_enabled?": false,
+    "profile": {
+      "name": "Tor",
+      "twitter_handle": "torproject",
+      "website": "https://www.torproject.org/",
+      "about": "Anonymity Online"
+    }
+  },
+  "has_bounty?": true,
+  "in_validation?": false,
+  "can_view_team": true,
+  "can_view_report": true,
+  "is_external_bug": false,
+  "is_published": false,
+  "is_participant": false,
+  "has_collaborators": false,
+  "submitted_by_team_member": false,
+  "stage": 4,
+  "public": true,
+  "visibility": "full",
+  "cve_ids": [
+
+  ],
+  "singular_disclosure_disabled": false,
+  "disclosed_at": "2017-10-19T10:16:26.792Z",
+  "bug_reporter_agreed_on_going_public_at": "2017-10-19T10:16:26.676Z",
+  "team_member_agreed_on_going_public_at": "2017-10-19T09:34:08.728Z",
+  "comments_closed?": false,
+  "facebook_team?": false,
+  "team_private?": false,
+  "vulnerability_information": "Hello,\n\nthe name_parse function in libevent's DNS code is vulnerable to a buffer overread.\n```c\n 935 static int\n 936 name_parse(u8 *packet, int length, int *idx, char *name_out, int name_out_len) {\n 937     int name_end = -1;\n 938     int j = *idx;\n 939     int ptr_count = 0;\n 940 #define GET32(x) do { if (j + 4 > length) goto err; memcpy(&_t32, packet + j, 4); j += 4; x = ntohl(_t32); } while      (0)\n 941 #define GET16(x) do { if (j + 2 > length) goto err; memcpy(&_t, packet + j, 2); j += 2; x = ntohs(_t); } while (0)\n 942 #define GET8(x) do { if (j >= length) goto err; x = packet[j++]; } while (0)\n 943 \n 944     char *cp = name_out;\n 945     const char *const end = name_out + name_out_len;\n 946 \n 947     /* Normally, names are a series of length prefixed strings terminated */\n 948     /* with a length of 0 (the lengths are u8's < 63). */\n 949     /* However, the length can start with a pair of 1 bits and that */\n 950     /* means that the next 14 bits are a pointer within the current */\n 951     /* packet. */\n 952 \n 953     for (;;) {\n 954         u8 label_len;\n 955         if (j >= length) return -1;\n 956         GET8(label_len);\n 957         if (!label_len) break;\n 958         if (label_len & 0xc0) {\n 959             u8 ptr_low;\n 960             GET8(ptr_low);\n 961             if (name_end < 0) name_end = j;\n 962             j = (((int)label_len & 0x3f) << 8) + ptr_low;\n 963             /* Make sure that the target offset is in-bounds. */\n 964             if (j < 0 || j >= length) return -1;\n 965             /* If we've jumped more times than there are characters in the\n 966              * message, we must have a loop. */\n 967             if (++ptr_count > length) return -1;\n 968             continue;\n 969         }\n 970         if (label_len > 63) return -1;\n 971         if (cp != name_out) {\n 972             if (cp + 1 >= end) return -1;\n 973             *cp++ = '.';\n 974         }\n 975         if (cp + label_len >= end) return -1;\n 976         memcpy(cp, packet + j, label_len);\n 977         cp += label_len;\n 978         j += label_len;\n 979     }\n 980     if (cp >= end) return -1;\n 981     *cp = '\\0';                                                                                                   \n 982     if (name_end < 0)\n 983         *idx = j;\n 984     else\n 985         *idx = name_end;\n 986     return 0;\n 987  err:\n 988     return -1;\n 989 }\n```\n\nPrior to the memcpy on line 976 it is not asserted that the range (```packet + j```) - (```packet + j + label_len```) does not exceed the length of the ```packet``` buffer (as stored in variable ```length```). My proof of concept exploits the possibility to keep jumping around in the buffer (lines 959 - 968), until the buffer index (```j```) is at the very end --- then, an overread of 63 bytes will occur. No overwrite takes place.\n\nAs you know, an overread *may* result in a crash, depending on a variety of factors.\n\nI believe the code in Tor is vulnerable and I will update this report with PoC against Tor itself as soon as I've constructed one.\n\nNobody has been notified of this bug except you. I will not contact the libevent developers about this issue unless you explicitly request so. It's up to you to notify them yourself.\n\nTo test against the latest version of libevent (libevent-2.0.22-stable.tar.gz):\n\n```sh\nCFLAGS=\"-fomit-frame-pointer -fsanitize=address\" ./configure\nmake -j4\ncd samples\n./dns-example -servertest\n```\n\nin a different terminal run\n```sh\npython libevent-poc.py\n```\n\nOutput of ```dns-example``` should be:\n```\nEVUTIL_AI_CANONNAME in example = 2\n=================================================================\n==27496== ERROR: AddressSanitizer: stack-buffer-overflow on address 0x7ffcf5a7355c at pc 0x7f6096a6b652 bp 0x7ffcf5a72bb0 sp 0x7ffcf5a72ba8\nREAD of size 1 at 0x7ffcf5a7355c thread T0\n\n...\n...\n```\n\nGuido",
+  "weakness": {
+    "id": 2,
+    "name": "Memory Corruption - Generic"
+  },
+  "original_report_id": null,
+  "original_report_url": null,
+  "attachments": [
+    {
+      "id": 70753,
+      "file_name": "libevent-poc.py",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/070/753/f0e7d2a8a55f947329f3935b2547a64de96e082c/libevent-poc.py?response-content-disposition=attachment%3B%20filename%3D%22libevent-poc.py%22%3B%20filename%2A%3DUTF-8%27%27libevent-poc.py&response-content-type=text%2Fplain&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQU5JYKTGM%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T075838Z&X-Amz-Expires=874&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQDPextUgVMaFUn7J3YE8kNYUZyiY2543ePlEF9CwFfM8QIhAIRilag%2FrZ1iszKpt2JLQyz8teMsWBamJF4Iou7wqMU3KrIFCCMQAxoMMDEzNjE5Mjc0ODQ5Igwu56k94pqVtX8r%2Bo4qjwXEh1PM7wf2Np3Qm66HGnlSD0VTqg7R%2FtI4UnXMImbHLHRC5z94z14%2FX2eWyQeiZAAq3PHSCaPLB7tsZX%2ByCkLvYSKIVEDIBAiJLNfPf0mrHAbRDGyc8keEypRUwMaT5cop25r%2FpVpMdM%2BVhJVrWWa5ovVSzsmubSxixbH%2BvSDMHrKZm1mklKunLYykTJQX%2BiX5bQw3i%2BjEj3n27mXAVXGx17uJj4AZzaAdAN%2Fb7nblHihfCONYhSlmArkzxiwacZx5n%2BkCMiJbI49SZjueO3VcmcjD7qJl9BwZ1W4QT01LH5E0r%2FauBeDReLPQR2A89V610Uem1zJCLjoNtjcpr%2Fy6PNyHeeAwa067JLmyxsCZL2gdW81O9EGHtcrxXf7TlH8A3h0yPO%2B8zVoyJSSsEzzjpzkscidQ86LAyX6CNqqcdHnUJsXeboKB5dqjOphDJLDRfmLzgZTuPihjRKzkML0G3QjO1fWCgDatC%2FHiCuz%2F4Hm5bamHTrdiVE9y%2B%2Bv6QZ2edEQAzLX1lowLp2RzYtTYHwDzZkAjKZJKVeO9zj1pkoJhjfz2VARzHSySfXw0YMwPUVlRPg7L6f%2BQAjpso7C6uYEeozwfIwrkmBFVTZW%2BLEzdRLHNNz7rHyr9w1WlRj4OjJLn5Ee5sdJ5cEyQgF8ir1s09BXAP%2FsqR7THqh25ijYpQsYTzGdJxWFw9Mcq455M0MG7I8oz1i3cTjV9eJJer5Vnjtubr681ZNh6Cbl85VC5gKL3xiZ%2BRa64M54QAtb9tRvCFdlmV7U2Yel7eiB1thRiUc%2BQBXeECkUKbOXNfSGQ6%2FRqu7AD4Qz0GIKmc6obQ3vJeTlVjbt80VYdsyGeWYLjRSjnDrYNEFDoOJTBMPSHuagGOrABfJMTnU4%2FETzLB2BZXf541hyjNiWZ3tqKyh4p%2BOtMGjGYCmsTcu5RXXYGZ3G0puxZ27J20XRP2zhvuPBXAixyr8lz8adwCOfLJe0oCYgqgYmQxwbXeE5pLP9eHwIk2aiqxaN2tTNVGnFifZgT%2BzaAvEW1M5e4bcPdHOcraaqJVAJKjLuYHBPVtsgKcNUbL9bdOH2zFoQgd6ok2JFMDfaY%2FOJ38QDDXR4GXVTD01IxQcc%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=a5dfcaa1ecd743278d5d58ef232cbff6aaac94ef936089817c5942c24d9ec3dd",
+      "file_size": 9526,
+      "type": "text/plain",
+      "moderated": null
+    }
+  ],
+  "allow_singular_disclosure_at": "2017-11-18T09:34:08.767Z",
+  "allow_singular_disclosure_after": -184458269.81637755,
+  "singular_disclosure_allowed": true,
+  "vote_count": 6,
+  "voters": [
+    "geeknik",
+    "eveeez",
+    "mr_r3boot",
+    "japz",
+    "spetr0x",
+    "b4155f7c29acd42c27d007a"
+  ],
+  "structured_scope": null,
+  "abilities": {
+    "assignable_team_members": [
+
+    ],
+    "assignable_team_member_groups": [
+
+    ]
+  },
+  "activities": [
+    {
+      "id": 770623,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hello and thanks for the bug and the great report!\n\nWe are currently trying to see how this fits into our reward program.\n\nAs you can see in the bug rewards text we were not planning to pay out \"low severity\" vulnerabilities to third party libraries like libevent.\nStill, this seems like a nice bug, so we would like to reward it somehow!\n\nWe also want to check if this can be a DoS vector for Tor relays or dirauths.\n\nWe will get back to you ASAP!\n",
+      "automated_response": false,
+      "created_at": "2016-01-25T10:24:21.171Z",
+      "updated_at": "2016-01-25T10:24:21.171Z",
+      "actor": {
+        "username": "asn",
+        "cleared": false,
+        "verified": false,
+        "url": "/asn",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "torproject"
+    },
+    {
+      "id": 771222,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Thanks!\n\nAre you interested in a heap corruption/crash vulnerability in libevent that probably affects tor if it opens a specially crafted /etc/hosts ?\n\nGuido",
+      "automated_response": false,
+      "created_at": "2016-01-25T18:22:14.639Z",
+      "updated_at": "2016-01-25T18:22:14.639Z",
+      "actor": {
+        "username": "guido",
+        "cleared": false,
+        "verified": false,
+        "url": "/guido",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/002/983/e55b0b2324777fb7efc2de4212fd8d337ca816bd_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "torproject"
+    },
+    {
+      "id": 771551,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hello friend!\n\nWith regards to the /etc/hosts bug, I think such a bug would be out of scope for the bug bounty program, but it would still be a nice bug to fix.\nWe would still be happy to credit you with the discovery of the bug of course :)\n\nComing back to you soon about the reward of this bug.",
+      "automated_response": false,
+      "created_at": "2016-01-25T21:57:34.366Z",
+      "updated_at": "2016-01-25T21:57:34.366Z",
+      "actor": {
+        "username": "asn",
+        "cleared": false,
+        "verified": false,
+        "url": "/asn",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "torproject"
+    },
+    {
+      "id": 772425,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BountyAwarded",
+      "message": "Hello friend!\n\nWe decided $500 as the price of this bug. Out-of-bounds bugs are not super dangerous, but the potential of crashing exit nodes (that parse DNS queries with name_parse()) is concerning.\n\nYou are our first bug hunter! Thanks!\nPlease let us know if you would like to not be credited ,or be credited with a special name.\nOtherwise, we will just credit you as \"guido\".\n\nWe will start fixing the bug ASAP. When we do, we will post the patch here, so that you check it out if you want.\n\nCheers!",
+      "automated_response": false,
+      "created_at": "2016-01-26T14:19:06.276Z",
+      "updated_at": "2016-01-26T14:19:06.276Z",
+      "actor": {
+        "url": "/torproject",
+        "ibb": true,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/001/800/6e575d0a9127b91e83833cf4a9e6be6e8b30cbc3_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "profile": {
+          "name": "Tor"
+        }
+      },
+      "bounty_currency": "usd",
+      "genius_execution_id": null,
+      "team_handle": "torproject",
+      "collaborator": {
+        "username": "guido",
+        "url": "/guido"
+      }
+    },
+    {
+      "id": 773165,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Thank you very much!\n\nYou may credit me as: Guido Vranken",
+      "automated_response": false,
+      "created_at": "2016-01-26T22:00:50.847Z",
+      "updated_at": "2016-01-26T22:00:50.847Z",
+      "actor": {
+        "username": "guido",
+        "cleared": false,
+        "verified": false,
+        "url": "/guido",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/002/983/e55b0b2324777fb7efc2de4212fd8d337ca816bd_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "torproject"
+    },
+    {
+      "id": 773954,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hello. We filed this bug here: https://github.com/libevent/libevent/issues/317\n\nWill close this issue when the patch gets merged.",
+      "automated_response": false,
+      "created_at": "2016-01-27T15:19:39.204Z",
+      "updated_at": "2016-01-27T15:19:39.204Z",
+      "actor": {
+        "username": "asn",
+        "cleared": false,
+        "verified": false,
+        "url": "/asn",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "torproject"
+    },
+    {
+      "id": 775459,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugTriaged",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2016-01-28T13:51:02.436Z",
+      "updated_at": "2016-01-28T13:51:02.436Z",
+      "actor": {
+        "username": "geko",
+        "cleared": false,
+        "verified": false,
+        "url": "/geko",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "torproject"
+    },
+    {
+      "id": 786472,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "This has been handled by the libevent team here:\nhttps://github.com/libevent/libevent/commit/96f64a022014a208105ead6c8a7066018449d86d\n\nPlease let us know if the fix is not sufficient.\n\nThanks!\n",
+      "automated_response": false,
+      "created_at": "2016-02-05T16:28:48.034Z",
+      "updated_at": "2016-02-05T16:28:48.034Z",
+      "actor": {
+        "username": "asn",
+        "cleared": false,
+        "verified": false,
+        "url": "/asn",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "reporter": {
+        "username": "guido",
+        "url": "/guido"
+      },
+      "genius_execution_id": null,
+      "team_handle": "torproject"
+    },
+    {
+      "id": 2083662,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2017-10-19T09:34:08.747Z",
+      "updated_at": "2017-10-19T09:34:08.747Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "geko",
+        "cleared": false,
+        "verified": false,
+        "url": "/geko",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "torproject"
+    },
+    {
+      "id": 2083747,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2017-10-19T10:16:26.735Z",
+      "updated_at": "2017-10-19T10:16:26.735Z",
+      "actor": {
+        "username": "guido",
+        "cleared": false,
+        "verified": false,
+        "url": "/guido",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/002/983/e55b0b2324777fb7efc2de4212fd8d337ca816bd_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "torproject"
+    },
+    {
+      "id": 2083748,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportBecamePublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2017-10-19T10:16:26.818Z",
+      "updated_at": "2017-10-19T10:16:26.818Z",
+      "actor": {
+        "username": "guido",
+        "cleared": false,
+        "verified": false,
+        "url": "/guido",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/002/983/e55b0b2324777fb7efc2de4212fd8d337ca816bd_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "torproject"
+    }
+  ],
+  "activity_page_count": 1,
+  "activity_page_number": 1,
+  "summaries": [
+    {
+      "category": "team",
+      "can_view?": true,
+      "can_create?": false
+    },
+    {
+      "category": "researcher",
+      "can_view?": true,
+      "can_create?": false
+    }
+  ]
+}

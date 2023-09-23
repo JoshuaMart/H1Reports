@@ -1,0 +1,427 @@
+{
+  "id": 633231,
+  "global_id": "Z2lkOi8vaGFja2Vyb25lL1JlcG9ydC82MzMyMzE=",
+  "url": "https://hackerone.com/reports/633231",
+  "title": "pre-auth Stored XSS in comments via javascript: url when administrator edits user supplied comment",
+  "state": "Closed",
+  "substate": "resolved",
+  "severity_rating": "high",
+  "readable_substate": "Resolved",
+  "created_at": "2019-07-01T15:53:12.245Z",
+  "submitted_at": "2019-07-01T15:53:12.245Z",
+  "is_member_of_team?": false,
+  "is_organization_group_member?": false,
+  "reporter": {
+    "disabled": false,
+    "username": "simonscannell",
+    "url": "/simonscannell",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/HvE5FGgP56eXFMNMr4rwmunu/3c7b305354c9073c106ae3d1701798defaaf5be844fb8fdfa49ca62f991a2c2c"
+    },
+    "is_me?": false,
+    "cleared": false,
+    "verified": false,
+    "hackerone_triager": false,
+    "hacker_mediation": false
+  },
+  "team": {
+    "id": 55,
+    "url": "https://hackerone.com/wordpress",
+    "handle": "wordpress",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/000/055/f114d1d31f904e3b903cd99a6cf566bb531f8401_original.jpg/3c7b305354c9073c106ae3d1701798defaaf5be844fb8fdfa49ca62f991a2c2c",
+      "medium": "https://profile-photos.hackerone-user-content.com/variants/000/000/055/f114d1d31f904e3b903cd99a6cf566bb531f8401_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+    },
+    "permissions": [
+
+    ],
+    "submission_state": "open",
+    "default_currency": "usd",
+    "awards_miles": false,
+    "offers_bounties": true,
+    "state": "public_mode",
+    "only_cleared_hackers": false,
+    "pentest_feature_enabled?": false,
+    "profile": {
+      "name": "WordPress",
+      "twitter_handle": "wordpress",
+      "website": "https://wordpress.org/",
+      "about": "Beautiful sites of any kind."
+    }
+  },
+  "has_bounty?": true,
+  "in_validation?": false,
+  "can_view_team": true,
+  "can_view_report": true,
+  "is_external_bug": false,
+  "is_published": false,
+  "is_participant": false,
+  "has_collaborators": false,
+  "submitted_by_team_member": false,
+  "stage": 4,
+  "public": true,
+  "visibility": "full",
+  "cve_ids": [
+
+  ],
+  "singular_disclosure_disabled": false,
+  "disclosed_at": "2020-08-18T18:01:25.262Z",
+  "bug_reporter_agreed_on_going_public_at": "2020-07-19T18:01:23.660Z",
+  "team_member_agreed_on_going_public_at": null,
+  "comments_closed?": false,
+  "facebook_team?": false,
+  "team_private?": false,
+  "vulnerability_information": "When a comment is submitted, it is filtered via `wp_rel_nofollow_callback()`, which adds the `rel` attribute to `<a>` tags within the anchor:\n\n```\nfunction wp_rel_nofollow_callback( $matches ) {\n\t$text = $matches[1];\n\t$atts = shortcode_parse_atts( $matches[1] );\n\t$rel  = 'nofollow';\n\n\tif ( ! empty( $atts['href'] ) ) {\n\t\tif ( in_array( strtolower( wp_parse_url( $atts['href'], PHP_URL_SCHEME ) ), array( 'http', 'https' ), true ) ) {\n\t\t\tif ( strtolower( wp_parse_url( $atts['href'], PHP_URL_HOST ) ) === strtolower( wp_parse_url( home_url(), PHP_URL_HOST ) ) ) {\n\t\t\t\treturn \"<a $text>\";\n\t\t\t}\n\t\t}\n\t}\n\n\tif ( ! empty( $atts['rel'] ) ) {\n\t\t$parts = array_map( 'trim', explode( ' ', $atts['rel'] ) );\n\t\tif ( false === array_search( 'nofollow', $parts ) ) {\n\t\t\t$parts[] = 'nofollow';\n\t\t}\n\t\t$rel = implode( ' ', $parts );\n\t\tunset( $atts['rel'] );\n\n\t\t$html = '';\n\t\tforeach ( $atts as $name => $value ) {\n\t\t\t$html .= \"{$name}=\\\"\" .  $value . '\" ';\n\t\t}\n\t\t$text = trim( $html );\n\t}\n\treturn \"<a $text rel=\\\"\" . esc_attr( $rel ) . '\">';\n}\n```\n\nif the `rel` attribute is already set, the `<a>` tag is built back together with the values returned by `shortcode_parse_atts()`.  This is problematic, since `shortcode_parse_atts()` calls `stripcslashes()` on the attribute values, which for example allows turning `\\x3a` into `:`. \n\nTherefor the `esc_url()` function can be bypassed by:\n1. using a URL such as `javascript\\x3aalert(1);` \n2. getting an admin to edit and update the comment containing the XSS payload\n3. done\n\nI recommend moving away from `shortcode_parse_atts()` because of side effects like these. I also got close to a XSS without user interaction through the same mechanisms but it fails luckily.\n\n### PoC:\n\n1. As an unauthenticated user, create a comment with the following content:\n```\nHi!\nI really enjoy your work. We've also written a blog post about it here: http://dummysite.com/awesome-blogpost. Feel free to check it out!\n<a href=\"javascript\\x3aalert(1);\">Visit my web page</a>\n```\n\n2. create a second comment with the content:\n```\nI just noticed a typo in the URL! Could you please change it from dummysite.com to dummysite2.com? Thank you so much\n```\n3. Log in as an admin, go to the comments section and edit the comment and click save\n4. View the comment on the post, click the \"Visit my web page\" URL and see the alert() box popping up.\n\n## Impact\n\nThrough the XSS, RCE can be gained. Obviously a lot of user interaction is required but yeah, it is a super easy to copy & paste payload that could be used against non technical users. The XSS could then also be triggered via clickjacking.",
+  "weakness": {
+    "id": 62,
+    "name": "Cross-site Scripting (XSS) - Stored"
+  },
+  "original_report_id": null,
+  "original_report_url": null,
+  "attachments": [
+
+  ],
+  "allow_singular_disclosure_at": "2020-08-18T18:01:23.746Z",
+  "allow_singular_disclosure_after": -97680219.55430442,
+  "singular_disclosure_allowed": true,
+  "vote_count": 11,
+  "voters": [
+    "zzero",
+    "foobar7",
+    "mashoud1122",
+    "ali",
+    "jesuser14",
+    "silverdel",
+    "paqman",
+    "nekoneko000",
+    "sibwtf",
+    "peperaking20",
+    "and 1 more..."
+  ],
+  "severity": {
+    "rating": "high",
+    "author_type": "User"
+  },
+  "structured_scope": {
+    "databaseId": 2750,
+    "asset_type": "SOURCE_CODE",
+    "asset_identifier": "WordPress Core",
+    "max_severity": "critical"
+  },
+  "abilities": {
+    "assignable_team_members": [
+
+    ],
+    "assignable_team_member_groups": [
+
+    ]
+  },
+  "activities": [
+    {
+      "id": 5285680,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hey Simon,\n\nInteresting POC you have provided here. I'm sharing with the team, and we will be evaluating further. We will be in touch.\n\nCheers,\n\n@whyisjake",
+      "automated_response": false,
+      "created_at": "2019-07-09T23:33:33.812Z",
+      "updated_at": "2019-07-09T23:33:33.812Z",
+      "actor": {
+        "username": "whyisjake",
+        "cleared": false,
+        "verified": false,
+        "url": "/whyisjake",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/499/942/de8d53f71535e9531105209e14875727a9e88cfe_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "wordpress"
+    },
+    {
+      "id": 5285699,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugTriaged",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2019-07-09T23:38:49.699Z",
+      "updated_at": "2019-07-09T23:38:49.699Z",
+      "actor": {
+        "username": "whyisjake",
+        "cleared": false,
+        "verified": false,
+        "url": "/whyisjake",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/499/942/de8d53f71535e9531105209e14875727a9e88cfe_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "wordpress"
+    },
+    {
+      "id": 5560483,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hey there @simonscannell,\n\nI think we have a fix for this issue and were wondering if you could confirm with this patch. \n\nThanks!\n\n@whyisjake",
+      "automated_response": false,
+      "created_at": "2019-08-12T23:53:17.604Z",
+      "updated_at": "2019-08-12T23:53:17.604Z",
+      "actor": {
+        "username": "whyisjake",
+        "cleared": false,
+        "verified": false,
+        "url": "/whyisjake",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/499/942/de8d53f71535e9531105209e14875727a9e88cfe_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "attachments": [
+        {
+          "id": 553935,
+          "filename": "633231.diff",
+          "type": "text/x-patch",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/fb5h46tfYKGFAMJDJLueHVbi?response-content-disposition=attachment%3B%20filename%3D%22633231.diff%22%3B%20filename%2A%3DUTF-8%27%27633231.diff&response-content-type=text%2Fx-patch&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ7IF72EGR%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T072503Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEC8aCXVzLXdlc3QtMiJIMEYCIQD0TAEi1peTsxNRMRsx2vBHR2pUGB7uHpbMRYg22KJXXAIhAOfNKRDia06ZOZMyd%2Fls3%2FTdPcLekbPiNmiZSXFYcx5uKrEFCCgQAxoMMDEzNjE5Mjc0ODQ5IgwjRpsfqQF%2BFfykAFMqjgXdivFzeRynUaxnCxzNhWzgVNVya2lqgNeJCfGD3wMjYG5xSgEab7GM4w5o9oGAL8%2BfjsZ7blKNrUlARcDh6fKoJ4rUV9jhNZz%2FvPSgXu6wzQtWtT5a2Ana5wpZSTzm8K62COIpOoBhJTTkJTT%2FdALIxUIidxqFRrLKAi89qr9bgJyQDu33TMI14lRF%2Bvauvx%2Bl9XKOvUSvEFRVuXhxrd%2FQ2SR68RCv05i8EW6Rw11j76ipoSR9CW95fmmNJg%2FEV4hGCi%2FyNDsBu4CQ2GM3PH2T%2ByfbJw85lnD6T%2Bcos3FcMzWc%2BVDZLk2j5FrFa0YExa9%2BN8LdhGVphEYnfjt9OFFnxcoC%2BnrZCSna21kk9sD1g0D8YjpQnNJmMJP%2BnOM7I%2Fk%2F77n4v30KuuC6hpT8twhDKILhks8yAwVuiyDBLgEMMdV1PeuUZFokagw0ONgLFZMZ5ElGYijYV8Dv0UlVGFJRzrpaxVl2Dy%2FWWgy0XMx%2FwG5k95kd%2FLkZ7w7o0%2FM%2FDJToli3C27uWWejCiuq95TXpXKCEzEWb0J4rh29e4hk7hq7OWOtQQTUde2q9wchyksu1rYzq2RCV2gM10O1mMJunqQSg6lES7Z5AvaCVheBpt2uRDsodnl9KD2I3VWF0kgJXSmcDVcQ4UxMShaao7WC7bcYWs%2BIjKN6C9mY9CzgacHoYHms6kZzPz2NrN%2F3cHhxk0zzINkWgZhR8IaHWOGyuyiZIbmQ2sv86YBVwYSb0hQj6n4rBtD8jilSYSnBbvxlJnRSCSIaYwiHuOcQhzmmbIT4pWyAbV4%2FmXomyu0ZvHzcxJiqRiIaBq0fx4B8qyvHCZ0MAWnqCAAlgmS%2BHlRuvxigPCB4nXZ59bhSNtaQw6pq6qAY6sAHlFHUDOcxyHvFiK44%2BbKKoa8xJyrD9kvKV1skKJvix2qkHIcCQAaIne5%2FQOqOFhO25Mu%2BP%2FIg08%2BZTLOQt7xdkt%2FsKZut84hBLHJYAq9vY1kXUeIPQ1avQ9%2FT2wWy9L5CTYbnxh26j%2Bo3NcBtG0oDQg%2BqPGSdORofiFd9dZKqJouuppKCv20%2FFJzBNvMZPpqAVejqiWUAwyYGwtPQUNvmJniwGk0kv1X8Rcycp1eaOEg%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=fe517f8d6ca263985cb33b98d5e94245fb11eebcad3728b3d9c2b960797e8eba"
+        }
+      ],
+      "genius_execution_id": null,
+      "team_handle": "wordpress"
+    },
+    {
+      "id": 5566746,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi Jake,\n\nSorry for my late reply. The patch seems effective!",
+      "automated_response": false,
+      "created_at": "2019-08-13T17:24:28.962Z",
+      "updated_at": "2019-08-13T17:24:28.962Z",
+      "actor": {
+        "username": "simonscannell",
+        "cleared": false,
+        "verified": false,
+        "url": "/simonscannell",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/HvE5FGgP56eXFMNMr4rwmunu/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "wordpress"
+    },
+    {
+      "id": 5678745,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @simonscannell,\n\nWe are looking to release the fix for this issue too, how would you like to be credited?\n\nCheers,\n\n@whyisjake\n",
+      "automated_response": false,
+      "created_at": "2019-08-27T21:15:38.124Z",
+      "updated_at": "2019-08-27T21:15:38.124Z",
+      "actor": {
+        "username": "whyisjake",
+        "cleared": false,
+        "verified": false,
+        "url": "/whyisjake",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/499/942/de8d53f71535e9531105209e14875727a9e88cfe_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "wordpress"
+    },
+    {
+      "id": 5685363,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi Jake,\n\nSorry for late response on my part, I had no signal the last couple days. If you could say \"Simon Scannell of both RIPS Technologies\" on bothbissues, that would be amazing, thanks!\n\nBest,\nSimon",
+      "automated_response": false,
+      "created_at": "2019-08-28T17:52:17.557Z",
+      "updated_at": "2019-08-28T17:52:17.557Z",
+      "actor": {
+        "username": "simonscannell",
+        "cleared": false,
+        "verified": false,
+        "url": "/simonscannell",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/HvE5FGgP56eXFMNMr4rwmunu/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "wordpress"
+    },
+    {
+      "id": 5743807,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hey @simonscannell,\n\nThanks for your work in this security disclosure. As you have seen, we released 5.2.3 with a fix for this issue.\n\nhttps://wordpress.org/news/2019/09/wordpress-5-2-3-security-and-maintenance-release/\n\nWe would like to thank you for your contributions. This is being moved over to the bounty queue.\n\nCheers,\n\n@whyisjake",
+      "automated_response": false,
+      "created_at": "2019-09-06T03:41:21.301Z",
+      "updated_at": "2019-09-06T03:41:21.301Z",
+      "actor": {
+        "username": "whyisjake",
+        "cleared": false,
+        "verified": false,
+        "url": "/whyisjake",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/499/942/de8d53f71535e9531105209e14875727a9e88cfe_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "wordpress"
+    },
+    {
+      "id": 5743810,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2019-09-06T03:42:26.257Z",
+      "updated_at": "2019-09-06T03:42:26.257Z",
+      "actor": {
+        "username": "whyisjake",
+        "cleared": false,
+        "verified": false,
+        "url": "/whyisjake",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/499/942/de8d53f71535e9531105209e14875727a9e88cfe_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "reporter": {
+        "username": "simonscannell",
+        "url": "/simonscannell"
+      },
+      "genius_execution_id": null,
+      "team_handle": "wordpress"
+    },
+    {
+      "id": 5747054,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BountyAwarded",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2019-09-06T13:41:55.514Z",
+      "updated_at": "2019-09-06T13:41:55.514Z",
+      "actor": {
+        "url": "/wordpress",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/000/055/f114d1d31f904e3b903cd99a6cf566bb531f8401_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "profile": {
+          "name": "WordPress"
+        }
+      },
+      "bounty_currency": "usd",
+      "genius_execution_id": null,
+      "team_handle": "wordpress",
+      "collaborator": {
+        "username": "simonscannell",
+        "url": "/simonscannell"
+      }
+    },
+    {
+      "id": 5757789,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Thank you!",
+      "automated_response": false,
+      "created_at": "2019-09-08T20:58:12.066Z",
+      "updated_at": "2019-09-08T20:58:12.066Z",
+      "actor": {
+        "username": "simonscannell",
+        "cleared": false,
+        "verified": false,
+        "url": "/simonscannell",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/HvE5FGgP56eXFMNMr4rwmunu/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "wordpress"
+    },
+    {
+      "id": 8646776,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "Requesting disclosure for completeness. Thank you!",
+      "automated_response": false,
+      "created_at": "2020-07-19T18:01:23.687Z",
+      "updated_at": "2020-07-19T18:01:23.687Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "simonscannell",
+        "cleared": false,
+        "verified": false,
+        "url": "/simonscannell",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/HvE5FGgP56eXFMNMr4rwmunu/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "wordpress"
+    },
+    {
+      "id": 8971457,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportBecamePublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2020-08-18T18:01:25.424Z",
+      "updated_at": "2020-08-18T18:01:25.424Z",
+      "actor": {
+        "url": "/wordpress",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/000/055/f114d1d31f904e3b903cd99a6cf566bb531f8401_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "profile": {
+          "name": "WordPress"
+        }
+      },
+      "genius_execution_id": null,
+      "team_handle": "wordpress"
+    }
+  ],
+  "activity_page_count": 1,
+  "activity_page_number": 1,
+  "summaries": [
+    {
+      "category": "team",
+      "can_view?": true,
+      "can_create?": false
+    },
+    {
+      "category": "researcher",
+      "can_view?": true,
+      "can_create?": false
+    }
+  ]
+}

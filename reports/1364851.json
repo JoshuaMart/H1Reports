@@ -1,0 +1,557 @@
+{
+  "id": 1364851,
+  "global_id": "Z2lkOi8vaGFja2Vyb25lL1JlcG9ydC8xMzY0ODUx",
+  "url": "https://hackerone.com/reports/1364851",
+  "title": "WordPress Plugin Update Confusion at trafficfactory.com",
+  "state": "Closed",
+  "substate": "resolved",
+  "severity_rating": "low",
+  "readable_substate": "Resolved",
+  "created_at": "2021-10-10T10:59:43.612Z",
+  "submitted_at": "2021-10-10T10:59:43.670Z",
+  "is_member_of_team?": false,
+  "is_organization_group_member?": false,
+  "reporter": {
+    "disabled": false,
+    "username": "vavkamil",
+    "url": "/vavkamil",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/069/616/003619f9ca0b0b3d11a238bb540d86b9b22d5b5c_original.jpg/3c7b305354c9073c106ae3d1701798defaaf5be844fb8fdfa49ca62f991a2c2c"
+    },
+    "is_me?": false,
+    "cleared": false,
+    "verified": false,
+    "hackerone_triager": false,
+    "hacker_mediation": false
+  },
+  "team": {
+    "id": 50466,
+    "url": "https://hackerone.com/trafficfactory",
+    "handle": "trafficfactory",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/shvdZeiJg1R2ZaaKjRyDcj5S/3c7b305354c9073c106ae3d1701798defaaf5be844fb8fdfa49ca62f991a2c2c",
+      "medium": "https://profile-photos.hackerone-user-content.com/variants/shvdZeiJg1R2ZaaKjRyDcj5S/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+    },
+    "permissions": [
+
+    ],
+    "submission_state": "open",
+    "default_currency": "usd",
+    "awards_miles": false,
+    "offers_bounties": true,
+    "state": "public_mode",
+    "only_cleared_hackers": false,
+    "pentest_feature_enabled?": false,
+    "profile": {
+      "name": "Traffic Factory",
+      "twitter_handle": "",
+      "website": "https://www.trafficfactory.com/",
+      "about": ""
+    }
+  },
+  "has_bounty?": true,
+  "in_validation?": false,
+  "can_view_team": true,
+  "can_view_report": true,
+  "is_external_bug": false,
+  "is_published": false,
+  "is_participant": false,
+  "has_collaborators": false,
+  "submitted_by_team_member": false,
+  "stage": 4,
+  "public": true,
+  "visibility": "full",
+  "cve_ids": [
+
+  ],
+  "singular_disclosure_disabled": true,
+  "disclosed_at": "2021-11-25T09:11:00.772Z",
+  "bug_reporter_agreed_on_going_public_at": "2021-11-25T09:11:00.637Z",
+  "team_member_agreed_on_going_public_at": "2021-10-15T13:00:42.471Z",
+  "comments_closed?": false,
+  "facebook_team?": false,
+  "team_private?": false,
+  "vulnerability_information": "Hi,\n\nI'm currently researching a \"novel\" supply chain attack affecting WordPress plugins, and I believe your website might be vulnerable.\n\nThe way it works is similar to a recent [Dependency Confusion](https://medium.com/@alex.birsan/dependency-confusion-4a5d60fec610) attack, where a malicious actor can take over internal packages unclaimed on PyPI / npm registry.\n\nIf you use an internally developed WordPress plugin not present in WordPress Plugin Directory, an attacker might upload it there. That would introduce the \"[Confused deputy problem](https://en.wikipedia.org/wiki/Confused_deputy_problem)\" attack scenario, where the privileged user, instructed to update all plugins regularly, inadvertently infects the instance with malware.\n\nI wrote a custom scanner, which passively detects plugins on a front page (JS/CSS assets), and searches the slug name in the WP SVN registry. It found \"tf-elementor\" plugin installed at \"trafficfactory.com\":\n\n`https://www.trafficfactory.com/wp-content/plugins/tf-elementor/assets/css/tf9d3a.css?ver=5.6.5`\n\ncurrently not present in:\n\n`https://plugins.svn.wordpress.org/tf-elementor`\n\n## Steps To Reproduce:\n\nThe WordPress approval process for new plugins is automated and [open-source](https://meta.trac.wordpress.org/browser/sites/trunk/wordpress.org/public_html/wp-content/plugins/plugin-directory/shortcodes/class-upload-handler.php), so it's possible to see which checks needs to pass:\n\n- Slug must only contain lowercase alphanumeric characters and dash.\n- Slug can't have a reserved name like wp-admin (`has_reserved_slug()`)\n- Slug can't be on a list of protected trademarks (`has_trademarked_slug()`)\n- Slug can't be installed on more than 100 websites (`wporg_stats_get_plugin_name_install_count`)\n\nThe whole flow looks like this:\n\n1. An attacker submits a plugin with the same name you use for a review\n2. It will pass the review process, and the attacker gets access to the SVN repository\n3. The attacker uploads the plugin files, and it's added to the WordPress Plugin Directory for anyone to use\n4. The attacker adds a backdoor and bumps the plugin version\n5. You will get a notification that a new update is available; when you update, your website gets compromised\n\nI did not attempt to claim your plugin, as the update would inadvertently break the website (old plugin files will get deleted), but I simulated the attack with [my custom plugin](https://wordpress.org/plugins/xml-rpc-settings/), and it works.\n\n## How to mitigate\n\nThere is no easy way to defend yourself because it's by design, and WordPress doesn't allow you to upload a \"dummy\" version of your plugin. You can either add the plugin you use in the WordPress Plugin Directory or change the plugin name to prevent the review process from succeeding.\nThe plugin slug can only contain lower case alphanumeric characters and dash as a delimiter. Some of the keywords are prohibited as well, which could help us in this case. That means that you can rename your custom plugins in the following ways:\n\n- `internal_plugin_name`\n- `InternalPluginName`\n- `wp-internal-plugin-name`\n\nIt is also possible to leverage a [hook](https://developer.wordpress.org/reference/hooks/upgrader_package_options/) and write a custom update function, blocking the internal WP API call and replacing it with your own, similar to how a paid plugin offers custom updates from their servers.\n\nSome plugins do that for you, for example, [Easy Updates Manager](https://wordpress.org/plugins/stops-core-theme-and-plugin-updates/), which allows you to block updates for specific plugins.\n\n## Supporting Material/References:\n\nI wrote a custom scanner in Python, a WordPress Docker container to simulate the Plugin update process, a custom plugin to pass the review for the SVN registry, and an extensive write-up describing everything in more detail.\n\nI plan to publish everything soon, but let me know, and I will share a draft with you beforehand. Feel free to requests any additional info from me, as I understand it sounds more like a theoretical vulnerability without a valid PoC.\n\nThank you!\n\nKind regards,\n@vavkamil\n\n## Impact\n\nAn attacker can hijack your plugin, currently not available in the WordPress Plugin Directory (SVN registry). If that happens and you update the plugin, it can introduce a backdoor or RCE, essentially giving keys to the kingdom to the attacker.",
+  "bounty_amount": "200.0",
+  "formatted_bounty": "$200",
+  "weakness": {
+    "id": 65,
+    "name": "Business Logic Errors"
+  },
+  "original_report_id": null,
+  "original_report_url": null,
+  "attachments": [
+
+  ],
+  "allow_singular_disclosure_at": null,
+  "vote_count": 65,
+  "voters": [
+    "m7arm4n",
+    "nepalihacker0x01",
+    "tolga",
+    "testt0",
+    "ganeshbagaria",
+    "drsniper",
+    "nagli",
+    "ar6aaz",
+    "fqdn",
+    "trieulieuf9",
+    "and 55 more..."
+  ],
+  "severity": {
+    "rating": "low",
+    "author_type": "Team"
+  },
+  "structured_scope": {
+    "databaseId": 54936,
+    "asset_type": "URL",
+    "asset_identifier": "www.trafficfactory.com",
+    "max_severity": "critical"
+  },
+  "abilities": {
+    "assignable_team_members": [
+
+    ],
+    "assignable_team_member_groups": [
+
+    ]
+  },
+  "activities": [
+    {
+      "id": 13845172,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @vavkamil,\n\nThank you for your submission. I hope you are well. Your report is currently being reviewed and the HackerOne triage team will get back to you once there is additional information to share.\n\nHave a great day! \n\nKind regards,\n@aseal",
+      "automated_response": false,
+      "created_at": "2021-10-11T10:32:13.784Z",
+      "updated_at": "2021-10-11T10:32:13.784Z",
+      "actor": {
+        "username": "aseal",
+        "cleared": false,
+        "verified": false,
+        "url": "/aseal",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/7f5ecd9fxd2pf3rao8aqn7lrdssd/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937?response-content-disposition=inline%3B%20filename%3D%22235383.png%22%3B%20filename%2A%3DUTF-8%27%27235383.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQSL26QVWJ%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070716Z&X-Amz-Expires=1179&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJGMEQCIGsYX%2B2SBOyOVYF%2Bbhi8FJSYZBaFBWa1bRzT%2Be3B%2FZjKAiAhOYWk%2Foi9Uzlh7TDqFekha1XoJLvg7HRX6M15Zy7OgyqyBQgiEAMaDDAxMzYxOTI3NDg0OSIMMFtgJWJNe1jj9nkVKo8F8Rs2Uaqvx6JwF6x1kZKjsrSeZ6cQNBwN5Wb9hls0EDyKQtSi4OIwgPbnTQubX83nd5ah2LnVEbBjw%2FeWeXliDAl%2FvcfL7Jr%2Bw%2B9Zt%2FJIPwgok0yh0yrBt%2FMHKf6jKyg1HXYfn1nmhzeOD2d2QJDCj5sOXpB7wiW08myHF2gOX%2FhtSISZCSevxv8fM25ODarqeeS4hfv%2BLEDgbFHbbT4E1NfuF8ED2tZiBSFh5%2B5GRH9tDuQNiRc11PuPiSwjorAQR%2BvNEGNjQmE4t1MC7CZ%2FcXGauTAzCS%2Fc%2Bwn34cAFOc2Tg5jVrz6xBNrLQkxxdjHvIBsqLMrTz%2FQ1LCnEECdd957bMTmgqAVSbGeqK2LjKaZ7j4m37weF8D66L%2Fffl0dc0inkPwRnTr0ZTF3%2FEIXdlA2Vp1lgDGet58F%2BpNSEEcSdhnS7xtwxDjXz7C3kS7O6OfaRyAO8ZJGUZmveDph6o2cw%2FPsTphMY2pbm6Pkz07sTZkxdV2fxo92Zo9qpNDPWqHn3gm%2BKAywtq0nQug0bAkV%2FgWYEYrziFLkzRomPvJSGDNHpwb6peEgKF5g4GJGCx3qCurJLfQPIC0AnVFKhpoWvaa%2FLQL6ChC6wGDy6Tl4OOwSd%2FOSuJCnSq1CwWZzdKfyQ3%2FDgDtgklpCj5%2FeQ53M5BpI6bTmGvzUZjPOclF5%2Brk%2BemsD13H7ZHfb96cFvwLHSHT62xRD0NXavKkuuUbg6LMZnfAUOCCZaZmBR2hjJCA9pJ0xHeRcvfG6FoXGmUapCjaCdA4pe1w1dwvfbrvpL4x2tCA%2Bf6zSRP427wTuP50SgkLkxX05dtO4svq%2BPfjeeMMqWgotYcj%2FN%2FVBQbQBRszE8Iw8WK1KakxxWqjDf%2BbioBjqyAe46EFyZlnjpkAH7Kxwo2RjFWK1UspOuXEko65zIpUW0G3QveRljnTHuFnmELUOY%2FbuoPKctkCKm4MSlL4vdbCrHPpvodCNBNct%2B0piCNeqN4cIPMf7KzWsae1GnSb7AF3GE0%2F8QNvzYw3DDJv0zie%2F87QMf%2FxeBFJFnoI1vuhAwg3Nhex5lw1vtQrfVTrYy%2F9P2yDEji39vZEEsb9yVzOIzAXuAyTq%2F%2F9TNfW%2Bn16NAsB8%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=9a3f953cebb645d68803740b7fec9555a99ec2c068b91df832bc35a8718f1b26"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "trafficfactory"
+    },
+    {
+      "id": 13845489,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @vavkamil,\n\nThanks for your submission! This appears to be reproducible, but we need to check further with the product team to see if this is an issue they intend to fix. If not, this report may be closed as informative.\n\nYour patience is much appreciated.\n\nBest regards,\n@aseal",
+      "automated_response": false,
+      "created_at": "2021-10-11T10:38:59.697Z",
+      "updated_at": "2021-10-11T10:38:59.697Z",
+      "actor": {
+        "username": "aseal",
+        "cleared": false,
+        "verified": false,
+        "url": "/aseal",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/7f5ecd9fxd2pf3rao8aqn7lrdssd/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937?response-content-disposition=inline%3B%20filename%3D%22235383.png%22%3B%20filename%2A%3DUTF-8%27%27235383.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQSL26QVWJ%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070716Z&X-Amz-Expires=1179&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJGMEQCIGsYX%2B2SBOyOVYF%2Bbhi8FJSYZBaFBWa1bRzT%2Be3B%2FZjKAiAhOYWk%2Foi9Uzlh7TDqFekha1XoJLvg7HRX6M15Zy7OgyqyBQgiEAMaDDAxMzYxOTI3NDg0OSIMMFtgJWJNe1jj9nkVKo8F8Rs2Uaqvx6JwF6x1kZKjsrSeZ6cQNBwN5Wb9hls0EDyKQtSi4OIwgPbnTQubX83nd5ah2LnVEbBjw%2FeWeXliDAl%2FvcfL7Jr%2Bw%2B9Zt%2FJIPwgok0yh0yrBt%2FMHKf6jKyg1HXYfn1nmhzeOD2d2QJDCj5sOXpB7wiW08myHF2gOX%2FhtSISZCSevxv8fM25ODarqeeS4hfv%2BLEDgbFHbbT4E1NfuF8ED2tZiBSFh5%2B5GRH9tDuQNiRc11PuPiSwjorAQR%2BvNEGNjQmE4t1MC7CZ%2FcXGauTAzCS%2Fc%2Bwn34cAFOc2Tg5jVrz6xBNrLQkxxdjHvIBsqLMrTz%2FQ1LCnEECdd957bMTmgqAVSbGeqK2LjKaZ7j4m37weF8D66L%2Fffl0dc0inkPwRnTr0ZTF3%2FEIXdlA2Vp1lgDGet58F%2BpNSEEcSdhnS7xtwxDjXz7C3kS7O6OfaRyAO8ZJGUZmveDph6o2cw%2FPsTphMY2pbm6Pkz07sTZkxdV2fxo92Zo9qpNDPWqHn3gm%2BKAywtq0nQug0bAkV%2FgWYEYrziFLkzRomPvJSGDNHpwb6peEgKF5g4GJGCx3qCurJLfQPIC0AnVFKhpoWvaa%2FLQL6ChC6wGDy6Tl4OOwSd%2FOSuJCnSq1CwWZzdKfyQ3%2FDgDtgklpCj5%2FeQ53M5BpI6bTmGvzUZjPOclF5%2Brk%2BemsD13H7ZHfb96cFvwLHSHT62xRD0NXavKkuuUbg6LMZnfAUOCCZaZmBR2hjJCA9pJ0xHeRcvfG6FoXGmUapCjaCdA4pe1w1dwvfbrvpL4x2tCA%2Bf6zSRP427wTuP50SgkLkxX05dtO4svq%2BPfjeeMMqWgotYcj%2FN%2FVBQbQBRszE8Iw8WK1KakxxWqjDf%2BbioBjqyAe46EFyZlnjpkAH7Kxwo2RjFWK1UspOuXEko65zIpUW0G3QveRljnTHuFnmELUOY%2FbuoPKctkCKm4MSlL4vdbCrHPpvodCNBNct%2B0piCNeqN4cIPMf7KzWsae1GnSb7AF3GE0%2F8QNvzYw3DDJv0zie%2F87QMf%2FxeBFJFnoI1vuhAwg3Nhex5lw1vtQrfVTrYy%2F9P2yDEji39vZEEsb9yVzOIzAXuAyTq%2F%2F9TNfW%2Bn16NAsB8%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=9a3f953cebb645d68803740b7fec9555a99ec2c068b91df832bc35a8718f1b26"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "trafficfactory"
+    },
+    {
+      "id": 13850546,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportSeverityUpdated",
+      "message": null,
+      "automated_response": false,
+      "created_at": "2021-10-11T15:54:16.177Z",
+      "updated_at": "2021-10-11T15:54:16.177Z",
+      "additional_data": {
+        "old_severity": "High (8.2)",
+        "new_severity": "Low",
+        "old_severity_id": 1261147,
+        "new_severity_id": 1262244
+      },
+      "actor": {
+        "username": "trafficfactory_tech",
+        "cleared": false,
+        "verified": false,
+        "url": "/trafficfactory_tech",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/1252ulvu3xa99ekfukif6jhg99gu/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89?response-content-disposition=inline%3B%20filename%3D%22swx_avatar.jpeg%22%3B%20filename%2A%3DUTF-8%27%27swx_avatar.jpeg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQSL26QVWJ%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070716Z&X-Amz-Expires=1179&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJGMEQCIGsYX%2B2SBOyOVYF%2Bbhi8FJSYZBaFBWa1bRzT%2Be3B%2FZjKAiAhOYWk%2Foi9Uzlh7TDqFekha1XoJLvg7HRX6M15Zy7OgyqyBQgiEAMaDDAxMzYxOTI3NDg0OSIMMFtgJWJNe1jj9nkVKo8F8Rs2Uaqvx6JwF6x1kZKjsrSeZ6cQNBwN5Wb9hls0EDyKQtSi4OIwgPbnTQubX83nd5ah2LnVEbBjw%2FeWeXliDAl%2FvcfL7Jr%2Bw%2B9Zt%2FJIPwgok0yh0yrBt%2FMHKf6jKyg1HXYfn1nmhzeOD2d2QJDCj5sOXpB7wiW08myHF2gOX%2FhtSISZCSevxv8fM25ODarqeeS4hfv%2BLEDgbFHbbT4E1NfuF8ED2tZiBSFh5%2B5GRH9tDuQNiRc11PuPiSwjorAQR%2BvNEGNjQmE4t1MC7CZ%2FcXGauTAzCS%2Fc%2Bwn34cAFOc2Tg5jVrz6xBNrLQkxxdjHvIBsqLMrTz%2FQ1LCnEECdd957bMTmgqAVSbGeqK2LjKaZ7j4m37weF8D66L%2Fffl0dc0inkPwRnTr0ZTF3%2FEIXdlA2Vp1lgDGet58F%2BpNSEEcSdhnS7xtwxDjXz7C3kS7O6OfaRyAO8ZJGUZmveDph6o2cw%2FPsTphMY2pbm6Pkz07sTZkxdV2fxo92Zo9qpNDPWqHn3gm%2BKAywtq0nQug0bAkV%2FgWYEYrziFLkzRomPvJSGDNHpwb6peEgKF5g4GJGCx3qCurJLfQPIC0AnVFKhpoWvaa%2FLQL6ChC6wGDy6Tl4OOwSd%2FOSuJCnSq1CwWZzdKfyQ3%2FDgDtgklpCj5%2FeQ53M5BpI6bTmGvzUZjPOclF5%2Brk%2BemsD13H7ZHfb96cFvwLHSHT62xRD0NXavKkuuUbg6LMZnfAUOCCZaZmBR2hjJCA9pJ0xHeRcvfG6FoXGmUapCjaCdA4pe1w1dwvfbrvpL4x2tCA%2Bf6zSRP427wTuP50SgkLkxX05dtO4svq%2BPfjeeMMqWgotYcj%2FN%2FVBQbQBRszE8Iw8WK1KakxxWqjDf%2BbioBjqyAe46EFyZlnjpkAH7Kxwo2RjFWK1UspOuXEko65zIpUW0G3QveRljnTHuFnmELUOY%2FbuoPKctkCKm4MSlL4vdbCrHPpvodCNBNct%2B0piCNeqN4cIPMf7KzWsae1GnSb7AF3GE0%2F8QNvzYw3DDJv0zie%2F87QMf%2FxeBFJFnoI1vuhAwg3Nhex5lw1vtQrfVTrYy%2F9P2yDEji39vZEEsb9yVzOIzAXuAyTq%2F%2F9TNfW%2Bn16NAsB8%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=d6b68f1c13f521de95a0227de4c61e07a9a3362beb44cf7d077060a579069fd0"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "trafficfactory"
+    },
+    {
+      "id": 13850594,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugInformative",
+      "message": "Hi @vavkamil !\n\nThis plugin is home-made and has no automatic update enabled. \n\nRegards.",
+      "automated_response": false,
+      "created_at": "2021-10-11T15:55:49.710Z",
+      "updated_at": "2021-10-11T15:55:49.710Z",
+      "actor": {
+        "username": "trafficfactory_tech",
+        "cleared": false,
+        "verified": false,
+        "url": "/trafficfactory_tech",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/1252ulvu3xa99ekfukif6jhg99gu/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89?response-content-disposition=inline%3B%20filename%3D%22swx_avatar.jpeg%22%3B%20filename%2A%3DUTF-8%27%27swx_avatar.jpeg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQSL26QVWJ%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070716Z&X-Amz-Expires=1179&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJGMEQCIGsYX%2B2SBOyOVYF%2Bbhi8FJSYZBaFBWa1bRzT%2Be3B%2FZjKAiAhOYWk%2Foi9Uzlh7TDqFekha1XoJLvg7HRX6M15Zy7OgyqyBQgiEAMaDDAxMzYxOTI3NDg0OSIMMFtgJWJNe1jj9nkVKo8F8Rs2Uaqvx6JwF6x1kZKjsrSeZ6cQNBwN5Wb9hls0EDyKQtSi4OIwgPbnTQubX83nd5ah2LnVEbBjw%2FeWeXliDAl%2FvcfL7Jr%2Bw%2B9Zt%2FJIPwgok0yh0yrBt%2FMHKf6jKyg1HXYfn1nmhzeOD2d2QJDCj5sOXpB7wiW08myHF2gOX%2FhtSISZCSevxv8fM25ODarqeeS4hfv%2BLEDgbFHbbT4E1NfuF8ED2tZiBSFh5%2B5GRH9tDuQNiRc11PuPiSwjorAQR%2BvNEGNjQmE4t1MC7CZ%2FcXGauTAzCS%2Fc%2Bwn34cAFOc2Tg5jVrz6xBNrLQkxxdjHvIBsqLMrTz%2FQ1LCnEECdd957bMTmgqAVSbGeqK2LjKaZ7j4m37weF8D66L%2Fffl0dc0inkPwRnTr0ZTF3%2FEIXdlA2Vp1lgDGet58F%2BpNSEEcSdhnS7xtwxDjXz7C3kS7O6OfaRyAO8ZJGUZmveDph6o2cw%2FPsTphMY2pbm6Pkz07sTZkxdV2fxo92Zo9qpNDPWqHn3gm%2BKAywtq0nQug0bAkV%2FgWYEYrziFLkzRomPvJSGDNHpwb6peEgKF5g4GJGCx3qCurJLfQPIC0AnVFKhpoWvaa%2FLQL6ChC6wGDy6Tl4OOwSd%2FOSuJCnSq1CwWZzdKfyQ3%2FDgDtgklpCj5%2FeQ53M5BpI6bTmGvzUZjPOclF5%2Brk%2BemsD13H7ZHfb96cFvwLHSHT62xRD0NXavKkuuUbg6LMZnfAUOCCZaZmBR2hjJCA9pJ0xHeRcvfG6FoXGmUapCjaCdA4pe1w1dwvfbrvpL4x2tCA%2Bf6zSRP427wTuP50SgkLkxX05dtO4svq%2BPfjeeMMqWgotYcj%2FN%2FVBQbQBRszE8Iw8WK1KakxxWqjDf%2BbioBjqyAe46EFyZlnjpkAH7Kxwo2RjFWK1UspOuXEko65zIpUW0G3QveRljnTHuFnmELUOY%2FbuoPKctkCKm4MSlL4vdbCrHPpvodCNBNct%2B0piCNeqN4cIPMf7KzWsae1GnSb7AF3GE0%2F8QNvzYw3DDJv0zie%2F87QMf%2FxeBFJFnoI1vuhAwg3Nhex5lw1vtQrfVTrYy%2F9P2yDEji39vZEEsb9yVzOIzAXuAyTq%2F%2F9TNfW%2Bn16NAsB8%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=d6b68f1c13f521de95a0227de4c61e07a9a3362beb44cf7d077060a579069fd0"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "trafficfactory"
+    },
+    {
+      "id": 13852383,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @trafficfactory_tech ,\n\njust to double-check on this, as I'm not sure if I clearly understand your response:\n> This plugin is home-made\n\n  - Yes, that's the point of the report\n\n> and has no automatic update enabled\n\n  - It is not possible to enable automatic updates unless the plugin is uploaded in the WordPress Plugin Directory\n\n## Example\n\na) Currently, the plugin is not present in the SVN registry `https://plugins.svn.wordpress.org/tf-elementor`, so you won't see any updates, and it's not possible to enable auto-udates.\n\n{F1478359}\n\nb) An attacker will upload a plugin with the slug `tf-elementor` to SVN registry and bump the version. You will see that a new update is available, and it will be possible to enable auto-updates\n\n{F1478360}\n\n## Supply chain attack\n\nSo unless your homemade plugin does have a function to prevent updates from ever happening, you are probably vulnerable. Because once the attacker claims the plugin with the same name, WordPress will take care of the rest and offers you an update. That might present a dangerous scenario when somebody could update the plugin and infect the website with a malicious version.\n\nSince I spent quite some time on the research, would you mind sharing how you already mitigated this? Thank you!\n\nKind regards,\n@vavkamil\n",
+      "automated_response": false,
+      "created_at": "2021-10-11T17:54:02.728Z",
+      "updated_at": "2021-10-11T17:54:02.728Z",
+      "actor": {
+        "username": "vavkamil",
+        "cleared": false,
+        "verified": false,
+        "url": "/vavkamil",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/069/616/003619f9ca0b0b3d11a238bb540d86b9b22d5b5c_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "attachments": [
+        {
+          "id": 1478360,
+          "filename": "tf-elementor-2.png",
+          "type": "image/png",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/5eu7f9cbqwfgf9x1pwiv1fi6uoln?response-content-disposition=attachment%3B%20filename%3D%22tf-elementor-2.png%22%3B%20filename%2A%3DUTF-8%27%27tf-elementor-2.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQSL26QVWJ%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070717Z&X-Amz-Expires=1178&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJGMEQCIGsYX%2B2SBOyOVYF%2Bbhi8FJSYZBaFBWa1bRzT%2Be3B%2FZjKAiAhOYWk%2Foi9Uzlh7TDqFekha1XoJLvg7HRX6M15Zy7OgyqyBQgiEAMaDDAxMzYxOTI3NDg0OSIMMFtgJWJNe1jj9nkVKo8F8Rs2Uaqvx6JwF6x1kZKjsrSeZ6cQNBwN5Wb9hls0EDyKQtSi4OIwgPbnTQubX83nd5ah2LnVEbBjw%2FeWeXliDAl%2FvcfL7Jr%2Bw%2B9Zt%2FJIPwgok0yh0yrBt%2FMHKf6jKyg1HXYfn1nmhzeOD2d2QJDCj5sOXpB7wiW08myHF2gOX%2FhtSISZCSevxv8fM25ODarqeeS4hfv%2BLEDgbFHbbT4E1NfuF8ED2tZiBSFh5%2B5GRH9tDuQNiRc11PuPiSwjorAQR%2BvNEGNjQmE4t1MC7CZ%2FcXGauTAzCS%2Fc%2Bwn34cAFOc2Tg5jVrz6xBNrLQkxxdjHvIBsqLMrTz%2FQ1LCnEECdd957bMTmgqAVSbGeqK2LjKaZ7j4m37weF8D66L%2Fffl0dc0inkPwRnTr0ZTF3%2FEIXdlA2Vp1lgDGet58F%2BpNSEEcSdhnS7xtwxDjXz7C3kS7O6OfaRyAO8ZJGUZmveDph6o2cw%2FPsTphMY2pbm6Pkz07sTZkxdV2fxo92Zo9qpNDPWqHn3gm%2BKAywtq0nQug0bAkV%2FgWYEYrziFLkzRomPvJSGDNHpwb6peEgKF5g4GJGCx3qCurJLfQPIC0AnVFKhpoWvaa%2FLQL6ChC6wGDy6Tl4OOwSd%2FOSuJCnSq1CwWZzdKfyQ3%2FDgDtgklpCj5%2FeQ53M5BpI6bTmGvzUZjPOclF5%2Brk%2BemsD13H7ZHfb96cFvwLHSHT62xRD0NXavKkuuUbg6LMZnfAUOCCZaZmBR2hjJCA9pJ0xHeRcvfG6FoXGmUapCjaCdA4pe1w1dwvfbrvpL4x2tCA%2Bf6zSRP427wTuP50SgkLkxX05dtO4svq%2BPfjeeMMqWgotYcj%2FN%2FVBQbQBRszE8Iw8WK1KakxxWqjDf%2BbioBjqyAe46EFyZlnjpkAH7Kxwo2RjFWK1UspOuXEko65zIpUW0G3QveRljnTHuFnmELUOY%2FbuoPKctkCKm4MSlL4vdbCrHPpvodCNBNct%2B0piCNeqN4cIPMf7KzWsae1GnSb7AF3GE0%2F8QNvzYw3DDJv0zie%2F87QMf%2FxeBFJFnoI1vuhAwg3Nhex5lw1vtQrfVTrYy%2F9P2yDEji39vZEEsb9yVzOIzAXuAyTq%2F%2F9TNfW%2Bn16NAsB8%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=0e5694b2265038f97dddac6f0ea3b739fb4bc019ed8cc2e4132107356d47b161"
+        },
+        {
+          "id": 1478359,
+          "filename": "tf-elementor-1.png",
+          "type": "image/png",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/4odrr7xnvxcbimhpk05v6vnalkko?response-content-disposition=attachment%3B%20filename%3D%22tf-elementor-1.png%22%3B%20filename%2A%3DUTF-8%27%27tf-elementor-1.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQSL26QVWJ%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070717Z&X-Amz-Expires=1178&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJGMEQCIGsYX%2B2SBOyOVYF%2Bbhi8FJSYZBaFBWa1bRzT%2Be3B%2FZjKAiAhOYWk%2Foi9Uzlh7TDqFekha1XoJLvg7HRX6M15Zy7OgyqyBQgiEAMaDDAxMzYxOTI3NDg0OSIMMFtgJWJNe1jj9nkVKo8F8Rs2Uaqvx6JwF6x1kZKjsrSeZ6cQNBwN5Wb9hls0EDyKQtSi4OIwgPbnTQubX83nd5ah2LnVEbBjw%2FeWeXliDAl%2FvcfL7Jr%2Bw%2B9Zt%2FJIPwgok0yh0yrBt%2FMHKf6jKyg1HXYfn1nmhzeOD2d2QJDCj5sOXpB7wiW08myHF2gOX%2FhtSISZCSevxv8fM25ODarqeeS4hfv%2BLEDgbFHbbT4E1NfuF8ED2tZiBSFh5%2B5GRH9tDuQNiRc11PuPiSwjorAQR%2BvNEGNjQmE4t1MC7CZ%2FcXGauTAzCS%2Fc%2Bwn34cAFOc2Tg5jVrz6xBNrLQkxxdjHvIBsqLMrTz%2FQ1LCnEECdd957bMTmgqAVSbGeqK2LjKaZ7j4m37weF8D66L%2Fffl0dc0inkPwRnTr0ZTF3%2FEIXdlA2Vp1lgDGet58F%2BpNSEEcSdhnS7xtwxDjXz7C3kS7O6OfaRyAO8ZJGUZmveDph6o2cw%2FPsTphMY2pbm6Pkz07sTZkxdV2fxo92Zo9qpNDPWqHn3gm%2BKAywtq0nQug0bAkV%2FgWYEYrziFLkzRomPvJSGDNHpwb6peEgKF5g4GJGCx3qCurJLfQPIC0AnVFKhpoWvaa%2FLQL6ChC6wGDy6Tl4OOwSd%2FOSuJCnSq1CwWZzdKfyQ3%2FDgDtgklpCj5%2FeQ53M5BpI6bTmGvzUZjPOclF5%2Brk%2BemsD13H7ZHfb96cFvwLHSHT62xRD0NXavKkuuUbg6LMZnfAUOCCZaZmBR2hjJCA9pJ0xHeRcvfG6FoXGmUapCjaCdA4pe1w1dwvfbrvpL4x2tCA%2Bf6zSRP427wTuP50SgkLkxX05dtO4svq%2BPfjeeMMqWgotYcj%2FN%2FVBQbQBRszE8Iw8WK1KakxxWqjDf%2BbioBjqyAe46EFyZlnjpkAH7Kxwo2RjFWK1UspOuXEko65zIpUW0G3QveRljnTHuFnmELUOY%2FbuoPKctkCKm4MSlL4vdbCrHPpvodCNBNct%2B0piCNeqN4cIPMf7KzWsae1GnSb7AF3GE0%2F8QNvzYw3DDJv0zie%2F87QMf%2FxeBFJFnoI1vuhAwg3Nhex5lw1vtQrfVTrYy%2F9P2yDEji39vZEEsb9yVzOIzAXuAyTq%2F%2F9TNfW%2Bn16NAsB8%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=3c9cd412ac8f7c0e0d1eacc10e75e6f5366a7bf7127ae544a702a2f3d6a694bd"
+        }
+      ],
+      "genius_execution_id": null,
+      "team_handle": "trafficfactory"
+    },
+    {
+      "id": 13864257,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi, \n\nThis imply that our WP managing team will enable auto-updates on a plugin that is clearly identified by our teams as out of public WordPress Plugin Directory.\nWe will discuss this issue internally as it sound more like a WordPress vulnerability than an actual security issue for us.\n\nWe will come back to you in a few days.\n\nRegards.",
+      "automated_response": false,
+      "created_at": "2021-10-12T10:35:41.723Z",
+      "updated_at": "2021-10-12T10:35:41.723Z",
+      "actor": {
+        "username": "trafficfactory_tech",
+        "cleared": false,
+        "verified": false,
+        "url": "/trafficfactory_tech",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/1252ulvu3xa99ekfukif6jhg99gu/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89?response-content-disposition=inline%3B%20filename%3D%22swx_avatar.jpeg%22%3B%20filename%2A%3DUTF-8%27%27swx_avatar.jpeg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQSL26QVWJ%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070716Z&X-Amz-Expires=1179&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJGMEQCIGsYX%2B2SBOyOVYF%2Bbhi8FJSYZBaFBWa1bRzT%2Be3B%2FZjKAiAhOYWk%2Foi9Uzlh7TDqFekha1XoJLvg7HRX6M15Zy7OgyqyBQgiEAMaDDAxMzYxOTI3NDg0OSIMMFtgJWJNe1jj9nkVKo8F8Rs2Uaqvx6JwF6x1kZKjsrSeZ6cQNBwN5Wb9hls0EDyKQtSi4OIwgPbnTQubX83nd5ah2LnVEbBjw%2FeWeXliDAl%2FvcfL7Jr%2Bw%2B9Zt%2FJIPwgok0yh0yrBt%2FMHKf6jKyg1HXYfn1nmhzeOD2d2QJDCj5sOXpB7wiW08myHF2gOX%2FhtSISZCSevxv8fM25ODarqeeS4hfv%2BLEDgbFHbbT4E1NfuF8ED2tZiBSFh5%2B5GRH9tDuQNiRc11PuPiSwjorAQR%2BvNEGNjQmE4t1MC7CZ%2FcXGauTAzCS%2Fc%2Bwn34cAFOc2Tg5jVrz6xBNrLQkxxdjHvIBsqLMrTz%2FQ1LCnEECdd957bMTmgqAVSbGeqK2LjKaZ7j4m37weF8D66L%2Fffl0dc0inkPwRnTr0ZTF3%2FEIXdlA2Vp1lgDGet58F%2BpNSEEcSdhnS7xtwxDjXz7C3kS7O6OfaRyAO8ZJGUZmveDph6o2cw%2FPsTphMY2pbm6Pkz07sTZkxdV2fxo92Zo9qpNDPWqHn3gm%2BKAywtq0nQug0bAkV%2FgWYEYrziFLkzRomPvJSGDNHpwb6peEgKF5g4GJGCx3qCurJLfQPIC0AnVFKhpoWvaa%2FLQL6ChC6wGDy6Tl4OOwSd%2FOSuJCnSq1CwWZzdKfyQ3%2FDgDtgklpCj5%2FeQ53M5BpI6bTmGvzUZjPOclF5%2Brk%2BemsD13H7ZHfb96cFvwLHSHT62xRD0NXavKkuuUbg6LMZnfAUOCCZaZmBR2hjJCA9pJ0xHeRcvfG6FoXGmUapCjaCdA4pe1w1dwvfbrvpL4x2tCA%2Bf6zSRP427wTuP50SgkLkxX05dtO4svq%2BPfjeeMMqWgotYcj%2FN%2FVBQbQBRszE8Iw8WK1KakxxWqjDf%2BbioBjqyAe46EFyZlnjpkAH7Kxwo2RjFWK1UspOuXEko65zIpUW0G3QveRljnTHuFnmELUOY%2FbuoPKctkCKm4MSlL4vdbCrHPpvodCNBNct%2B0piCNeqN4cIPMf7KzWsae1GnSb7AF3GE0%2F8QNvzYw3DDJv0zie%2F87QMf%2FxeBFJFnoI1vuhAwg3Nhex5lw1vtQrfVTrYy%2F9P2yDEji39vZEEsb9yVzOIzAXuAyTq%2F%2F9TNfW%2Bn16NAsB8%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=d6b68f1c13f521de95a0227de4c61e07a9a3362beb44cf7d077060a579069fd0"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "trafficfactory"
+    },
+    {
+      "id": 13884172,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugReopened",
+      "message": "Hi,\n\nReopening, even if we consider it at a very low risk we will fix the issue.\nIt should take a few days since all our resources are currently tied to other features.\n\nRegards.",
+      "automated_response": false,
+      "created_at": "2021-10-13T12:19:40.168Z",
+      "updated_at": "2021-10-13T12:19:40.168Z",
+      "actor": {
+        "username": "trafficfactory_tech",
+        "cleared": false,
+        "verified": false,
+        "url": "/trafficfactory_tech",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/1252ulvu3xa99ekfukif6jhg99gu/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89?response-content-disposition=inline%3B%20filename%3D%22swx_avatar.jpeg%22%3B%20filename%2A%3DUTF-8%27%27swx_avatar.jpeg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQSL26QVWJ%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070716Z&X-Amz-Expires=1179&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJGMEQCIGsYX%2B2SBOyOVYF%2Bbhi8FJSYZBaFBWa1bRzT%2Be3B%2FZjKAiAhOYWk%2Foi9Uzlh7TDqFekha1XoJLvg7HRX6M15Zy7OgyqyBQgiEAMaDDAxMzYxOTI3NDg0OSIMMFtgJWJNe1jj9nkVKo8F8Rs2Uaqvx6JwF6x1kZKjsrSeZ6cQNBwN5Wb9hls0EDyKQtSi4OIwgPbnTQubX83nd5ah2LnVEbBjw%2FeWeXliDAl%2FvcfL7Jr%2Bw%2B9Zt%2FJIPwgok0yh0yrBt%2FMHKf6jKyg1HXYfn1nmhzeOD2d2QJDCj5sOXpB7wiW08myHF2gOX%2FhtSISZCSevxv8fM25ODarqeeS4hfv%2BLEDgbFHbbT4E1NfuF8ED2tZiBSFh5%2B5GRH9tDuQNiRc11PuPiSwjorAQR%2BvNEGNjQmE4t1MC7CZ%2FcXGauTAzCS%2Fc%2Bwn34cAFOc2Tg5jVrz6xBNrLQkxxdjHvIBsqLMrTz%2FQ1LCnEECdd957bMTmgqAVSbGeqK2LjKaZ7j4m37weF8D66L%2Fffl0dc0inkPwRnTr0ZTF3%2FEIXdlA2Vp1lgDGet58F%2BpNSEEcSdhnS7xtwxDjXz7C3kS7O6OfaRyAO8ZJGUZmveDph6o2cw%2FPsTphMY2pbm6Pkz07sTZkxdV2fxo92Zo9qpNDPWqHn3gm%2BKAywtq0nQug0bAkV%2FgWYEYrziFLkzRomPvJSGDNHpwb6peEgKF5g4GJGCx3qCurJLfQPIC0AnVFKhpoWvaa%2FLQL6ChC6wGDy6Tl4OOwSd%2FOSuJCnSq1CwWZzdKfyQ3%2FDgDtgklpCj5%2FeQ53M5BpI6bTmGvzUZjPOclF5%2Brk%2BemsD13H7ZHfb96cFvwLHSHT62xRD0NXavKkuuUbg6LMZnfAUOCCZaZmBR2hjJCA9pJ0xHeRcvfG6FoXGmUapCjaCdA4pe1w1dwvfbrvpL4x2tCA%2Bf6zSRP427wTuP50SgkLkxX05dtO4svq%2BPfjeeMMqWgotYcj%2FN%2FVBQbQBRszE8Iw8WK1KakxxWqjDf%2BbioBjqyAe46EFyZlnjpkAH7Kxwo2RjFWK1UspOuXEko65zIpUW0G3QveRljnTHuFnmELUOY%2FbuoPKctkCKm4MSlL4vdbCrHPpvodCNBNct%2B0piCNeqN4cIPMf7KzWsae1GnSb7AF3GE0%2F8QNvzYw3DDJv0zie%2F87QMf%2FxeBFJFnoI1vuhAwg3Nhex5lw1vtQrfVTrYy%2F9P2yDEji39vZEEsb9yVzOIzAXuAyTq%2F%2F9TNfW%2Bn16NAsB8%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=d6b68f1c13f521de95a0227de4c61e07a9a3362beb44cf7d077060a579069fd0"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "trafficfactory"
+    },
+    {
+      "id": 13884186,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugTriaged",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2021-10-13T12:21:04.130Z",
+      "updated_at": "2021-10-13T12:21:04.130Z",
+      "actor": {
+        "username": "trafficfactory_tech",
+        "cleared": false,
+        "verified": false,
+        "url": "/trafficfactory_tech",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/1252ulvu3xa99ekfukif6jhg99gu/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89?response-content-disposition=inline%3B%20filename%3D%22swx_avatar.jpeg%22%3B%20filename%2A%3DUTF-8%27%27swx_avatar.jpeg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQSL26QVWJ%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070716Z&X-Amz-Expires=1179&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJGMEQCIGsYX%2B2SBOyOVYF%2Bbhi8FJSYZBaFBWa1bRzT%2Be3B%2FZjKAiAhOYWk%2Foi9Uzlh7TDqFekha1XoJLvg7HRX6M15Zy7OgyqyBQgiEAMaDDAxMzYxOTI3NDg0OSIMMFtgJWJNe1jj9nkVKo8F8Rs2Uaqvx6JwF6x1kZKjsrSeZ6cQNBwN5Wb9hls0EDyKQtSi4OIwgPbnTQubX83nd5ah2LnVEbBjw%2FeWeXliDAl%2FvcfL7Jr%2Bw%2B9Zt%2FJIPwgok0yh0yrBt%2FMHKf6jKyg1HXYfn1nmhzeOD2d2QJDCj5sOXpB7wiW08myHF2gOX%2FhtSISZCSevxv8fM25ODarqeeS4hfv%2BLEDgbFHbbT4E1NfuF8ED2tZiBSFh5%2B5GRH9tDuQNiRc11PuPiSwjorAQR%2BvNEGNjQmE4t1MC7CZ%2FcXGauTAzCS%2Fc%2Bwn34cAFOc2Tg5jVrz6xBNrLQkxxdjHvIBsqLMrTz%2FQ1LCnEECdd957bMTmgqAVSbGeqK2LjKaZ7j4m37weF8D66L%2Fffl0dc0inkPwRnTr0ZTF3%2FEIXdlA2Vp1lgDGet58F%2BpNSEEcSdhnS7xtwxDjXz7C3kS7O6OfaRyAO8ZJGUZmveDph6o2cw%2FPsTphMY2pbm6Pkz07sTZkxdV2fxo92Zo9qpNDPWqHn3gm%2BKAywtq0nQug0bAkV%2FgWYEYrziFLkzRomPvJSGDNHpwb6peEgKF5g4GJGCx3qCurJLfQPIC0AnVFKhpoWvaa%2FLQL6ChC6wGDy6Tl4OOwSd%2FOSuJCnSq1CwWZzdKfyQ3%2FDgDtgklpCj5%2FeQ53M5BpI6bTmGvzUZjPOclF5%2Brk%2BemsD13H7ZHfb96cFvwLHSHT62xRD0NXavKkuuUbg6LMZnfAUOCCZaZmBR2hjJCA9pJ0xHeRcvfG6FoXGmUapCjaCdA4pe1w1dwvfbrvpL4x2tCA%2Bf6zSRP427wTuP50SgkLkxX05dtO4svq%2BPfjeeMMqWgotYcj%2FN%2FVBQbQBRszE8Iw8WK1KakxxWqjDf%2BbioBjqyAe46EFyZlnjpkAH7Kxwo2RjFWK1UspOuXEko65zIpUW0G3QveRljnTHuFnmELUOY%2FbuoPKctkCKm4MSlL4vdbCrHPpvodCNBNct%2B0piCNeqN4cIPMf7KzWsae1GnSb7AF3GE0%2F8QNvzYw3DDJv0zie%2F87QMf%2FxeBFJFnoI1vuhAwg3Nhex5lw1vtQrfVTrYy%2F9P2yDEji39vZEEsb9yVzOIzAXuAyTq%2F%2F9TNfW%2Bn16NAsB8%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=d6b68f1c13f521de95a0227de4c61e07a9a3362beb44cf7d077060a579069fd0"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "trafficfactory"
+    },
+    {
+      "id": 13903303,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi,\n\nI just found out that the WordPress team is already aware of the supply chain attack, and they released a feature to mitigate it.\n\n## Introducing \"Update URI\" plugin header in WordPress 5.8 (July 20, 2021)\nhttps://make.wordpress.org/core/2021/06/29/introducing-update-uri-plugin-header-in-wordpress-5-8/\n> This allows third-party plugins to avoid accidentally being overwritten with an update of a plugin of a similar name from the WordPress.org Plugin Directory.\n\nThe main PHP file should include the header comment `Update URI: false`, which will prevent any future updates.\n\n### Example:\n```php\n<?php\n\n/**\n * Plugin Name: Internal Plugin\n * Version:     1.0\n * Update URI:  false\n */\n```\nThank you!\n\nKind regards,\n@vavkamil",
+      "automated_response": false,
+      "created_at": "2021-10-14T18:15:05.011Z",
+      "updated_at": "2021-10-14T18:15:05.011Z",
+      "actor": {
+        "username": "vavkamil",
+        "cleared": false,
+        "verified": false,
+        "url": "/vavkamil",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/069/616/003619f9ca0b0b3d11a238bb540d86b9b22d5b5c_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "trafficfactory"
+    },
+    {
+      "id": 13913972,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "Hi @vavkamil !\n\nWe applied your suggestion and will probably add the \"Update URI:  false\" header also.\n\nThanks for your report and follow up.\n\nRegards.",
+      "automated_response": false,
+      "created_at": "2021-10-15T12:46:13.419Z",
+      "updated_at": "2021-10-15T12:46:13.419Z",
+      "actor": {
+        "username": "trafficfactory_tech",
+        "cleared": false,
+        "verified": false,
+        "url": "/trafficfactory_tech",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/1252ulvu3xa99ekfukif6jhg99gu/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89?response-content-disposition=inline%3B%20filename%3D%22swx_avatar.jpeg%22%3B%20filename%2A%3DUTF-8%27%27swx_avatar.jpeg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQSL26QVWJ%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070716Z&X-Amz-Expires=1179&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJGMEQCIGsYX%2B2SBOyOVYF%2Bbhi8FJSYZBaFBWa1bRzT%2Be3B%2FZjKAiAhOYWk%2Foi9Uzlh7TDqFekha1XoJLvg7HRX6M15Zy7OgyqyBQgiEAMaDDAxMzYxOTI3NDg0OSIMMFtgJWJNe1jj9nkVKo8F8Rs2Uaqvx6JwF6x1kZKjsrSeZ6cQNBwN5Wb9hls0EDyKQtSi4OIwgPbnTQubX83nd5ah2LnVEbBjw%2FeWeXliDAl%2FvcfL7Jr%2Bw%2B9Zt%2FJIPwgok0yh0yrBt%2FMHKf6jKyg1HXYfn1nmhzeOD2d2QJDCj5sOXpB7wiW08myHF2gOX%2FhtSISZCSevxv8fM25ODarqeeS4hfv%2BLEDgbFHbbT4E1NfuF8ED2tZiBSFh5%2B5GRH9tDuQNiRc11PuPiSwjorAQR%2BvNEGNjQmE4t1MC7CZ%2FcXGauTAzCS%2Fc%2Bwn34cAFOc2Tg5jVrz6xBNrLQkxxdjHvIBsqLMrTz%2FQ1LCnEECdd957bMTmgqAVSbGeqK2LjKaZ7j4m37weF8D66L%2Fffl0dc0inkPwRnTr0ZTF3%2FEIXdlA2Vp1lgDGet58F%2BpNSEEcSdhnS7xtwxDjXz7C3kS7O6OfaRyAO8ZJGUZmveDph6o2cw%2FPsTphMY2pbm6Pkz07sTZkxdV2fxo92Zo9qpNDPWqHn3gm%2BKAywtq0nQug0bAkV%2FgWYEYrziFLkzRomPvJSGDNHpwb6peEgKF5g4GJGCx3qCurJLfQPIC0AnVFKhpoWvaa%2FLQL6ChC6wGDy6Tl4OOwSd%2FOSuJCnSq1CwWZzdKfyQ3%2FDgDtgklpCj5%2FeQ53M5BpI6bTmGvzUZjPOclF5%2Brk%2BemsD13H7ZHfb96cFvwLHSHT62xRD0NXavKkuuUbg6LMZnfAUOCCZaZmBR2hjJCA9pJ0xHeRcvfG6FoXGmUapCjaCdA4pe1w1dwvfbrvpL4x2tCA%2Bf6zSRP427wTuP50SgkLkxX05dtO4svq%2BPfjeeMMqWgotYcj%2FN%2FVBQbQBRszE8Iw8WK1KakxxWqjDf%2BbioBjqyAe46EFyZlnjpkAH7Kxwo2RjFWK1UspOuXEko65zIpUW0G3QveRljnTHuFnmELUOY%2FbuoPKctkCKm4MSlL4vdbCrHPpvodCNBNct%2B0piCNeqN4cIPMf7KzWsae1GnSb7AF3GE0%2F8QNvzYw3DDJv0zie%2F87QMf%2FxeBFJFnoI1vuhAwg3Nhex5lw1vtQrfVTrYy%2F9P2yDEji39vZEEsb9yVzOIzAXuAyTq%2F%2F9TNfW%2Bn16NAsB8%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=d6b68f1c13f521de95a0227de4c61e07a9a3362beb44cf7d077060a579069fd0"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "reporter": {
+        "username": "vavkamil",
+        "url": "/vavkamil"
+      },
+      "genius_execution_id": null,
+      "team_handle": "trafficfactory"
+    },
+    {
+      "id": 13914082,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BountyAwarded",
+      "message": "Thanks for your report",
+      "automated_response": false,
+      "created_at": "2021-10-15T12:51:25.519Z",
+      "updated_at": "2021-10-15T12:51:25.519Z",
+      "actor": {
+        "url": "/trafficfactory",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/shvdZeiJg1R2ZaaKjRyDcj5S/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "profile": {
+          "name": "Traffic Factory"
+        }
+      },
+      "bounty_amount": "50.0",
+      "bonus_amount": "150.0",
+      "bounty_currency": "usd",
+      "genius_execution_id": null,
+      "team_handle": "trafficfactory",
+      "collaborator": {
+        "username": "vavkamil",
+        "url": "/vavkamil"
+      }
+    },
+    {
+      "id": 13914094,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @trafficfactory_tech ,\n\nThank you! Would it be possible to disclose the report on 25th November, as I will be presenting my research at the OWASP Czech Chapter meeting in Prague on that date?\n\nKind regards,\n@vavkamil",
+      "automated_response": false,
+      "created_at": "2021-10-15T12:52:55.239Z",
+      "updated_at": "2021-10-15T12:52:55.239Z",
+      "actor": {
+        "username": "vavkamil",
+        "cleared": false,
+        "verified": false,
+        "url": "/vavkamil",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/069/616/003619f9ca0b0b3d11a238bb540d86b9b22d5b5c_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "trafficfactory"
+    },
+    {
+      "id": 13914685,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2021-10-15T13:00:42.512Z",
+      "updated_at": "2021-10-15T13:00:42.512Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "xvtech",
+        "cleared": false,
+        "verified": false,
+        "url": "/xvtech",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "trafficfactory"
+    },
+    {
+      "id": 13962013,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "> Would it be possible to disclose the report on 25th November\n\n@vavkamil Would you like to wait until November 25th to disclose it or should we disclose it from now on ?",
+      "automated_response": false,
+      "created_at": "2021-10-19T11:49:01.672Z",
+      "updated_at": "2021-10-19T11:49:01.672Z",
+      "actor": {
+        "username": "trafficfactory_tech",
+        "cleared": false,
+        "verified": false,
+        "url": "/trafficfactory_tech",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/1252ulvu3xa99ekfukif6jhg99gu/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89?response-content-disposition=inline%3B%20filename%3D%22swx_avatar.jpeg%22%3B%20filename%2A%3DUTF-8%27%27swx_avatar.jpeg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQSL26QVWJ%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070716Z&X-Amz-Expires=1179&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJGMEQCIGsYX%2B2SBOyOVYF%2Bbhi8FJSYZBaFBWa1bRzT%2Be3B%2FZjKAiAhOYWk%2Foi9Uzlh7TDqFekha1XoJLvg7HRX6M15Zy7OgyqyBQgiEAMaDDAxMzYxOTI3NDg0OSIMMFtgJWJNe1jj9nkVKo8F8Rs2Uaqvx6JwF6x1kZKjsrSeZ6cQNBwN5Wb9hls0EDyKQtSi4OIwgPbnTQubX83nd5ah2LnVEbBjw%2FeWeXliDAl%2FvcfL7Jr%2Bw%2B9Zt%2FJIPwgok0yh0yrBt%2FMHKf6jKyg1HXYfn1nmhzeOD2d2QJDCj5sOXpB7wiW08myHF2gOX%2FhtSISZCSevxv8fM25ODarqeeS4hfv%2BLEDgbFHbbT4E1NfuF8ED2tZiBSFh5%2B5GRH9tDuQNiRc11PuPiSwjorAQR%2BvNEGNjQmE4t1MC7CZ%2FcXGauTAzCS%2Fc%2Bwn34cAFOc2Tg5jVrz6xBNrLQkxxdjHvIBsqLMrTz%2FQ1LCnEECdd957bMTmgqAVSbGeqK2LjKaZ7j4m37weF8D66L%2Fffl0dc0inkPwRnTr0ZTF3%2FEIXdlA2Vp1lgDGet58F%2BpNSEEcSdhnS7xtwxDjXz7C3kS7O6OfaRyAO8ZJGUZmveDph6o2cw%2FPsTphMY2pbm6Pkz07sTZkxdV2fxo92Zo9qpNDPWqHn3gm%2BKAywtq0nQug0bAkV%2FgWYEYrziFLkzRomPvJSGDNHpwb6peEgKF5g4GJGCx3qCurJLfQPIC0AnVFKhpoWvaa%2FLQL6ChC6wGDy6Tl4OOwSd%2FOSuJCnSq1CwWZzdKfyQ3%2FDgDtgklpCj5%2FeQ53M5BpI6bTmGvzUZjPOclF5%2Brk%2BemsD13H7ZHfb96cFvwLHSHT62xRD0NXavKkuuUbg6LMZnfAUOCCZaZmBR2hjJCA9pJ0xHeRcvfG6FoXGmUapCjaCdA4pe1w1dwvfbrvpL4x2tCA%2Bf6zSRP427wTuP50SgkLkxX05dtO4svq%2BPfjeeMMqWgotYcj%2FN%2FVBQbQBRszE8Iw8WK1KakxxWqjDf%2BbioBjqyAe46EFyZlnjpkAH7Kxwo2RjFWK1UspOuXEko65zIpUW0G3QveRljnTHuFnmELUOY%2FbuoPKctkCKm4MSlL4vdbCrHPpvodCNBNct%2B0piCNeqN4cIPMf7KzWsae1GnSb7AF3GE0%2F8QNvzYw3DDJv0zie%2F87QMf%2FxeBFJFnoI1vuhAwg3Nhex5lw1vtQrfVTrYy%2F9P2yDEji39vZEEsb9yVzOIzAXuAyTq%2F%2F9TNfW%2Bn16NAsB8%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=d6b68f1c13f521de95a0227de4c61e07a9a3362beb44cf7d077060a579069fd0"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "trafficfactory"
+    },
+    {
+      "id": 13962459,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @trafficfactory_tech ,\n\nI would like to wait a bit, as I'm still waiting to resolve the other reports. Since you already requested to disclose this report, it will be disclosed immediately when I accept the disclosure from my side.\nI assume that if I don't take any action, it will be disclosed automatically after 30 days (15th November), which is also fine with me :)\n\nKind regards,\n@vavkamil ",
+      "automated_response": false,
+      "created_at": "2021-10-19T12:15:08.353Z",
+      "updated_at": "2021-10-19T12:15:08.353Z",
+      "actor": {
+        "username": "vavkamil",
+        "cleared": false,
+        "verified": false,
+        "url": "/vavkamil",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/069/616/003619f9ca0b0b3d11a238bb540d86b9b22d5b5c_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "trafficfactory"
+    },
+    {
+      "id": 14437393,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2021-11-25T09:11:00.673Z",
+      "updated_at": "2021-11-25T09:11:00.673Z",
+      "actor": {
+        "username": "vavkamil",
+        "cleared": false,
+        "verified": false,
+        "url": "/vavkamil",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/069/616/003619f9ca0b0b3d11a238bb540d86b9b22d5b5c_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "trafficfactory"
+    },
+    {
+      "id": 14437394,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportBecamePublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2021-11-25T09:11:00.837Z",
+      "updated_at": "2021-11-25T09:11:00.837Z",
+      "actor": {
+        "username": "vavkamil",
+        "cleared": false,
+        "verified": false,
+        "url": "/vavkamil",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/069/616/003619f9ca0b0b3d11a238bb540d86b9b22d5b5c_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "trafficfactory"
+    }
+  ],
+  "activity_page_count": 1,
+  "activity_page_number": 1,
+  "summaries": [
+    {
+      "category": "team",
+      "can_view?": true,
+      "can_create?": false
+    },
+    {
+      "category": "researcher",
+      "can_view?": true,
+      "can_create?": false
+    }
+  ]
+}

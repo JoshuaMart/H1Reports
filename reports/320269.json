@@ -1,0 +1,542 @@
+{
+  "id": 320269,
+  "global_id": "Z2lkOi8vaGFja2Vyb25lL1JlcG9ydC8zMjAyNjk=",
+  "url": "https://hackerone.com/reports/320269",
+  "title": "`npmconf` (and `npm` js api) allocate and write to disk uninitialized memory content when a typed number is passed as input on Node.js 4.x",
+  "state": "Closed",
+  "substate": "resolved",
+  "severity_rating": "high",
+  "readable_substate": "Resolved",
+  "created_at": "2018-02-27T13:52:05.982Z",
+  "submitted_at": "2018-02-27T13:52:05.982Z",
+  "is_member_of_team?": false,
+  "is_organization_group_member?": false,
+  "reporter": {
+    "disabled": false,
+    "username": "chalker",
+    "url": "/chalker",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/068/907/abd483931dad2c93e376707dd59719cc277309cd_original.png/d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98"
+    },
+    "is_me?": false,
+    "cleared": false,
+    "verified": false,
+    "hackerone_triager": false,
+    "hacker_mediation": false
+  },
+  "team": {
+    "id": 23949,
+    "url": "https://hackerone.com/nodejs-ecosystem",
+    "handle": "nodejs-ecosystem",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/023/949/3ea3b2ae039a8f955a4a8fe65d99fe85dc817398_original./d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98",
+      "medium": "https://profile-photos.hackerone-user-content.com/variants/000/023/949/3ea3b2ae039a8f955a4a8fe65d99fe85dc817398_original./5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+    },
+    "permissions": [
+
+    ],
+    "submission_state": "disabled",
+    "default_currency": "usd",
+    "awards_miles": false,
+    "offers_bounties": true,
+    "state": "public_mode",
+    "only_cleared_hackers": false,
+    "pentest_feature_enabled?": false,
+    "profile": {
+      "name": "Node.js third-party modules",
+      "twitter_handle": "",
+      "website": "https://nodejs.org/en/security/",
+      "about": "This program was used to handle vulnerabilities in the Node.js ecosystem."
+    }
+  },
+  "has_bounty?": false,
+  "in_validation?": false,
+  "can_view_team": true,
+  "can_view_report": true,
+  "is_external_bug": false,
+  "is_published": false,
+  "is_participant": false,
+  "has_collaborators": false,
+  "submitted_by_team_member": false,
+  "stage": 4,
+  "public": true,
+  "visibility": "full",
+  "cve_ids": [
+
+  ],
+  "singular_disclosure_disabled": false,
+  "disclosed_at": "2018-05-12T08:56:12.533Z",
+  "bug_reporter_agreed_on_going_public_at": null,
+  "team_member_agreed_on_going_public_at": "2018-05-12T08:54:51.401Z",
+  "comments_closed?": false,
+  "facebook_team?": false,
+  "team_private?": false,
+  "vulnerability_information": "I would like to report a Buffer allocation issue in `npmconf` (and `npm` package js api).\nIt allows to extract sensitive content from uninitialized memory by passing typed input to `setCredentialsByURI`, limited to Node.js 4.x and below.\n\n# Module\n\n**module name:** `npmconf`\n**version:** 2.1.2\n**npm page:** `https://www.npmjs.com/package/npmconf`\n\n**module name:** `npm`\n**version:** 5.6.0\n**npm page:** `https://www.npmjs.com/package/npm`\n\n## Module Description\n\n> The config thing npm uses\n\n## Module Stats\n\n### npmconf\n\n40 292 downloads in the last day\n219 837 downloads in the last week\n897 947 downloads in the last month\n\n~1 0775 364 estimated downloads per year\n\n`npmconf` is deprecated, but doesn't mention security issues and is still widely used, and the usage seems to *increase* over time.\n\n### npm\n\n`npm` download stats are not representive here, as it's mainly used as a CLI, not as JS api, but here they are (e.g. for comparison with `npmconf`):\n\n141 545 downloads in the last day\n1 067 194 downloads in the last week\n3 701 192 downloads in the last month\n\n~44 414 304 estimated downloads per year\n\n# Vulnerability\n\n## Vulnerability Description\n\nWhen a number is passed to the `password` property of `config.setCredentialsByURI`, `npmconf`/`npm` allocate uninitialized Buffer instances during conversion to base64 (on Node.js 4.x) due to missing type checks before passing user input to the `new Buffer()` constructor.\n\nThose Buffer instances could (and most likely will) contain sensitive information, see [Buffer-knows-everything.md](https://github.com/ChALkeR/notes/blob/master/Buffer-knows-everything.md).\n\nNode.js 4.x is stated as supported in `npm`.\n\n## Steps To Reproduce:\n\nUse Node.js 4.x LTS or below.\n\n### npmconf\n```js\nvar URI = \"https://registry.example.com:8661/\";\nrequire('npmconf').load({}, function (err, conf) {\n  conf.setCredentialsByURI(URI, {username: 'foo', email: 'boo@example.com', password: 200});\n  console.log(conf.getCredentialsByURI(URI)); // This just outputs the setting\n  // conf.save('user', function() {}) // Warning: writes base64-encoded uninitialized buffer .npmrc\n});\n```\n\n### npm\n```js\nvar URI = \"https://registry.example.com:8661/\";\nrequire('npm').load({}, function (err, npm) {\n  npm.config.setCredentialsByURI(URI, {username: 'foo', email: 'boo@example.com', password: 200});\n  console.log(npm.config.getCredentialsByURI(URI)); // This just outputs the setting\n  // npm.config.save('user', function() {}) // Warning: writes base64-encoded uninitialized buffer .npmrc\n});\n```\n\n## Supporting Material/References:\n\n- Arch Linux\n- Node.js v4.8.7 (latest in 4.x LTS branch)\n- npm 5.6.0\n\n# Wrap up\n\n- I contacted the maintainer to let him know: Y\n- I opened an issue in the related repository: N\n\nI reported this initially on 2016-01-20 over email, but didn't receive any response.\nProbably was deemed insignificant or out-of-scope, but I still think this should be fixed and disclosed.\n\n## Impact\n\nRead uninitialized memory, extracting sensitive information from it.\nCause a DoS by large Buffer allocation and conversion to string.",
+  "weakness": {
+    "id": 8,
+    "name": "Out-of-bounds Read"
+  },
+  "original_report_id": null,
+  "original_report_url": null,
+  "attachments": [
+
+  ],
+  "allow_singular_disclosure_at": "2018-06-11T08:54:51.518Z",
+  "allow_singular_disclosure_after": -166748260.64622754,
+  "singular_disclosure_allowed": true,
+  "vote_count": 3,
+  "voters": [
+    "bl4de",
+    "japz",
+    "0x08"
+  ],
+  "severity": {
+    "rating": "high",
+    "score": 7.4,
+    "author_type": "Team",
+    "metrics": {
+      "attack_vector": "network",
+      "attack_complexity": "low",
+      "privileges_required": "none",
+      "user_interaction": "required",
+      "scope": "changed",
+      "confidentiality": "high",
+      "integrity": "none",
+      "availability": "none"
+    }
+  },
+  "structured_scope": {
+    "databaseId": 9407,
+    "asset_type": "SOURCE_CODE",
+    "asset_identifier": "npmconf",
+    "max_severity": "critical"
+  },
+  "abilities": {
+    "assignable_team_members": [
+
+    ],
+    "assignable_team_member_groups": [
+
+    ]
+  },
+  "activities": [
+    {
+      "id": 2538933,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugTriaged",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2018-03-28T06:39:45.315Z",
+      "updated_at": "2018-03-28T06:39:45.315Z",
+      "actor": {
+        "username": "lirantal",
+        "cleared": false,
+        "verified": false,
+        "url": "/lirantal",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/096/045/7e9d9170c9862d8d3697b11b0bb7160d40444c16_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 2538936,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @chalker,\n\nThanks for reporting this vulnerability.\nWhile both modules have shared maintainer (isaacs) there are other different collaborators between the projects.\n\nsince `npmconf` is already set as deprecated I assume there is not going to be any further fixes there but we just want to disclose the vulnerability, right?\n\nI'll invite some of the module maintainers for `npm`\n",
+      "automated_response": false,
+      "created_at": "2018-03-28T06:42:30.800Z",
+      "updated_at": "2018-03-28T06:42:30.800Z",
+      "actor": {
+        "username": "lirantal",
+        "cleared": false,
+        "verified": false,
+        "url": "/lirantal",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/096/045/7e9d9170c9862d8d3697b11b0bb7160d40444c16_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 2538955,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@lirantal Thanks.\n\nYes, it looks like npmconf indeed got deprecated by now.\nBut it has 1 088 971 downloads per month though and that appears to be *inceasing* (compare to numbers mentioned in the post above).\n\nIn fact, `npmconf` worries me *more* than `npm` here,  because for the latter almost all installs are probably for the CLI tool which is not affected, but `npmconf` is always used as an API, which is where the problem is.",
+      "automated_response": false,
+      "created_at": "2018-03-28T06:56:03.201Z",
+      "updated_at": "2018-03-28T06:56:03.201Z",
+      "actor": {
+        "username": "chalker",
+        "cleared": false,
+        "verified": false,
+        "url": "/chalker",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/068/907/abd483931dad2c93e376707dd59719cc277309cd_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 2542391,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ExternalUserJoined",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2018-03-29T01:26:00.868Z",
+      "updated_at": "2018-03-29T01:26:00.868Z",
+      "actor": {
+        "username": "iarna",
+        "cleared": false,
+        "verified": false,
+        "url": "/iarna",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 2542483,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi, for the record, I'm the npm cli lead and one of the maintainers of many npm repos, including those two.\n\nRisk:\n\nYou loaded a config via `npmconf` (deprecated) or `npm` as a library (unsupported) and added a username and password pair where the password was a `Number` and then you called `save()`. At which point uninitialized memory from that process would be written to the user running the process's `.npmrc`.\n\nState of things:\n\n`npm` had a patch that coincidentally fixed this in `v6.0.0-next.0`, and I'd be happy to bring that patch `npm@5` as well. (`npm@6` is an active release candidate but in the meantime `npm@5` remains supported.) `npm` has 1908 dependents published on the registry. It is unknown how many use it as a library versus calling it as a cli. Some do, despite this being an unsupported mode of operation.\n\n`npmconf` has been deprecated since (at least) Jan 2016 and has been entirely unsupported since then. I would be happy, however, to do a new release of it with a patch, while retaining its deprecated status.` npmconf` has 123 dependents published to the registry.\n\nImpact:\n\nnpm's own use would only go through the code path with `new Buffer` on when adding a user on third party registries, as `registry.npmjs.com` authenticates via tokens and not username/password pairs. As @chalker noted, in that scenario, it's still not vulnerable as there's no way to force `npm` to pass anything in other than a `String`.\n\nI would be genuinely surprised if anyone using `npm` internals as a library or `npmconf` called `setCredentialsByURI`. \n\nA naive search seems to back this up: https://www.google.com/search?q=site%3Agithub.com+setCredentialsByURI\n\nWhich in contrast to a search for npmconf: https://www.google.com/search?q=site%3Agithub.com+npmconf\n\n",
+      "automated_response": false,
+      "created_at": "2018-03-29T02:12:55.950Z",
+      "updated_at": "2018-03-29T02:12:55.950Z",
+      "actor": {
+        "username": "iarna",
+        "cleared": false,
+        "verified": false,
+        "url": "/iarna",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 2542717,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi, @iarna, and thanks for the reply on this!\n\n> You loaded a config via npmconf (deprecated)\n\nCorrect. But the downloads/month of `npmconf` seem increasing over time.\n\n> or npm as a library (unsupported)\n\nHuh? But `npmconf` [Readme](https://github.com/npm/npmconf#this-package-is-deprecated) redirects there:\n\n> npm itself is the best tool to use to manage its configuration\n\nNext (*needed to break the citation*):\n\n> and added a username and password pair where the password was a Number\n\nCorrect.\n\n> and then you called save(). At which point uninitialized memory from that process would be written to the user running the process's .npmrc.\n\nNot entirely correct — `.save` call is not required. Please see the code snippets attached above — it is also a risk when someone does that in-memory, which could be more likely than writing to a file.\n\n> npm had a patch that coincidentally fixed this in v6.0.0-next.0, and I'd be happy to bring that patch npm@5 as well. \n\nGreat, SGTM for npm@5 and npm@6.\n\n> npmconf has been deprecated since (at least) Jan 2016 and has been entirely unsupported since then\n\nCoincidentally, Jan 2016 was the date of the original report to security@npmjs.com ;-). According to the git history, `npmconf` has been deprecated before the report, about for two weeks.\n\nAt the current time, what worries me about `npmconf` is its downloads/month stats rising over time — seems like the deprecation message upon install is not effective.\n\nI am not sure if that should be fixed or just disclosed with adding to vuln databases and changing the deprecation message to something more effective  — any approach would work to me. I understand the negative effects of making it seem that an unsupported package is supported, and I trust your opinion on that whatever path you choose here. Imo, even simply disclosing this issue might help a bit.\n\n> I would be genuinely surprised if anyone using npm internals as a library or npmconf called setCredentialsByURI.\n\nI have found signs of that usage, though I assume it's fairly minimal, e.g. https://github.com/ctran/nexus-cli/blob/master/index.js#L124 would fit for «anyone», or https://github.com/HelloWallet/secret-service/blob/master/lib/modules.js#L334-L339. There seem to be more — but not a lot of them in public packages, so yes, for public packages the usage seems minimal.\n\nNikita.",
+      "automated_response": false,
+      "created_at": "2018-03-29T05:38:03.575Z",
+      "updated_at": "2018-03-29T05:47:17.356Z",
+      "actor": {
+        "username": "chalker",
+        "cleared": false,
+        "verified": false,
+        "url": "/chalker",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/068/907/abd483931dad2c93e376707dd59719cc277309cd_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 2661156,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@chalker @iarna are we ok with disclosing the report?",
+      "automated_response": false,
+      "created_at": "2018-04-24T20:04:57.584Z",
+      "updated_at": "2018-04-24T20:04:57.584Z",
+      "actor": {
+        "username": "lirantal",
+        "cleared": false,
+        "verified": false,
+        "url": "/lirantal",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/096/045/7e9d9170c9862d8d3697b11b0bb7160d40444c16_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 2729696,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@chalker @iarna\nping",
+      "automated_response": false,
+      "created_at": "2018-05-11T15:39:12.158Z",
+      "updated_at": "2018-05-11T15:39:12.158Z",
+      "actor": {
+        "username": "lirantal",
+        "cleared": false,
+        "verified": false,
+        "url": "/lirantal",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/096/045/7e9d9170c9862d8d3697b11b0bb7160d40444c16_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 2730097,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "I'm fine with disclosing, having `npm` fixed and `npmconf` emitting an additional warning after disclosure with `npm audit` solves this.",
+      "automated_response": false,
+      "created_at": "2018-05-11T17:24:14.873Z",
+      "updated_at": "2018-05-11T17:24:14.873Z",
+      "actor": {
+        "username": "chalker",
+        "cleared": false,
+        "verified": false,
+        "url": "/chalker",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/068/907/abd483931dad2c93e376707dd59719cc277309cd_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 2731157,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Cool, I'll go ahead with a public disclosure.\nThe report will be about `npmconf` with version 2.1.2 and no patched version, right?",
+      "automated_response": false,
+      "created_at": "2018-05-11T20:03:58.479Z",
+      "updated_at": "2018-05-11T20:03:58.479Z",
+      "actor": {
+        "username": "lirantal",
+        "cleared": false,
+        "verified": false,
+        "url": "/lirantal",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/096/045/7e9d9170c9862d8d3697b11b0bb7160d40444c16_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 2731663,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "`npmconf` 2.1.3 has been published with a patch.",
+      "automated_response": false,
+      "created_at": "2018-05-11T22:03:43.627Z",
+      "updated_at": "2018-05-11T22:03:43.627Z",
+      "actor": {
+        "username": "iarna",
+        "cleared": false,
+        "verified": false,
+        "url": "/iarna",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 2733241,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Thanks @iarna  , I see it.",
+      "automated_response": false,
+      "created_at": "2018-05-12T08:53:07.885Z",
+      "updated_at": "2018-05-12T08:53:07.885Z",
+      "actor": {
+        "username": "lirantal",
+        "cleared": false,
+        "verified": false,
+        "url": "/lirantal",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/096/045/7e9d9170c9862d8d3697b11b0bb7160d40444c16_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 2733243,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportSeverityUpdated",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2018-05-12T08:54:19.692Z",
+      "updated_at": "2018-05-12T08:54:19.692Z",
+      "additional_data": {
+        "old_severity": "Medium",
+        "new_severity": "High (7.4)",
+        "old_severity_id": 123148,
+        "new_severity_id": 152749
+      },
+      "actor": {
+        "username": "lirantal",
+        "cleared": false,
+        "verified": false,
+        "url": "/lirantal",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/096/045/7e9d9170c9862d8d3697b11b0bb7160d40444c16_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 2733244,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2018-05-12T08:54:35.925Z",
+      "updated_at": "2018-05-12T08:54:35.925Z",
+      "actor": {
+        "username": "lirantal",
+        "cleared": false,
+        "verified": false,
+        "url": "/lirantal",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/096/045/7e9d9170c9862d8d3697b11b0bb7160d40444c16_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "reporter": {
+        "username": "chalker",
+        "url": "/chalker"
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 2733245,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2018-05-12T08:54:51.470Z",
+      "updated_at": "2018-05-12T08:54:51.470Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "lirantal",
+        "cleared": false,
+        "verified": false,
+        "url": "/lirantal",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/096/045/7e9d9170c9862d8d3697b11b0bb7160d40444c16_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 2733247,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ManuallyDisclosed",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2018-05-12T08:56:12.456Z",
+      "updated_at": "2018-05-12T08:56:12.456Z",
+      "actor": {
+        "username": "lirantal",
+        "cleared": false,
+        "verified": false,
+        "url": "/lirantal",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/096/045/7e9d9170c9862d8d3697b11b0bb7160d40444c16_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 2764949,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ChangedScope",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2018-05-19T07:21:10.955Z",
+      "updated_at": "2018-05-19T07:21:10.955Z",
+      "actor": {
+        "username": "lirantal",
+        "cleared": false,
+        "verified": false,
+        "url": "/lirantal",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/096/045/7e9d9170c9862d8d3697b11b0bb7160d40444c16_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "old_scope": "Other module",
+      "new_scope": "npmconf",
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    }
+  ],
+  "activity_page_count": 1,
+  "activity_page_number": 1,
+  "summaries": [
+    {
+      "category": "team",
+      "can_view?": true,
+      "can_create?": false
+    },
+    {
+      "category": "researcher",
+      "can_view?": true,
+      "can_create?": false
+    }
+  ]
+}

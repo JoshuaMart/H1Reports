@@ -1,0 +1,371 @@
+{
+  "id": 174983,
+  "global_id": "Z2lkOi8vaGFja2Vyb25lL1JlcG9ydC8xNzQ5ODM=",
+  "url": "https://hackerone.com/reports/174983",
+  "title": "Mailgun misconfiguration leads to email snooping and postmaster@-access on email.mg.gitlab.com",
+  "state": "Closed",
+  "substate": "resolved",
+  "readable_substate": "Resolved",
+  "created_at": "2016-10-10T18:19:32.283Z",
+  "submitted_at": "2016-10-10T18:19:32.283Z",
+  "is_member_of_team?": false,
+  "is_organization_group_member?": false,
+  "reporter": {
+    "disabled": false,
+    "username": "fransrosen",
+    "url": "/fransrosen",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/001/634/6569f1cff6ac26c01a91db469d8707228965f09f_original.jpg/3c7b305354c9073c106ae3d1701798defaaf5be844fb8fdfa49ca62f991a2c2c"
+    },
+    "is_me?": false,
+    "cleared": true,
+    "verified": true,
+    "hackerone_triager": false,
+    "hacker_mediation": false
+  },
+  "team": {
+    "id": 264,
+    "url": "https://hackerone.com/gitlab",
+    "handle": "gitlab",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/f0hovtq73f9ap815a0r1w42bocp4/d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98",
+      "medium": "https://profile-photos.hackerone-user-content.com/variants/f0hovtq73f9ap815a0r1w42bocp4/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+    },
+    "permissions": [
+
+    ],
+    "submission_state": "open",
+    "default_currency": "usd",
+    "awards_miles": false,
+    "offers_bounties": true,
+    "state": "public_mode",
+    "only_cleared_hackers": false,
+    "pentest_feature_enabled?": false,
+    "profile": {
+      "name": "GitLab",
+      "twitter_handle": "gitlab",
+      "website": "https://about.gitlab.com",
+      "about": "A single application for the entire software development lifecycle."
+    }
+  },
+  "has_bounty?": false,
+  "in_validation?": false,
+  "can_view_team": true,
+  "can_view_report": true,
+  "is_external_bug": false,
+  "is_published": false,
+  "is_participant": false,
+  "has_collaborators": false,
+  "submitted_by_team_member": false,
+  "stage": 4,
+  "public": true,
+  "visibility": "full",
+  "cve_ids": [
+
+  ],
+  "singular_disclosure_disabled": true,
+  "disclosed_at": "2016-12-06T00:57:56.300Z",
+  "bug_reporter_agreed_on_going_public_at": "2016-12-05T13:12:48.746Z",
+  "team_member_agreed_on_going_public_at": "2016-12-06T00:57:56.264Z",
+  "comments_closed?": false,
+  "facebook_team?": false,
+  "team_private?": false,
+  "vulnerability_information": "Hi,\n\nPreviously a blog post went out about Uber's Sendgrid issues: http://blog.pentestnepal.tech/post/149985438982/reading-ubers-internal-emails-uber-bug-bounty\n\nAlso, a report from @uranium238 went out due to a similar issue with Slack (that I know uses Mailgun): https://hackerone.com/reports/163938\n\nNow, by reasons I do not know, this actually has some issues still unpatched by Mailgun, which in combination with a misconfiguration, currently exposes at least `email.mg.gitlab.com`.\n\nThe problem lies in this issue:\n1. You add the domain `mg.gitlab.com` to Mailgun\n2. Mailgun asks you to add a MX record to `mg.gitlab.com`\n3. You add that, then Mailgun also tells you that to get tracking you need to add a CNAME from `email.mg.gitlab.com` to mailgun.org as well. \n4. What is missing here, is for you to actually add `email.mg.gitlab.com` to your account as a separate domain by itself. By not doing this, anyone can add this domain to their account.\n5. You probably later on remove the MX from `mg.gitlab.com` again, but the CNAME is still there for `email.mg.gitlab.com`\n\nThe problem with missing out on #4 above is how DNS CNAMEs works. If you have a CNAME pointing to another domain, this CNAME will actually inherit the MX-records from the other domain. This basically means that your `email.mg.gitlab.com` is now listed with MX-records from Mailgun:\n\n```\n$ host email.mg.gitlab.com\nemail.mg.gitlab.com is an alias for mailgun.org.\nmailgun.org has address 173.203.37.113\nmailgun.org mail is handled by 10 mxb.mailgun.org.\nmailgun.org mail is handled by 10 mxa.mailgun.org.\n```\n\nDue to this, I can claim this domain as mine in Mailgun:\n{F127024}\n\nAnd due to this, I can now create a mailing list called `postmaster@email.mg.gitlab.com` with Access-level: `everyone`:\n{F127025}\n\nI'll add my own email as a recipient:\n{F127026}\n\nI'll now try and see if I can receive emails to `postmaster@email.mg.gitlab.com`:\n{F127027}\n\nThe logs of Mailgun will show me the routing:\n{F127028}\n\nAnd my inbox now have the emails sent to `postmaster@email.mg.gitlab.com`:\n{F127029}\n\nSince postmaster can be used to issue certificates for these domains, and since no one but you should have access to the whitelisted SSL-issuing aliases (ref: https://wiki.mozilla.org/CA:Problematic_Practices#Email_Address_Prefixes_for_DV_Certs)  \nI recommend that you:\n\n1. Add the both domains `email.mg.gitlab.com` to your Mailgun account. **I have removed it again so you can take it back, remember that anyone can right now claim it themselves.**. \n2. Keep in mind that all domains pointing to Mailgun (MX/CNAME) needs to be claimed by you, even the sub sub domains of the ones already in Mailgun. So make sure that no other domains pointing to Mailgun are missing inside your Mailgun account.\n\nRegards,\nFrans",
+  "weakness": {
+    "id": 75,
+    "name": "Privilege Escalation"
+  },
+  "original_report_id": null,
+  "original_report_url": null,
+  "attachments": [
+    {
+      "id": 127024,
+      "file_name": "Screen_Shot_2016-10-10_at_20.13.53.png",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/127/024/c52c16a4c8d2d158651db823622968f0940d188f/Screen_Shot_2016-10-10_at_20.13.53.png?response-content-disposition=attachment%3B%20filename%3D%22Screen_Shot_2016-10-10_at_20.13.53.png%22%3B%20filename%2A%3DUTF-8%27%27Screen_Shot_2016-10-10_at_20.13.53.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQQSHJJ4WA%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T081222Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEC8aCXVzLXdlc3QtMiJIMEYCIQCNRRGWf9hqfbRBySP%2BzD3duT3V0C4SVoEYLwEPiMhgAQIhAIeKUum7lpgC4B%2BlIMof5Ry9tN2v1yK0PkBLjM0lnVMZKrEFCCgQAxoMMDEzNjE5Mjc0ODQ5IgyTOJ9XbCJM8MalVqcqjgU3AuXbr468nUKncUk5OkTZ%2BN4JJRxzVuyROMbUt8%2F45LK4ZdRjaJtd0jOUwDBlGIEYfaqjjbXeQ86Nkq8mUzLVWXziRMoTMwuJuyK%2BNu1aBuLbkLT0cdLuiYucJXQ4vdys8xP5aTjpqu3AL%2FaialU0XTvNdznpXg2aaQuf6ZioHSNyx8Itu%2Bi4H6Alf1677jgfv9AMQgVtTUlLsLvnA%2FDHJZK2f86kj%2FLQf9XdysUd9Ty6vT1WO4FBhDp%2FqsCqzHld8zXwdSKazUZwONsr3GQJ%2BDfgFwYpN5NChxBI9ZQ1%2BMEQp4nolJBiTmUUKz7BuS%2BxDtIlMYCV23Yb3aq71YTwlvvbK52Khh7s8eTfKHTcavmnZ83gaQEC%2FaoqhoGIKmtUq1PP2G2qPHDLKAbHMzXcoSlfGMRHnRfTHG68baxBZ5Ok%2BgUuUCy5KzkRiT5P%2BEry0h1NuA7EKk4H66y9wjKAr4xFzhJUR0Ij4naAbk7ZMWj6ZyHOGHw93XsjkE352bTRjsA7zRh07rjOla%2B5J4faAIfhn7xz6HV0lBx%2BGHJ2MElhTXSXZoDknOpgd7YkA2%2Bkba%2BYHCsnmctuqid9xDxR4ARYDA5f3v0G%2FlF1EyzLjxfNDm0IxB4UakNjrjq58vdweP%2B3ov2QFZFP8Sns0UW4LQrVHng59ZTZr83nHO1U7JgG2inskd7h4NhEQO6ONhggdpImObVlwVvmxCketPIW37wUjLZX4%2FjeAi%2B8GDPFDiaP5tbJjqurQwVxHtsMvUqJGNK0cLkmyO%2B0gRgAb6KT5wZYPo0OPOWrVdyEY8Tmg%2Bp%2F6uBSrwm5UKSpH0qdNaBc00PATubeMe1EP2X5ny%2FZBT5wuo7VnuKUoa%2BuALkw35O6qAY6sAGhr8cu8V6nlRKzTa9Onbd4KOFt2E6lPiBC9RY1tY7ZEOdiDvmfl8iCh3WKTHyKK7r6T07ABQMvlgzU7A%2FErWaWhY8wbGoOoOPZfPAmWJSDUU0YfIpiD802IaKtsyZMsP2ZFk7WcNTfSZR85%2Ba9umLUG43ZK64isT1eJpjfOleGwme5uXu55QsM8%2BEl7T1NBFV%2F3HDWGKGus%2BKgpHcKreUShsqb2LV670al4qaleKFlhA%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=56166dccab8fc115c86f3f7234d6f7f83bba24b800fe510cfed3a88e61165402",
+      "file_size": 18126,
+      "type": "image/png",
+      "moderated": null
+    },
+    {
+      "id": 127025,
+      "file_name": "Screen_Shot_2016-10-10_at_20.14.05.png",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/127/025/e366292b03f18d03f146a576468d2d1191b568d4/Screen_Shot_2016-10-10_at_20.14.05.png?response-content-disposition=attachment%3B%20filename%3D%22Screen_Shot_2016-10-10_at_20.14.05.png%22%3B%20filename%2A%3DUTF-8%27%27Screen_Shot_2016-10-10_at_20.14.05.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQQSHJJ4WA%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T081222Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEC8aCXVzLXdlc3QtMiJIMEYCIQCNRRGWf9hqfbRBySP%2BzD3duT3V0C4SVoEYLwEPiMhgAQIhAIeKUum7lpgC4B%2BlIMof5Ry9tN2v1yK0PkBLjM0lnVMZKrEFCCgQAxoMMDEzNjE5Mjc0ODQ5IgyTOJ9XbCJM8MalVqcqjgU3AuXbr468nUKncUk5OkTZ%2BN4JJRxzVuyROMbUt8%2F45LK4ZdRjaJtd0jOUwDBlGIEYfaqjjbXeQ86Nkq8mUzLVWXziRMoTMwuJuyK%2BNu1aBuLbkLT0cdLuiYucJXQ4vdys8xP5aTjpqu3AL%2FaialU0XTvNdznpXg2aaQuf6ZioHSNyx8Itu%2Bi4H6Alf1677jgfv9AMQgVtTUlLsLvnA%2FDHJZK2f86kj%2FLQf9XdysUd9Ty6vT1WO4FBhDp%2FqsCqzHld8zXwdSKazUZwONsr3GQJ%2BDfgFwYpN5NChxBI9ZQ1%2BMEQp4nolJBiTmUUKz7BuS%2BxDtIlMYCV23Yb3aq71YTwlvvbK52Khh7s8eTfKHTcavmnZ83gaQEC%2FaoqhoGIKmtUq1PP2G2qPHDLKAbHMzXcoSlfGMRHnRfTHG68baxBZ5Ok%2BgUuUCy5KzkRiT5P%2BEry0h1NuA7EKk4H66y9wjKAr4xFzhJUR0Ij4naAbk7ZMWj6ZyHOGHw93XsjkE352bTRjsA7zRh07rjOla%2B5J4faAIfhn7xz6HV0lBx%2BGHJ2MElhTXSXZoDknOpgd7YkA2%2Bkba%2BYHCsnmctuqid9xDxR4ARYDA5f3v0G%2FlF1EyzLjxfNDm0IxB4UakNjrjq58vdweP%2B3ov2QFZFP8Sns0UW4LQrVHng59ZTZr83nHO1U7JgG2inskd7h4NhEQO6ONhggdpImObVlwVvmxCketPIW37wUjLZX4%2FjeAi%2B8GDPFDiaP5tbJjqurQwVxHtsMvUqJGNK0cLkmyO%2B0gRgAb6KT5wZYPo0OPOWrVdyEY8Tmg%2Bp%2F6uBSrwm5UKSpH0qdNaBc00PATubeMe1EP2X5ny%2FZBT5wuo7VnuKUoa%2BuALkw35O6qAY6sAGhr8cu8V6nlRKzTa9Onbd4KOFt2E6lPiBC9RY1tY7ZEOdiDvmfl8iCh3WKTHyKK7r6T07ABQMvlgzU7A%2FErWaWhY8wbGoOoOPZfPAmWJSDUU0YfIpiD802IaKtsyZMsP2ZFk7WcNTfSZR85%2Ba9umLUG43ZK64isT1eJpjfOleGwme5uXu55QsM8%2BEl7T1NBFV%2F3HDWGKGus%2BKgpHcKreUShsqb2LV670al4qaleKFlhA%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=08359692c6efd2ace142130dd1375b8058cbd7e3f1285d6478dd92401e981a67",
+      "file_size": 77819,
+      "type": "image/png",
+      "moderated": null
+    },
+    {
+      "id": 127026,
+      "file_name": "Screen_Shot_2016-10-10_at_20.14.10.png",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/127/026/692297c84a071fe533cabc9ae47c675be72b08fb/Screen_Shot_2016-10-10_at_20.14.10.png?response-content-disposition=attachment%3B%20filename%3D%22Screen_Shot_2016-10-10_at_20.14.10.png%22%3B%20filename%2A%3DUTF-8%27%27Screen_Shot_2016-10-10_at_20.14.10.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQQSHJJ4WA%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T081222Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEC8aCXVzLXdlc3QtMiJIMEYCIQCNRRGWf9hqfbRBySP%2BzD3duT3V0C4SVoEYLwEPiMhgAQIhAIeKUum7lpgC4B%2BlIMof5Ry9tN2v1yK0PkBLjM0lnVMZKrEFCCgQAxoMMDEzNjE5Mjc0ODQ5IgyTOJ9XbCJM8MalVqcqjgU3AuXbr468nUKncUk5OkTZ%2BN4JJRxzVuyROMbUt8%2F45LK4ZdRjaJtd0jOUwDBlGIEYfaqjjbXeQ86Nkq8mUzLVWXziRMoTMwuJuyK%2BNu1aBuLbkLT0cdLuiYucJXQ4vdys8xP5aTjpqu3AL%2FaialU0XTvNdznpXg2aaQuf6ZioHSNyx8Itu%2Bi4H6Alf1677jgfv9AMQgVtTUlLsLvnA%2FDHJZK2f86kj%2FLQf9XdysUd9Ty6vT1WO4FBhDp%2FqsCqzHld8zXwdSKazUZwONsr3GQJ%2BDfgFwYpN5NChxBI9ZQ1%2BMEQp4nolJBiTmUUKz7BuS%2BxDtIlMYCV23Yb3aq71YTwlvvbK52Khh7s8eTfKHTcavmnZ83gaQEC%2FaoqhoGIKmtUq1PP2G2qPHDLKAbHMzXcoSlfGMRHnRfTHG68baxBZ5Ok%2BgUuUCy5KzkRiT5P%2BEry0h1NuA7EKk4H66y9wjKAr4xFzhJUR0Ij4naAbk7ZMWj6ZyHOGHw93XsjkE352bTRjsA7zRh07rjOla%2B5J4faAIfhn7xz6HV0lBx%2BGHJ2MElhTXSXZoDknOpgd7YkA2%2Bkba%2BYHCsnmctuqid9xDxR4ARYDA5f3v0G%2FlF1EyzLjxfNDm0IxB4UakNjrjq58vdweP%2B3ov2QFZFP8Sns0UW4LQrVHng59ZTZr83nHO1U7JgG2inskd7h4NhEQO6ONhggdpImObVlwVvmxCketPIW37wUjLZX4%2FjeAi%2B8GDPFDiaP5tbJjqurQwVxHtsMvUqJGNK0cLkmyO%2B0gRgAb6KT5wZYPo0OPOWrVdyEY8Tmg%2Bp%2F6uBSrwm5UKSpH0qdNaBc00PATubeMe1EP2X5ny%2FZBT5wuo7VnuKUoa%2BuALkw35O6qAY6sAGhr8cu8V6nlRKzTa9Onbd4KOFt2E6lPiBC9RY1tY7ZEOdiDvmfl8iCh3WKTHyKK7r6T07ABQMvlgzU7A%2FErWaWhY8wbGoOoOPZfPAmWJSDUU0YfIpiD802IaKtsyZMsP2ZFk7WcNTfSZR85%2Ba9umLUG43ZK64isT1eJpjfOleGwme5uXu55QsM8%2BEl7T1NBFV%2F3HDWGKGus%2BKgpHcKreUShsqb2LV670al4qaleKFlhA%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=fcb35f29a325efed9876f50d125a762c73f1e1086be1fc590f2a8d73b900a426",
+      "file_size": 57029,
+      "type": "image/png",
+      "moderated": null
+    },
+    {
+      "id": 127027,
+      "file_name": "Screen_Shot_2016-10-10_at_20.14.38.png",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/127/027/5b4cb48c512453550f97bda0364fa410ec784f7b/Screen_Shot_2016-10-10_at_20.14.38.png?response-content-disposition=attachment%3B%20filename%3D%22Screen_Shot_2016-10-10_at_20.14.38.png%22%3B%20filename%2A%3DUTF-8%27%27Screen_Shot_2016-10-10_at_20.14.38.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQQSHJJ4WA%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T081222Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEC8aCXVzLXdlc3QtMiJIMEYCIQCNRRGWf9hqfbRBySP%2BzD3duT3V0C4SVoEYLwEPiMhgAQIhAIeKUum7lpgC4B%2BlIMof5Ry9tN2v1yK0PkBLjM0lnVMZKrEFCCgQAxoMMDEzNjE5Mjc0ODQ5IgyTOJ9XbCJM8MalVqcqjgU3AuXbr468nUKncUk5OkTZ%2BN4JJRxzVuyROMbUt8%2F45LK4ZdRjaJtd0jOUwDBlGIEYfaqjjbXeQ86Nkq8mUzLVWXziRMoTMwuJuyK%2BNu1aBuLbkLT0cdLuiYucJXQ4vdys8xP5aTjpqu3AL%2FaialU0XTvNdznpXg2aaQuf6ZioHSNyx8Itu%2Bi4H6Alf1677jgfv9AMQgVtTUlLsLvnA%2FDHJZK2f86kj%2FLQf9XdysUd9Ty6vT1WO4FBhDp%2FqsCqzHld8zXwdSKazUZwONsr3GQJ%2BDfgFwYpN5NChxBI9ZQ1%2BMEQp4nolJBiTmUUKz7BuS%2BxDtIlMYCV23Yb3aq71YTwlvvbK52Khh7s8eTfKHTcavmnZ83gaQEC%2FaoqhoGIKmtUq1PP2G2qPHDLKAbHMzXcoSlfGMRHnRfTHG68baxBZ5Ok%2BgUuUCy5KzkRiT5P%2BEry0h1NuA7EKk4H66y9wjKAr4xFzhJUR0Ij4naAbk7ZMWj6ZyHOGHw93XsjkE352bTRjsA7zRh07rjOla%2B5J4faAIfhn7xz6HV0lBx%2BGHJ2MElhTXSXZoDknOpgd7YkA2%2Bkba%2BYHCsnmctuqid9xDxR4ARYDA5f3v0G%2FlF1EyzLjxfNDm0IxB4UakNjrjq58vdweP%2B3ov2QFZFP8Sns0UW4LQrVHng59ZTZr83nHO1U7JgG2inskd7h4NhEQO6ONhggdpImObVlwVvmxCketPIW37wUjLZX4%2FjeAi%2B8GDPFDiaP5tbJjqurQwVxHtsMvUqJGNK0cLkmyO%2B0gRgAb6KT5wZYPo0OPOWrVdyEY8Tmg%2Bp%2F6uBSrwm5UKSpH0qdNaBc00PATubeMe1EP2X5ny%2FZBT5wuo7VnuKUoa%2BuALkw35O6qAY6sAGhr8cu8V6nlRKzTa9Onbd4KOFt2E6lPiBC9RY1tY7ZEOdiDvmfl8iCh3WKTHyKK7r6T07ABQMvlgzU7A%2FErWaWhY8wbGoOoOPZfPAmWJSDUU0YfIpiD802IaKtsyZMsP2ZFk7WcNTfSZR85%2Ba9umLUG43ZK64isT1eJpjfOleGwme5uXu55QsM8%2BEl7T1NBFV%2F3HDWGKGus%2BKgpHcKreUShsqb2LV670al4qaleKFlhA%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=17d1f95327c3131632edc1409ea3a33ed2bf2b2f0928882a310656cef2ba7975",
+      "file_size": 46442,
+      "type": "image/png",
+      "moderated": null
+    },
+    {
+      "id": 127028,
+      "file_name": "Screen_Shot_2016-10-10_at_20.15.05.png",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/127/028/5c79f4e34da5466e92ab67d69e852664a136d51d/Screen_Shot_2016-10-10_at_20.15.05.png?response-content-disposition=attachment%3B%20filename%3D%22Screen_Shot_2016-10-10_at_20.15.05.png%22%3B%20filename%2A%3DUTF-8%27%27Screen_Shot_2016-10-10_at_20.15.05.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQQSHJJ4WA%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T081222Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEC8aCXVzLXdlc3QtMiJIMEYCIQCNRRGWf9hqfbRBySP%2BzD3duT3V0C4SVoEYLwEPiMhgAQIhAIeKUum7lpgC4B%2BlIMof5Ry9tN2v1yK0PkBLjM0lnVMZKrEFCCgQAxoMMDEzNjE5Mjc0ODQ5IgyTOJ9XbCJM8MalVqcqjgU3AuXbr468nUKncUk5OkTZ%2BN4JJRxzVuyROMbUt8%2F45LK4ZdRjaJtd0jOUwDBlGIEYfaqjjbXeQ86Nkq8mUzLVWXziRMoTMwuJuyK%2BNu1aBuLbkLT0cdLuiYucJXQ4vdys8xP5aTjpqu3AL%2FaialU0XTvNdznpXg2aaQuf6ZioHSNyx8Itu%2Bi4H6Alf1677jgfv9AMQgVtTUlLsLvnA%2FDHJZK2f86kj%2FLQf9XdysUd9Ty6vT1WO4FBhDp%2FqsCqzHld8zXwdSKazUZwONsr3GQJ%2BDfgFwYpN5NChxBI9ZQ1%2BMEQp4nolJBiTmUUKz7BuS%2BxDtIlMYCV23Yb3aq71YTwlvvbK52Khh7s8eTfKHTcavmnZ83gaQEC%2FaoqhoGIKmtUq1PP2G2qPHDLKAbHMzXcoSlfGMRHnRfTHG68baxBZ5Ok%2BgUuUCy5KzkRiT5P%2BEry0h1NuA7EKk4H66y9wjKAr4xFzhJUR0Ij4naAbk7ZMWj6ZyHOGHw93XsjkE352bTRjsA7zRh07rjOla%2B5J4faAIfhn7xz6HV0lBx%2BGHJ2MElhTXSXZoDknOpgd7YkA2%2Bkba%2BYHCsnmctuqid9xDxR4ARYDA5f3v0G%2FlF1EyzLjxfNDm0IxB4UakNjrjq58vdweP%2B3ov2QFZFP8Sns0UW4LQrVHng59ZTZr83nHO1U7JgG2inskd7h4NhEQO6ONhggdpImObVlwVvmxCketPIW37wUjLZX4%2FjeAi%2B8GDPFDiaP5tbJjqurQwVxHtsMvUqJGNK0cLkmyO%2B0gRgAb6KT5wZYPo0OPOWrVdyEY8Tmg%2Bp%2F6uBSrwm5UKSpH0qdNaBc00PATubeMe1EP2X5ny%2FZBT5wuo7VnuKUoa%2BuALkw35O6qAY6sAGhr8cu8V6nlRKzTa9Onbd4KOFt2E6lPiBC9RY1tY7ZEOdiDvmfl8iCh3WKTHyKK7r6T07ABQMvlgzU7A%2FErWaWhY8wbGoOoOPZfPAmWJSDUU0YfIpiD802IaKtsyZMsP2ZFk7WcNTfSZR85%2Ba9umLUG43ZK64isT1eJpjfOleGwme5uXu55QsM8%2BEl7T1NBFV%2F3HDWGKGus%2BKgpHcKreUShsqb2LV670al4qaleKFlhA%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=11857b64e25c2fae8b0fea74263ce8262bfdf58ad651cf878d4086f6b0e600f6",
+      "file_size": 105268,
+      "type": "image/png",
+      "moderated": null
+    },
+    {
+      "id": 127029,
+      "file_name": "Screen_Shot_2016-10-10_at_20.15.13.png",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/127/029/38b7d5c55b3bcfa4c174d0974eb7fa4501a737ba/Screen_Shot_2016-10-10_at_20.15.13.png?response-content-disposition=attachment%3B%20filename%3D%22Screen_Shot_2016-10-10_at_20.15.13.png%22%3B%20filename%2A%3DUTF-8%27%27Screen_Shot_2016-10-10_at_20.15.13.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQQSHJJ4WA%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T081222Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEC8aCXVzLXdlc3QtMiJIMEYCIQCNRRGWf9hqfbRBySP%2BzD3duT3V0C4SVoEYLwEPiMhgAQIhAIeKUum7lpgC4B%2BlIMof5Ry9tN2v1yK0PkBLjM0lnVMZKrEFCCgQAxoMMDEzNjE5Mjc0ODQ5IgyTOJ9XbCJM8MalVqcqjgU3AuXbr468nUKncUk5OkTZ%2BN4JJRxzVuyROMbUt8%2F45LK4ZdRjaJtd0jOUwDBlGIEYfaqjjbXeQ86Nkq8mUzLVWXziRMoTMwuJuyK%2BNu1aBuLbkLT0cdLuiYucJXQ4vdys8xP5aTjpqu3AL%2FaialU0XTvNdznpXg2aaQuf6ZioHSNyx8Itu%2Bi4H6Alf1677jgfv9AMQgVtTUlLsLvnA%2FDHJZK2f86kj%2FLQf9XdysUd9Ty6vT1WO4FBhDp%2FqsCqzHld8zXwdSKazUZwONsr3GQJ%2BDfgFwYpN5NChxBI9ZQ1%2BMEQp4nolJBiTmUUKz7BuS%2BxDtIlMYCV23Yb3aq71YTwlvvbK52Khh7s8eTfKHTcavmnZ83gaQEC%2FaoqhoGIKmtUq1PP2G2qPHDLKAbHMzXcoSlfGMRHnRfTHG68baxBZ5Ok%2BgUuUCy5KzkRiT5P%2BEry0h1NuA7EKk4H66y9wjKAr4xFzhJUR0Ij4naAbk7ZMWj6ZyHOGHw93XsjkE352bTRjsA7zRh07rjOla%2B5J4faAIfhn7xz6HV0lBx%2BGHJ2MElhTXSXZoDknOpgd7YkA2%2Bkba%2BYHCsnmctuqid9xDxR4ARYDA5f3v0G%2FlF1EyzLjxfNDm0IxB4UakNjrjq58vdweP%2B3ov2QFZFP8Sns0UW4LQrVHng59ZTZr83nHO1U7JgG2inskd7h4NhEQO6ONhggdpImObVlwVvmxCketPIW37wUjLZX4%2FjeAi%2B8GDPFDiaP5tbJjqurQwVxHtsMvUqJGNK0cLkmyO%2B0gRgAb6KT5wZYPo0OPOWrVdyEY8Tmg%2Bp%2F6uBSrwm5UKSpH0qdNaBc00PATubeMe1EP2X5ny%2FZBT5wuo7VnuKUoa%2BuALkw35O6qAY6sAGhr8cu8V6nlRKzTa9Onbd4KOFt2E6lPiBC9RY1tY7ZEOdiDvmfl8iCh3WKTHyKK7r6T07ABQMvlgzU7A%2FErWaWhY8wbGoOoOPZfPAmWJSDUU0YfIpiD802IaKtsyZMsP2ZFk7WcNTfSZR85%2Ba9umLUG43ZK64isT1eJpjfOleGwme5uXu55QsM8%2BEl7T1NBFV%2F3HDWGKGus%2BKgpHcKreUShsqb2LV670al4qaleKFlhA%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=65abb92a4f259763c0d1c58a696bb8d6a998e5c467721a2970dbcc24b4a26f8e",
+      "file_size": 381682,
+      "type": "image/png",
+      "moderated": null
+    }
+  ],
+  "allow_singular_disclosure_at": "2017-01-04T13:12:48.779Z",
+  "allow_singular_disclosure_after": -211921173.71269605,
+  "singular_disclosure_allowed": true,
+  "vote_count": 28,
+  "voters": [
+    "jobert",
+    "michiel",
+    "bug_vs_me",
+    "floriankunushevci",
+    "skansing",
+    "zeeshank",
+    "yassineaboukir",
+    "encrypt",
+    "savitar0x01",
+    "madrobot",
+    "and 18 more..."
+  ],
+  "structured_scope": null,
+  "abilities": {
+    "assignable_team_members": [
+
+    ],
+    "assignable_team_member_groups": [
+
+    ]
+  },
+  "activities": [
+    {
+      "id": 1240841,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@fransrosen Thanks for the report. We believe we've rectified the issue on our end. Please feel free to double-check it for us! We've also opened a support ticket with Mailgun so that they are aware of the issue.",
+      "automated_response": false,
+      "created_at": "2016-10-10T19:16:46.478Z",
+      "updated_at": "2016-10-10T19:16:46.478Z",
+      "actor": {
+        "username": "briann",
+        "cleared": false,
+        "verified": false,
+        "url": "/briann",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 1240842,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Awesome x 2! :)\nConfirmed!\n\nCheers,\nFrans\n\n",
+      "automated_response": false,
+      "created_at": "2016-10-10T19:17:42.773Z",
+      "updated_at": "2016-10-10T19:17:42.773Z",
+      "actor": {
+        "username": "fransrosen",
+        "cleared": true,
+        "verified": true,
+        "url": "/fransrosen",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/001/634/6569f1cff6ac26c01a91db469d8707228965f09f_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "attachments": [
+        {
+          "id": 127064,
+          "filename": "Screen_Shot_2016-10-10_at_21.17.15.png",
+          "type": "image/png",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/127/064/860bdef80314f932d381cfe621899fbc609d82eb/Screen_Shot_2016-10-10_at_21.17.15.png?response-content-disposition=attachment%3B%20filename%3D%22Screen_Shot_2016-10-10_at_21.17.15.png%22%3B%20filename%2A%3DUTF-8%27%27Screen_Shot_2016-10-10_at_21.17.15.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQQSHJJ4WA%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T081222Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEC8aCXVzLXdlc3QtMiJIMEYCIQCNRRGWf9hqfbRBySP%2BzD3duT3V0C4SVoEYLwEPiMhgAQIhAIeKUum7lpgC4B%2BlIMof5Ry9tN2v1yK0PkBLjM0lnVMZKrEFCCgQAxoMMDEzNjE5Mjc0ODQ5IgyTOJ9XbCJM8MalVqcqjgU3AuXbr468nUKncUk5OkTZ%2BN4JJRxzVuyROMbUt8%2F45LK4ZdRjaJtd0jOUwDBlGIEYfaqjjbXeQ86Nkq8mUzLVWXziRMoTMwuJuyK%2BNu1aBuLbkLT0cdLuiYucJXQ4vdys8xP5aTjpqu3AL%2FaialU0XTvNdznpXg2aaQuf6ZioHSNyx8Itu%2Bi4H6Alf1677jgfv9AMQgVtTUlLsLvnA%2FDHJZK2f86kj%2FLQf9XdysUd9Ty6vT1WO4FBhDp%2FqsCqzHld8zXwdSKazUZwONsr3GQJ%2BDfgFwYpN5NChxBI9ZQ1%2BMEQp4nolJBiTmUUKz7BuS%2BxDtIlMYCV23Yb3aq71YTwlvvbK52Khh7s8eTfKHTcavmnZ83gaQEC%2FaoqhoGIKmtUq1PP2G2qPHDLKAbHMzXcoSlfGMRHnRfTHG68baxBZ5Ok%2BgUuUCy5KzkRiT5P%2BEry0h1NuA7EKk4H66y9wjKAr4xFzhJUR0Ij4naAbk7ZMWj6ZyHOGHw93XsjkE352bTRjsA7zRh07rjOla%2B5J4faAIfhn7xz6HV0lBx%2BGHJ2MElhTXSXZoDknOpgd7YkA2%2Bkba%2BYHCsnmctuqid9xDxR4ARYDA5f3v0G%2FlF1EyzLjxfNDm0IxB4UakNjrjq58vdweP%2B3ov2QFZFP8Sns0UW4LQrVHng59ZTZr83nHO1U7JgG2inskd7h4NhEQO6ONhggdpImObVlwVvmxCketPIW37wUjLZX4%2FjeAi%2B8GDPFDiaP5tbJjqurQwVxHtsMvUqJGNK0cLkmyO%2B0gRgAb6KT5wZYPo0OPOWrVdyEY8Tmg%2Bp%2F6uBSrwm5UKSpH0qdNaBc00PATubeMe1EP2X5ny%2FZBT5wuo7VnuKUoa%2BuALkw35O6qAY6sAGhr8cu8V6nlRKzTa9Onbd4KOFt2E6lPiBC9RY1tY7ZEOdiDvmfl8iCh3WKTHyKK7r6T07ABQMvlgzU7A%2FErWaWhY8wbGoOoOPZfPAmWJSDUU0YfIpiD802IaKtsyZMsP2ZFk7WcNTfSZR85%2Ba9umLUG43ZK64isT1eJpjfOleGwme5uXu55QsM8%2BEl7T1NBFV%2F3HDWGKGus%2BKgpHcKreUShsqb2LV670al4qaleKFlhA%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=53cb75c0dc439874a6a852b2a7736c9f4c9097543fd8f39a767b3805b18247f9"
+        }
+      ],
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 1240843,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2016-10-10T19:18:27.244Z",
+      "updated_at": "2016-10-10T19:18:27.244Z",
+      "actor": {
+        "username": "briann",
+        "cleared": false,
+        "verified": false,
+        "url": "/briann",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "reporter": {
+        "username": "fransrosen",
+        "url": "/fransrosen"
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 1340985,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@fransrosen Thanks again for the report! The [vulnerability acknowledgements](https://about.gitlab.com/vulnerability-acknowledgements/) page has been updated, but feel free to request a disclosure of this issue.",
+      "automated_response": false,
+      "created_at": "2016-12-05T10:47:06.250Z",
+      "updated_at": "2016-12-05T10:47:06.250Z",
+      "actor": {
+        "username": "rspeicher",
+        "cleared": false,
+        "verified": false,
+        "url": "/rspeicher",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/070/800/771703800f32dcb0c5413919f04f19305041dd58_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 1341206,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "Since Mailgun went public about doing a proper fix to this issue this can now be publicly disclosed. Thanks for the help!",
+      "automated_response": false,
+      "created_at": "2016-12-05T13:12:48.761Z",
+      "updated_at": "2016-12-05T13:12:48.761Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "fransrosen",
+        "cleared": true,
+        "verified": true,
+        "url": "/fransrosen",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/001/634/6569f1cff6ac26c01a91db469d8707228965f09f_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 1343030,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2016-12-06T00:57:56.284Z",
+      "updated_at": "2016-12-06T00:57:56.284Z",
+      "actor": {
+        "username": "briann",
+        "cleared": false,
+        "verified": false,
+        "url": "/briann",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 1343031,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportBecamePublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2016-12-06T00:57:56.315Z",
+      "updated_at": "2016-12-06T00:57:56.315Z",
+      "actor": {
+        "username": "briann",
+        "cleared": false,
+        "verified": false,
+        "url": "/briann",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    }
+  ],
+  "activity_page_count": 1,
+  "activity_page_number": 1,
+  "summaries": [
+    {
+      "id": 2795,
+      "category": "team",
+      "content": "@fransrosen Identified a vulnerability in our Mailgun configuration that allowed mail to several of our subdomains to be leaked. @fransrosen included enough information in the report so that we were able to immediately correct the issue and report the problem to Mailgun. Thanks @fransrosen for one of the more interesting vulnerability reports we've seen!",
+      "user": {
+        "id": 115338,
+        "username": "briann",
+        "name": "brian",
+        "bio": null,
+        "cleared": false,
+        "verified": false,
+        "website": null,
+        "location": null,
+        "created_at": "2016-10-04T11:48:47.720Z",
+        "url": "https://hackerone.com/briann",
+        "hackerone_triager": false,
+        "hackerone_employee": false,
+        "user_type": "hacker",
+        "profile_picture_urls": {
+          "small": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png",
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png",
+          "xtralarge": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        }
+      },
+      "can_view?": true,
+      "can_create?": false,
+      "attachments": [
+
+      ]
+    },
+    {
+      "category": "researcher",
+      "can_view?": true,
+      "can_create?": false
+    }
+  ]
+}

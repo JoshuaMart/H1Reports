@@ -1,0 +1,668 @@
+{
+  "id": 309641,
+  "global_id": "Z2lkOi8vaGFja2Vyb25lL1JlcG9ydC8zMDk2NDE=",
+  "url": "https://hackerone.com/reports/309641",
+  "title": "[simple-server] HTML with iframe element can be used as filename, which might lead to load and execute malicious JavaScript ",
+  "state": "Closed",
+  "substate": "resolved",
+  "severity_rating": "high",
+  "readable_substate": "Resolved",
+  "created_at": "2018-01-26T21:38:57.170Z",
+  "submitted_at": "2018-01-26T21:38:57.170Z",
+  "is_member_of_team?": false,
+  "is_organization_group_member?": false,
+  "reporter": {
+    "disabled": false,
+    "username": "bl4de",
+    "url": "/bl4de",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/017/622/285a07d9de896d5840ce1b556236272b751658e3_original.jpg/3c7b305354c9073c106ae3d1701798defaaf5be844fb8fdfa49ca62f991a2c2c"
+    },
+    "is_me?": false,
+    "cleared": false,
+    "verified": false,
+    "hackerone_triager": false,
+    "hacker_mediation": false
+  },
+  "team": {
+    "id": 23949,
+    "url": "https://hackerone.com/nodejs-ecosystem",
+    "handle": "nodejs-ecosystem",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/023/949/3ea3b2ae039a8f955a4a8fe65d99fe85dc817398_original./d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98",
+      "medium": "https://profile-photos.hackerone-user-content.com/variants/000/023/949/3ea3b2ae039a8f955a4a8fe65d99fe85dc817398_original./5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+    },
+    "permissions": [
+
+    ],
+    "submission_state": "disabled",
+    "default_currency": "usd",
+    "awards_miles": false,
+    "offers_bounties": true,
+    "state": "public_mode",
+    "only_cleared_hackers": false,
+    "pentest_feature_enabled?": false,
+    "profile": {
+      "name": "Node.js third-party modules",
+      "twitter_handle": "",
+      "website": "https://nodejs.org/en/security/",
+      "about": "This program was used to handle vulnerabilities in the Node.js ecosystem."
+    }
+  },
+  "has_bounty?": false,
+  "in_validation?": false,
+  "can_view_team": true,
+  "can_view_report": true,
+  "is_external_bug": false,
+  "is_published": false,
+  "is_participant": false,
+  "has_collaborators": false,
+  "submitted_by_team_member": false,
+  "stage": 4,
+  "public": true,
+  "visibility": "full",
+  "cve_ids": [
+    "CVE-2018-3717"
+  ],
+  "singular_disclosure_disabled": false,
+  "disclosed_at": "2018-03-01T23:04:03.545Z",
+  "bug_reporter_agreed_on_going_public_at": null,
+  "team_member_agreed_on_going_public_at": "2018-01-30T23:04:00.978Z",
+  "comments_closed?": false,
+  "facebook_team?": false,
+  "team_private?": false,
+  "vulnerability_information": "Hi Guys,\n\n**simple-server** allows to embed HTML in file names, which (in certain conditions) might lead to execute malicious JavaScript. This is caused by outdated version of ```connect``` framework.\n\n**Module:** \n\nSimple Server allows you to easily get a node.js static file server up and running anywhere anytime.\n\nhttps://www.npmjs.com/package/simple-server\n\n**Description**\n\nThis issue is exactly the same I've reported for ```anywhere``` module (https://hackerone.com/reports/309394).\nThe problem is outdated ```connect``` framework (2.10.0) with obsolete middleware used to display content of the directory as HTML.\n\nThis is the code which allows to embed HTML in file names and execute attack described in PoC (```/node_modules/connect/lib/middleware/directory.js```, lines 192-197):\n\n```javascript\n\n    return '<li><a href=\"'\n      + utils.normalizeSlashes(normalize(path.join('/')))\n      + '\" class=\"'\n      + classes.join(' ') + '\"'\n      + ' title=\"' + file + '\">'\n      + icon + file + '</a></li>';\n```\n\nAs you can see, ```file``` is output directly into HTML without any sanitization.\n\nNow, take a look how the same fragment of code looks in ```serve-index``` middleware, introduced in place of old middlewares like ```directory.js``` above, and  used in current Connect and Express frameworks (https://github.com/expressjs/serve-index/blob/a399faa1801f02ee1885e5664ed21a9c7990b63a/index.js#L279):\n\n```javascript\nreturn '<li><a href=\"'\n      + escapeHtml(normalizeSlashes(normalize(path.join('/'))))\n      + '\" class=\"' + escapeHtml(classes.join(' ')) + '\"'\n      + ' title=\"' + escapeHtml(file.name) + '\">'\n      + '<span class=\"name\">' + escapeHtml(file.name) + '</span>'\n      + '<span class=\"size\">' + escapeHtml(size) + '</span>'\n      + '<span class=\"date\">' + escapeHtml(date) + '</span>'\n      + '</a></li>';\n```\n\nAll output data is sanitized with ```escapeHtml()``` which sanitizes HTML before is send to browser.\n\nI think this is the problem of all older npm modules using old versions of Connect middlewares like ```directory.js```.\n\n\n## PoC - Steps To Reproduce:\n\nIn the directory which will be served via ```simple-server```, create file with following name:\n\n```\n\"><iframe src=\"malware_frame.html\">\n```\n\nThen, HTML file with following content have to be saved in the same directory as file with the name changed:\n\n```\n<html>\n\n<head>\n    <meta charset=\"utf8\" />\n    <title>Frame embeded with malware :P</title>\n</head>\n\n<body>\n    <p>iframe element with malicious code</p>\n    <script type=\"text/javascript\" src=\"malware.js\"></script>\n</body>\n\n</html>\n```\n\nAn ```src``` attribute value I've used here is just for PoC purpose, this can be any external url.\nOn my local machine, ```malware.js``` has following content:\n\n```\nalert('Uh oh, I am very bad malware!')\n```\n\nRun ```simple-server`` in directory where both file with filename changed and ```malware_frame.html``` are saved:\n\n```\n$ ./node_modules/simple-server/bin/simple-server.js ./ 8080\nSimple-Server listening to http://:::8080/ with directory /Users/bl4de/playground/node_bugbounty_playground\n```\n\nand open ```http://127.0.0.1:8080``` in the browser, you can see JavaScript from ```malware.js``` is executed.\n\n## Supporting Material/References:\n\nConfiguration I've used to find this vulnerability:\n\n- macOS HighSierra 10.13.3\n- node 8.9.3\n- npm 5.5.1\n- curl 7.54.0\n\n## Wrap up\n\nI hope this report will help to keep Node ecosystem more safe. If you have any questions about any details of this finding, please let me know in comment.\n\nThank you\n\nRegards,\n\nRafal 'bl4de' Janicki\n\n## Impact\n\nExploitation of this vulnerability in the wild might be hard, however it's not impossible and it depends only on attacker's skills to get into directory on the server, where ```simple-server``` is used to serve static content.",
+  "weakness": {
+    "id": 62,
+    "name": "Cross-site Scripting (XSS) - Stored"
+  },
+  "original_report_id": null,
+  "original_report_url": null,
+  "attachments": [
+
+  ],
+  "allow_singular_disclosure_at": "2018-03-01T23:04:01.085Z",
+  "allow_singular_disclosure_after": -175510242.25977865,
+  "singular_disclosure_allowed": true,
+  "vote_count": 6,
+  "voters": [
+    "muon4",
+    "eveeez",
+    "m7mdharoun",
+    "khaledibnalwalid",
+    "666reda",
+    "geotester"
+  ],
+  "severity": {
+    "rating": "high",
+    "score": 7.7,
+    "author_type": "Team",
+    "metrics": {
+      "attack_vector": "network",
+      "attack_complexity": "low",
+      "privileges_required": "low",
+      "user_interaction": "none",
+      "scope": "changed",
+      "confidentiality": "none",
+      "integrity": "high",
+      "availability": "none"
+    }
+  },
+  "structured_scope": {
+    "databaseId": 7002,
+    "asset_type": "SOURCE_CODE",
+    "asset_identifier": "simple-server",
+    "max_severity": "critical"
+  },
+  "abilities": {
+    "assignable_team_members": [
+
+    ],
+    "assignable_team_member_groups": [
+
+    ]
+  },
+  "activities": [
+    {
+      "id": 2326682,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hey @bl4de thanks you for this report! We will shortly look at it!",
+      "automated_response": false,
+      "created_at": "2018-01-29T08:31:48.271Z",
+      "updated_at": "2018-01-29T08:31:48.271Z",
+      "actor": {
+        "username": "vdeturckheim",
+        "cleared": false,
+        "verified": false,
+        "url": "/vdeturckheim",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/161/010/6f383ac0f9296c13b5ac0d38741f0685dbace58c_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 2329944,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @bl4de,\n\nThanks for reporting this issue to us.\n\nI was able to reproduce and confirm the issue as you described and will triage this report as vulnerability.\nI will invite the package maintainer to this issue.",
+      "automated_response": false,
+      "created_at": "2018-01-30T06:57:03.560Z",
+      "updated_at": "2018-01-30T06:57:03.560Z",
+      "actor": {
+        "username": "lirantal",
+        "cleared": false,
+        "verified": false,
+        "url": "/lirantal",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/096/045/7e9d9170c9862d8d3697b11b0bb7160d40444c16_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 2329962,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugTriaged",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2018-01-30T07:08:18.064Z",
+      "updated_at": "2018-01-30T07:08:18.064Z",
+      "actor": {
+        "username": "lirantal",
+        "cleared": false,
+        "verified": false,
+        "url": "/lirantal",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/096/045/7e9d9170c9862d8d3697b11b0bb7160d40444c16_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 2330113,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ExternalUserJoined",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2018-01-30T08:45:52.439Z",
+      "updated_at": "2018-01-30T08:45:52.439Z",
+      "actor": {
+        "username": "balupton",
+        "cleared": false,
+        "verified": false,
+        "url": "/balupton",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/236/962/35b7c8519b4057c761c9bb124ca7ea177ee1eb89_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 2330126,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Author here. This is a package for quick and dirty local dev from 2011 that has unsupported and outdated labels on its github page. ",
+      "automated_response": false,
+      "created_at": "2018-01-30T08:55:36.713Z",
+      "updated_at": "2018-01-30T08:55:36.713Z",
+      "actor": {
+        "username": "balupton",
+        "cleared": false,
+        "verified": false,
+        "url": "/balupton",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/236/962/35b7c8519b4057c761c9bb124ca7ea177ee1eb89_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 2330149,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Argh. Seem people use it despite the above: https://github.com/balupton/simple-server/network/dependents\n\nWill push up something better.",
+      "automated_response": false,
+      "created_at": "2018-01-30T09:03:26.890Z",
+      "updated_at": "2018-01-30T09:03:26.890Z",
+      "actor": {
+        "username": "balupton",
+        "cleared": false,
+        "verified": false,
+        "url": "/balupton",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/236/962/35b7c8519b4057c761c9bb124ca7ea177ee1eb89_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 2330160,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hey @balupton,\n\nHappy you joined us, and appreciate the quick response! :-)\nI already requested a CVE assigned so we'll also have that coming in soon.",
+      "automated_response": false,
+      "created_at": "2018-01-30T09:11:05.888Z",
+      "updated_at": "2018-01-30T09:11:05.888Z",
+      "actor": {
+        "username": "lirantal",
+        "cleared": false,
+        "verified": false,
+        "url": "/lirantal",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/096/045/7e9d9170c9862d8d3697b11b0bb7160d40444c16_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 2330205,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Alright. New version released that just aliases `zeit/serve`. Hopefully the dependents will upgrade.",
+      "automated_response": false,
+      "created_at": "2018-01-30T09:35:25.933Z",
+      "updated_at": "2018-01-30T09:35:25.933Z",
+      "actor": {
+        "username": "balupton",
+        "cleared": false,
+        "verified": false,
+        "url": "/balupton",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/236/962/35b7c8519b4057c761c9bb124ca7ea177ee1eb89_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 2330245,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "This was swift, thanks @balupton!\n@bl4de can you confirm?\n\n@balupton are you ok with a full public disclosure for this report? we'll publicly disclose it within 45 days since it was triaged per the policy (https://github.com/nodejs/security-wg/blob/master/processes/third_party_vuln_process.md)\n\n",
+      "automated_response": false,
+      "created_at": "2018-01-30T10:23:51.999Z",
+      "updated_at": "2018-01-30T10:23:51.999Z",
+      "actor": {
+        "username": "lirantal",
+        "cleared": false,
+        "verified": false,
+        "url": "/lirantal",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/096/045/7e9d9170c9862d8d3697b11b0bb7160d40444c16_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 2330403,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @lirantal , @balupton \n\nI can't reproduce this issue anymore, seems to be fixed :)\n\nbl4de",
+      "automated_response": false,
+      "created_at": "2018-01-30T11:45:55.972Z",
+      "updated_at": "2018-01-30T11:45:55.972Z",
+      "actor": {
+        "username": "bl4de",
+        "cleared": false,
+        "verified": false,
+        "url": "/bl4de",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/017/622/285a07d9de896d5840ce1b556236272b751658e3_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 2330404,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "> are you ok with a full public disclosure for this report? we'll publicly disclose it within 45 days since it was triaged per the policy (https://github.com/nodejs/security-wg/blob/master/processes/third_party_vuln_process.md)\n\nSure thing.",
+      "automated_response": false,
+      "created_at": "2018-01-30T11:47:27.294Z",
+      "updated_at": "2018-01-30T11:47:27.294Z",
+      "actor": {
+        "username": "balupton",
+        "cleared": false,
+        "verified": false,
+        "url": "/balupton",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/236/962/35b7c8519b4057c761c9bb124ca7ea177ee1eb89_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 2336453,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::CveIdAdded",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2018-01-30T22:50:22.556Z",
+      "updated_at": "2018-01-30T22:50:22.556Z",
+      "cve_ids": [
+        "CVE-2018-3717"
+      ],
+      "actor": {
+        "username": "reed",
+        "cleared": false,
+        "verified": false,
+        "url": "/reed",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/003/132/66d7eadcea16b878bb67bfd697b9542250a801a7_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 2336455,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::CveIdAdded",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2018-01-30T22:51:48.504Z",
+      "updated_at": "2018-01-30T22:51:48.504Z",
+      "cve_ids": [
+
+      ],
+      "actor": {
+        "username": "reed",
+        "cleared": false,
+        "verified": false,
+        "url": "/reed",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/003/132/66d7eadcea16b878bb67bfd697b9542250a801a7_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 2336549,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Great. Thanks a lot to both of you working on this!",
+      "automated_response": false,
+      "created_at": "2018-01-30T23:01:44.866Z",
+      "updated_at": "2018-01-30T23:01:44.866Z",
+      "actor": {
+        "username": "lirantal",
+        "cleared": false,
+        "verified": false,
+        "url": "/lirantal",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/096/045/7e9d9170c9862d8d3697b11b0bb7160d40444c16_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 2336550,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::CveIdAdded",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2018-01-30T23:02:15.849Z",
+      "updated_at": "2018-01-30T23:02:15.849Z",
+      "cve_ids": [
+        "CVE-2018-3717"
+      ],
+      "actor": {
+        "username": "lirantal",
+        "cleared": false,
+        "verified": false,
+        "url": "/lirantal",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/096/045/7e9d9170c9862d8d3697b11b0bb7160d40444c16_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 2336558,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2018-01-30T23:03:43.202Z",
+      "updated_at": "2018-01-30T23:03:43.202Z",
+      "actor": {
+        "username": "lirantal",
+        "cleared": false,
+        "verified": false,
+        "url": "/lirantal",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/096/045/7e9d9170c9862d8d3697b11b0bb7160d40444c16_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "reporter": {
+        "username": "bl4de",
+        "url": "/bl4de"
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 2336564,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2018-01-30T23:04:01.030Z",
+      "updated_at": "2018-01-30T23:04:01.030Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "lirantal",
+        "cleared": false,
+        "verified": false,
+        "url": "/lirantal",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/096/045/7e9d9170c9862d8d3697b11b0bb7160d40444c16_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 2336642,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "I've sent PRs to the most popular dependents to remove simple-server or swap it out for serve directly.\n\n- https://github.com/noflo/noflo-ui/pull/846\n- https://github.com/jonnor/projects/pull/2\n- https://github.com/babakhani/pwt.datepicker/pull/206\n- https://github.com/FabModules/fabmodules-html5/pull/32",
+      "automated_response": false,
+      "created_at": "2018-01-30T23:25:14.334Z",
+      "updated_at": "2018-01-30T23:25:22.862Z",
+      "actor": {
+        "username": "balupton",
+        "cleared": false,
+        "verified": false,
+        "url": "/balupton",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/236/962/35b7c8519b4057c761c9bb124ca7ea177ee1eb89_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 2340422,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@balupton thanks for the pro-active attitude!\n",
+      "automated_response": false,
+      "created_at": "2018-01-31T22:13:38.229Z",
+      "updated_at": "2018-01-31T22:13:38.229Z",
+      "actor": {
+        "username": "lirantal",
+        "cleared": false,
+        "verified": false,
+        "url": "/lirantal",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/096/045/7e9d9170c9862d8d3697b11b0bb7160d40444c16_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 2448186,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportBecamePublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2018-03-01T23:04:03.573Z",
+      "updated_at": "2018-03-01T23:04:03.573Z",
+      "actor": {
+        "url": "/nodejs-ecosystem",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/023/949/3ea3b2ae039a8f955a4a8fe65d99fe85dc817398_original./5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "Node.js third-party modules"
+        }
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 2496405,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ChangedScope",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2018-03-15T17:43:05.745Z",
+      "updated_at": "2018-03-15T17:43:05.745Z",
+      "actor": {
+        "username": "lirantal",
+        "cleared": false,
+        "verified": false,
+        "url": "/lirantal",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/096/045/7e9d9170c9862d8d3697b11b0bb7160d40444c16_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "old_scope": "Other module",
+      "new_scope": "simple-server",
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 2524321,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportSeverityUpdated",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2018-03-23T18:32:28.075Z",
+      "updated_at": "2018-03-23T18:32:28.075Z",
+      "additional_data": {
+        "old_severity": "Medium",
+        "new_severity": "High (7.7)",
+        "old_severity_id": 112711,
+        "new_severity_id": 131968
+      },
+      "actor": {
+        "username": "lirantal",
+        "cleared": false,
+        "verified": false,
+        "url": "/lirantal",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/096/045/7e9d9170c9862d8d3697b11b0bb7160d40444c16_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    }
+  ],
+  "activity_page_count": 1,
+  "activity_page_number": 1,
+  "summaries": [
+    {
+      "category": "team",
+      "can_view?": true,
+      "can_create?": false
+    },
+    {
+      "category": "researcher",
+      "can_view?": true,
+      "can_create?": false
+    }
+  ]
+}

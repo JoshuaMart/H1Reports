@@ -1,0 +1,391 @@
+{
+  "id": 425314,
+  "global_id": "Z2lkOi8vaGFja2Vyb25lL1JlcG9ydC80MjUzMTQ=",
+  "url": "https://hackerone.com/reports/425314",
+  "title": "API request signature can be reused with other parameters/data than the original in certain cases",
+  "state": "Closed",
+  "substate": "resolved",
+  "severity_rating": "medium",
+  "readable_substate": "Resolved",
+  "created_at": "2018-10-18T10:35:37.715Z",
+  "submitted_at": "2018-10-18T10:35:37.715Z",
+  "is_member_of_team?": false,
+  "is_organization_group_member?": false,
+  "reporter": {
+    "disabled": false,
+    "username": "p4fg",
+    "url": "/p4fg",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/379/295/7023423bdb8cb71d1537e9e1a26263fd387f97a0_original.jpg/3c7b305354c9073c106ae3d1701798defaaf5be844fb8fdfa49ca62f991a2c2c"
+    },
+    "is_me?": false,
+    "cleared": true,
+    "verified": true,
+    "hackerone_triager": false,
+    "hacker_mediation": false
+  },
+  "team": {
+    "id": 21546,
+    "url": "https://hackerone.com/gatecoin",
+    "handle": "gatecoin",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/021/546/b42ace28168a502b51e5ecc5021c0ac6d67c7abf_original./d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98",
+      "medium": "https://profile-photos.hackerone-user-content.com/variants/000/021/546/b42ace28168a502b51e5ecc5021c0ac6d67c7abf_original./5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+    },
+    "permissions": [
+
+    ],
+    "submission_state": "disabled",
+    "default_currency": "usd",
+    "awards_miles": false,
+    "offers_bounties": true,
+    "state": "public_mode",
+    "only_cleared_hackers": false,
+    "pentest_feature_enabled?": false,
+    "profile": {
+      "name": "Gatecoin",
+      "twitter_handle": "Gatecoin",
+      "website": "https://gatecoin.com",
+      "about": "Gatecoin is a bitcoin and ethereum token exchange"
+    }
+  },
+  "has_bounty?": true,
+  "in_validation?": false,
+  "can_view_team": true,
+  "can_view_report": true,
+  "is_external_bug": false,
+  "is_published": false,
+  "is_participant": false,
+  "has_collaborators": false,
+  "submitted_by_team_member": false,
+  "stage": 4,
+  "public": true,
+  "visibility": "full",
+  "cve_ids": [
+
+  ],
+  "singular_disclosure_disabled": false,
+  "disclosed_at": "2019-02-23T07:19:45.050Z",
+  "bug_reporter_agreed_on_going_public_at": "2019-01-24T07:19:39.977Z",
+  "team_member_agreed_on_going_public_at": null,
+  "comments_closed?": false,
+  "facebook_team?": false,
+  "team_private?": false,
+  "vulnerability_information": "If an attacker can intercept/see an API-request from a client who has a system-clock that is slightly ahead of the server time then the attacker can re-use the API request-signature towards the same URL (but with a different payload). This can for some of the endpoint lead to serious vulnerabilities.\n\nThis means that if an attacker can see a API-request from the user to create a read-only API-key, then the attacker can create a API-key with full privileges.\n\nThe system seems to be caching the signature for 300 seconds (5 minutes), any request with the same signature within this time will get the response:\n```\nHTTP 401\nYou are not authorized. The same request was already made within the same millisecond.\n```\n\nIf the request timestamp is more than 5 minutes old, the system will reject the request (as per documentation):\n```\nHTTP 401\nYou are not authorized. The request timestamp must be within 5 minutes of the server time. Your request is -5.01693514166667 minutes compared to the server. Server time is currently Thursday, October 18, 2018 6:04:26 PM.\n```\n\nHowever, IF the original request comes from a computer with a system-clock that is ahead of the server by a few seconds, there exists a window of opportunity where the signature is removed from the cache AND the request time is less than 5 minutes from the server-time.\n\nAt this time it is possible to re-use the signature but with another payload (as the payload is, unfortunately, not part of the signature). \n\nIn the enclosed python-example a read-only API key is created with a timestamp 3 seconds in the future. The script then waits until 299 seconds has passed and then starts sending a new request to create a API-key but with privileges to trade and withdraw. The first requests will get \"You are not authorized. The same request was already made within the same millisecond.\" indicating that the signature is still cached, but after a few requests the signature will be removed from the cache and the request will go through, creating a API-key with all privileges.\n\nA quick-fix would be to cache the signatures 10+ minutes instead of 5 minutes (as the first request in the worst-worst-worst case could be 5 minutes ahead of the server-time and the attacker then can use the signature until 5 minutes after server-time).\n\nA proper fix of the problem would be to both cache 10+ minutes AND include the payload-data in the data that is signed. That way a replay/reuse attack would only repeat the operation with the same parameters.\n\n## Impact\n\nIf an attacker can add a API with trading privileges, that key could enable the attacker to do unfavorable trades using the victims account (dump a coin with low liquidity or buy some coin at a very high price), and giving the attacker a potential to profit.\n\nThe same exploit could also be used to add a attacker-controlled withdraw-wallet, which in combination with a API-key with withdraw-privileges would lead to loss of funds.",
+  "weakness": {
+    "id": 26,
+    "name": "Improper Access Control - Generic"
+  },
+  "original_report_id": null,
+  "original_report_url": null,
+  "attachments": [
+    {
+      "id": 362493,
+      "file_name": "reuse_signature_gatecoin.py",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/362/493/3a53d6b8bdd503df00223293b31c7b9d924fb158/reuse_signature_gatecoin.py?response-content-disposition=attachment%3B%20filename%3D%22reuse_signature_gatecoin.py%22%3B%20filename%2A%3DUTF-8%27%27reuse_signature_gatecoin.py&response-content-type=text%2Fx-python&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ6MB2MFGG%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T074520Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEDAaCXVzLXdlc3QtMiJIMEYCIQCYIr2SSYJfi35%2Bx%2Fejzst0Y9ig0v%2FJscMh9NmdM4t5VAIhAM3tVHHjt2e0sz7iLl%2BDuXOX6%2B7Qkvgs1KealcH7ElMXKrIFCCkQAxoMMDEzNjE5Mjc0ODQ5IgxubweTaMPp5L8Q1YQqjwX98aLIa%2F1BpdVLQC%2BToIBwbGklZ8ygTNCI4x1qYQEmOGsQ1%2F6p4MCPMLXSqoXVF5QxpRt%2BdZrK%2FNcRu%2FY3QoE9gFJoqRHKBQN0hea7VJkz7uo3Rwjv0%2Bs1TjLNvF9Gx9DxVw5gmaNJzFBUsDj05h8b86dmkhqjUzC21gXGs9t4qXslxrGTOenOwfga0eb8fEHnz%2FUG0yD%2FjVQklap45v4C30R4WSycoTBHd2IKfDAZJaqt3smArxbtWItscCWCfFJ5YbB9hQ02lZMGvLB8srO38zC0kWDBR3RWPsI8%2FCT9AQl3xDcTmEbRo8%2BEfRAGkXLHOo5AKqatyHEmPm882mSsghu%2Brspdz%2FeqOhEpYUj4ySBMH0b17ZliROXJKxLzh%2BCpk4fUxbvq89yWnq1oE%2FG%2BGZ8LqH%2BHdDoUgMjnt03ecbuj8wAqebD0M9EeKqj1vXVd7ZWocJ%2FV6oYrm7S7UQivyKhDfuckG4YQxqwGm504IsXFkkTNFI0%2FbAlQyc8oZWIdoVgeThWvi6pw0uZ7M%2BmXEBvYfmy7YzbRIQolLeZ2Ib2tXdc%2Bn5HFgml1zzqu2ZZ8UvtnGce7z5fSnCBmszEnO8llVSoINOleTxGjyvKpO7VdXBdZ6vHaJIqLP4SNZcKEx5MZL7DunikcKcJc1Dh%2BeVNTGBTEwRQo2kmUtWbkmUUiASlDd8HgSnAP4RZOLdiDukVkx7gl6gOh42A5qWddn32TVRG2IDpeFfTYENewkfdTm7VCYmxkxmsP3Y%2Fcw%2BNkYV5PmiGgPIv2Zg9PDt27P3dzVbO0BkrT2UairLaxhj6VzUa%2BsdGMoet2DUfQzKVnGNHKxUFEljtFY%2FFiJHinwQ9Y75x2c9j9UzL1wI6TMI2luqgGOrABYyeNRUxeluFl7y58tZIFLbCliCc92oq3AvL8gskghuI3JnKg7R1ezYwY7GVa14ik6vEtnhisXGNuJh6mNjwDpIIr2%2BnDJR4O60ugIm%2B2U5%2B3g%2BQpzkDorZygbT57TjRGr122tik3dcMk17NAyWA%2FDaZNLlJwiU%2BS%2FxyTsJLLALvI9zlCoPT7U9wokT6nPEdV1VKFKSAm9jewkYUEeI%2FFWCVu2DqEd9C51abS8Y6I8lw%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=ec5cdc1843a8ee6cff59dfb29be83235f801114675d9c44f8d9f80e45101e01f",
+      "file_size": 2733,
+      "type": "text/x-python",
+      "moderated": null
+    }
+  ],
+  "allow_singular_disclosure_at": "2019-02-23T07:19:40.047Z",
+  "allow_singular_disclosure_after": -144548740.11197555,
+  "singular_disclosure_allowed": true,
+  "vote_count": 31,
+  "voters": [
+    "base_64",
+    "sameerphad72",
+    "ali",
+    "mik317",
+    "w2w",
+    "savitar0x01",
+    "khizer47",
+    "t4ym",
+    "cryptographer",
+    "l000g1c",
+    "and 21 more..."
+  ],
+  "severity": {
+    "rating": "medium",
+    "score": 5.3,
+    "author_type": "User",
+    "metrics": {
+      "attack_vector": "network",
+      "attack_complexity": "high",
+      "privileges_required": "none",
+      "user_interaction": "required",
+      "scope": "unchanged",
+      "confidentiality": "low",
+      "integrity": "high",
+      "availability": "none"
+    }
+  },
+  "structured_scope": {
+    "databaseId": 4423,
+    "asset_type": "URL",
+    "asset_identifier": "gatecoin.com",
+    "max_severity": "critical"
+  },
+  "abilities": {
+    "assignable_team_members": [
+
+    ],
+    "assignable_team_member_groups": [
+
+    ]
+  },
+  "activities": [
+    {
+      "id": 3501480,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hello Peter,\n\nthank you very much for your report.\n\nWe are currently verifying and clarifying this case, please allow us some time to investigate and come back to you.\n\nMirco Bauer\nCISO of Gatecoin",
+      "automated_response": false,
+      "created_at": "2018-10-19T05:49:20.908Z",
+      "updated_at": "2018-10-19T05:49:20.908Z",
+      "actor": {
+        "username": "meebey",
+        "cleared": false,
+        "verified": false,
+        "url": "/meebey",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "gatecoin"
+    },
+    {
+      "id": 3501567,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Also please note that the error-message sent when a request is 5+ minutes off will leak VERY detailed/high-resolution information about the system-clock at the server, making timing-attacks (like this) much easier at lower time-frames.",
+      "automated_response": false,
+      "created_at": "2018-10-19T06:52:07.847Z",
+      "updated_at": "2018-10-19T06:52:07.847Z",
+      "actor": {
+        "username": "p4fg",
+        "cleared": true,
+        "verified": true,
+        "url": "/p4fg",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/379/295/7023423bdb8cb71d1537e9e1a26263fd387f97a0_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "gatecoin"
+    },
+    {
+      "id": 3530112,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @p4fg \n\nSorry for the late response, and thank you very much for your patience\nwe have spent some time clarifying it and have agreed to put in a ticket to fix it\n\nTobias W.\nSystem and Security Engineer",
+      "automated_response": false,
+      "created_at": "2018-10-25T01:40:35.429Z",
+      "updated_at": "2018-10-25T01:40:35.429Z",
+      "actor": {
+        "username": "tobiasw",
+        "cleared": false,
+        "verified": false,
+        "url": "/tobiasw",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/223/939/8043e5af0ad11f03cea0e75d222bfb576d4231a8_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "gatecoin"
+    },
+    {
+      "id": 3530113,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugTriaged",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2018-10-25T01:40:43.593Z",
+      "updated_at": "2018-10-25T01:40:43.593Z",
+      "actor": {
+        "username": "tobiasw",
+        "cleared": false,
+        "verified": false,
+        "url": "/tobiasw",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/223/939/8043e5af0ad11f03cea0e75d222bfb576d4231a8_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "gatecoin"
+    },
+    {
+      "id": 3708473,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Any news about this ticket? I just tried the exploit again and it still seems to work.\n\nBest regards\nPeter",
+      "automated_response": false,
+      "created_at": "2018-11-26T09:53:07.674Z",
+      "updated_at": "2018-11-26T09:53:07.674Z",
+      "actor": {
+        "username": "p4fg",
+        "cleared": true,
+        "verified": true,
+        "url": "/p4fg",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/379/295/7023423bdb8cb71d1537e9e1a26263fd387f97a0_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "gatecoin"
+    },
+    {
+      "id": 3713602,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hey @p4fg,\n\nyeah, we think we have a fix ready, but it is not in production yet, thank you for your time on this\n\nTobias W.\nSystem and Security Engineer",
+      "automated_response": false,
+      "created_at": "2018-11-27T02:53:06.771Z",
+      "updated_at": "2018-11-27T02:53:06.771Z",
+      "actor": {
+        "username": "tobiasw",
+        "cleared": false,
+        "verified": false,
+        "url": "/tobiasw",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/223/939/8043e5af0ad11f03cea0e75d222bfb576d4231a8_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "gatecoin"
+    },
+    {
+      "id": 3849888,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "Hey @p4fg \n\nafter a lot of clarification and testing i think we finally got this one down\n\nthank you for your patience on this matter, not to mention your work!\n\nTobias W.Tobias W.\nSystem and Security Engineer",
+      "automated_response": false,
+      "created_at": "2018-12-18T02:39:00.189Z",
+      "updated_at": "2018-12-18T02:39:00.189Z",
+      "actor": {
+        "username": "tobiasw",
+        "cleared": false,
+        "verified": false,
+        "url": "/tobiasw",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/223/939/8043e5af0ad11f03cea0e75d222bfb576d4231a8_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "reporter": {
+        "username": "p4fg",
+        "url": "/p4fg"
+      },
+      "genius_execution_id": null,
+      "team_handle": "gatecoin"
+    },
+    {
+      "id": 3849891,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BountyAwarded",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2018-12-18T02:39:10.101Z",
+      "updated_at": "2018-12-18T02:39:10.101Z",
+      "actor": {
+        "url": "/gatecoin",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/021/546/b42ace28168a502b51e5ecc5021c0ac6d67c7abf_original./5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "Gatecoin"
+        }
+      },
+      "bounty_currency": "usd",
+      "genius_execution_id": null,
+      "team_handle": "gatecoin",
+      "collaborator": {
+        "username": "p4fg",
+        "url": "/p4fg"
+      }
+    },
+    {
+      "id": 4029137,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "Possible to disclose this as it is a pretty unusual bug?",
+      "automated_response": false,
+      "created_at": "2019-01-24T07:19:40.008Z",
+      "updated_at": "2019-01-24T07:19:40.008Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "p4fg",
+        "cleared": true,
+        "verified": true,
+        "url": "/p4fg",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/379/295/7023423bdb8cb71d1537e9e1a26263fd387f97a0_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "gatecoin"
+    },
+    {
+      "id": 4195909,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportBecamePublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2019-02-23T07:19:45.076Z",
+      "updated_at": "2019-02-23T07:19:45.076Z",
+      "actor": {
+        "url": "/gatecoin",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/021/546/b42ace28168a502b51e5ecc5021c0ac6d67c7abf_original./5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "Gatecoin"
+        }
+      },
+      "genius_execution_id": null,
+      "team_handle": "gatecoin"
+    }
+  ],
+  "activity_page_count": 1,
+  "activity_page_number": 1,
+  "summaries": [
+    {
+      "category": "team",
+      "can_view?": true,
+      "can_create?": false
+    },
+    {
+      "category": "researcher",
+      "can_view?": true,
+      "can_create?": false
+    }
+  ]
+}

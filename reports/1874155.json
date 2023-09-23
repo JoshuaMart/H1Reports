@@ -1,0 +1,879 @@
+{
+  "id": 1874155,
+  "global_id": "Z2lkOi8vaGFja2Vyb25lL1JlcG9ydC8xODc0MTU1",
+  "url": "https://hackerone.com/reports/1874155",
+  "title": "Biometric key is stored in Windows Credential Manager, accessible to other local unprivileged processes",
+  "state": "Closed",
+  "substate": "resolved",
+  "severity_rating": "medium",
+  "readable_substate": "Resolved",
+  "created_at": "2023-02-14T17:32:51.843Z",
+  "submitted_at": "2023-02-14T17:34:40.525Z",
+  "is_member_of_team?": false,
+  "is_organization_group_member?": false,
+  "reporter": {
+    "disabled": false,
+    "username": "mebeim",
+    "url": "/mebeim",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/tqpueiddnft996tdk2545uu1meby/3c7b305354c9073c106ae3d1701798defaaf5be844fb8fdfa49ca62f991a2c2c"
+    },
+    "is_me?": false,
+    "cleared": false,
+    "verified": false,
+    "hackerone_triager": false,
+    "hacker_mediation": false
+  },
+  "team": {
+    "id": 21024,
+    "url": "https://hackerone.com/bitwarden",
+    "handle": "bitwarden",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/uHvBgHfLjcd9SPWDmjdYVf21/d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98",
+      "medium": "https://profile-photos.hackerone-user-content.com/variants/uHvBgHfLjcd9SPWDmjdYVf21/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+    },
+    "permissions": [
+
+    ],
+    "submission_state": "open",
+    "default_currency": "usd",
+    "awards_miles": false,
+    "offers_bounties": false,
+    "state": "public_mode",
+    "only_cleared_hackers": false,
+    "pentest_feature_enabled?": false,
+    "profile": {
+      "name": "Bitwarden",
+      "twitter_handle": "bitwarden",
+      "website": "https://bitwarden.com",
+      "about": "Open source password management solutions for individuals, teams, and business organizations."
+    }
+  },
+  "has_bounty?": false,
+  "in_validation?": false,
+  "can_view_team": true,
+  "can_view_report": true,
+  "is_external_bug": false,
+  "is_published": false,
+  "is_participant": false,
+  "has_collaborators": false,
+  "submitted_by_team_member": false,
+  "stage": 4,
+  "public": true,
+  "visibility": "full",
+  "cve_ids": [
+    "CVE-2023-27706"
+  ],
+  "singular_disclosure_disabled": false,
+  "disclosed_at": "2023-06-07T12:33:12.491Z",
+  "bug_reporter_agreed_on_going_public_at": "2023-05-08T12:33:07.696Z",
+  "team_member_agreed_on_going_public_at": null,
+  "comments_closed?": false,
+  "facebook_team?": false,
+  "team_private?": false,
+  "vulnerability_information": "Bitwarden Desktop on Windows allows the user to enable vault unlock through Windows Hello (under File > Settings > Unlock with Windows Hello). When this is done, a \"Biometric master key\" is generated and stored locally inside the Windows' user credential set. This is done through the \"wincred\" API, in particular through the functions [CredWrite](https://learn.microsoft.com/en-us/windows/win32/api/wincred/nf-wincred-credwritew) and [CredRead](https://learn.microsoft.com/en-us/windows/win32/api/wincred/nf-wincred-credreadw) that are called from the native module written in Rust ([here: `apps/desktop/desktop_native/src/password/windows.rs`](https://github.com/bitwarden/clients/blob/desktop-v2023.1.1/apps/desktop/desktop_native/src/password/windows.rs)). The item created in the user credential set has a name of the form `Bitwarden_biometric/<account_uuid>_masterkey_biometric`.\n\nWhen unlocking the vault through Windows Hello, the unlock operation prompts the user for authentication through Windows Hello ([here: `apps/desktop/src/main/biometric/biometric.windows.main.ts` line 45](https://github.com/bitwarden/clients/blob/desktop-v2023.1.1/apps/desktop/src/main/biometric/biometric.windows.main.ts#L45)). If the authentication succeeds, the vault is unlocked and the items are decrypted after decrypting the master keys through the keys derived from the biometric master key.\n\nHowever, the authentication through Windows Hello is unneeded. Commenting the line linked above, the vault still unlocks with no problem. The biometric master key can in fact be retrieved with a simple call to the `CredRead` windows API function, and then used to decrypt the locally saved data present in `%appdata%\\Bitwarden\\data.json`. The Windows Hello authentication prompt therefore gives a false sense of security to the user, making it seem as if authentication is *needed* to decrypt vault data, when in reality it is not.\n\nThe local data in `%appdata%\\Bitwarden\\data.json`, as well as the master biometric key, persist after the vault is locked and the Bitwarden desktop allication is closed. Both of them are easily readable by any program running in the current user session, without the need to elevate privileges. Furthermore, both are accessible to any administrator account on the same machine.\n\nGiven the above, a potentially malicious program running locally on the machine can decrypt the entirety of the user vault, i.e. all ciphers (logins, cards, notes, identities). Furthermore, since the Desktop application stores locally (still in `%appdata%\\Bitwarden\\data.json`) a refresh token and a bearer token used for authentication with the Bitwarden server, user data can easily be modified, encrypted and updated on the server on behalf of the user.\n\nThe attached proof of concept (of which a recorded video demo is also attached) consists of a Python 3 script that uses the `ctypes` module to extract the biometric master key (if any) from the current user's credential set, decrypts all cipher names stored locally, and also modifies and updates the content of a secret note with a specific (if present), sending the new data to the server through standard bitwarden API.\n\nThe setup needed before running the proof of concept script is as follows:\n\n1. Create a test account on https://vault.bitwarden.com/#/register (or use an existing one at your own risk).\n2. Login to the test account and create some items in the vault for testing purposes. In particular, among them create a *secure note* with name `Super Secret Note` and arbitrary content.\n3. Download and install the latest Bitwarden Desktop client **for Windows** from https://bitwarden.com/download/ (make sure to install on a PC that supports Windows Hello biometric authentication in order to enable it).\n3. Use the installed desktop client to log in to the test account using the master password.\n5. Enable Windows Hello authentication through File > Settings > \"Unlock with Windows Hello\". Optionally also disable \"Ask for Windows Hello on launch\".\n6. Lock the vault and close the Bitwarden desktop application.\n\nNow to run the proof of concept, follow these steps:\n\n1. Install Python 3 (recommended Python) on the machine if not already present.\n2. Install the following libraries through Pip: `pycryptodome` `Cryptography` and `requests`.\n\n   ```\n   python -m pip install pycryptodome Cryptography requests\n   ```\n\n3. Launch the Python 3 script from a CMD or Powershell prompt (running as administrator is *not* needed):\n\n   ```\n   python poc.py\n   ```\n\nThe proof of concept script output should be similar to the following:\n\n```none\nAccount: <uuid-of-the-account>\n-> Biometric master key: <bio-master-key-in-hex>\n-> Encryption key: <master-encryption-key-in-hex>\n-> HMAC key: <master-hmac-key-in-hex>\n-> Decrypted entry: Super Secret Login\n-> Decrypted entry: Super Secret Card\n-> Decrypted entry: Super Secret Note\n-> Modifying item: Super Secret Note\n-> Old content: b'This is a super secret note!'\n-> New content: b'Pwned!'\n-> Sending API request...\n-> Response: 200\n```\n\nNOTE: Python 3 was my choice for its simplicity and ease of use. The same operations could be performed by other means as well (for example through a native application).\n\n## Impact\n\nAn attacker that is able to briefly obtain local access to a machine with Bitwarden desktop installed, is able to decrypt the contents of *all* vaults that have unlock through Windows Hello enabled. On top of that, an attacker would also be able to alter their content through simple API requests to the bitwarden server, since they have the symmetric encryption and HMAC keys used to encrypt the fields of any item in the vault.\n\nFurthermore, on a multi-user Windows machine, any administrator account has the ability to perform the same operations for any other users on the same machine that is using Bitwarden desktop with Windows Hello unlock enabled. Although not implemented in the attached proof of concept, this would be possible by simply enumerating local users and accessing each user's credential set, enumerating the entries and retrieving any Bitwarden biometric master key that is present.\n\nIn conclusion, Bitwarden Desktop's biometric authentication through Windows Hello gives the user a false sense of security. While normally the vault data is locally stored encrypted *without* the master key, in case of Windows Hello authentication the biometric master key *is locally stored in plaintext as well*. This contradicts the [Bitwarden Security Whitepaper](https://bitwarden.com/help/bitwarden-security-white-paper/), which states:\n\n> We do not keep the Master Password stored locally or in memory on the Bitwarden Client. Your encryption key (Symmetric Key) is kept in memory while the app is unlocked. This is needed to decrypt data in your Vault. When the Vault is locked, this data is purged from memory. After a certain time frame of inactivity on lock screen, we reload the application processes to make sure that any leftover managed memory addresses are also purged. We do our best to ensure that any data that may be in memory for the application to function is only held in memory for as long as you need it and that memory is cleaned up whenever the application is locked. We consider the application to be completely safe while in a locked state.",
+  "weakness": {
+    "id": 33,
+    "name": "Cleartext Storage of Sensitive Information"
+  },
+  "original_report_id": null,
+  "original_report_url": null,
+  "attachments": [
+    {
+      "id": 2173460,
+      "file_name": "poc.py",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/ue9514zso0gwv7awab4zp5tv824i?response-content-disposition=attachment%3B%20filename%3D%22poc.py%22%3B%20filename%2A%3DUTF-8%27%27poc.py&response-content-type=text%2Fx-python&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQWUGJSEXW%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065456Z&X-Amz-Expires=2098&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJHMEUCIQCs%2BAHUbCDN7ZM%2FRhBNF28O2F80UhXY6VtR8FvK0GbHCgIgT%2BHvom8NbOL5HpmSclupqcewRsIHOtWesqOwPyb3C5wqsgUIIxADGgwwMTM2MTkyNzQ4NDkiDFiBp%2B1%2BzPYJYiKWkCqPBcubQSUuQMPeeQa917%2BsMAQCzVw%2BNeT6L8eSgPDCNtgxYe8nYbmd3bljfIC3gl3bvM4o5m%2BR%2B5RRf3jBkEj%2BW%2BSfQSsJ1t8qEL1DJhE%2BvQvaH5ZuAs%2Fdx71s%2BsyOYaurHYRzsywB%2FL1i79fR9W5NUUYb9DJP3l3IGwCvhoNXq5H9mao8oGqlQIUQpegksD8zGG7uHqbOR5vyJqjS2wezOXyVBRjqiKWx0uMZU3A%2FeowGBQXtyY%2FIWdY3s00Twmdd9K2LrlTYw%2Fq2ftpeRtw%2Fn6VvYA6QvmYjr4ZK4JQ9RtYItF8kqbeUb19T3r9c1BFd%2Flbj0Y93xziXJ0xw10GDor0lUx1K4OS7yl9A%2Blu8ufd7MEdEy5s%2Fb0XY2gKYgjf3bY8QRGay30L3L42RcYMf3nqFXO7X3T1N8KfU%2FEJ6c%2F0Yh3bz5yjyaOFQ1cpGT8FGzJlBLHOMB8K6GdzC8tTq4pubY1TR8VnEYZnWk469DzZN%2FeC5qF7sUIW6uWIoiJ19UdSfmZ3xCCwnvklPoVeSaksq3JGhl6AKJbJ7cpUX6owVSnjSmLgCyoYJwLnhMsClgfM0126PpfYlelVGHEqacfBJmkI98B9aLbw2Rygpr1c9BZn9lpNURRanA4YamBuyRTY1JryY6807dLLK0V%2BBeikUHYUT9bZWaBeObgiEIzueZxMFdg5O%2F4nPH2PYDDfg%2BCuXmM3SPrsHkedvAu%2Bvt8yI9uTGk3DR4nJJ4TI0FHy0Ibc7OB7Hxz9nuY3peFIeGYbVJO7C3z1Nov6vn8I5jhwgFpB8ZYg6F%2F3%2FMD620wePaHv%2Fp5lGNzOcnQtX5lywxAbgNX2IcOSHijZYISJeuH2n8sh4PLW7PyKQrJUXn3Yw3P24qAY6sQGsyp%2FD97WbhPz5ULuCT2FvDBvfHDbIte5V4gLDv6VQbMsQ%2Fng51ukrSyWVufY5hEkCq9Ao4dGfEh3jBy0Uz7N9VzK9vaAGEEBIO5d0qqm9xxaX0jdUAw9Yapvhd4z7AUfapQhytkyw5%2BB2KUq%2BWaZrN4Ii3L9QfffPDPLtzj0aFCcjy1Gvz4BqiwFMa7vwGaRcwK%2FB4KzhT0sRLNUsk9KS7rpcPkfB2yVzUcgtyiDV64Y%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=5ee5cc618f32edd027caa0bd3f0a075d1142f4ece78c2d5861969e54d8ac1563",
+      "file_size": 7930,
+      "type": "text/x-python",
+      "moderated": null
+    },
+    {
+      "id": 2173536,
+      "file_name": "demo.mkv",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/6czf5youhwfzcrguewucymvhaqcl?response-content-disposition=attachment%3B%20filename%3D%22demo.mkv%22%3B%20filename%2A%3DUTF-8%27%27demo.mkv&response-content-type=video%2Fx-matroska&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQWUGJSEXW%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065456Z&X-Amz-Expires=2098&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJHMEUCIQCs%2BAHUbCDN7ZM%2FRhBNF28O2F80UhXY6VtR8FvK0GbHCgIgT%2BHvom8NbOL5HpmSclupqcewRsIHOtWesqOwPyb3C5wqsgUIIxADGgwwMTM2MTkyNzQ4NDkiDFiBp%2B1%2BzPYJYiKWkCqPBcubQSUuQMPeeQa917%2BsMAQCzVw%2BNeT6L8eSgPDCNtgxYe8nYbmd3bljfIC3gl3bvM4o5m%2BR%2B5RRf3jBkEj%2BW%2BSfQSsJ1t8qEL1DJhE%2BvQvaH5ZuAs%2Fdx71s%2BsyOYaurHYRzsywB%2FL1i79fR9W5NUUYb9DJP3l3IGwCvhoNXq5H9mao8oGqlQIUQpegksD8zGG7uHqbOR5vyJqjS2wezOXyVBRjqiKWx0uMZU3A%2FeowGBQXtyY%2FIWdY3s00Twmdd9K2LrlTYw%2Fq2ftpeRtw%2Fn6VvYA6QvmYjr4ZK4JQ9RtYItF8kqbeUb19T3r9c1BFd%2Flbj0Y93xziXJ0xw10GDor0lUx1K4OS7yl9A%2Blu8ufd7MEdEy5s%2Fb0XY2gKYgjf3bY8QRGay30L3L42RcYMf3nqFXO7X3T1N8KfU%2FEJ6c%2F0Yh3bz5yjyaOFQ1cpGT8FGzJlBLHOMB8K6GdzC8tTq4pubY1TR8VnEYZnWk469DzZN%2FeC5qF7sUIW6uWIoiJ19UdSfmZ3xCCwnvklPoVeSaksq3JGhl6AKJbJ7cpUX6owVSnjSmLgCyoYJwLnhMsClgfM0126PpfYlelVGHEqacfBJmkI98B9aLbw2Rygpr1c9BZn9lpNURRanA4YamBuyRTY1JryY6807dLLK0V%2BBeikUHYUT9bZWaBeObgiEIzueZxMFdg5O%2F4nPH2PYDDfg%2BCuXmM3SPrsHkedvAu%2Bvt8yI9uTGk3DR4nJJ4TI0FHy0Ibc7OB7Hxz9nuY3peFIeGYbVJO7C3z1Nov6vn8I5jhwgFpB8ZYg6F%2F3%2FMD620wePaHv%2Fp5lGNzOcnQtX5lywxAbgNX2IcOSHijZYISJeuH2n8sh4PLW7PyKQrJUXn3Yw3P24qAY6sQGsyp%2FD97WbhPz5ULuCT2FvDBvfHDbIte5V4gLDv6VQbMsQ%2Fng51ukrSyWVufY5hEkCq9Ao4dGfEh3jBy0Uz7N9VzK9vaAGEEBIO5d0qqm9xxaX0jdUAw9Yapvhd4z7AUfapQhytkyw5%2BB2KUq%2BWaZrN4Ii3L9QfffPDPLtzj0aFCcjy1Gvz4BqiwFMa7vwGaRcwK%2FB4KzhT0sRLNUsk9KS7rpcPkfB2yVzUcgtyiDV64Y%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=f9d5c4a208f60788806700b88f4f616cbb400fd8afef57297b1fcb45d6364155",
+      "file_size": 4446675,
+      "type": "video/x-matroska",
+      "moderated": null
+    }
+  ],
+  "allow_singular_disclosure_at": "2023-06-07T12:33:07.807Z",
+  "allow_singular_disclosure_after": -9310908.889914315,
+  "singular_disclosure_allowed": true,
+  "vote_count": 16,
+  "voters": [
+    "zy9ard3",
+    "shubham_srt",
+    "ma_hunter",
+    "shivammusic",
+    "4n0n0n3",
+    "carlosway23",
+    "gingerrr",
+    "kali3n",
+    "nortln",
+    "hbronson",
+    "and 6 more..."
+  ],
+  "severity": {
+    "rating": "medium",
+    "score": 6.2,
+    "author_type": "Team",
+    "metrics": {
+      "attack_vector": "local",
+      "attack_complexity": "low",
+      "privileges_required": "none",
+      "user_interaction": "none",
+      "scope": "unchanged",
+      "confidentiality": "high",
+      "integrity": "none",
+      "availability": "none"
+    }
+  },
+  "structured_scope": {
+    "databaseId": 6478,
+    "asset_type": "DOWNLOADABLE_EXECUTABLES",
+    "asset_identifier": "https://github.com/bitwarden/desktop/releases/latest",
+    "max_severity": "critical"
+  },
+  "abilities": {
+    "assignable_team_members": [
+
+    ],
+    "assignable_team_member_groups": [
+
+    ]
+  },
+  "activities": [
+    {
+      "id": 20392558,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@mebeim Thanks for the thorough report. On the surface, I believe this is an issue that we are already tracking internally and working through the design phase on a fix for. @ohinton Can comment on the proposed solution.",
+      "automated_response": false,
+      "created_at": "2023-02-14T17:51:48.054Z",
+      "updated_at": "2023-02-14T17:51:48.054Z",
+      "actor": {
+        "username": "kspearrin",
+        "cleared": false,
+        "verified": false,
+        "url": "/kspearrin",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/NfF9KdzShJTHMmhSb4ajYq1p/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "bitwarden"
+    },
+    {
+      "id": 20393738,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @mebeim,\n\nThanks for the detailed write up. We’ve been exploring some alternative solutions internally and have currently settled on a solution which utilizes the `KeyCredential.RequestSignAsync` to sign a static challenge vector.\n\nThis follows the patterns documented by [Microsoft](https://learn.microsoft.com/en-us/windows/uwp/security/microsoft-passport) which are traditionally used for server side authentication. However instead of the server sending a random challenge we instead use a static challenge.\n\nThe update flow would roughly be: \n\n1.\tThe application generates a new keypair using `KeyCredentialManager.RequestCreateAsync` or uses the existing pair. Per the [documentation](https://learn.microsoft.com/en-us/uwp/api/windows.security.credentials.keycredentialmanager.requestcreateasync?view=winrt-22621) this `KeyCredential` should be valid only for the current user and application.\n2.\tA static challenge vector is signed using `KeyCredential.RequestSignAsync`.\n3.\tThe result of `RequestSignAsync` is then used as the password in a pbkdf2 operation to encrypt the user’s encryption key. The result which is then written to disk.\n\nTo decrypt the same challenge is signed again, and the encryption key is decrypted from disk.\n\nI would be curious to know if you have any opinions on the proposed solution.",
+      "automated_response": false,
+      "created_at": "2023-02-14T18:21:20.441Z",
+      "updated_at": "2023-02-14T18:21:20.441Z",
+      "actor": {
+        "username": "ohinton",
+        "cleared": false,
+        "verified": false,
+        "url": "/ohinton",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "bitwarden"
+    },
+    {
+      "id": 20396944,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hello @kspearrin and @ohinton thanks for the quick response. `KeyCredential` and `KeyCredentialManager` seem like a step in the right direction at first glance, though I am not familiar with these APIs. I see the whole security credentials API is supported in the Rust `windows` crate so that'd be nice to implement in your already existing native module. \n\nIf I understood correctly, your intention would be to create a `KeyCredential` (I assume that'd be named similarly to the way you are currently doing for the biometric master key). Such credential would allow the Bitwarden desktop app to request the TPM to sign arbitrary data. You would then ask to sign a static challenge with this credential, which will prompt the user for authentication through Windows Hello. The result (i.e. the generated signature) would then be used as a starting point for further key derivation.\n\nThis raises couple of questions though:\n\n1. Would this allow *any* application, given the name of the `KeyCredential`, to request signing? From what the [Microsoft documentation](https://learn.microsoft.com/en-us/windows/uwp/security/microsoft-passport) states (not much to be honest), all I can see is *\"a device-specific credential\"*, which would suggest that *yes*, any program on the system would be able to request signing through this credential. Now this would make sense in a Server/Client scenario, since the challenge would be dynamically generated by the server, but not in the use case you are describing (a known static challenge).\n\n2. Given the above, if my assumption is correct, we would be dealing with a credential with known name, and a known static challenge whose signing (through the credential) can be asked for by any program. This makes me concerned: from what I could see playing around with the Rust bindings (`windows` crate), `RequestSignAsync` simply prompts the user with a very generic \"please verify your identity\" Windows Hello window (see attached screenshot). If my assumption from point 1 holds, this means that any locally running program could initiate such a signing request *without the user knowing its purpose*, and clearly this is somethign that should be avoided. Has this been taken into consideration? The Bitwarden desktop app responsible for creating the credential in the first place should also ensure to create it in such a way to make its name/description visible to the user (and also non-modifiable) whenever a signing request is made.\n\nAs I said I am not familiar with these APIs so I could be wrong in the two points above, and in such case please do let me know.\n\nTaking macOS as an example: I can clearly see that Bitwarden creates an item in the \"login\" keychain, and that this item is bound to the application itself (see second attached screenshot). Any other application requesting to read the item would cause the OS to prompt the user for the login keychain password, alerting them that the application wants to access that specific item with that specific name (in this case \"Bitwarden_biometric\"), which more or less clearly explains what is going on. On Windows though, I do not see much of this, and the whole process seems a lot more opaque from the user's point of view.\n\n{F2174386}\n\n{F2174388}",
+      "automated_response": false,
+      "created_at": "2023-02-15T01:45:30.067Z",
+      "updated_at": "2023-02-15T01:45:30.067Z",
+      "actor": {
+        "username": "mebeim",
+        "cleared": false,
+        "verified": false,
+        "url": "/mebeim",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/tqpueiddnft996tdk2545uu1meby/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "attachments": [
+        {
+          "id": 2174388,
+          "filename": "macos_keychain_item.jpg",
+          "type": "image/jpeg",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/chhv8eltyxhkl6konwcjwsyt0is8?response-content-disposition=attachment%3B%20filename%3D%22macos_keychain_item.jpg%22%3B%20filename%2A%3DUTF-8%27%27macos_keychain_item.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQWUGJSEXW%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065456Z&X-Amz-Expires=2098&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJHMEUCIQCs%2BAHUbCDN7ZM%2FRhBNF28O2F80UhXY6VtR8FvK0GbHCgIgT%2BHvom8NbOL5HpmSclupqcewRsIHOtWesqOwPyb3C5wqsgUIIxADGgwwMTM2MTkyNzQ4NDkiDFiBp%2B1%2BzPYJYiKWkCqPBcubQSUuQMPeeQa917%2BsMAQCzVw%2BNeT6L8eSgPDCNtgxYe8nYbmd3bljfIC3gl3bvM4o5m%2BR%2B5RRf3jBkEj%2BW%2BSfQSsJ1t8qEL1DJhE%2BvQvaH5ZuAs%2Fdx71s%2BsyOYaurHYRzsywB%2FL1i79fR9W5NUUYb9DJP3l3IGwCvhoNXq5H9mao8oGqlQIUQpegksD8zGG7uHqbOR5vyJqjS2wezOXyVBRjqiKWx0uMZU3A%2FeowGBQXtyY%2FIWdY3s00Twmdd9K2LrlTYw%2Fq2ftpeRtw%2Fn6VvYA6QvmYjr4ZK4JQ9RtYItF8kqbeUb19T3r9c1BFd%2Flbj0Y93xziXJ0xw10GDor0lUx1K4OS7yl9A%2Blu8ufd7MEdEy5s%2Fb0XY2gKYgjf3bY8QRGay30L3L42RcYMf3nqFXO7X3T1N8KfU%2FEJ6c%2F0Yh3bz5yjyaOFQ1cpGT8FGzJlBLHOMB8K6GdzC8tTq4pubY1TR8VnEYZnWk469DzZN%2FeC5qF7sUIW6uWIoiJ19UdSfmZ3xCCwnvklPoVeSaksq3JGhl6AKJbJ7cpUX6owVSnjSmLgCyoYJwLnhMsClgfM0126PpfYlelVGHEqacfBJmkI98B9aLbw2Rygpr1c9BZn9lpNURRanA4YamBuyRTY1JryY6807dLLK0V%2BBeikUHYUT9bZWaBeObgiEIzueZxMFdg5O%2F4nPH2PYDDfg%2BCuXmM3SPrsHkedvAu%2Bvt8yI9uTGk3DR4nJJ4TI0FHy0Ibc7OB7Hxz9nuY3peFIeGYbVJO7C3z1Nov6vn8I5jhwgFpB8ZYg6F%2F3%2FMD620wePaHv%2Fp5lGNzOcnQtX5lywxAbgNX2IcOSHijZYISJeuH2n8sh4PLW7PyKQrJUXn3Yw3P24qAY6sQGsyp%2FD97WbhPz5ULuCT2FvDBvfHDbIte5V4gLDv6VQbMsQ%2Fng51ukrSyWVufY5hEkCq9Ao4dGfEh3jBy0Uz7N9VzK9vaAGEEBIO5d0qqm9xxaX0jdUAw9Yapvhd4z7AUfapQhytkyw5%2BB2KUq%2BWaZrN4Ii3L9QfffPDPLtzj0aFCcjy1Gvz4BqiwFMa7vwGaRcwK%2FB4KzhT0sRLNUsk9KS7rpcPkfB2yVzUcgtyiDV64Y%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=815b73f23c8a31d50bda360147342c14e320af49f13c5a35ed51656adfa95cec"
+        },
+        {
+          "id": 2174386,
+          "filename": "win_hello_auth.png",
+          "type": "image/png",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/nkhi32e39wqb6xw6mqxwolt484nj?response-content-disposition=attachment%3B%20filename%3D%22win_hello_auth.png%22%3B%20filename%2A%3DUTF-8%27%27win_hello_auth.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQWUGJSEXW%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065456Z&X-Amz-Expires=2098&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJHMEUCIQCs%2BAHUbCDN7ZM%2FRhBNF28O2F80UhXY6VtR8FvK0GbHCgIgT%2BHvom8NbOL5HpmSclupqcewRsIHOtWesqOwPyb3C5wqsgUIIxADGgwwMTM2MTkyNzQ4NDkiDFiBp%2B1%2BzPYJYiKWkCqPBcubQSUuQMPeeQa917%2BsMAQCzVw%2BNeT6L8eSgPDCNtgxYe8nYbmd3bljfIC3gl3bvM4o5m%2BR%2B5RRf3jBkEj%2BW%2BSfQSsJ1t8qEL1DJhE%2BvQvaH5ZuAs%2Fdx71s%2BsyOYaurHYRzsywB%2FL1i79fR9W5NUUYb9DJP3l3IGwCvhoNXq5H9mao8oGqlQIUQpegksD8zGG7uHqbOR5vyJqjS2wezOXyVBRjqiKWx0uMZU3A%2FeowGBQXtyY%2FIWdY3s00Twmdd9K2LrlTYw%2Fq2ftpeRtw%2Fn6VvYA6QvmYjr4ZK4JQ9RtYItF8kqbeUb19T3r9c1BFd%2Flbj0Y93xziXJ0xw10GDor0lUx1K4OS7yl9A%2Blu8ufd7MEdEy5s%2Fb0XY2gKYgjf3bY8QRGay30L3L42RcYMf3nqFXO7X3T1N8KfU%2FEJ6c%2F0Yh3bz5yjyaOFQ1cpGT8FGzJlBLHOMB8K6GdzC8tTq4pubY1TR8VnEYZnWk469DzZN%2FeC5qF7sUIW6uWIoiJ19UdSfmZ3xCCwnvklPoVeSaksq3JGhl6AKJbJ7cpUX6owVSnjSmLgCyoYJwLnhMsClgfM0126PpfYlelVGHEqacfBJmkI98B9aLbw2Rygpr1c9BZn9lpNURRanA4YamBuyRTY1JryY6807dLLK0V%2BBeikUHYUT9bZWaBeObgiEIzueZxMFdg5O%2F4nPH2PYDDfg%2BCuXmM3SPrsHkedvAu%2Bvt8yI9uTGk3DR4nJJ4TI0FHy0Ibc7OB7Hxz9nuY3peFIeGYbVJO7C3z1Nov6vn8I5jhwgFpB8ZYg6F%2F3%2FMD620wePaHv%2Fp5lGNzOcnQtX5lywxAbgNX2IcOSHijZYISJeuH2n8sh4PLW7PyKQrJUXn3Yw3P24qAY6sQGsyp%2FD97WbhPz5ULuCT2FvDBvfHDbIte5V4gLDv6VQbMsQ%2Fng51ukrSyWVufY5hEkCq9Ao4dGfEh3jBy0Uz7N9VzK9vaAGEEBIO5d0qqm9xxaX0jdUAw9Yapvhd4z7AUfapQhytkyw5%2BB2KUq%2BWaZrN4Ii3L9QfffPDPLtzj0aFCcjy1Gvz4BqiwFMa7vwGaRcwK%2FB4KzhT0sRLNUsk9KS7rpcPkfB2yVzUcgtyiDV64Y%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=e04561e6b5e957d2f2d56653b62307e4dbe86b26701445f475de79d5ff7547cc"
+        }
+      ],
+      "genius_execution_id": null,
+      "team_handle": "bitwarden"
+    },
+    {
+      "id": 20403612,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Excellent questions.\n\nThe `KeyCredential` APIs should both ensure biometrics is prompted, and be tied to the user and the application to my understanding. I've added the citations and sources below that seems to confirm this, however we would want to confirm this before actually implementing it.\n\n>An application can never use the keys from another application, nor can someone ever use the keys from another user. These keys are used to sign requests that are sent to the identity provider or IDP, seeking access to specified resources. Applications can use specific APIs to request operations that require key material for particular actions. Access through these APIs does require explicit validation through a user gesture, and the key material is not exposed to the requesting application. Rather, the application asks for a specific action like signing a piece of data, and the Windows Hello layer handles the actual work and returns the results.\n>\nhttps://learn.microsoft.com/en-us/windows/uwp/security/microsoft-passport#222-authentication\n\n> Creates a new key credential for the current user and application.\nhttps://learn.microsoft.com/en-us/uwp/api/windows.security.credentials.keycredentialmanager.requestcreateasync?view=winrt-22621\n\n> Represents a key credential, an RSA, 2048-bit, asymmetric key that represents a user's identity for an application.\nhttps://learn.microsoft.com/en-us/uwp/api/windows.security.credentials.keycredential",
+      "automated_response": false,
+      "created_at": "2023-02-15T10:06:59.301Z",
+      "updated_at": "2023-02-15T10:08:23.495Z",
+      "actor": {
+        "username": "ohinton",
+        "cleared": false,
+        "verified": false,
+        "url": "/ohinton",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "bitwarden"
+    },
+    {
+      "id": 20408472,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Thanks for the clarification, this makes a lot of sense. I must have lost myself in the documentation to not notice those pieces. \n\nI assume that the isolation of credentials is only done for signed applications, is that correct? Because I was able to create two simple different Rust applications that both use a credential with the same name, but of course, those were not signed. In such case, if implemented correctly this definitely looks like the way to go. Granted, it's a bit more cumbersome to implement than it is on macOS, but still good.\n\nIn any case, I see that biometric authentication for Windows through Windows Hello has been implemented in 2020 (not exactly sure when, but [this release notes page](https://bitwarden.com/help/releasenotes/#early-2020-releases) mentions *\"between March and September of 2020\"*). Does this mean that this kind of security issue has been around since then? How come I don't see this mentioned anywhere in [the Biometrics help page](https://bitwarden.com/help/biometrics/)? I for one would never want to enable such a feature knowing that my vault data would be stored unencrypted (or well, encrypted along with an easily retrievable plaintext encryption key).",
+      "automated_response": false,
+      "created_at": "2023-02-15T14:48:41.177Z",
+      "updated_at": "2023-02-15T14:48:41.177Z",
+      "actor": {
+        "username": "mebeim",
+        "cleared": false,
+        "verified": false,
+        "url": "/mebeim",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/tqpueiddnft996tdk2545uu1meby/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "bitwarden"
+    },
+    {
+      "id": 20411309,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@mebeim Yes, this issue has been around since the feature was originally released. I think we had some wrong assumptions of how the Windows Credential Store worked, assuming it was a secure storage medium like the Apple Keychain. This issue was recently brought up in an internal audit and we have been tracking it since.",
+      "automated_response": false,
+      "created_at": "2023-02-15T19:41:27.576Z",
+      "updated_at": "2023-02-15T19:41:27.576Z",
+      "actor": {
+        "username": "kspearrin",
+        "cleared": false,
+        "verified": false,
+        "url": "/kspearrin",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/NfF9KdzShJTHMmhSb4ajYq1p/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "bitwarden"
+    },
+    {
+      "id": 20412864,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "I see. At this point I think we all have a clear view of the nature of the problem and the proposed solution. Thank you for the positive and timely response and for sharing these details. Since this looks like something that was already triaged by the Bitwarden team internally (correct me if I am wrong), I assume the this report's state could be changed to \"Triaged\". Do you already have an idea about the timeline going forward? That is, how much time do you think it would take for an update to be released to fix the issue? And also, what are your plans about disclosure?\n\nI believe this to be a vulnerability with real-world implications: given the claims in the security whitepaper, Bitwarden users currently using the Windows desktop client are mistakenly assuming that biometric unlock keeps their data protected and safely encrypted while the vault is locked. I think it would also be worth for this vulnerability to be assigned a CVE number, and it would be great if you could coordinate with MITRE and include me in the credits. What do you think? Please let me know, and thank you again.",
+      "automated_response": false,
+      "created_at": "2023-02-15T20:20:18.551Z",
+      "updated_at": "2023-02-15T20:20:18.551Z",
+      "actor": {
+        "username": "mebeim",
+        "cleared": false,
+        "verified": false,
+        "url": "/mebeim",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/tqpueiddnft996tdk2545uu1meby/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "bitwarden"
+    },
+    {
+      "id": 20419971,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@mebeim I will need to work with the project manager over this issue to understand the timeline associated with it. We can report back on that here soon. As far as disclosure, you can request that from this report here on HackerOne once the issue is resolved.",
+      "automated_response": false,
+      "created_at": "2023-02-15T21:01:45.902Z",
+      "updated_at": "2023-02-15T21:02:09.537Z",
+      "actor": {
+        "username": "kspearrin",
+        "cleared": false,
+        "verified": false,
+        "url": "/kspearrin",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/NfF9KdzShJTHMmhSb4ajYq1p/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "bitwarden"
+    },
+    {
+      "id": 20443733,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportSeverityUpdated",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2023-02-16T17:25:49.233Z",
+      "updated_at": "2023-02-16T17:25:49.233Z",
+      "additional_data": {
+        "old_severity": "High (8.4)",
+        "new_severity": "High (8.0)",
+        "old_severity_id": 1864595,
+        "new_severity_id": 1867405
+      },
+      "actor": {
+        "username": "mgibson",
+        "cleared": false,
+        "verified": false,
+        "url": "/mgibson",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "bitwarden"
+    },
+    {
+      "id": 20501894,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugTriaged",
+      "message": "Hi @mebeim, the team is currently looking to resolve the issue as it's been given a higher priority. We will communicate with you as we progress through this and keep you in the know around the estimated timelines we're looking at. Thanks!",
+      "automated_response": false,
+      "created_at": "2023-02-21T13:58:51.685Z",
+      "updated_at": "2023-02-21T13:58:51.685Z",
+      "actor": {
+        "username": "dbosompem",
+        "cleared": false,
+        "verified": false,
+        "url": "/dbosompem",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "bitwarden"
+    },
+    {
+      "id": 20509852,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Thanks for the update. As per the CVE#, are you going to request one as I suggested above? Or should I contact MITRE myself? Please let me know.",
+      "automated_response": false,
+      "created_at": "2023-02-21T17:08:27.405Z",
+      "updated_at": "2023-02-21T17:08:27.405Z",
+      "actor": {
+        "username": "mebeim",
+        "cleared": false,
+        "verified": false,
+        "url": "/mebeim",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/tqpueiddnft996tdk2545uu1meby/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "bitwarden"
+    },
+    {
+      "id": 21249185,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi everyone, just a quick follow up: I have contacted Mitre and this security vulnerability has been assigned CVE-2023-27706. The details are not public yet, of course.",
+      "automated_response": false,
+      "created_at": "2023-04-12T15:54:03.265Z",
+      "updated_at": "2023-04-12T15:54:03.265Z",
+      "actor": {
+        "username": "mebeim",
+        "cleared": false,
+        "verified": false,
+        "url": "/mebeim",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/tqpueiddnft996tdk2545uu1meby/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "bitwarden"
+    },
+    {
+      "id": 21252036,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @mebeim, I've been working on our solution to this and I'd like to give you an update on what we're doing now that the development on it is clear and coming to a close.\n\nWe had quite a few meetings with Microsoft and unfortunately the security model afforded by credential management in Windows just does not align with what we're looking for. This really just means we're not able to use Windows APIs directly for a perfect solution. \n\nThe core of the changes will be using Windows Hello to sign a challenge and use that signed information to encrypt the Bitwarden key prior to storage. In this way, any application will still be able to read our secret, but they will read an encrypted string. In order to decrypt, they will need to prompt the user to sign the same challenge.\n\nWe are also expanding our settings to optionally (flagged as recommended on Windows) require usage of an alternate unlock method on the first unlock after starting the application. This will decrypt a key half stored in Bitwarden and persist it in memory. This key half and the challenge derived from Windows Hello are both required to decrypt the biometric key persisted to disk.\n\nWe expect these fixes/improvements to be available on the next release (late april). Windows users will have their biometric keys upgraded to signed challenge keys upon unlock, and prompted to update settings to enable the key splitting scheme described above.",
+      "automated_response": false,
+      "created_at": "2023-04-12T21:00:49.933Z",
+      "updated_at": "2023-04-12T21:00:49.933Z",
+      "actor": {
+        "username": "mgibson",
+        "cleared": false,
+        "verified": false,
+        "url": "/mgibson",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "bitwarden"
+    },
+    {
+      "id": 21252474,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Thanks for the update @mgibson. Sad to hear that you weren't able to implement your desired solution using Windows APIs. The new solution you outline still looks better than the current state, though unfortunately not ideal. \n\nWould this new solution allow any application to request signing the same challenge (which I'm assuming is a static one) through Windows Hello providing an arbitrary prompt to the user? Or, for example, a prompt that just mentions \"For security reasons, this application needs to verify your identity\" (like the one shown in my screenshot a few comments above)?\n\nThe key takeaway from all of this seems to be that at the present time Windows is unable to provide safe storage of user credentials through a system keyring (like macOS). Is this the case? Otherwise, given that the original idea outlined by @ohinton above seemed promising, what exactly is the obstacle that makes it impossible to implement it?",
+      "automated_response": false,
+      "created_at": "2023-04-12T21:40:40.863Z",
+      "updated_at": "2023-04-12T21:40:40.863Z",
+      "actor": {
+        "username": "mebeim",
+        "cleared": false,
+        "verified": false,
+        "url": "/mebeim",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/tqpueiddnft996tdk2545uu1meby/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "bitwarden"
+    },
+    {
+      "id": 21270619,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "The process outlined by @ohinton is what we're doing to secure the key for the OS-secured half. This results in an attacker reading an ecrypted string and requiring user verification to decrypt it. Unfortunately, the prompt is indeed the ultra generic \"For Security reasons, an application needs you to verify your identity\" with NO context as to what is going on. Disappointment in that prompt is what drove us to the \"Require password on app start\" option, that we're recommending.\n\nIf that option is selected, the on-disk key is encrypted with a convolution of both the OS-secured half and a half stored by Bitwarden, secured by the users master encryption key.\n\nIf a user elects to not use the Bitwarden key half and only use the OS-secured half, an attacker could, indeed, read the challenged string (the IV of the AES encryption on the secret itself), and prompt the user using that vague dialogue. Windows lacks the ability to increase specificity in that prompt by something reasonable like the name of the key being accessed or the executable attempting to access. This is the key difference between MacOS and Windows -- verifiable knowledge about the secret and who is accessing it.\n\nInternally, we've discussed and decided that the floor for our split key recommendation is *informed consent*. Meaning that the OS must handle prompting the user for consent to access the secret, and the prompt must be explicit (and tamper-resistant) in informing the user what they are agreeing to. Windows can't do this last part, so they get a recommendation to split keys and a slightly decreased user experience of requiring knowledge auth on first login.",
+      "automated_response": false,
+      "created_at": "2023-04-13T14:41:34.256Z",
+      "updated_at": "2023-04-13T14:41:34.256Z",
+      "actor": {
+        "username": "mgibson",
+        "cleared": false,
+        "verified": false,
+        "url": "/mgibson",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "bitwarden"
+    },
+    {
+      "id": 21270880,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": ">  Windows can't do this last part, so they get a recommendation to split keys and a slightly decreased user experience of requiring knowledge auth on first login.\n\nSorry this last line should read **unlock** rather than **login** `:s/login/unlock`",
+      "automated_response": false,
+      "created_at": "2023-04-13T15:08:18.441Z",
+      "updated_at": "2023-04-13T15:08:18.441Z",
+      "actor": {
+        "username": "mgibson",
+        "cleared": false,
+        "verified": false,
+        "url": "/mgibson",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "bitwarden"
+    },
+    {
+      "id": 21275073,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "> The process outlined by @ohinton is what we're doing to secure the key for the OS-secured half\n\nI'm confused, didn't you also say that:\n\n> We had quite a few meetings with Microsoft and unfortunately the security model afforded by credential management in Windows just does not align with what we're looking for. This really just means we're not able to use Windows APIs directly for a perfect solution.\n\nWhich one is it? Is `KeyCredentialManager` being used or not? Because as @ohinton pointed out to me through the MS docs, using `KeyCredentialManager` as described by him would mean that:\n\n> An application can never use the keys from another application, nor can someone ever use the keys from another user. [...]\n> https://learn.microsoft.com/en-us/windows/uwp/security/microsoft-passport#222-authentication\n\nWhich seemed like the perfect solution. Do you mean to say that you are using `KeyCredential.RequestSignAsync` to sign the challenge, but you are not able to create a key through `KeyCredentialManager.RequestCreateAsync`, and therefore you are using a key that is available to any and all application son the system? Or what?\n\nIn any case, assuming `KeyCredentialManager` is broken or cannot be used as expected (though I'd be curious to know why) the workaround you outline makes sense. I don't exactly know how the split key recommendation was implemented, but I would suggest a popup warning when enabling Windows Hello unlock.\n\nI'm baffled that Windows cannot support such a feature, given that it also requires TPM v2.0 on Windows 11, that's kind of ironic. You folks definitely know more than me though, given that you also spoke to MS directly. Such a pity!\n\n---\nP.S.: apologies for my pedantry, I just want to make sure I completely understand the situation.",
+      "automated_response": false,
+      "created_at": "2023-04-13T20:21:16.131Z",
+      "updated_at": "2023-04-13T20:21:16.131Z",
+      "actor": {
+        "username": "mebeim",
+        "cleared": false,
+        "verified": false,
+        "url": "/mebeim",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/tqpueiddnft996tdk2545uu1meby/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "bitwarden"
+    },
+    {
+      "id": 21685279,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Sorry for the delay, got caught up with release items for this.\n\n`KeyCredentialManager` is being used and, indeed, we cannot access the keys for signing. My understanding after discussions with MS is that application scoping is limited to UWP applications AND that application scope guarantee is limited to other UWP applications -- applications running outside of UWP would be able to see all user secrets, including application-scoped UWP secrets for other applications. This is why we went with the convoluted split key of OS-managed user signature + Bitwarden secret.\n\nUltimately it comes down to UWP being relatively new in the grand scheme of things and by no means can we assume that most users use exclusively UWP applications.\n\nI understand being a bit incredulous -- I was too. We go through a lot for application signing and app store stuff, but the ecosystem just isn't ready to support the kind of guarantees we'd like, yet.\n\n",
+      "automated_response": false,
+      "created_at": "2023-05-04T12:35:33.836Z",
+      "updated_at": "2023-05-04T12:35:33.836Z",
+      "actor": {
+        "username": "mgibson",
+        "cleared": false,
+        "verified": false,
+        "url": "/mgibson",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "bitwarden"
+    },
+    {
+      "id": 21685316,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Since the fix for this is released, would you be willing to retest to confirm?\n\nAt the least, the secret should be indecipherable unless a user approves signing the same challenge.",
+      "automated_response": false,
+      "created_at": "2023-05-04T12:39:53.336Z",
+      "updated_at": "2023-05-04T12:39:53.336Z",
+      "actor": {
+        "username": "mgibson",
+        "cleared": false,
+        "verified": false,
+        "url": "/mgibson",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "bitwarden"
+    },
+    {
+      "id": 21709367,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @mgibson, thanks for the follow up. It makes more sense now that you mention it. I did not know this kind of functionality was only available to UWP apps. I checked the changes on `desktop-v2023.4.0` and tested the new functionality, it seems to work as described. The signed challenge is needed to decrypt the biometric master key in the user credential set, and (unfortunately) any app can request to sign the same challenge, but only if the user authenticates through the generic \"an app needs to verity it's you\" Windows Hello prompt.\n\nThumbs up for the added \"Recommended Settings Update\" popup message on first startup of the new version. Hopefully users will follow that hint! Seems like this is currently the most you can do on Windows to secure biometric master keys without building a UWP app. I would have honestly implemented the new \"Require password (or PIN) on first login\" functionality as a hard requirement, but I understand that could impact usability for existing users (maybe requiring it for new users makes sense though?).\n\nI also took a look at your updated [\"Unlock with Biometrics\" help center page](https://bitwarden.com/help/biometrics/) where I can see this tip:\n\n{F2335571}\n\nI would suggest highlighting the \"Tip\" as a \"Warning\" instead, clarifying the implications of disabling the new \"Require password (or PIN) on first login\" option. For example, something like this:\n\n{F2335579}\n\nAnyhow, seems to me like this report can be closed and the issue disclosed. Thank you all.",
+      "automated_response": false,
+      "created_at": "2023-05-05T18:45:04.847Z",
+      "updated_at": "2023-05-05T18:45:04.847Z",
+      "actor": {
+        "username": "mebeim",
+        "cleared": false,
+        "verified": false,
+        "url": "/mebeim",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/tqpueiddnft996tdk2545uu1meby/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "attachments": [
+        {
+          "id": 2335579,
+          "filename": "image.png",
+          "type": "image/png",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/yu5zpltmcbdaffmv7xlix1i2wo7e?response-content-disposition=attachment%3B%20filename%3D%22image.png%22%3B%20filename%2A%3DUTF-8%27%27image.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQWUGJSEXW%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065456Z&X-Amz-Expires=2098&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJHMEUCIQCs%2BAHUbCDN7ZM%2FRhBNF28O2F80UhXY6VtR8FvK0GbHCgIgT%2BHvom8NbOL5HpmSclupqcewRsIHOtWesqOwPyb3C5wqsgUIIxADGgwwMTM2MTkyNzQ4NDkiDFiBp%2B1%2BzPYJYiKWkCqPBcubQSUuQMPeeQa917%2BsMAQCzVw%2BNeT6L8eSgPDCNtgxYe8nYbmd3bljfIC3gl3bvM4o5m%2BR%2B5RRf3jBkEj%2BW%2BSfQSsJ1t8qEL1DJhE%2BvQvaH5ZuAs%2Fdx71s%2BsyOYaurHYRzsywB%2FL1i79fR9W5NUUYb9DJP3l3IGwCvhoNXq5H9mao8oGqlQIUQpegksD8zGG7uHqbOR5vyJqjS2wezOXyVBRjqiKWx0uMZU3A%2FeowGBQXtyY%2FIWdY3s00Twmdd9K2LrlTYw%2Fq2ftpeRtw%2Fn6VvYA6QvmYjr4ZK4JQ9RtYItF8kqbeUb19T3r9c1BFd%2Flbj0Y93xziXJ0xw10GDor0lUx1K4OS7yl9A%2Blu8ufd7MEdEy5s%2Fb0XY2gKYgjf3bY8QRGay30L3L42RcYMf3nqFXO7X3T1N8KfU%2FEJ6c%2F0Yh3bz5yjyaOFQ1cpGT8FGzJlBLHOMB8K6GdzC8tTq4pubY1TR8VnEYZnWk469DzZN%2FeC5qF7sUIW6uWIoiJ19UdSfmZ3xCCwnvklPoVeSaksq3JGhl6AKJbJ7cpUX6owVSnjSmLgCyoYJwLnhMsClgfM0126PpfYlelVGHEqacfBJmkI98B9aLbw2Rygpr1c9BZn9lpNURRanA4YamBuyRTY1JryY6807dLLK0V%2BBeikUHYUT9bZWaBeObgiEIzueZxMFdg5O%2F4nPH2PYDDfg%2BCuXmM3SPrsHkedvAu%2Bvt8yI9uTGk3DR4nJJ4TI0FHy0Ibc7OB7Hxz9nuY3peFIeGYbVJO7C3z1Nov6vn8I5jhwgFpB8ZYg6F%2F3%2FMD620wePaHv%2Fp5lGNzOcnQtX5lywxAbgNX2IcOSHijZYISJeuH2n8sh4PLW7PyKQrJUXn3Yw3P24qAY6sQGsyp%2FD97WbhPz5ULuCT2FvDBvfHDbIte5V4gLDv6VQbMsQ%2Fng51ukrSyWVufY5hEkCq9Ao4dGfEh3jBy0Uz7N9VzK9vaAGEEBIO5d0qqm9xxaX0jdUAw9Yapvhd4z7AUfapQhytkyw5%2BB2KUq%2BWaZrN4Ii3L9QfffPDPLtzj0aFCcjy1Gvz4BqiwFMa7vwGaRcwK%2FB4KzhT0sRLNUsk9KS7rpcPkfB2yVzUcgtyiDV64Y%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=762a69009d2063a9359173b2e00e6afb7cf664bbd6c220e0fbca041d5f1cfd5a"
+        },
+        {
+          "id": 2335571,
+          "filename": "image.png",
+          "type": "image/png",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/hsc2cxppldm1x344gxc79yoe4otj?response-content-disposition=attachment%3B%20filename%3D%22image.png%22%3B%20filename%2A%3DUTF-8%27%27image.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQWUGJSEXW%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065456Z&X-Amz-Expires=2098&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJHMEUCIQCs%2BAHUbCDN7ZM%2FRhBNF28O2F80UhXY6VtR8FvK0GbHCgIgT%2BHvom8NbOL5HpmSclupqcewRsIHOtWesqOwPyb3C5wqsgUIIxADGgwwMTM2MTkyNzQ4NDkiDFiBp%2B1%2BzPYJYiKWkCqPBcubQSUuQMPeeQa917%2BsMAQCzVw%2BNeT6L8eSgPDCNtgxYe8nYbmd3bljfIC3gl3bvM4o5m%2BR%2B5RRf3jBkEj%2BW%2BSfQSsJ1t8qEL1DJhE%2BvQvaH5ZuAs%2Fdx71s%2BsyOYaurHYRzsywB%2FL1i79fR9W5NUUYb9DJP3l3IGwCvhoNXq5H9mao8oGqlQIUQpegksD8zGG7uHqbOR5vyJqjS2wezOXyVBRjqiKWx0uMZU3A%2FeowGBQXtyY%2FIWdY3s00Twmdd9K2LrlTYw%2Fq2ftpeRtw%2Fn6VvYA6QvmYjr4ZK4JQ9RtYItF8kqbeUb19T3r9c1BFd%2Flbj0Y93xziXJ0xw10GDor0lUx1K4OS7yl9A%2Blu8ufd7MEdEy5s%2Fb0XY2gKYgjf3bY8QRGay30L3L42RcYMf3nqFXO7X3T1N8KfU%2FEJ6c%2F0Yh3bz5yjyaOFQ1cpGT8FGzJlBLHOMB8K6GdzC8tTq4pubY1TR8VnEYZnWk469DzZN%2FeC5qF7sUIW6uWIoiJ19UdSfmZ3xCCwnvklPoVeSaksq3JGhl6AKJbJ7cpUX6owVSnjSmLgCyoYJwLnhMsClgfM0126PpfYlelVGHEqacfBJmkI98B9aLbw2Rygpr1c9BZn9lpNURRanA4YamBuyRTY1JryY6807dLLK0V%2BBeikUHYUT9bZWaBeObgiEIzueZxMFdg5O%2F4nPH2PYDDfg%2BCuXmM3SPrsHkedvAu%2Bvt8yI9uTGk3DR4nJJ4TI0FHy0Ibc7OB7Hxz9nuY3peFIeGYbVJO7C3z1Nov6vn8I5jhwgFpB8ZYg6F%2F3%2FMD620wePaHv%2Fp5lGNzOcnQtX5lywxAbgNX2IcOSHijZYISJeuH2n8sh4PLW7PyKQrJUXn3Yw3P24qAY6sQGsyp%2FD97WbhPz5ULuCT2FvDBvfHDbIte5V4gLDv6VQbMsQ%2Fng51ukrSyWVufY5hEkCq9Ao4dGfEh3jBy0Uz7N9VzK9vaAGEEBIO5d0qqm9xxaX0jdUAw9Yapvhd4z7AUfapQhytkyw5%2BB2KUq%2BWaZrN4Ii3L9QfffPDPLtzj0aFCcjy1Gvz4BqiwFMa7vwGaRcwK%2FB4KzhT0sRLNUsk9KS7rpcPkfB2yVzUcgtyiDV64Y%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=b9670588e7b313a9a9245e38894f0a0f56e6b8e946b70d7c0b6abb28fdd56ee7"
+        }
+      ],
+      "genius_execution_id": null,
+      "team_handle": "bitwarden"
+    },
+    {
+      "id": 21732357,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2023-05-08T10:17:17.996Z",
+      "updated_at": "2023-05-08T10:17:17.996Z",
+      "actor": {
+        "username": "dbosompem",
+        "cleared": false,
+        "verified": false,
+        "url": "/dbosompem",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "reporter": {
+        "username": "mebeim",
+        "url": "/mebeim"
+      },
+      "genius_execution_id": null,
+      "team_handle": "bitwarden"
+    },
+    {
+      "id": 21733542,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2023-05-08T12:33:07.762Z",
+      "updated_at": "2023-05-08T12:33:07.762Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "mebeim",
+        "cleared": false,
+        "verified": false,
+        "url": "/mebeim",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/tqpueiddnft996tdk2545uu1meby/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "bitwarden"
+    },
+    {
+      "id": 21736525,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportTitleUpdated",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2023-05-08T15:59:30.340Z",
+      "updated_at": "2023-05-08T15:59:30.340Z",
+      "additional_data": {
+        "old_title": "Biometric master key on Windows is stored in cleartext and accessible to any local unprivileged process, granting access to all local vault data",
+        "new_title": "Biometric key is stored in Windows Credential Manager, accessible to other local unprivileged processes"
+      },
+      "actor": {
+        "username": "kspearrin",
+        "cleared": false,
+        "verified": false,
+        "url": "/kspearrin",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/NfF9KdzShJTHMmhSb4ajYq1p/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "bitwarden"
+    },
+    {
+      "id": 21737049,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportSeverityUpdated",
+      "message": null,
+      "automated_response": false,
+      "created_at": "2023-05-08T16:31:02.617Z",
+      "updated_at": "2023-05-08T16:31:02.617Z",
+      "additional_data": {
+        "old_severity": "High (8.0)",
+        "new_severity": "Medium (6.2)",
+        "old_severity_id": 1867405,
+        "new_severity_id": 1987753
+      },
+      "actor": {
+        "username": "kspearrin",
+        "cleared": false,
+        "verified": false,
+        "url": "/kspearrin",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/NfF9KdzShJTHMmhSb4ajYq1p/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "bitwarden"
+    },
+    {
+      "id": 21849595,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hello, is everything OK for disclosure?",
+      "automated_response": false,
+      "created_at": "2023-05-15T09:34:23.633Z",
+      "updated_at": "2023-05-15T09:34:23.633Z",
+      "actor": {
+        "username": "mebeim",
+        "cleared": false,
+        "verified": false,
+        "url": "/mebeim",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/tqpueiddnft996tdk2545uu1meby/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "bitwarden"
+    },
+    {
+      "id": 21872415,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@mebeim Yes, the report will be disclosed in 21 days.",
+      "automated_response": false,
+      "created_at": "2023-05-16T14:52:41.055Z",
+      "updated_at": "2023-05-16T14:52:41.055Z",
+      "actor": {
+        "username": "kspearrin",
+        "cleared": false,
+        "verified": false,
+        "url": "/kspearrin",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/NfF9KdzShJTHMmhSb4ajYq1p/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "bitwarden"
+    },
+    {
+      "id": 22223394,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportBecamePublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2023-06-07T12:33:12.588Z",
+      "updated_at": "2023-06-07T12:33:12.588Z",
+      "actor": {
+        "url": "/bitwarden",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/uHvBgHfLjcd9SPWDmjdYVf21/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "Bitwarden"
+        }
+      },
+      "genius_execution_id": null,
+      "team_handle": "bitwarden"
+    },
+    {
+      "id": 23229507,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi, could this report's information be updated to show the assigned CVE number? CVE-2023-27706: https://cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2023-27706",
+      "automated_response": false,
+      "created_at": "2023-08-09T01:01:16.619Z",
+      "updated_at": "2023-08-09T01:01:16.619Z",
+      "actor": {
+        "username": "mebeim",
+        "cleared": false,
+        "verified": false,
+        "url": "/mebeim",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/tqpueiddnft996tdk2545uu1meby/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "bitwarden"
+    },
+    {
+      "id": 23254926,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::CveIdAdded",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2023-08-10T11:53:42.478Z",
+      "updated_at": "2023-08-10T11:53:42.478Z",
+      "cve_ids": [
+        "CVE-2023-27706"
+      ],
+      "actor": {
+        "username": "pbehforrest",
+        "cleared": false,
+        "verified": false,
+        "url": "/pbehforrest",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "bitwarden"
+    }
+  ],
+  "activity_page_count": 1,
+  "activity_page_number": 1,
+  "summaries": [
+    {
+      "category": "team",
+      "can_view?": true,
+      "can_create?": false
+    },
+    {
+      "category": "researcher",
+      "can_view?": true,
+      "can_create?": false
+    }
+  ]
+}

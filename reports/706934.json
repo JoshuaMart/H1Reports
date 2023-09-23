@@ -1,0 +1,515 @@
+{
+  "id": 706934,
+  "global_id": "Z2lkOi8vaGFja2Vyb25lL1JlcG9ydC83MDY5MzQ=",
+  "url": "https://hackerone.com/reports/706934",
+  "title": "Variant of CVE-2013-0269 (Denial of Service and Unsafe Object Creation Vulnerability in JSON)",
+  "state": "Closed",
+  "substate": "resolved",
+  "severity_rating": "medium",
+  "readable_substate": "Resolved",
+  "created_at": "2019-10-03T05:19:48.551Z",
+  "submitted_at": "2019-10-03T05:19:48.551Z",
+  "is_member_of_team?": false,
+  "is_organization_group_member?": false,
+  "reporter": {
+    "disabled": false,
+    "username": "jeremyevans",
+    "url": "/jeremyevans",
+    "profile_picture_urls": {
+      "small": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+    },
+    "is_me?": false,
+    "cleared": false,
+    "verified": false,
+    "hackerone_triager": false,
+    "hacker_mediation": false
+  },
+  "team": {
+    "id": 7724,
+    "url": "https://hackerone.com/ruby",
+    "handle": "ruby",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/007/724/bb067434deef370d6a0b16c2cbbc030b57c75e92_original.png/d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98",
+      "medium": "https://profile-photos.hackerone-user-content.com/variants/000/007/724/bb067434deef370d6a0b16c2cbbc030b57c75e92_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+    },
+    "permissions": [
+
+    ],
+    "submission_state": "open",
+    "default_currency": "usd",
+    "awards_miles": false,
+    "offers_bounties": true,
+    "state": "public_mode",
+    "only_cleared_hackers": false,
+    "pentest_feature_enabled?": false,
+    "profile": {
+      "name": "Ruby",
+      "twitter_handle": "",
+      "website": "https://www.ruby-lang.org",
+      "about": "A Programmer's Best Friend"
+    }
+  },
+  "has_bounty?": true,
+  "in_validation?": false,
+  "can_view_team": true,
+  "can_view_report": true,
+  "is_external_bug": false,
+  "is_published": false,
+  "is_participant": false,
+  "has_collaborators": false,
+  "submitted_by_team_member": false,
+  "stage": 4,
+  "public": true,
+  "visibility": "full",
+  "cve_ids": [
+    "CVE-2013-0269"
+  ],
+  "singular_disclosure_disabled": false,
+  "disclosed_at": "2020-04-23T08:36:22.261Z",
+  "bug_reporter_agreed_on_going_public_at": null,
+  "team_member_agreed_on_going_public_at": "2020-03-24T08:36:17.096Z",
+  "comments_closed?": false,
+  "facebook_team?": false,
+  "team_private?": false,
+  "vulnerability_information": "During my recent keyword argument separation work on `rb_scan_args` in the master branch, I discovered what I now think is a vulnerability.\n\nWhile the CVE-2013-0269 change fixed most usage of `JSON.parse`, it ended up not fixing `Kernel#JSON`.  The reason behind this is that internally, in `JSON::Parser#initialize` (in `cParser_initialize` in `ext/json/parser/parser.c`), there is a separate branch taken depending on whether an option hash was provided.  The fix for CVE-2013-026 only fixed one of these branches (when a option hash is provided).  It did not fix the other branch (when no option hash is provided).\n\n`Kernel#JSON` is able to easily hit the case where no option hash is provided, because it does:\n\n```ruby\n  def JSON(object, *args)\n    if object.respond_to? :to_str\n      JSON.parse(object.to_str, args.first)\n```\n\nIn the common case, no extra arguments are provided, and `args.first` is `nil`.  Historically, Ruby has allowed the `rb_scan_args` `:` character to handle a `nil` option hash like no option hash was provided.  This is deprecated in the master branch, and a warning is issued, but it is still supported.\n\nI fixed this in the master branch in the `rb_scan_args` commit, as it was needed to avoid the warning:\nhttps://github.com/ruby/ruby/commit/80b5a0ff2a7709367178f29d4ebe1c54122b1c27#diff-59fb0f5411be4c22009691e1a7f5a185 .  It was only later, when I was going to report this issue upstream that I realized the security implications.\n\nI believe all previously released versions of Ruby since 1.9 (when JSON was included in stdlib) are vulnerable to this. I think this fix should be backported to Ruby 2.4, 2.5, and 2.6, and another CVE issued.\n\nIn addition to `Kernel#JSON`, there are some other vulnerable calls, though they are likely to be less common.\n\nFull example code:\n\n```ruby\n  require 'json'\n\n  class A < Struct.new(:a)\n    def self.json_create(object)\n      new(*object['args'])\n    end\n\n    def to_json(*args)\n      {\n        'json_class'  => self.class.name,\n        'args'        => [ a ],\n      }.to_json(*args)\n    end\n  end\n\n  js = A.new(1).to_json\n  p JSON.parse(js) #=> {\"json_class\"=>\"A\", \"args\"=>[1]}\n  p JSON(js)       #=> #<struct A a=1>\n\n  # Also vulnerable, resulting in #<struct A a=1>\n  p JSON.parse(js, nil)\n  p JSON[js, nil]\n  p JSON::Parser.new(js).parse\n```\n\n## Impact\n\nThis highly depends on the application using in question.  In order to be vulnerable, `Kernel#JSON` or one of the other vulnerable calls must be called with user provided input.\n\nI am not sure this results in denial of service since Ruby 2.2, due to the support of dynamic symbols.  However, I have not analyzed the related JSON code to determine if it creates dynamic or static symbols when `create_additions` is used.\n\nAssuming that `Kernel#JSON` is called with user-provided input, this allows creation of arbitrary objects where there is a named class that has a `json_create` singleton method..  More precisely, this allows calling `json_create` methods on any named constant with arbitrary arguments (assuming the constant returns a true value for `json_createable?`).  Many Ruby applications use libraries that have objects in constants that support `method_missing` and could possibly be vulnerable.  However, I have not done any research into possible exploitability, which is why I listed severity as Medium.\n\nIf any `json/add/*` files have been required, this could possibly be very dangerous, as those can allow the creation of arbitrary core/stdlib objects.  For example `json/add/ostruct` being required, when combined with this vulnerability, allows the creation of arbitrary objects that support attacker-defined methods with attacker-defined values of any type supported by JSON.  `json/add/regexp` allows the creation of arbitrary Regexps which could easily lead to denial of service, and combined with a vulnerability in the regexp engine (Onigmo), could potentially lead to remote code execution.",
+  "bounty_amount": "500.0",
+  "formatted_bounty": "$500",
+  "weakness": {
+    "id": 65,
+    "name": "Business Logic Errors"
+  },
+  "original_report_id": null,
+  "original_report_url": null,
+  "attachments": [
+
+  ],
+  "allow_singular_disclosure_at": "2020-04-23T08:36:17.166Z",
+  "allow_singular_disclosure_after": -107823256.78792974,
+  "singular_disclosure_allowed": true,
+  "vote_count": 18,
+  "voters": [
+    "a_d_a_m",
+    "iam_a_jinchuriki",
+    "mik317",
+    "what_web",
+    "b69fb2ebda43240ece9dbeb",
+    "dabyain",
+    "w41t3r4v3n",
+    "adeeshajayanath",
+    "pandeyva",
+    "aggressive",
+    "and 8 more..."
+  ],
+  "severity": {
+    "rating": "medium",
+    "author_type": "User"
+  },
+  "structured_scope": {
+    "databaseId": 28212,
+    "asset_type": "SOURCE_CODE",
+    "asset_identifier": "https://github.com/ruby/ruby",
+    "max_severity": "critical"
+  },
+  "abilities": {
+    "assignable_team_members": [
+
+    ],
+    "assignable_team_member_groups": [
+
+    ]
+  },
+  "activities": [
+    {
+      "id": 5948489,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi Jeremy,\n\nThank you for your report.  I understood as follows:\n\n* [CVE-2013-0269](https://www.ruby-lang.org/en/news/2013/02/22/json-dos-cve-2013-0269/) fixed the issue that `JSON.parse(untrusted_string)` had been exploitable against DoS.\n* However, The following method calls are still exploitable:\n  * `JSON(untrusted_string)`\n  * `JSON.parse(untrusted_string, nil)`\n  * `JSON[untrusted_string, nil]`\n  * `JSON::Parser.new(untrusted_string).parse`\n\nIs my understanding correct?\n\nThe CVE-2013-0269 announcement also notes \"*always* use `JSON.parse`\" for untrusted string.\n\n> PLEASE NOTE: this behavior *does not change* when using `JSON.load`. `JSON.load` should *never* be given input from unknown sources. If you are processing JSON from an unknown source, *always* use `JSON.parse`.\n\nSo, I have no idea whether the method calls are considered harmful.  IMO, `JSON(untrusted_string)` is too easy to fall into the pitfall.  What do other people think?\n",
+      "automated_response": false,
+      "created_at": "2019-10-03T05:22:10.845Z",
+      "updated_at": "2019-10-03T05:22:10.845Z",
+      "actor": {
+        "username": "mame",
+        "cleared": false,
+        "verified": false,
+        "url": "/mame",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/8vhoh1hyan61xovrmfhy7kmi4gib/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "ruby"
+    },
+    {
+      "id": 5948524,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "I think your understanding is correct.  I believe this is still a security issue, as in all of these calls, the caller would expect `create_additions` to be set to `false`, not `true`.  Callers would expect that no option hash should be treated the same as the empty option hash.  I expect the `Kernel#JSON` usage is uncommon compared to `JSON.parse`.  I wasn't aware `Kernel#JSON` existed until running into this issue. I expect the other variants are even less likely to actually be used.",
+      "automated_response": false,
+      "created_at": "2019-10-03T05:33:09.766Z",
+      "updated_at": "2019-10-03T05:33:09.766Z",
+      "actor": {
+        "username": "jeremyevans",
+        "cleared": false,
+        "verified": false,
+        "url": "/jeremyevans",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "ruby"
+    },
+    {
+      "id": 5948550,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "CVE-2013-0269 is arbitrary ID creation by external data.\nRuby 2.2 and later have Symbol GC, so I don't think this is vulnerable.\n\n```\n$ ruby2.4 -v -rjson -I .ext/x86_64-darwin18/ -r-test-/symbol.bundle -e 'begin JSON(%[{\"json_class\":\"XXX\"}]); rescue ArgumentError, NameError => e; p e; end; p Bug::Symbol.pinneddown?(\"XXX\")'\nruby 2.4.7p357 (2019-08-28 revision 67796) [x86_64-darwin18]\n#<ArgumentError: can't get const XXX: uninitialized constant XXX>\nfalse\n```\n\nAs for the invalid name, `\"foo\"`, it is prevented even in older versions as it raises a `NameError`.\n\n```\n$ ./ruby -v --disable=gems -rjson -r-test-/symbol -e 'begin JSON(%[{\"json_class\":\"foo\"}]); rescue ArgumentError, NameError => e; p e; end; p Bug::Symbol.interned?(\"foo\")'\nruby 2.1.10p492 (2016-04-22 revision 54691) [x86_64-darwin18.0]\n#<NameError: wrong constant name foo>\nfalse\n```\n",
+      "automated_response": false,
+      "created_at": "2019-10-03T05:45:34.673Z",
+      "updated_at": "2019-10-03T05:45:34.673Z",
+      "actor": {
+        "username": "nobu",
+        "cleared": false,
+        "verified": false,
+        "url": "/nobu",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/083/585/0d7081d0d147b05e9630bb56974707efae6d6721_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "ruby"
+    },
+    {
+      "id": 5960292,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @jeremyevans,\n\nThank you for your submission. Your report is currently being reviewed and the HackerOne triage team will get back to you once there is additional information to share.\n\nKind regards,\n@sodacan\n",
+      "automated_response": false,
+      "created_at": "2019-10-04T15:39:44.230Z",
+      "updated_at": "2019-10-04T15:39:44.230Z",
+      "actor": {
+        "username": "h1_analyst_ava",
+        "cleared": false,
+        "verified": false,
+        "url": "/h1_analyst_ava",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/l6jvtw54r3s4hzqzp58kpmfycpjm/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": true,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "ruby"
+    },
+    {
+      "id": 5966089,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "The previous explanation was partially false.\n* `JSON::GenericObject` is addressed by dynamic `Symbol`, a part of Symbol GC.\n* `\"json_class\"` case is addressed as `Module#const_missing` doesn't create new `ID` since this [get rid of inadvertent ID creation] commit.\n\n[get rid of inadvertent ID creation]: https://git.ruby-lang.org/ruby.git/commit/?id=8eb0c810b228df1f8352c005a7ae882ad4179b4b,",
+      "automated_response": false,
+      "created_at": "2019-10-05T14:53:45.168Z",
+      "updated_at": "2019-10-05T14:53:45.168Z",
+      "actor": {
+        "username": "nobu",
+        "cleared": false,
+        "verified": false,
+        "url": "/nobu",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/083/585/0d7081d0d147b05e9630bb56974707efae6d6721_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "ruby"
+    },
+    {
+      "id": 6059799,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@jeremyevans Nobu says that this issue seems to be fundamentally resolved because Ruby's Symbol is now (partially) GC'ed.  What do you think?",
+      "automated_response": false,
+      "created_at": "2019-10-16T23:20:09.142Z",
+      "updated_at": "2019-10-16T23:20:09.142Z",
+      "actor": {
+        "username": "mame",
+        "cleared": false,
+        "verified": false,
+        "url": "/mame",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/8vhoh1hyan61xovrmfhy7kmi4gib/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "ruby"
+    },
+    {
+      "id": 6060355,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "The denial of service vulnerability is probably resolved due to Symbol GC and removal of inadvertent symbol creation (I mentioned that in the initial report).\n\nHowever, I think the insecure object creation vulnerability is not resolved. `Kernel::JSON(user_provided_string)` should not try to call `json_create` or `json_creatable?` on arbitrary classes.",
+      "automated_response": false,
+      "created_at": "2019-10-17T00:08:20.999Z",
+      "updated_at": "2019-10-17T00:08:20.999Z",
+      "actor": {
+        "username": "jeremyevans",
+        "cleared": false,
+        "verified": false,
+        "url": "/jeremyevans",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "ruby"
+    },
+    {
+      "id": 6772949,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugTriaged",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2020-01-15T02:04:15.381Z",
+      "updated_at": "2020-01-15T02:04:15.381Z",
+      "actor": {
+        "username": "hsbt",
+        "cleared": false,
+        "verified": false,
+        "url": "/hsbt",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/dx6z1zqthgan1c4rv9ppn4jx3832/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937?response-content-disposition=inline%3B%20filename%3D%222eUvHh_4_400x400.png%22%3B%20filename%2A%3DUTF-8%27%272eUvHh_4_400x400.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ5NIKTYBN%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T073034Z&X-Amz-Expires=1272&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJHMEUCIQCM2la1GSZwFkbzZwAlaXr0SDHvL7evb0H8C%2BcAyp6rJwIgUS%2FvPViGx2g0I162nhXzz0XdF2Xh43GEuLX0y03wgpgqsgUIIxADGgwwMTM2MTkyNzQ4NDkiDNqaUM2zKa0nRrRjPiqPBY3HR7dtjU%2FqgV%2Bme1Vi2BF0srTbVHaeVx7AXFxoOny%2FWf6dy0NtyNi5jqQtZSPTNusRUoRBEVYluoE2pTzC4h8vkvORrE9JykyZYTHH8ocgk5lc0APz3GbNdw8EDi7TxEfkQrfeNcb9De%2FCYblR%2BcD3eIOuf0HhbFpNONPshVMD2bahKYX2YefU56UpZ3VXRBwPkoVPMgab%2BFva6rLt69nWaBZT3wd3EIEFt5XoYZDHjSKORRTdwTs%2FDCgqPEoyGhV0VrhBCUYqQbAukt7wGk7NrNDWs7mZmkL9Kv28fQIY1Q7h9exaudTPtQP0E2yZtr3wKCcWNQFiX57yas%2B0bvmeuA3ym%2BSzBLvdO1P9ziA8htBG3pApMoYNVRcJXqB9Ulg7ZaIeoGHU8ucHynNO64xiJkECfQ%2F83m0uusP%2FCbg8v%2FC8x09sz0WJsbCM5h90DddiMkeTK%2B47Ho2K%2FzWj9Vax4pTTeyBAgNycvbE1C5SdrAIC8ofvTBgjD9VJnS4%2Fm%2FaSERgD%2FpHxyUa3F9f2xwK2zzZHVjSUL9gImPRAlJZ6Nh8ldRy7Y8qAeEkVVgxlkabpkSUzkeJFYWeyAIFxnGiALPstIyZO91J3sBSrtYKPCa81FT%2BAe5FdP%2F16dX7M8G2QBoHlOCiborPNR188kYqbrtspQiMLdSdCqE06hDUFQ3PcbE8pZjc3H5dcny%2BqL2xr08qLnFp5WdXxcvFRdgKAOAiyBUtpuXF6qITm0ms7xwUQpzSFqpQFGxJNdqYxaBQFXFr1B8dripk5f1Qg734MxZRFa8OXrC0SUBclX%2FIsJJJqUWr7uq4q66njtMMLeKaRxJh4vXuOMKGmNrytwHC7GauHczb7gJBY9EaCQsEwyfu4qAY6sQHEE5yo4qz1nHc7W%2FmuNCkeiEC06BT2KXW5Ye7wR%2BJRqa4RD1Evl5MaAbKYOUm3j3RKv8ZiQXgBRIDsjMyLkeHJDlM30wkC5GTlhwpLfAXvVAeC%2BGlwLLBvL176VeFL7S7mGPxQhRCLoa8DCYKS9rPurVlp6T5EPeBgnNUxOC0WTs38l8ylcSgu2HURNvrOIIHuAxsNQYx%2Bnc4wcFv0RnkFptS7LlYhwcWV%2FKYEjxiy5O8%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=999d671b2179621178fd27ebf0e89fc11ee109ac8b270d2f0f6343875413716c"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "ruby"
+    },
+    {
+      "id": 7349816,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "This has now been open for over 6 months.  We haven't had another release of ruby 2.4, 2.5, or 2.6 since then, but that sounds like a long time to leave a security issue open.  Is this issue here because the fix is in the json gem?  The json gem released version 2.3.0 with the fix back in December.\n\nIs there an estimate for long this will take to be backported to ruby 2.5 and 2.6?  Do we plan to backport this to 2.4 before it goes out of maintenance at the end of the month?",
+      "automated_response": false,
+      "created_at": "2020-03-18T03:37:14.062Z",
+      "updated_at": "2020-03-18T03:37:14.062Z",
+      "actor": {
+        "username": "jeremyevans",
+        "cleared": false,
+        "verified": false,
+        "url": "/jeremyevans",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "ruby"
+    },
+    {
+      "id": 7351291,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi Jeremy,\n\nI'd like to handle this as a security issue.  Could you please create a patch for 2.4, 2.5 and 2.6?  I'll request a CVE number. ",
+      "automated_response": false,
+      "created_at": "2020-03-18T08:01:42.452Z",
+      "updated_at": "2020-03-18T08:01:42.452Z",
+      "actor": {
+        "username": "mame",
+        "cleared": false,
+        "verified": false,
+        "url": "/mame",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/8vhoh1hyan61xovrmfhy7kmi4gib/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "ruby"
+    },
+    {
+      "id": 7369753,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "CVE-2020-10663 was assigned and I published https://www.ruby-lang.org/en/news/2020/03/19/json-dos-cve-2020-10663/",
+      "automated_response": false,
+      "created_at": "2020-03-19T14:33:51.519Z",
+      "updated_at": "2020-03-19T14:33:51.519Z",
+      "actor": {
+        "username": "mame",
+        "cleared": false,
+        "verified": false,
+        "url": "/mame",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/8vhoh1hyan61xovrmfhy7kmi4gib/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "ruby"
+    },
+    {
+      "id": 7369759,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2020-03-19T14:34:40.634Z",
+      "updated_at": "2020-03-19T14:34:40.634Z",
+      "actor": {
+        "username": "mame",
+        "cleared": false,
+        "verified": false,
+        "url": "/mame",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/8vhoh1hyan61xovrmfhy7kmi4gib/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "reporter": {
+        "username": "jeremyevans",
+        "url": "/jeremyevans"
+      },
+      "genius_execution_id": null,
+      "team_handle": "ruby"
+    },
+    {
+      "id": 7369765,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@hsbt Could you please decide the amount of award?",
+      "automated_response": false,
+      "created_at": "2020-03-19T14:35:20.836Z",
+      "updated_at": "2020-03-19T14:35:20.836Z",
+      "actor": {
+        "username": "mame",
+        "cleared": false,
+        "verified": false,
+        "url": "/mame",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/8vhoh1hyan61xovrmfhy7kmi4gib/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "ruby"
+    },
+    {
+      "id": 7407336,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BountyAwarded",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2020-03-24T08:36:03.482Z",
+      "updated_at": "2020-03-24T08:36:03.482Z",
+      "actor": {
+        "url": "/ruby",
+        "ibb": true,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/007/724/bb067434deef370d6a0b16c2cbbc030b57c75e92_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "Ruby"
+        }
+      },
+      "bounty_amount": "500.0",
+      "bonus_amount": "0.0",
+      "bounty_currency": "usd",
+      "genius_execution_id": null,
+      "team_handle": "ruby",
+      "collaborator": {
+        "username": "jeremyevans",
+        "url": "/jeremyevans"
+      }
+    },
+    {
+      "id": 7407338,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2020-03-24T08:36:17.113Z",
+      "updated_at": "2020-03-24T08:36:17.113Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "hsbt",
+        "cleared": false,
+        "verified": false,
+        "url": "/hsbt",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/dx6z1zqthgan1c4rv9ppn4jx3832/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937?response-content-disposition=inline%3B%20filename%3D%222eUvHh_4_400x400.png%22%3B%20filename%2A%3DUTF-8%27%272eUvHh_4_400x400.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ5NIKTYBN%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T073034Z&X-Amz-Expires=1272&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJHMEUCIQCM2la1GSZwFkbzZwAlaXr0SDHvL7evb0H8C%2BcAyp6rJwIgUS%2FvPViGx2g0I162nhXzz0XdF2Xh43GEuLX0y03wgpgqsgUIIxADGgwwMTM2MTkyNzQ4NDkiDNqaUM2zKa0nRrRjPiqPBY3HR7dtjU%2FqgV%2Bme1Vi2BF0srTbVHaeVx7AXFxoOny%2FWf6dy0NtyNi5jqQtZSPTNusRUoRBEVYluoE2pTzC4h8vkvORrE9JykyZYTHH8ocgk5lc0APz3GbNdw8EDi7TxEfkQrfeNcb9De%2FCYblR%2BcD3eIOuf0HhbFpNONPshVMD2bahKYX2YefU56UpZ3VXRBwPkoVPMgab%2BFva6rLt69nWaBZT3wd3EIEFt5XoYZDHjSKORRTdwTs%2FDCgqPEoyGhV0VrhBCUYqQbAukt7wGk7NrNDWs7mZmkL9Kv28fQIY1Q7h9exaudTPtQP0E2yZtr3wKCcWNQFiX57yas%2B0bvmeuA3ym%2BSzBLvdO1P9ziA8htBG3pApMoYNVRcJXqB9Ulg7ZaIeoGHU8ucHynNO64xiJkECfQ%2F83m0uusP%2FCbg8v%2FC8x09sz0WJsbCM5h90DddiMkeTK%2B47Ho2K%2FzWj9Vax4pTTeyBAgNycvbE1C5SdrAIC8ofvTBgjD9VJnS4%2Fm%2FaSERgD%2FpHxyUa3F9f2xwK2zzZHVjSUL9gImPRAlJZ6Nh8ldRy7Y8qAeEkVVgxlkabpkSUzkeJFYWeyAIFxnGiALPstIyZO91J3sBSrtYKPCa81FT%2BAe5FdP%2F16dX7M8G2QBoHlOCiborPNR188kYqbrtspQiMLdSdCqE06hDUFQ3PcbE8pZjc3H5dcny%2BqL2xr08qLnFp5WdXxcvFRdgKAOAiyBUtpuXF6qITm0ms7xwUQpzSFqpQFGxJNdqYxaBQFXFr1B8dripk5f1Qg734MxZRFa8OXrC0SUBclX%2FIsJJJqUWr7uq4q66njtMMLeKaRxJh4vXuOMKGmNrytwHC7GauHczb7gJBY9EaCQsEwyfu4qAY6sQHEE5yo4qz1nHc7W%2FmuNCkeiEC06BT2KXW5Ye7wR%2BJRqa4RD1Evl5MaAbKYOUm3j3RKv8ZiQXgBRIDsjMyLkeHJDlM30wkC5GTlhwpLfAXvVAeC%2BGlwLLBvL176VeFL7S7mGPxQhRCLoa8DCYKS9rPurVlp6T5EPeBgnNUxOC0WTs38l8ylcSgu2HURNvrOIIHuAxsNQYx%2Bnc4wcFv0RnkFptS7LlYhwcWV%2FKYEjxiy5O8%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=999d671b2179621178fd27ebf0e89fc11ee109ac8b270d2f0f6343875413716c"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "ruby"
+    },
+    {
+      "id": 7763683,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportBecamePublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2020-04-23T08:36:22.319Z",
+      "updated_at": "2020-04-23T08:36:22.319Z",
+      "actor": {
+        "url": "/ruby",
+        "ibb": true,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/007/724/bb067434deef370d6a0b16c2cbbc030b57c75e92_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "Ruby"
+        }
+      },
+      "genius_execution_id": null,
+      "team_handle": "ruby"
+    }
+  ],
+  "activity_page_count": 1,
+  "activity_page_number": 1,
+  "summaries": [
+    {
+      "category": "team",
+      "can_view?": true,
+      "can_create?": false
+    },
+    {
+      "category": "researcher",
+      "can_view?": true,
+      "can_create?": false
+    }
+  ]
+}

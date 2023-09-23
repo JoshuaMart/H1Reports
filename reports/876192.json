@@ -1,0 +1,753 @@
+{
+  "id": 876192,
+  "global_id": "Z2lkOi8vaGFja2Vyb25lL1JlcG9ydC84NzYxOTI=",
+  "url": "https://hackerone.com/reports/876192",
+  "title": "Cookie steal through content Uri",
+  "state": "Closed",
+  "substate": "resolved",
+  "severity_rating": "critical",
+  "readable_substate": "Resolved",
+  "created_at": "2020-05-16T20:11:15.667Z",
+  "submitted_at": "2020-05-16T20:11:15.667Z",
+  "is_member_of_team?": false,
+  "is_organization_group_member?": false,
+  "reporter": {
+    "disabled": false,
+    "username": "kanytu",
+    "url": "/kanytu",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/mJNP7PfX6rYmTizyamisQ5hL/d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98"
+    },
+    "is_me?": false,
+    "cleared": false,
+    "verified": false,
+    "hackerone_triager": false,
+    "hacker_mediation": false
+  },
+  "team": {
+    "id": 15688,
+    "url": "https://hackerone.com/brave",
+    "handle": "brave",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/015/688/2aad5641af643ee4f4402896e4747293f6e9c5ca_original.png/d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98",
+      "medium": "https://profile-photos.hackerone-user-content.com/variants/000/015/688/2aad5641af643ee4f4402896e4747293f6e9c5ca_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+    },
+    "permissions": [
+
+    ],
+    "submission_state": "open",
+    "default_currency": "usd",
+    "awards_miles": false,
+    "offers_bounties": true,
+    "state": "public_mode",
+    "only_cleared_hackers": false,
+    "pentest_feature_enabled?": false,
+    "profile": {
+      "name": "Brave Software",
+      "twitter_handle": "brave",
+      "website": "https://brave.com",
+      "about": ""
+    }
+  },
+  "has_bounty?": true,
+  "in_validation?": false,
+  "can_view_team": true,
+  "can_view_report": true,
+  "is_external_bug": false,
+  "is_published": false,
+  "is_participant": false,
+  "has_collaborators": false,
+  "submitted_by_team_member": false,
+  "stage": 4,
+  "public": true,
+  "visibility": "full",
+  "cve_ids": [
+
+  ],
+  "singular_disclosure_disabled": true,
+  "disclosed_at": "2021-04-22T18:05:12.454Z",
+  "bug_reporter_agreed_on_going_public_at": "2021-04-21T21:55:14.307Z",
+  "team_member_agreed_on_going_public_at": "2021-04-22T18:05:12.306Z",
+  "comments_closed?": false,
+  "facebook_team?": false,
+  "team_private?": false,
+  "vulnerability_information": "## Summary\n\nA misconfiguration in a content provider is allowing Brave for Android to download internal files to Downloads folder, making them accessible to other apps. A malicious app could order Brave to download the cookies database and retrieve it afterwards.\n\n## Environment\n\n- **Device:** HTC M8\n- **OS version:** Android 9\n- **Package name:** com.brave.browser\n- **App version:** 1.8.93 (`versionCode` 410809320)\n\n\n\n## Proof of concept\n\n### Pre-conditions:\n\n- Poc installed with `STORAGE` permissions\n- Brave installed with some cookies saved\n- Brave should have `STORAGE` permission as well\n\n### Steps:\n\n1. Tap \"Start Exploit\" in PoC app\n2. Brave will start to download the cookies file\n3. Open back PoC app\n\n### Result\n\nCookies are shown in PoC app\n\n### Expected result\n\nPrivate files shouldn't be exported\n\n\n\n## Detailed explanation\n\nWhen `Start Exploit` is tapped, the app is sending an intent to Brave Browser to view a content URI:\n\n```\ncontent://com.brave.browser.FileProvider/root/data/data/com.brave.browser/app_chrome/Default/Cookies\n```\n\nThis content URI will be resolved to `ChromeFileProvider`. This File Content Provider has the following path configuration:\n\n```\n<paths>\n    <root-path name=\"root\" path=\".\" />\n    <files-path name=\"images\" path=\"images/\" />\n    <cache-path name=\"cache\" path=\"net-export/\" />\n    <cache-path name=\"passwords\" path=\"passwords/\" />\n    <cache-path name=\"traces\" path=\"traces/\" />\n    <cache-path name=\"webapk\" path=\"webapks/\" />\n    <cache-path name=\"offline-cache\" path=\"Offline Pages/archives/\" />\n    <external-path name=\"downloads\" path=\"Download/\" />\n    <external-path name=\"downloads\" path=\"Android/data/com.brave.browser/files/Download/\" />\n</paths>\n```\n\nBecause of the usage of `root-path` with path `.`, it is possible to use this provider to point to all files in the Android system.\n\nBy using the path segment `/root/` followed by the absolute path to the internal file, Brave will easily process this URI because it belongs to itself, hence, no need to grant permissions to this URI.\n\nBrave will then proceed to download this file because of it's mime type (`application/octet-stream`). The file is saved in `/sdcard/Download/`. This is a public directory and all files with `STORAGE` permission can access them.\n\nThe PoC listens for changes in Downloads directory and when the Cookies file is created there, it will access this database and print all cookies in it.\n\n\n\n## Remediation\n\nBrave should not use `root-path` point to the root of the file system (`./`). If this needed for some edge case, Brave should implement path checks to make sure that no internal file is used in this URI.\n\n## Attachments\n\n- PoC.zip - source code of the PoC used in this exploit\n- poc.apk - compiled binary to use in this exploit\n- video.mp4 - a video showing the exploit in action\n\n## Impact\n\nThis allows a malicious app with `STORAGE` permission to access all cookies in Brave which has a high confidentiality impact. This requires no user interaction other than a malicious app installed.\n\nThis works for all internal files but cookies allow the malicious app to potentially access private information from the user, impacting the availability and integrity of their logged in accounts.",
+  "bounty_amount": "500.0",
+  "formatted_bounty": "$500",
+  "weakness": {
+    "id": 92,
+    "name": "Weak Password Recovery Mechanism for Forgotten Password"
+  },
+  "original_report_id": null,
+  "original_report_url": null,
+  "attachments": [
+    {
+      "id": 830951,
+      "file_name": "PoC.zip",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/Z63gqavXLojBAVr3XuqDh32u?response-content-disposition=attachment%3B%20filename%3D%22PoC.zip%22%3B%20filename%2A%3DUTF-8%27%27PoC.zip&response-content-type=application%2Fzip&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQWUGJSEXW%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T071411Z&X-Amz-Expires=943&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJHMEUCIQCs%2BAHUbCDN7ZM%2FRhBNF28O2F80UhXY6VtR8FvK0GbHCgIgT%2BHvom8NbOL5HpmSclupqcewRsIHOtWesqOwPyb3C5wqsgUIIxADGgwwMTM2MTkyNzQ4NDkiDFiBp%2B1%2BzPYJYiKWkCqPBcubQSUuQMPeeQa917%2BsMAQCzVw%2BNeT6L8eSgPDCNtgxYe8nYbmd3bljfIC3gl3bvM4o5m%2BR%2B5RRf3jBkEj%2BW%2BSfQSsJ1t8qEL1DJhE%2BvQvaH5ZuAs%2Fdx71s%2BsyOYaurHYRzsywB%2FL1i79fR9W5NUUYb9DJP3l3IGwCvhoNXq5H9mao8oGqlQIUQpegksD8zGG7uHqbOR5vyJqjS2wezOXyVBRjqiKWx0uMZU3A%2FeowGBQXtyY%2FIWdY3s00Twmdd9K2LrlTYw%2Fq2ftpeRtw%2Fn6VvYA6QvmYjr4ZK4JQ9RtYItF8kqbeUb19T3r9c1BFd%2Flbj0Y93xziXJ0xw10GDor0lUx1K4OS7yl9A%2Blu8ufd7MEdEy5s%2Fb0XY2gKYgjf3bY8QRGay30L3L42RcYMf3nqFXO7X3T1N8KfU%2FEJ6c%2F0Yh3bz5yjyaOFQ1cpGT8FGzJlBLHOMB8K6GdzC8tTq4pubY1TR8VnEYZnWk469DzZN%2FeC5qF7sUIW6uWIoiJ19UdSfmZ3xCCwnvklPoVeSaksq3JGhl6AKJbJ7cpUX6owVSnjSmLgCyoYJwLnhMsClgfM0126PpfYlelVGHEqacfBJmkI98B9aLbw2Rygpr1c9BZn9lpNURRanA4YamBuyRTY1JryY6807dLLK0V%2BBeikUHYUT9bZWaBeObgiEIzueZxMFdg5O%2F4nPH2PYDDfg%2BCuXmM3SPrsHkedvAu%2Bvt8yI9uTGk3DR4nJJ4TI0FHy0Ibc7OB7Hxz9nuY3peFIeGYbVJO7C3z1Nov6vn8I5jhwgFpB8ZYg6F%2F3%2FMD620wePaHv%2Fp5lGNzOcnQtX5lywxAbgNX2IcOSHijZYISJeuH2n8sh4PLW7PyKQrJUXn3Yw3P24qAY6sQGsyp%2FD97WbhPz5ULuCT2FvDBvfHDbIte5V4gLDv6VQbMsQ%2Fng51ukrSyWVufY5hEkCq9Ao4dGfEh3jBy0Uz7N9VzK9vaAGEEBIO5d0qqm9xxaX0jdUAw9Yapvhd4z7AUfapQhytkyw5%2BB2KUq%2BWaZrN4Ii3L9QfffPDPLtzj0aFCcjy1Gvz4BqiwFMa7vwGaRcwK%2FB4KzhT0sRLNUsk9KS7rpcPkfB2yVzUcgtyiDV64Y%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=f4eca948ef38814159a0fa87ae0d82a4ae0e80a308c1b469073d4954e7fcf326",
+      "file_size": 134084,
+      "type": "application/zip",
+      "moderated": null
+    },
+    {
+      "id": 830952,
+      "file_name": "poc.apk",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/39c5oEtfBMKUedyAHPBu8VoP?response-content-disposition=attachment%3B%20filename%3D%22poc.apk%22%3B%20filename%2A%3DUTF-8%27%27poc.apk&response-content-type=application%2Fvnd.android.package-archive&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQWUGJSEXW%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T071411Z&X-Amz-Expires=943&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJHMEUCIQCs%2BAHUbCDN7ZM%2FRhBNF28O2F80UhXY6VtR8FvK0GbHCgIgT%2BHvom8NbOL5HpmSclupqcewRsIHOtWesqOwPyb3C5wqsgUIIxADGgwwMTM2MTkyNzQ4NDkiDFiBp%2B1%2BzPYJYiKWkCqPBcubQSUuQMPeeQa917%2BsMAQCzVw%2BNeT6L8eSgPDCNtgxYe8nYbmd3bljfIC3gl3bvM4o5m%2BR%2B5RRf3jBkEj%2BW%2BSfQSsJ1t8qEL1DJhE%2BvQvaH5ZuAs%2Fdx71s%2BsyOYaurHYRzsywB%2FL1i79fR9W5NUUYb9DJP3l3IGwCvhoNXq5H9mao8oGqlQIUQpegksD8zGG7uHqbOR5vyJqjS2wezOXyVBRjqiKWx0uMZU3A%2FeowGBQXtyY%2FIWdY3s00Twmdd9K2LrlTYw%2Fq2ftpeRtw%2Fn6VvYA6QvmYjr4ZK4JQ9RtYItF8kqbeUb19T3r9c1BFd%2Flbj0Y93xziXJ0xw10GDor0lUx1K4OS7yl9A%2Blu8ufd7MEdEy5s%2Fb0XY2gKYgjf3bY8QRGay30L3L42RcYMf3nqFXO7X3T1N8KfU%2FEJ6c%2F0Yh3bz5yjyaOFQ1cpGT8FGzJlBLHOMB8K6GdzC8tTq4pubY1TR8VnEYZnWk469DzZN%2FeC5qF7sUIW6uWIoiJ19UdSfmZ3xCCwnvklPoVeSaksq3JGhl6AKJbJ7cpUX6owVSnjSmLgCyoYJwLnhMsClgfM0126PpfYlelVGHEqacfBJmkI98B9aLbw2Rygpr1c9BZn9lpNURRanA4YamBuyRTY1JryY6807dLLK0V%2BBeikUHYUT9bZWaBeObgiEIzueZxMFdg5O%2F4nPH2PYDDfg%2BCuXmM3SPrsHkedvAu%2Bvt8yI9uTGk3DR4nJJ4TI0FHy0Ibc7OB7Hxz9nuY3peFIeGYbVJO7C3z1Nov6vn8I5jhwgFpB8ZYg6F%2F3%2FMD620wePaHv%2Fp5lGNzOcnQtX5lywxAbgNX2IcOSHijZYISJeuH2n8sh4PLW7PyKQrJUXn3Yw3P24qAY6sQGsyp%2FD97WbhPz5ULuCT2FvDBvfHDbIte5V4gLDv6VQbMsQ%2Fng51ukrSyWVufY5hEkCq9Ao4dGfEh3jBy0Uz7N9VzK9vaAGEEBIO5d0qqm9xxaX0jdUAw9Yapvhd4z7AUfapQhytkyw5%2BB2KUq%2BWaZrN4Ii3L9QfffPDPLtzj0aFCcjy1Gvz4BqiwFMa7vwGaRcwK%2FB4KzhT0sRLNUsk9KS7rpcPkfB2yVzUcgtyiDV64Y%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=0d56bdeed60e0db2613550ab1a8e83953bb9db0a27a397656e6c252b87d0c6e6",
+      "file_size": 2449757,
+      "type": "application/vnd.android.package-archive",
+      "moderated": null
+    },
+    {
+      "id": 830953,
+      "file_name": "video.mp4",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/tS5vS6xR77pvbpRH1SNhbvpx?response-content-disposition=attachment%3B%20filename%3D%22video.mp4%22%3B%20filename%2A%3DUTF-8%27%27video.mp4&response-content-type=video%2Fmp4&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQWUGJSEXW%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T071411Z&X-Amz-Expires=943&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJHMEUCIQCs%2BAHUbCDN7ZM%2FRhBNF28O2F80UhXY6VtR8FvK0GbHCgIgT%2BHvom8NbOL5HpmSclupqcewRsIHOtWesqOwPyb3C5wqsgUIIxADGgwwMTM2MTkyNzQ4NDkiDFiBp%2B1%2BzPYJYiKWkCqPBcubQSUuQMPeeQa917%2BsMAQCzVw%2BNeT6L8eSgPDCNtgxYe8nYbmd3bljfIC3gl3bvM4o5m%2BR%2B5RRf3jBkEj%2BW%2BSfQSsJ1t8qEL1DJhE%2BvQvaH5ZuAs%2Fdx71s%2BsyOYaurHYRzsywB%2FL1i79fR9W5NUUYb9DJP3l3IGwCvhoNXq5H9mao8oGqlQIUQpegksD8zGG7uHqbOR5vyJqjS2wezOXyVBRjqiKWx0uMZU3A%2FeowGBQXtyY%2FIWdY3s00Twmdd9K2LrlTYw%2Fq2ftpeRtw%2Fn6VvYA6QvmYjr4ZK4JQ9RtYItF8kqbeUb19T3r9c1BFd%2Flbj0Y93xziXJ0xw10GDor0lUx1K4OS7yl9A%2Blu8ufd7MEdEy5s%2Fb0XY2gKYgjf3bY8QRGay30L3L42RcYMf3nqFXO7X3T1N8KfU%2FEJ6c%2F0Yh3bz5yjyaOFQ1cpGT8FGzJlBLHOMB8K6GdzC8tTq4pubY1TR8VnEYZnWk469DzZN%2FeC5qF7sUIW6uWIoiJ19UdSfmZ3xCCwnvklPoVeSaksq3JGhl6AKJbJ7cpUX6owVSnjSmLgCyoYJwLnhMsClgfM0126PpfYlelVGHEqacfBJmkI98B9aLbw2Rygpr1c9BZn9lpNURRanA4YamBuyRTY1JryY6807dLLK0V%2BBeikUHYUT9bZWaBeObgiEIzueZxMFdg5O%2F4nPH2PYDDfg%2BCuXmM3SPrsHkedvAu%2Bvt8yI9uTGk3DR4nJJ4TI0FHy0Ibc7OB7Hxz9nuY3peFIeGYbVJO7C3z1Nov6vn8I5jhwgFpB8ZYg6F%2F3%2FMD620wePaHv%2Fp5lGNzOcnQtX5lywxAbgNX2IcOSHijZYISJeuH2n8sh4PLW7PyKQrJUXn3Yw3P24qAY6sQGsyp%2FD97WbhPz5ULuCT2FvDBvfHDbIte5V4gLDv6VQbMsQ%2Fng51ukrSyWVufY5hEkCq9Ao4dGfEh3jBy0Uz7N9VzK9vaAGEEBIO5d0qqm9xxaX0jdUAw9Yapvhd4z7AUfapQhytkyw5%2BB2KUq%2BWaZrN4Ii3L9QfffPDPLtzj0aFCcjy1Gvz4BqiwFMa7vwGaRcwK%2FB4KzhT0sRLNUsk9KS7rpcPkfB2yVzUcgtyiDV64Y%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=43f8094b15da6a53b474715c0dcccf056e49fc82859d34d16c884cfa78b4b01e",
+      "file_size": 16089749,
+      "type": "video/mp4",
+      "moderated": null
+    }
+  ],
+  "allow_singular_disclosure_at": null,
+  "vote_count": 75,
+  "voters": [
+    "sw33tlie",
+    "a_d_a_m",
+    "foobar7",
+    "prakash142",
+    "run_win",
+    "yassinek3ch",
+    "xnutronex",
+    "bl4de",
+    "imranhudaa",
+    "ali",
+    "and 65 more..."
+  ],
+  "severity": {
+    "rating": "critical",
+    "author_type": "Team"
+  },
+  "structured_scope": {
+    "databaseId": 7951,
+    "asset_type": "GOOGLE_PLAY_APP_ID",
+    "asset_identifier": "com.brave.browser",
+    "max_severity": "critical"
+  },
+  "abilities": {
+    "assignable_team_members": [
+
+    ],
+    "assignable_team_member_groups": [
+
+    ]
+  },
+  "activities": [
+    {
+      "id": 8023514,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "The weakness is `Insecure Storage of Sensitive Information` and not `Weak Password Recovery Mechanism for Forgotten Password`. ",
+      "automated_response": false,
+      "created_at": "2020-05-16T20:12:32.686Z",
+      "updated_at": "2020-05-16T20:12:32.686Z",
+      "actor": {
+        "username": "kanytu",
+        "cleared": false,
+        "verified": false,
+        "url": "/kanytu",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/mJNP7PfX6rYmTizyamisQ5hL/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "brave"
+    },
+    {
+      "id": 8028626,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "I've managed to escalate this issue to remote accessibility. \n\nA victim can get its cookies stolen remotely by opening a website and tapping anywhere in it.\n\nThis leverages the same exploit. Basically a malicious website can trigger a malicious html file download and trigger it's opening when the user clicks on that page. Opening it with `content://` URIs bypasses file-base crossed frame protection and the HTML opened will have access to the cookies file internally since it's the same schema.\n\nThat malicious page could then send the contents of this file to the attacker.\n\nAttached is a Python webpage that runs in port 8080. \n\n### New steps:\n\n1. Run the python server\n2. Open that page in Brave Browser (`ngrok` can be used create a tunnel and easily open in the device)\n3. Tap on the webpage\n\n### Detailed explanation\n\nThe webpage returned contains an IFrame that downloads an HTML file with a random generate number. When the user clicks on the page, a new page is opened: `android-app://com.brave.browser/content/com.brave.browser.FileProvider/root/sdcard/Download/%s.html#Intent;type=text/html;end`\n\nThis webpage is an Android Intent Uri that will be opened in Brave as `content://com.brave.browser.FileProvider/root/sdcard/Download/%s.html`, being `%s`, the newly downloaded file.\n\nWhen the file is opened, it will download the contents of `Cookies` file using `XMLHttpRequest` and displays a Javascript alert box containing the contents of this file.\n\n---\n\nThe fix should be the same, either remove  `<root-path>` or have it point to `/storage/` instead of `.`.",
+      "automated_response": false,
+      "created_at": "2020-05-17T20:28:20.733Z",
+      "updated_at": "2020-05-17T20:39:51.337Z",
+      "actor": {
+        "username": "kanytu",
+        "cleared": false,
+        "verified": false,
+        "url": "/kanytu",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/mJNP7PfX6rYmTizyamisQ5hL/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "attachments": [
+        {
+          "id": 831995,
+          "filename": "device-2020-05-17-214103.mp4",
+          "type": "video/mp4",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/g1JYvGXw75rGmFCfmZ1B6GdX?response-content-disposition=attachment%3B%20filename%3D%22device-2020-05-17-214103.mp4%22%3B%20filename%2A%3DUTF-8%27%27device-2020-05-17-214103.mp4&response-content-type=video%2Fmp4&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQWUGJSEXW%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T071411Z&X-Amz-Expires=943&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJHMEUCIQCs%2BAHUbCDN7ZM%2FRhBNF28O2F80UhXY6VtR8FvK0GbHCgIgT%2BHvom8NbOL5HpmSclupqcewRsIHOtWesqOwPyb3C5wqsgUIIxADGgwwMTM2MTkyNzQ4NDkiDFiBp%2B1%2BzPYJYiKWkCqPBcubQSUuQMPeeQa917%2BsMAQCzVw%2BNeT6L8eSgPDCNtgxYe8nYbmd3bljfIC3gl3bvM4o5m%2BR%2B5RRf3jBkEj%2BW%2BSfQSsJ1t8qEL1DJhE%2BvQvaH5ZuAs%2Fdx71s%2BsyOYaurHYRzsywB%2FL1i79fR9W5NUUYb9DJP3l3IGwCvhoNXq5H9mao8oGqlQIUQpegksD8zGG7uHqbOR5vyJqjS2wezOXyVBRjqiKWx0uMZU3A%2FeowGBQXtyY%2FIWdY3s00Twmdd9K2LrlTYw%2Fq2ftpeRtw%2Fn6VvYA6QvmYjr4ZK4JQ9RtYItF8kqbeUb19T3r9c1BFd%2Flbj0Y93xziXJ0xw10GDor0lUx1K4OS7yl9A%2Blu8ufd7MEdEy5s%2Fb0XY2gKYgjf3bY8QRGay30L3L42RcYMf3nqFXO7X3T1N8KfU%2FEJ6c%2F0Yh3bz5yjyaOFQ1cpGT8FGzJlBLHOMB8K6GdzC8tTq4pubY1TR8VnEYZnWk469DzZN%2FeC5qF7sUIW6uWIoiJ19UdSfmZ3xCCwnvklPoVeSaksq3JGhl6AKJbJ7cpUX6owVSnjSmLgCyoYJwLnhMsClgfM0126PpfYlelVGHEqacfBJmkI98B9aLbw2Rygpr1c9BZn9lpNURRanA4YamBuyRTY1JryY6807dLLK0V%2BBeikUHYUT9bZWaBeObgiEIzueZxMFdg5O%2F4nPH2PYDDfg%2BCuXmM3SPrsHkedvAu%2Bvt8yI9uTGk3DR4nJJ4TI0FHy0Ibc7OB7Hxz9nuY3peFIeGYbVJO7C3z1Nov6vn8I5jhwgFpB8ZYg6F%2F3%2FMD620wePaHv%2Fp5lGNzOcnQtX5lywxAbgNX2IcOSHijZYISJeuH2n8sh4PLW7PyKQrJUXn3Yw3P24qAY6sQGsyp%2FD97WbhPz5ULuCT2FvDBvfHDbIte5V4gLDv6VQbMsQ%2Fng51ukrSyWVufY5hEkCq9Ao4dGfEh3jBy0Uz7N9VzK9vaAGEEBIO5d0qqm9xxaX0jdUAw9Yapvhd4z7AUfapQhytkyw5%2BB2KUq%2BWaZrN4Ii3L9QfffPDPLtzj0aFCcjy1Gvz4BqiwFMa7vwGaRcwK%2FB4KzhT0sRLNUsk9KS7rpcPkfB2yVzUcgtyiDV64Y%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=aa577d8f35c15bc6f398df787480fe4ad545622b6cf19164a0b51c8f2fe3f537"
+        },
+        {
+          "id": 831993,
+          "filename": "server.py",
+          "type": "text/x-python-script",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/QxSKx5v4eqr8Fz4R7vA5T4DE?response-content-disposition=attachment%3B%20filename%3D%22server.py%22%3B%20filename%2A%3DUTF-8%27%27server.py&response-content-type=text%2Fx-python-script&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQWUGJSEXW%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T071411Z&X-Amz-Expires=943&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJHMEUCIQCs%2BAHUbCDN7ZM%2FRhBNF28O2F80UhXY6VtR8FvK0GbHCgIgT%2BHvom8NbOL5HpmSclupqcewRsIHOtWesqOwPyb3C5wqsgUIIxADGgwwMTM2MTkyNzQ4NDkiDFiBp%2B1%2BzPYJYiKWkCqPBcubQSUuQMPeeQa917%2BsMAQCzVw%2BNeT6L8eSgPDCNtgxYe8nYbmd3bljfIC3gl3bvM4o5m%2BR%2B5RRf3jBkEj%2BW%2BSfQSsJ1t8qEL1DJhE%2BvQvaH5ZuAs%2Fdx71s%2BsyOYaurHYRzsywB%2FL1i79fR9W5NUUYb9DJP3l3IGwCvhoNXq5H9mao8oGqlQIUQpegksD8zGG7uHqbOR5vyJqjS2wezOXyVBRjqiKWx0uMZU3A%2FeowGBQXtyY%2FIWdY3s00Twmdd9K2LrlTYw%2Fq2ftpeRtw%2Fn6VvYA6QvmYjr4ZK4JQ9RtYItF8kqbeUb19T3r9c1BFd%2Flbj0Y93xziXJ0xw10GDor0lUx1K4OS7yl9A%2Blu8ufd7MEdEy5s%2Fb0XY2gKYgjf3bY8QRGay30L3L42RcYMf3nqFXO7X3T1N8KfU%2FEJ6c%2F0Yh3bz5yjyaOFQ1cpGT8FGzJlBLHOMB8K6GdzC8tTq4pubY1TR8VnEYZnWk469DzZN%2FeC5qF7sUIW6uWIoiJ19UdSfmZ3xCCwnvklPoVeSaksq3JGhl6AKJbJ7cpUX6owVSnjSmLgCyoYJwLnhMsClgfM0126PpfYlelVGHEqacfBJmkI98B9aLbw2Rygpr1c9BZn9lpNURRanA4YamBuyRTY1JryY6807dLLK0V%2BBeikUHYUT9bZWaBeObgiEIzueZxMFdg5O%2F4nPH2PYDDfg%2BCuXmM3SPrsHkedvAu%2Bvt8yI9uTGk3DR4nJJ4TI0FHy0Ibc7OB7Hxz9nuY3peFIeGYbVJO7C3z1Nov6vn8I5jhwgFpB8ZYg6F%2F3%2FMD620wePaHv%2Fp5lGNzOcnQtX5lywxAbgNX2IcOSHijZYISJeuH2n8sh4PLW7PyKQrJUXn3Yw3P24qAY6sQGsyp%2FD97WbhPz5ULuCT2FvDBvfHDbIte5V4gLDv6VQbMsQ%2Fng51ukrSyWVufY5hEkCq9Ao4dGfEh3jBy0Uz7N9VzK9vaAGEEBIO5d0qqm9xxaX0jdUAw9Yapvhd4z7AUfapQhytkyw5%2BB2KUq%2BWaZrN4Ii3L9QfffPDPLtzj0aFCcjy1Gvz4BqiwFMa7vwGaRcwK%2FB4KzhT0sRLNUsk9KS7rpcPkfB2yVzUcgtyiDV64Y%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=c3eacd89922c6d1f0c2cffcc2efa40f515c8e836d0fbfd1bce62c7a6868741df"
+        }
+      ],
+      "genius_execution_id": null,
+      "team_handle": "brave"
+    },
+    {
+      "id": 8030189,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugTriaged",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2020-05-18T05:38:36.181Z",
+      "updated_at": "2020-05-18T05:38:36.181Z",
+      "actor": {
+        "username": "diracdeltas",
+        "cleared": false,
+        "verified": false,
+        "url": "/diracdeltas",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/115/616/4e2016543ea3e299dcadd088be7d0225de3419e0_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "brave"
+    },
+    {
+      "id": 8046218,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi again,\n\nI just want to add some notes.\n\nThis works for all external files in the system as well as Brave's internal files. In this report, I've used Cookies since, in my opinion, it has the highest impact. A malicious HTML file can send any file in the external directory to a remote server if the path is known, which in some messaging applications it's predictable.\n\nThis can be exploited remotely as shown above, locally by a malicious application or it can be exploited with a malicious HTML file that the user has downloaded  and opened with Brave.\n\n### Similar reports:\nhttps://hackerone.com/reports/390013\nhttps://hackerone.com/reports/375329\n\n### CVEs for reference\nhttps://nvd.nist.gov/vuln/detail/CVE-2019-11730",
+      "automated_response": false,
+      "created_at": "2020-05-19T09:45:07.909Z",
+      "updated_at": "2020-05-19T09:45:30.100Z",
+      "actor": {
+        "username": "kanytu",
+        "cleared": false,
+        "verified": false,
+        "url": "/kanytu",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/mJNP7PfX6rYmTizyamisQ5hL/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "brave"
+    },
+    {
+      "id": 8052041,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportSeverityUpdated",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2020-05-19T20:04:00.571Z",
+      "updated_at": "2020-05-19T20:04:00.571Z",
+      "additional_data": {
+        "old_severity": "High (7.3)",
+        "new_severity": "Medium",
+        "old_severity_id": 724062,
+        "new_severity_id": 726682
+      },
+      "actor": {
+        "username": "diracdeltas",
+        "cleared": false,
+        "verified": false,
+        "url": "/diracdeltas",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/115/616/4e2016543ea3e299dcadd088be7d0225de3419e0_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "brave"
+    },
+    {
+      "id": 8181052,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi Brave Team.\n\nAny news you can share?\n\nThanks\n@kanytu",
+      "automated_response": false,
+      "created_at": "2020-06-02T16:19:04.407Z",
+      "updated_at": "2020-06-02T16:19:04.407Z",
+      "actor": {
+        "username": "kanytu",
+        "cleared": false,
+        "verified": false,
+        "url": "/kanytu",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/mJNP7PfX6rYmTizyamisQ5hL/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "brave"
+    },
+    {
+      "id": 8181415,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@kanytu - We are working on the fix, we expect it to be merged this week. ",
+      "automated_response": false,
+      "created_at": "2020-06-02T17:07:12.184Z",
+      "updated_at": "2020-06-02T17:07:12.184Z",
+      "actor": {
+        "username": "pranjal_jumde",
+        "cleared": false,
+        "verified": false,
+        "url": "/pranjal_jumde",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "brave"
+    },
+    {
+      "id": 8297591,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@kanytu - The fix should be available in the nightly channel shortly. ",
+      "automated_response": false,
+      "created_at": "2020-06-15T17:13:53.180Z",
+      "updated_at": "2020-06-15T17:13:53.180Z",
+      "actor": {
+        "username": "pranjal_jumde",
+        "cleared": false,
+        "verified": false,
+        "url": "/pranjal_jumde",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "brave"
+    },
+    {
+      "id": 8298437,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi Brave Team,\n\nCan you confirm the issue was addressed and a fix deployed in version 1.12.25?\n\nThanks,\n@kanytu",
+      "automated_response": false,
+      "created_at": "2020-06-15T18:39:07.842Z",
+      "updated_at": "2020-06-15T18:39:07.842Z",
+      "actor": {
+        "username": "kanytu",
+        "cleared": false,
+        "verified": false,
+        "url": "/kanytu",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/mJNP7PfX6rYmTizyamisQ5hL/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "brave"
+    },
+    {
+      "id": 8298470,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "The patch missed version 1.12.25, hoping that it lands in the next one. I'll share an update here once I see the fix in nightly.",
+      "automated_response": false,
+      "created_at": "2020-06-15T18:42:41.287Z",
+      "updated_at": "2020-06-15T18:42:41.287Z",
+      "actor": {
+        "username": "pranjal_jumde",
+        "cleared": false,
+        "verified": false,
+        "url": "/pranjal_jumde",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "brave"
+    },
+    {
+      "id": 8321656,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hey Brave Team,\n\nI can confirm that this was fixed in Nightly channel (v. 1.12.32) by removing the `root-path` entry from the affected XML file.\n\nGreat job,\n@kanytu",
+      "automated_response": false,
+      "created_at": "2020-06-17T15:36:44.860Z",
+      "updated_at": "2020-06-17T15:36:44.860Z",
+      "actor": {
+        "username": "kanytu",
+        "cleared": false,
+        "verified": false,
+        "url": "/kanytu",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/mJNP7PfX6rYmTizyamisQ5hL/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "brave"
+    },
+    {
+      "id": 8334207,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportSeverityUpdated",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2020-06-18T17:50:29.683Z",
+      "updated_at": "2020-06-18T17:50:29.683Z",
+      "additional_data": {
+        "old_severity": "Medium",
+        "new_severity": "Critical",
+        "old_severity_id": 726682,
+        "new_severity_id": 753869
+      },
+      "actor": {
+        "username": "diracdeltas",
+        "cleared": false,
+        "verified": false,
+        "url": "/diracdeltas",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/115/616/4e2016543ea3e299dcadd088be7d0225de3419e0_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "brave"
+    },
+    {
+      "id": 8334214,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BountyAwarded",
+      "message": "sorry for the delay. given the follow-up issue which doesn't require a malicious app to be installed, this probably should have hotfixed.",
+      "automated_response": false,
+      "created_at": "2020-06-18T17:51:45.657Z",
+      "updated_at": "2020-06-18T17:51:45.657Z",
+      "actor": {
+        "url": "/brave",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/015/688/2aad5641af643ee4f4402896e4747293f6e9c5ca_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "Brave Software"
+        }
+      },
+      "bounty_amount": "500.0",
+      "bonus_amount": "0.0",
+      "bounty_currency": "usd",
+      "genius_execution_id": null,
+      "team_handle": "brave",
+      "collaborator": {
+        "username": "kanytu",
+        "url": "/kanytu"
+      }
+    },
+    {
+      "id": 8334299,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2020-06-18T18:03:16.214Z",
+      "updated_at": "2020-06-18T18:03:16.214Z",
+      "actor": {
+        "username": "diracdeltas",
+        "cleared": false,
+        "verified": false,
+        "url": "/diracdeltas",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/115/616/4e2016543ea3e299dcadd088be7d0225de3419e0_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "reporter": {
+        "username": "kanytu",
+        "url": "/kanytu"
+      },
+      "genius_execution_id": null,
+      "team_handle": "brave"
+    },
+    {
+      "id": 9075141,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugReopened",
+      "message": "@kanytu - The patch had to be reverted because it broke PDF reader functionality on the android browser. We are working on an alternative fix for this issue.  ",
+      "automated_response": false,
+      "created_at": "2020-08-29T20:56:34.377Z",
+      "updated_at": "2020-08-29T20:56:34.377Z",
+      "actor": {
+        "username": "pranjal_jumde",
+        "cleared": false,
+        "verified": false,
+        "url": "/pranjal_jumde",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "brave"
+    },
+    {
+      "id": 9239970,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi Brave team,\n\nDo you have news regarding this issue? Will it be fixed soon? \n\nI have some reports for other browsers I would like to disclose in a few months. I can omit this report but some of the reports I have are kinda similar to this one. I don't want to turn this issue into a zer0day in the process so I can wait a little more for your fix but keep in mind this is a nasty bug. I understand PDFs are more important because it's a more noticeable issue than this one, but please consider fixing this as soon as possible. \n\nI'm unaware of your PDF logic but I don't see how a PDF should be opened from inside the root directory (unless you are saving them in your internal directory).\n\nLet me know if you need help regarding possible solutions to this problem.\n\nThank you,\n@kanytu",
+      "automated_response": false,
+      "created_at": "2020-09-16T18:58:28.538Z",
+      "updated_at": "2020-09-16T18:58:28.538Z",
+      "actor": {
+        "username": "kanytu",
+        "cleared": false,
+        "verified": false,
+        "url": "/kanytu",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/mJNP7PfX6rYmTizyamisQ5hL/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "brave"
+    },
+    {
+      "id": 9251214,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@kanytu - We are working with the Chromium team to fix this issue at the moment. Do you have any timeline for disclosure?",
+      "automated_response": false,
+      "created_at": "2020-09-17T20:40:58.188Z",
+      "updated_at": "2020-09-17T20:40:58.188Z",
+      "actor": {
+        "username": "pranjal_jumde",
+        "cleared": false,
+        "verified": false,
+        "url": "/pranjal_jumde",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "brave"
+    },
+    {
+      "id": 9255508,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi Brave team,\n\nI understand these things take time. I don't want to impose a short deadline for the fix. Do you think you can have that addressed by the end of November?\n\nThank you,\n@kanytu",
+      "automated_response": false,
+      "created_at": "2020-09-18T11:18:38.508Z",
+      "updated_at": "2020-09-18T11:18:38.508Z",
+      "actor": {
+        "username": "kanytu",
+        "cleared": false,
+        "verified": false,
+        "url": "/kanytu",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/mJNP7PfX6rYmTizyamisQ5hL/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "brave"
+    },
+    {
+      "id": 9283061,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Thanks @kanytu - November works for us. Thank you for your patience.",
+      "automated_response": false,
+      "created_at": "2020-09-21T20:59:53.614Z",
+      "updated_at": "2020-09-21T20:59:53.614Z",
+      "actor": {
+        "username": "pranjal_jumde",
+        "cleared": false,
+        "verified": false,
+        "url": "/pranjal_jumde",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "brave"
+    },
+    {
+      "id": 9616900,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "Closing as the fix for https://github.com/brave/brave-browser/issues/11520 was merged yesterday. Should be released next week.",
+      "automated_response": false,
+      "created_at": "2020-10-23T17:17:25.666Z",
+      "updated_at": "2020-10-23T17:17:25.666Z",
+      "actor": {
+        "username": "diracdeltas",
+        "cleared": false,
+        "verified": false,
+        "url": "/diracdeltas",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/115/616/4e2016543ea3e299dcadd088be7d0225de3419e0_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "reporter": {
+        "username": "kanytu",
+        "url": "/kanytu"
+      },
+      "genius_execution_id": null,
+      "team_handle": "brave"
+    },
+    {
+      "id": 11472380,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "Can we disclose this as previously asked?",
+      "automated_response": false,
+      "created_at": "2021-04-21T21:55:14.338Z",
+      "updated_at": "2021-04-21T21:55:14.338Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "kanytu",
+        "cleared": false,
+        "verified": false,
+        "url": "/kanytu",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/mJNP7PfX6rYmTizyamisQ5hL/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "brave"
+    },
+    {
+      "id": 11483609,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "done, thanks for your patience.",
+      "automated_response": false,
+      "created_at": "2021-04-22T18:05:12.342Z",
+      "updated_at": "2021-04-22T18:05:12.342Z",
+      "actor": {
+        "username": "diracdeltas",
+        "cleared": false,
+        "verified": false,
+        "url": "/diracdeltas",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/115/616/4e2016543ea3e299dcadd088be7d0225de3419e0_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "brave"
+    },
+    {
+      "id": 11483610,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportBecamePublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2021-04-22T18:05:12.490Z",
+      "updated_at": "2021-04-22T18:05:12.490Z",
+      "actor": {
+        "username": "diracdeltas",
+        "cleared": false,
+        "verified": false,
+        "url": "/diracdeltas",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/115/616/4e2016543ea3e299dcadd088be7d0225de3419e0_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "brave"
+    }
+  ],
+  "activity_page_count": 1,
+  "activity_page_number": 1,
+  "summaries": [
+    {
+      "category": "team",
+      "can_view?": true,
+      "can_create?": false
+    },
+    {
+      "id": 45140,
+      "category": "researcher",
+      "content": "Write-up available [here](https://infosecwriteups.com/brave-stealing-your-cookies-remotely-1e09d1184675).",
+      "user": {
+        "id": 558831,
+        "username": "kanytu",
+        "name": "Pedro",
+        "bio": "Senior Android Developer",
+        "cleared": false,
+        "verified": false,
+        "website": null,
+        "location": "Somewhere",
+        "created_at": "2019-03-26T12:27:48.093Z",
+        "url": "https://hackerone.com/kanytu",
+        "hackerone_triager": false,
+        "hackerone_employee": false,
+        "user_type": "hacker",
+        "profile_picture_urls": {
+          "small": "https://profile-photos.hackerone-user-content.com/variants/mJNP7PfX6rYmTizyamisQ5hL/d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98",
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/mJNP7PfX6rYmTizyamisQ5hL/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937",
+          "xtralarge": "https://profile-photos.hackerone-user-content.com/variants/mJNP7PfX6rYmTizyamisQ5hL/60f411638706d89ae3052af6fe8b88fa9a798e291deee40f6a22e81418d78d5f"
+        }
+      },
+      "can_view?": true,
+      "can_create?": false,
+      "attachments": [
+
+      ]
+    }
+  ]
+}

@@ -1,0 +1,1278 @@
+{
+  "id": 1590071,
+  "global_id": "Z2lkOi8vaGFja2Vyb25lL1JlcG9ydC8xNTkwMDcx",
+  "url": "https://hackerone.com/reports/1590071",
+  "title": "CVE-2022-32208: FTP-KRB bad message verification",
+  "state": "Closed",
+  "substate": "resolved",
+  "severity_rating": "low",
+  "readable_substate": "Resolved",
+  "created_at": "2022-06-02T20:12:35.145Z",
+  "submitted_at": "2022-06-02T20:12:35.214Z",
+  "is_member_of_team?": false,
+  "is_organization_group_member?": false,
+  "reporter": {
+    "disabled": false,
+    "username": "nyymi",
+    "url": "/nyymi",
+    "profile_picture_urls": {
+      "small": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+    },
+    "is_me?": false,
+    "cleared": false,
+    "verified": false,
+    "hackerone_triager": false,
+    "hacker_mediation": false
+  },
+  "team": {
+    "id": 35663,
+    "url": "https://hackerone.com/curl",
+    "handle": "curl",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/035/663/2faf4c279d437d64bfda6d23d62ce1833813a4d9_original.png/d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98",
+      "medium": "https://profile-photos.hackerone-user-content.com/variants/000/035/663/2faf4c279d437d64bfda6d23d62ce1833813a4d9_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+    },
+    "permissions": [
+
+    ],
+    "submission_state": "open",
+    "default_currency": "usd",
+    "awards_miles": false,
+    "offers_bounties": true,
+    "state": "public_mode",
+    "only_cleared_hackers": false,
+    "pentest_feature_enabled?": false,
+    "profile": {
+      "name": "curl",
+      "twitter_handle": "",
+      "website": "https://curl.se",
+      "about": "cURL is an Open Source project providing a library and command-line tool for doing internet transfers"
+    }
+  },
+  "has_bounty?": false,
+  "in_validation?": false,
+  "can_view_team": true,
+  "can_view_report": true,
+  "is_external_bug": false,
+  "is_published": false,
+  "is_participant": false,
+  "has_collaborators": false,
+  "submitted_by_team_member": false,
+  "stage": 4,
+  "public": true,
+  "visibility": "full",
+  "cve_ids": [
+    "CVE-2022-32208"
+  ],
+  "singular_disclosure_disabled": false,
+  "disclosed_at": "2022-06-27T06:55:10.593Z",
+  "bug_reporter_agreed_on_going_public_at": "2022-06-27T06:55:10.536Z",
+  "team_member_agreed_on_going_public_at": "2022-06-27T06:53:55.224Z",
+  "comments_closed?": false,
+  "facebook_team?": false,
+  "team_private?": false,
+  "vulnerability_information": "## Summary:\nlibcurl handles `gss_unwrap` `GSS_S_BAD_SIG` error incorrectly.  This enables malicious attacker to inject arbitrary FTP server responses to GSSAPI protected FTP control connection and/or make the client consume unrelated heap memory as a FTP command response.\n\nThe defective `krb5_decode` function  is as follows:\n ```\nstatic int\nkrb5_decode(void *app_data, void *buf, int len,\n            int level UNUSED_PARAM,\n            struct connectdata *conn UNUSED_PARAM)\n{\n  gss_ctx_id_t *context = app_data;\n  OM_uint32 maj, min;\n  gss_buffer_desc enc, dec;\n\n  (void)level;\n  (void)conn;\n\n  enc.value = buf;\n  enc.length = len;\n  maj = gss_unwrap(&min, *context, &enc, &dec, NULL, NULL);\n  if(maj != GSS_S_COMPLETE) {\n    if(len >= 4)\n      strcpy(buf, \"599 \");\n    return -1;\n  }\n\n  memcpy(buf, dec.value, dec.length);\n  len = curlx_uztosi(dec.length);\n  gss_release_buffer(&min, &dec);\n\n  return len;\n}\n```\nNote how `read_data` function will set the `buf->size` to result of the decode operation as-is without considering  possible `-1` return code and that size `buf->size`  is of type `size_t`:\n```\n/* Types needed for krb5-ftp connections */\nstruct krb5buffer {\n  void *data;\n  size_t size;\n  size_t index;\n  BIT(eof_flag);\n};\n```\n```\nstatic CURLcode read_data(struct connectdata *conn,\n                          curl_socket_t fd,\n                          struct krb5buffer *buf)\n{\n  int len;\n  CURLcode result;\n\n  result = socket_read(fd, &len, sizeof(len));\n  if(result)\n    return result;\n\n  if(len) {\n    /* only realloc if there was a length */\n    len = ntohl(len);\n    buf->data = Curl_saferealloc(buf->data, len);\n  }\n  if(!len || !buf->data)\n    return CURLE_OUT_OF_MEMORY;\n\n  result = socket_read(fd, buf->data, len);\n  if(result)\n    return result;\n  buf->size = conn->mech->decode(conn->app_data, buf->data, len,\n                                 conn->data_prot, conn);\n  buf->index = 0;\n  return CURLE_OK;\n}\n```\nWhen `gss_unwrap` returns an error the `krb5_decode` code attempts to erase the buffer by prefixing the buffer with `599 \\0`. However, this doesn't take into account the case that arbitrary number of bytes can be read by `read_data` function. Hence the buffer may contain multiple lines not just one. The attacker merely needs to find a position in the FTP protocol where ftpcode `599` doesn't lead to connection termination to take over the GSSAPI protected FTP session control channel. From that point onwards the server responses can be forged by the attacker (but need to be predicted, as the attacker has no direct knowledge of the actual commands sent to the server).\n\nIt's also notable that the any `gss_unwrap` error leading to `-1` size will lead to `sec_recv` consuming unallocated heap buffer via `buffer_read` if the reading application keeps reading more data:\n```\nstatic size_t\nbuffer_read(struct krb5buffer *buf, void *data, size_t len)\n{\n  if(buf->size - buf->index < len)\n    len = buf->size - buf->index;\n  memcpy(data, (char *)buf->data + buf->index, len);\n  buf->index += len;\n  return len;\n}\n```\nThis can lead to disclosure of confidential information from the heap - depending on application this may reveal application secrets  to the user (for example via verbose error messages). This is a local leak however, so this impact is only meaningful if the information in heap is normally hidden from the user.\n\n## Impact\n\n- Injection of arbitrary FTP control channel server responses to supposedly GSSAPI protected FTP session.\n- Potential leak of local heap memory to client.\n\nThe practical impact of this vulnerability is rather low, considering the rarity of Kerberos FTP and requirement of either man in the middle or victim connecting to malicious server.",
+  "weakness": {
+    "id": 65,
+    "name": "Business Logic Errors"
+  },
+  "original_report_id": null,
+  "original_report_url": null,
+  "attachments": [
+
+  ],
+  "allow_singular_disclosure_at": "2022-07-27T06:53:55.331Z",
+  "allow_singular_disclosure_after": -36547695.75891296,
+  "singular_disclosure_allowed": true,
+  "vote_count": 7,
+  "voters": [
+    "zy9ard3",
+    "polem4rch",
+    "shivammusic",
+    "tirth011",
+    "rinku66",
+    "d3basis",
+    "404_but_found"
+  ],
+  "severity": {
+    "rating": "low",
+    "author_type": "User"
+  },
+  "structured_scope": {
+    "databaseId": 18844,
+    "asset_type": "SOURCE_CODE",
+    "asset_identifier": "https://github.com/curl/curl",
+    "max_severity": "critical"
+  },
+  "abilities": {
+    "assignable_team_members": [
+
+    ],
+    "assignable_team_member_groups": [
+
+    ]
+  },
+  "activities": [
+    {
+      "id": 16975295,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Thank you for your report!\n\nWe will take some time and investigate your reports and get back to you with details and possible follow-up questions as soon as we can!",
+      "automated_response": false,
+      "created_at": "2022-06-02T20:46:24.585Z",
+      "updated_at": "2022-06-02T20:46:24.585Z",
+      "actor": {
+        "username": "bagder",
+        "cleared": false,
+        "verified": false,
+        "url": "/bagder",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/y9xzl5ayi7du4kz3l6pa6sff2ha5/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22final-12-1000x1000.jpg%22%3B%20filename%2A%3DUTF-8%27%27final-12-1000x1000.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQSQ2EO4J6%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070211Z&X-Amz-Expires=2161&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJGMEQCIDdaOxaU2Kc7XK%2BFPO0xwEcua0EmQNQ0KITjMo%2BKI7S%2FAiAzEGtwS8msUueXSru5QP82dF7uwkPFZmzhjY8laBf5ySqxBQgiEAMaDDAxMzYxOTI3NDg0OSIMMwqH%2BrtGLzp0nfFJKo4FfKwfKYelWDcX3DZmXtAToi%2BfdIW%2FTskJuWscWNQ76Tnp8xifpkkQJqzgVzQ1mNVCoJr7%2BHlI2zJhu0AXuqUf6FD0aST%2BKfWDBNuzGTpRcWWnx07Sch98UNn54OsKQbkd78QdkYbYIIydcW4rDyHcf69tkUPFukaryTwqFIQUzVC34LtpkpFeA9lDvrXGajNXbhcjKrAFt5HqSOZuuuzssNNlvHJE05jjBky2NSGdLPAbwZ5PyWIPopmg1W4zjYBUwa%2F0z3qTgn0zEoCTBSKgTZOxPGLRSTPuvxrR0mqU9OcBLyJp193C17CIZVqQgijrtvyXYk%2FM2oDDkUsD7oeMeAFi8iq1vQlGMOgky5Mb4a6rOsWjihhywKDJptVFAvuD5Dj3tbSEYMt48EBT7kCNQd8x2uZADjILGD3cpoZLKeNeqFmfFNRBUEpMfGc5V1%2FI9fJ%2FzgQyr2nb6tNoGRs2QoePdMvOr42ig5kYNAYT7qahQE3vKgClxMTOREjRXfYOrHcHAtPXN4664bTPb1qQrBbF3foKJfwP06KCyM3rFnllobDOLYckn%2FGBEHSl4G2Hnse7CaI%2BGpBkpP0Ud8awKHx3d9xgtFAnC85ks1%2BkhSBq2pHVohOXkjxj3RfmbctowIVuWZvY6MfJpBsaoYyVxDQv%2BMuQlcCUEHl9AJ8Xs%2BWTD7tNE9FfrC4KY2BGHedJYf52GgTsQ7CuCfr5uJg4YBvuTmWyYN78uJu3nhB86AstH1doFZFbBt%2FroDTEUJfBYlS40afyu2h749TRxoiU4xcWDNDUIi%2B6zINKu9qI5X4XfH%2BoRrq7ZYgkoHQQRAW7YCYdirZLXoO2ETACtWPa5nyukSpsZ%2F8mmmkr4uC7MPP6uKgGOrIBCrIPzsKyYiYmXbfpjP3Q51XNqU0RvILr5XTqNaH6BkaJc7iqpnIwN%2FwpnoQ9ykcsf6gSCQUk9Fr3CRZm11fApJXeKbQ3cP7fcLscjO5J9oxYuZzrFKcuMO2l1VecXevCmP4wSmgs9gPOQP%2BjPbUXioCzwZ3NoL2q1W%2Bdvc2hJhiDeOCAy58REfH1mTOf633Nzxlb510ZtNV%2FKoIE6XLQtlIo6pnGn%2FyDTqTX7RGJ0U39bA%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=49e29025149e2d6238a52fa831cb098311246f2eeb8ba957ecb1f9da8035a675"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 16975645,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hmmm, if I get this right the actual data connection also protected by GSSAPI:\n```\n    conn->recv[SECONDARYSOCKET] = sec_recv;\n    conn->send[SECONDARYSOCKET] = sec_send;\n```\nIf so then this issue could be considered more severe.",
+      "automated_response": false,
+      "created_at": "2022-06-02T21:40:25.276Z",
+      "updated_at": "2022-06-02T21:40:25.276Z",
+      "actor": {
+        "username": "nyymi",
+        "cleared": false,
+        "verified": false,
+        "url": "/nyymi",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 16976025,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "If data connection is affected you will be able to \"download\" parts of the heap (at least `buf->data` => `buf->data` + `filesize`). Assuming this an app where you only have access to the downloaded files, it could allow leaking secrets from the heap. Luckily only `sec_recv` is affected so the impact is limited to client side.",
+      "automated_response": false,
+      "created_at": "2022-06-02T23:10:20.372Z",
+      "updated_at": "2022-06-02T23:10:20.372Z",
+      "actor": {
+        "username": "nyymi",
+        "cleared": false,
+        "verified": false,
+        "url": "/nyymi",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 16993626,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "I actually question if there are curl users using krb-ftp at all.",
+      "automated_response": false,
+      "created_at": "2022-06-04T15:40:33.896Z",
+      "updated_at": "2022-06-04T15:40:33.896Z",
+      "actor": {
+        "username": "bagder",
+        "cleared": false,
+        "verified": false,
+        "url": "/bagder",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/y9xzl5ayi7du4kz3l6pa6sff2ha5/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22final-12-1000x1000.jpg%22%3B%20filename%2A%3DUTF-8%27%27final-12-1000x1000.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQSQ2EO4J6%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070211Z&X-Amz-Expires=2161&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJGMEQCIDdaOxaU2Kc7XK%2BFPO0xwEcua0EmQNQ0KITjMo%2BKI7S%2FAiAzEGtwS8msUueXSru5QP82dF7uwkPFZmzhjY8laBf5ySqxBQgiEAMaDDAxMzYxOTI3NDg0OSIMMwqH%2BrtGLzp0nfFJKo4FfKwfKYelWDcX3DZmXtAToi%2BfdIW%2FTskJuWscWNQ76Tnp8xifpkkQJqzgVzQ1mNVCoJr7%2BHlI2zJhu0AXuqUf6FD0aST%2BKfWDBNuzGTpRcWWnx07Sch98UNn54OsKQbkd78QdkYbYIIydcW4rDyHcf69tkUPFukaryTwqFIQUzVC34LtpkpFeA9lDvrXGajNXbhcjKrAFt5HqSOZuuuzssNNlvHJE05jjBky2NSGdLPAbwZ5PyWIPopmg1W4zjYBUwa%2F0z3qTgn0zEoCTBSKgTZOxPGLRSTPuvxrR0mqU9OcBLyJp193C17CIZVqQgijrtvyXYk%2FM2oDDkUsD7oeMeAFi8iq1vQlGMOgky5Mb4a6rOsWjihhywKDJptVFAvuD5Dj3tbSEYMt48EBT7kCNQd8x2uZADjILGD3cpoZLKeNeqFmfFNRBUEpMfGc5V1%2FI9fJ%2FzgQyr2nb6tNoGRs2QoePdMvOr42ig5kYNAYT7qahQE3vKgClxMTOREjRXfYOrHcHAtPXN4664bTPb1qQrBbF3foKJfwP06KCyM3rFnllobDOLYckn%2FGBEHSl4G2Hnse7CaI%2BGpBkpP0Ud8awKHx3d9xgtFAnC85ks1%2BkhSBq2pHVohOXkjxj3RfmbctowIVuWZvY6MfJpBsaoYyVxDQv%2BMuQlcCUEHl9AJ8Xs%2BWTD7tNE9FfrC4KY2BGHedJYf52GgTsQ7CuCfr5uJg4YBvuTmWyYN78uJu3nhB86AstH1doFZFbBt%2FroDTEUJfBYlS40afyu2h749TRxoiU4xcWDNDUIi%2B6zINKu9qI5X4XfH%2BoRrq7ZYgkoHQQRAW7YCYdirZLXoO2ETACtWPa5nyukSpsZ%2F8mmmkr4uC7MPP6uKgGOrIBCrIPzsKyYiYmXbfpjP3Q51XNqU0RvILr5XTqNaH6BkaJc7iqpnIwN%2FwpnoQ9ykcsf6gSCQUk9Fr3CRZm11fApJXeKbQ3cP7fcLscjO5J9oxYuZzrFKcuMO2l1VecXevCmP4wSmgs9gPOQP%2BjPbUXioCzwZ3NoL2q1W%2Bdvc2hJhiDeOCAy58REfH1mTOf633Nzxlb510ZtNV%2FKoIE6XLQtlIo6pnGn%2FyDTqTX7RGJ0U39bA%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=49e29025149e2d6238a52fa831cb098311246f2eeb8ba957ecb1f9da8035a675"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 16993661,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "> The attacker merely needs to find a position in the FTP protocol where ftpcode 599 doesn't lead to connection termination\n\nThat seems to be the case, but can the server do that at an early enough point so that it can actually accomplish anything after? Is it really so \"merely\"  to find such a place that allows the server to actually do something maliciously?",
+      "automated_response": false,
+      "created_at": "2022-06-04T15:51:27.084Z",
+      "updated_at": "2022-06-04T15:51:27.084Z",
+      "actor": {
+        "username": "bagder",
+        "cleared": false,
+        "verified": false,
+        "url": "/bagder",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/y9xzl5ayi7du4kz3l6pa6sff2ha5/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22final-12-1000x1000.jpg%22%3B%20filename%2A%3DUTF-8%27%27final-12-1000x1000.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQSQ2EO4J6%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070211Z&X-Amz-Expires=2161&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJGMEQCIDdaOxaU2Kc7XK%2BFPO0xwEcua0EmQNQ0KITjMo%2BKI7S%2FAiAzEGtwS8msUueXSru5QP82dF7uwkPFZmzhjY8laBf5ySqxBQgiEAMaDDAxMzYxOTI3NDg0OSIMMwqH%2BrtGLzp0nfFJKo4FfKwfKYelWDcX3DZmXtAToi%2BfdIW%2FTskJuWscWNQ76Tnp8xifpkkQJqzgVzQ1mNVCoJr7%2BHlI2zJhu0AXuqUf6FD0aST%2BKfWDBNuzGTpRcWWnx07Sch98UNn54OsKQbkd78QdkYbYIIydcW4rDyHcf69tkUPFukaryTwqFIQUzVC34LtpkpFeA9lDvrXGajNXbhcjKrAFt5HqSOZuuuzssNNlvHJE05jjBky2NSGdLPAbwZ5PyWIPopmg1W4zjYBUwa%2F0z3qTgn0zEoCTBSKgTZOxPGLRSTPuvxrR0mqU9OcBLyJp193C17CIZVqQgijrtvyXYk%2FM2oDDkUsD7oeMeAFi8iq1vQlGMOgky5Mb4a6rOsWjihhywKDJptVFAvuD5Dj3tbSEYMt48EBT7kCNQd8x2uZADjILGD3cpoZLKeNeqFmfFNRBUEpMfGc5V1%2FI9fJ%2FzgQyr2nb6tNoGRs2QoePdMvOr42ig5kYNAYT7qahQE3vKgClxMTOREjRXfYOrHcHAtPXN4664bTPb1qQrBbF3foKJfwP06KCyM3rFnllobDOLYckn%2FGBEHSl4G2Hnse7CaI%2BGpBkpP0Ud8awKHx3d9xgtFAnC85ks1%2BkhSBq2pHVohOXkjxj3RfmbctowIVuWZvY6MfJpBsaoYyVxDQv%2BMuQlcCUEHl9AJ8Xs%2BWTD7tNE9FfrC4KY2BGHedJYf52GgTsQ7CuCfr5uJg4YBvuTmWyYN78uJu3nhB86AstH1doFZFbBt%2FroDTEUJfBYlS40afyu2h749TRxoiU4xcWDNDUIi%2B6zINKu9qI5X4XfH%2BoRrq7ZYgkoHQQRAW7YCYdirZLXoO2ETACtWPa5nyukSpsZ%2F8mmmkr4uC7MPP6uKgGOrIBCrIPzsKyYiYmXbfpjP3Q51XNqU0RvILr5XTqNaH6BkaJc7iqpnIwN%2FwpnoQ9ykcsf6gSCQUk9Fr3CRZm11fApJXeKbQ3cP7fcLscjO5J9oxYuZzrFKcuMO2l1VecXevCmP4wSmgs9gPOQP%2BjPbUXioCzwZ3NoL2q1W%2Bdvc2hJhiDeOCAy58REfH1mTOf633Nzxlb510ZtNV%2FKoIE6XLQtlIo6pnGn%2FyDTqTX7RGJ0U39bA%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=49e29025149e2d6238a52fa831cb098311246f2eeb8ba957ecb1f9da8035a675"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 16994700,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "> I actually question if there are curl users using krb-ftp at all.\n\nIt probably is very very rare indeed.\n\n> That seems to be the case, but can the server do that at an early enough point so that it can actually accomplish anything after? Is it really so \"merely\" to find such a place that allows the server to actually do something maliciously?\n\nVery little. Attack against the FTP download itself probably is more fruitful as an attack vector. If my understanding on how this works is correct, the attacker would have full control on the file content sent, except for the 5 first chars that will be se to \"599 \\0\".",
+      "automated_response": false,
+      "created_at": "2022-06-04T20:51:54.658Z",
+      "updated_at": "2022-06-04T20:51:54.658Z",
+      "actor": {
+        "username": "nyymi",
+        "cleared": false,
+        "verified": false,
+        "url": "/nyymi",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 16997047,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "This attack seems a little convoluted. If there's a MITM already serving a working FTP-KRB to the extent that it can insert an error at a selectable  point, why not just keep the fully legitimate connection and *not* cause an error and just serve bad content?",
+      "automated_response": false,
+      "created_at": "2022-06-05T09:53:51.964Z",
+      "updated_at": "2022-06-05T09:53:51.964Z",
+      "actor": {
+        "username": "bagder",
+        "cleared": false,
+        "verified": false,
+        "url": "/bagder",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/y9xzl5ayi7du4kz3l6pa6sff2ha5/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22final-12-1000x1000.jpg%22%3B%20filename%2A%3DUTF-8%27%27final-12-1000x1000.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQSQ2EO4J6%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070211Z&X-Amz-Expires=2161&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJGMEQCIDdaOxaU2Kc7XK%2BFPO0xwEcua0EmQNQ0KITjMo%2BKI7S%2FAiAzEGtwS8msUueXSru5QP82dF7uwkPFZmzhjY8laBf5ySqxBQgiEAMaDDAxMzYxOTI3NDg0OSIMMwqH%2BrtGLzp0nfFJKo4FfKwfKYelWDcX3DZmXtAToi%2BfdIW%2FTskJuWscWNQ76Tnp8xifpkkQJqzgVzQ1mNVCoJr7%2BHlI2zJhu0AXuqUf6FD0aST%2BKfWDBNuzGTpRcWWnx07Sch98UNn54OsKQbkd78QdkYbYIIydcW4rDyHcf69tkUPFukaryTwqFIQUzVC34LtpkpFeA9lDvrXGajNXbhcjKrAFt5HqSOZuuuzssNNlvHJE05jjBky2NSGdLPAbwZ5PyWIPopmg1W4zjYBUwa%2F0z3qTgn0zEoCTBSKgTZOxPGLRSTPuvxrR0mqU9OcBLyJp193C17CIZVqQgijrtvyXYk%2FM2oDDkUsD7oeMeAFi8iq1vQlGMOgky5Mb4a6rOsWjihhywKDJptVFAvuD5Dj3tbSEYMt48EBT7kCNQd8x2uZADjILGD3cpoZLKeNeqFmfFNRBUEpMfGc5V1%2FI9fJ%2FzgQyr2nb6tNoGRs2QoePdMvOr42ig5kYNAYT7qahQE3vKgClxMTOREjRXfYOrHcHAtPXN4664bTPb1qQrBbF3foKJfwP06KCyM3rFnllobDOLYckn%2FGBEHSl4G2Hnse7CaI%2BGpBkpP0Ud8awKHx3d9xgtFAnC85ks1%2BkhSBq2pHVohOXkjxj3RfmbctowIVuWZvY6MfJpBsaoYyVxDQv%2BMuQlcCUEHl9AJ8Xs%2BWTD7tNE9FfrC4KY2BGHedJYf52GgTsQ7CuCfr5uJg4YBvuTmWyYN78uJu3nhB86AstH1doFZFbBt%2FroDTEUJfBYlS40afyu2h749TRxoiU4xcWDNDUIi%2B6zINKu9qI5X4XfH%2BoRrq7ZYgkoHQQRAW7YCYdirZLXoO2ETACtWPa5nyukSpsZ%2F8mmmkr4uC7MPP6uKgGOrIBCrIPzsKyYiYmXbfpjP3Q51XNqU0RvILr5XTqNaH6BkaJc7iqpnIwN%2FwpnoQ9ykcsf6gSCQUk9Fr3CRZm11fApJXeKbQ3cP7fcLscjO5J9oxYuZzrFKcuMO2l1VecXevCmP4wSmgs9gPOQP%2BjPbUXioCzwZ3NoL2q1W%2Bdvc2hJhiDeOCAy58REfH1mTOf633Nzxlb510ZtNV%2FKoIE6XLQtlIo6pnGn%2FyDTqTX7RGJ0U39bA%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=49e29025149e2d6238a52fa831cb098311246f2eeb8ba957ecb1f9da8035a675"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 16998039,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "My understanding is that FTP-KRB has encryption (confidential/private) and integrity checking (safe/private). For this to work `gss_unwrap()` return code must be checked correctly. Since it is not, the attacker can bypass the integrity and encryption and pass unsigned cleartext data, and it is processed as-is (barring the 5 bytes set as described). This would not be possible if the error checking was done correctly.\n\nFTP-KRB is obscure enough thing so I am not 100% sure about this. The `CURLOPT_KRBLEVEL` at least suggests this:\n```\n    \"clear\" - Clear - neither Integrity nor Privacy\n    \"safe\" - Safe - Integrity without Privacy\n    \"confidential\" - Confidential - Privacy without Integrity\n    \"private\" - Private - Integrity and Privacy\n```\nHowever, I must admit that I currently have no way to test this in practice, so I could be wrong here.",
+      "automated_response": false,
+      "created_at": "2022-06-05T11:09:47.328Z",
+      "updated_at": "2022-06-05T11:09:47.328Z",
+      "actor": {
+        "username": "nyymi",
+        "cleared": false,
+        "verified": false,
+        "url": "/nyymi",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 17009796,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "... but in order to make the `gss_unwrap()` function return this error at the exact right point in time, the server must already be MITMed or be malicious, won't it?",
+      "automated_response": false,
+      "created_at": "2022-06-06T14:23:07.416Z",
+      "updated_at": "2022-06-06T14:23:07.416Z",
+      "actor": {
+        "username": "bagder",
+        "cleared": false,
+        "verified": false,
+        "url": "/bagder",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/y9xzl5ayi7du4kz3l6pa6sff2ha5/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22final-12-1000x1000.jpg%22%3B%20filename%2A%3DUTF-8%27%27final-12-1000x1000.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQSQ2EO4J6%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070211Z&X-Amz-Expires=2161&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJGMEQCIDdaOxaU2Kc7XK%2BFPO0xwEcua0EmQNQ0KITjMo%2BKI7S%2FAiAzEGtwS8msUueXSru5QP82dF7uwkPFZmzhjY8laBf5ySqxBQgiEAMaDDAxMzYxOTI3NDg0OSIMMwqH%2BrtGLzp0nfFJKo4FfKwfKYelWDcX3DZmXtAToi%2BfdIW%2FTskJuWscWNQ76Tnp8xifpkkQJqzgVzQ1mNVCoJr7%2BHlI2zJhu0AXuqUf6FD0aST%2BKfWDBNuzGTpRcWWnx07Sch98UNn54OsKQbkd78QdkYbYIIydcW4rDyHcf69tkUPFukaryTwqFIQUzVC34LtpkpFeA9lDvrXGajNXbhcjKrAFt5HqSOZuuuzssNNlvHJE05jjBky2NSGdLPAbwZ5PyWIPopmg1W4zjYBUwa%2F0z3qTgn0zEoCTBSKgTZOxPGLRSTPuvxrR0mqU9OcBLyJp193C17CIZVqQgijrtvyXYk%2FM2oDDkUsD7oeMeAFi8iq1vQlGMOgky5Mb4a6rOsWjihhywKDJptVFAvuD5Dj3tbSEYMt48EBT7kCNQd8x2uZADjILGD3cpoZLKeNeqFmfFNRBUEpMfGc5V1%2FI9fJ%2FzgQyr2nb6tNoGRs2QoePdMvOr42ig5kYNAYT7qahQE3vKgClxMTOREjRXfYOrHcHAtPXN4664bTPb1qQrBbF3foKJfwP06KCyM3rFnllobDOLYckn%2FGBEHSl4G2Hnse7CaI%2BGpBkpP0Ud8awKHx3d9xgtFAnC85ks1%2BkhSBq2pHVohOXkjxj3RfmbctowIVuWZvY6MfJpBsaoYyVxDQv%2BMuQlcCUEHl9AJ8Xs%2BWTD7tNE9FfrC4KY2BGHedJYf52GgTsQ7CuCfr5uJg4YBvuTmWyYN78uJu3nhB86AstH1doFZFbBt%2FroDTEUJfBYlS40afyu2h749TRxoiU4xcWDNDUIi%2B6zINKu9qI5X4XfH%2BoRrq7ZYgkoHQQRAW7YCYdirZLXoO2ETACtWPa5nyukSpsZ%2F8mmmkr4uC7MPP6uKgGOrIBCrIPzsKyYiYmXbfpjP3Q51XNqU0RvILr5XTqNaH6BkaJc7iqpnIwN%2FwpnoQ9ykcsf6gSCQUk9Fr3CRZm11fApJXeKbQ3cP7fcLscjO5J9oxYuZzrFKcuMO2l1VecXevCmP4wSmgs9gPOQP%2BjPbUXioCzwZ3NoL2q1W%2Bdvc2hJhiDeOCAy58REfH1mTOf633Nzxlb510ZtNV%2FKoIE6XLQtlIo6pnGn%2FyDTqTX7RGJ0U39bA%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=49e29025149e2d6238a52fa831cb098311246f2eeb8ba957ecb1f9da8035a675"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 17010318,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": ">  but in order to make the gss_unwrap() function return this error at the exact right point in time, the server must already be MITMed or be malicious, won't it?\n\nYes this attack requires man in the middle position.\n\nSince the data is read from socket directly this is easily doable for the attacker. The attacker merely needs to wait for the packet that is associated with the data transfer (it should be easy to identify from the 32bit packet size) and then replace the wrapped data with the malicious payload of up to 4 GB in size. Once `gss_unwrap()` fails, the first 5 bytes will be replaced with `599 \\0` but other than that the attacker sent payload is received as the downloaded data.",
+      "automated_response": false,
+      "created_at": "2022-06-06T15:07:45.402Z",
+      "updated_at": "2022-06-06T15:07:45.402Z",
+      "actor": {
+        "username": "nyymi",
+        "cleared": false,
+        "verified": false,
+        "url": "/nyymi",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 17028006,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Ah, do you mean a TCP MITM for either the \"clear\" or \"safe\" krb levels? Don't the \"stronger\" and more proper levels \"confidential\" and \"private\" setup an encrypted channel?",
+      "automated_response": false,
+      "created_at": "2022-06-07T16:14:04.905Z",
+      "updated_at": "2022-06-07T16:14:04.905Z",
+      "actor": {
+        "username": "bagder",
+        "cleared": false,
+        "verified": false,
+        "url": "/bagder",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/y9xzl5ayi7du4kz3l6pa6sff2ha5/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22final-12-1000x1000.jpg%22%3B%20filename%2A%3DUTF-8%27%27final-12-1000x1000.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQSQ2EO4J6%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070211Z&X-Amz-Expires=2161&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJGMEQCIDdaOxaU2Kc7XK%2BFPO0xwEcua0EmQNQ0KITjMo%2BKI7S%2FAiAzEGtwS8msUueXSru5QP82dF7uwkPFZmzhjY8laBf5ySqxBQgiEAMaDDAxMzYxOTI3NDg0OSIMMwqH%2BrtGLzp0nfFJKo4FfKwfKYelWDcX3DZmXtAToi%2BfdIW%2FTskJuWscWNQ76Tnp8xifpkkQJqzgVzQ1mNVCoJr7%2BHlI2zJhu0AXuqUf6FD0aST%2BKfWDBNuzGTpRcWWnx07Sch98UNn54OsKQbkd78QdkYbYIIydcW4rDyHcf69tkUPFukaryTwqFIQUzVC34LtpkpFeA9lDvrXGajNXbhcjKrAFt5HqSOZuuuzssNNlvHJE05jjBky2NSGdLPAbwZ5PyWIPopmg1W4zjYBUwa%2F0z3qTgn0zEoCTBSKgTZOxPGLRSTPuvxrR0mqU9OcBLyJp193C17CIZVqQgijrtvyXYk%2FM2oDDkUsD7oeMeAFi8iq1vQlGMOgky5Mb4a6rOsWjihhywKDJptVFAvuD5Dj3tbSEYMt48EBT7kCNQd8x2uZADjILGD3cpoZLKeNeqFmfFNRBUEpMfGc5V1%2FI9fJ%2FzgQyr2nb6tNoGRs2QoePdMvOr42ig5kYNAYT7qahQE3vKgClxMTOREjRXfYOrHcHAtPXN4664bTPb1qQrBbF3foKJfwP06KCyM3rFnllobDOLYckn%2FGBEHSl4G2Hnse7CaI%2BGpBkpP0Ud8awKHx3d9xgtFAnC85ks1%2BkhSBq2pHVohOXkjxj3RfmbctowIVuWZvY6MfJpBsaoYyVxDQv%2BMuQlcCUEHl9AJ8Xs%2BWTD7tNE9FfrC4KY2BGHedJYf52GgTsQ7CuCfr5uJg4YBvuTmWyYN78uJu3nhB86AstH1doFZFbBt%2FroDTEUJfBYlS40afyu2h749TRxoiU4xcWDNDUIi%2B6zINKu9qI5X4XfH%2BoRrq7ZYgkoHQQRAW7YCYdirZLXoO2ETACtWPa5nyukSpsZ%2F8mmmkr4uC7MPP6uKgGOrIBCrIPzsKyYiYmXbfpjP3Q51XNqU0RvILr5XTqNaH6BkaJc7iqpnIwN%2FwpnoQ9ykcsf6gSCQUk9Fr3CRZm11fApJXeKbQ3cP7fcLscjO5J9oxYuZzrFKcuMO2l1VecXevCmP4wSmgs9gPOQP%2BjPbUXioCzwZ3NoL2q1W%2Bdvc2hJhiDeOCAy58REfH1mTOf633Nzxlb510ZtNV%2FKoIE6XLQtlIo6pnGn%2FyDTqTX7RGJ0U39bA%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=49e29025149e2d6238a52fa831cb098311246f2eeb8ba957ecb1f9da8035a675"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 17031120,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugNotApplicable",
+      "message": "Yes they do, but the whole channel isn't encrypted even then, there is still control messaging in clear (such as the token type) etc. For example see:\nhttps://github.com/krb5/krb5/blob/f8ecc0ae74c7ebd84f042e28079aa6b4b2ae405c/src/lib/gssapi/krb5/k5unseal.c#L409\n\nIn fact the most likely result is that the token header structure will be considered corrupt and `gss_unwrap` will return `GSS_S_DEFECTIVE_TOKEN`. Either way, the result is that curl will process the bogus message as unwrapped data.\n\nIt'd really be great to be able to verify this in practice though.",
+      "automated_response": false,
+      "created_at": "2022-06-07T22:36:25.257Z",
+      "updated_at": "2022-06-07T22:36:25.257Z",
+      "actor": {
+        "username": "nyymi",
+        "cleared": false,
+        "verified": false,
+        "url": "/nyymi",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 17031149,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Wait did I accidentally click somewhere? I didn't mean to close. oopsie.\n\nYeah right I meant to add a comment not close there. I think I accidentally clicked on add comment somehow.",
+      "automated_response": false,
+      "created_at": "2022-06-07T22:45:01.541Z",
+      "updated_at": "2022-06-07T22:46:52.840Z",
+      "actor": {
+        "username": "nyymi",
+        "cleared": false,
+        "verified": false,
+        "url": "/nyymi",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 17033214,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugReopened",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2022-06-08T07:37:01.232Z",
+      "updated_at": "2022-06-08T07:37:01.232Z",
+      "actor": {
+        "username": "bagder",
+        "cleared": false,
+        "verified": false,
+        "url": "/bagder",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/y9xzl5ayi7du4kz3l6pa6sff2ha5/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22final-12-1000x1000.jpg%22%3B%20filename%2A%3DUTF-8%27%27final-12-1000x1000.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQSQ2EO4J6%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070211Z&X-Amz-Expires=2161&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJGMEQCIDdaOxaU2Kc7XK%2BFPO0xwEcua0EmQNQ0KITjMo%2BKI7S%2FAiAzEGtwS8msUueXSru5QP82dF7uwkPFZmzhjY8laBf5ySqxBQgiEAMaDDAxMzYxOTI3NDg0OSIMMwqH%2BrtGLzp0nfFJKo4FfKwfKYelWDcX3DZmXtAToi%2BfdIW%2FTskJuWscWNQ76Tnp8xifpkkQJqzgVzQ1mNVCoJr7%2BHlI2zJhu0AXuqUf6FD0aST%2BKfWDBNuzGTpRcWWnx07Sch98UNn54OsKQbkd78QdkYbYIIydcW4rDyHcf69tkUPFukaryTwqFIQUzVC34LtpkpFeA9lDvrXGajNXbhcjKrAFt5HqSOZuuuzssNNlvHJE05jjBky2NSGdLPAbwZ5PyWIPopmg1W4zjYBUwa%2F0z3qTgn0zEoCTBSKgTZOxPGLRSTPuvxrR0mqU9OcBLyJp193C17CIZVqQgijrtvyXYk%2FM2oDDkUsD7oeMeAFi8iq1vQlGMOgky5Mb4a6rOsWjihhywKDJptVFAvuD5Dj3tbSEYMt48EBT7kCNQd8x2uZADjILGD3cpoZLKeNeqFmfFNRBUEpMfGc5V1%2FI9fJ%2FzgQyr2nb6tNoGRs2QoePdMvOr42ig5kYNAYT7qahQE3vKgClxMTOREjRXfYOrHcHAtPXN4664bTPb1qQrBbF3foKJfwP06KCyM3rFnllobDOLYckn%2FGBEHSl4G2Hnse7CaI%2BGpBkpP0Ud8awKHx3d9xgtFAnC85ks1%2BkhSBq2pHVohOXkjxj3RfmbctowIVuWZvY6MfJpBsaoYyVxDQv%2BMuQlcCUEHl9AJ8Xs%2BWTD7tNE9FfrC4KY2BGHedJYf52GgTsQ7CuCfr5uJg4YBvuTmWyYN78uJu3nhB86AstH1doFZFbBt%2FroDTEUJfBYlS40afyu2h749TRxoiU4xcWDNDUIi%2B6zINKu9qI5X4XfH%2BoRrq7ZYgkoHQQRAW7YCYdirZLXoO2ETACtWPa5nyukSpsZ%2F8mmmkr4uC7MPP6uKgGOrIBCrIPzsKyYiYmXbfpjP3Q51XNqU0RvILr5XTqNaH6BkaJc7iqpnIwN%2FwpnoQ9ykcsf6gSCQUk9Fr3CRZm11fApJXeKbQ3cP7fcLscjO5J9oxYuZzrFKcuMO2l1VecXevCmP4wSmgs9gPOQP%2BjPbUXioCzwZ3NoL2q1W%2Bdvc2hJhiDeOCAy58REfH1mTOf633Nzxlb510ZtNV%2FKoIE6XLQtlIo6pnGn%2FyDTqTX7RGJ0U39bA%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=49e29025149e2d6238a52fa831cb098311246f2eeb8ba957ecb1f9da8035a675"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 17040722,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Aha. What a clunky format.\n\nBut: since it comes in that token/message format, this MITM attack is then very \"low resolution\". Depending entirely on how large the messages are.\n\nI mean, when the attacker changes the token or breaks the message in order to trigger curl to insert that \"599 \" into the stream, and that 599 is meant to *not* make curl just bail out, it can only do this on a per token/message level, right? It makes this attack even harder to pull off to actually make something deliberately bad with it.",
+      "automated_response": false,
+      "created_at": "2022-06-08T08:53:37.559Z",
+      "updated_at": "2022-06-08T08:53:37.559Z",
+      "actor": {
+        "username": "bagder",
+        "cleared": false,
+        "verified": false,
+        "url": "/bagder",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/y9xzl5ayi7du4kz3l6pa6sff2ha5/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22final-12-1000x1000.jpg%22%3B%20filename%2A%3DUTF-8%27%27final-12-1000x1000.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQSQ2EO4J6%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070211Z&X-Amz-Expires=2161&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJGMEQCIDdaOxaU2Kc7XK%2BFPO0xwEcua0EmQNQ0KITjMo%2BKI7S%2FAiAzEGtwS8msUueXSru5QP82dF7uwkPFZmzhjY8laBf5ySqxBQgiEAMaDDAxMzYxOTI3NDg0OSIMMwqH%2BrtGLzp0nfFJKo4FfKwfKYelWDcX3DZmXtAToi%2BfdIW%2FTskJuWscWNQ76Tnp8xifpkkQJqzgVzQ1mNVCoJr7%2BHlI2zJhu0AXuqUf6FD0aST%2BKfWDBNuzGTpRcWWnx07Sch98UNn54OsKQbkd78QdkYbYIIydcW4rDyHcf69tkUPFukaryTwqFIQUzVC34LtpkpFeA9lDvrXGajNXbhcjKrAFt5HqSOZuuuzssNNlvHJE05jjBky2NSGdLPAbwZ5PyWIPopmg1W4zjYBUwa%2F0z3qTgn0zEoCTBSKgTZOxPGLRSTPuvxrR0mqU9OcBLyJp193C17CIZVqQgijrtvyXYk%2FM2oDDkUsD7oeMeAFi8iq1vQlGMOgky5Mb4a6rOsWjihhywKDJptVFAvuD5Dj3tbSEYMt48EBT7kCNQd8x2uZADjILGD3cpoZLKeNeqFmfFNRBUEpMfGc5V1%2FI9fJ%2FzgQyr2nb6tNoGRs2QoePdMvOr42ig5kYNAYT7qahQE3vKgClxMTOREjRXfYOrHcHAtPXN4664bTPb1qQrBbF3foKJfwP06KCyM3rFnllobDOLYckn%2FGBEHSl4G2Hnse7CaI%2BGpBkpP0Ud8awKHx3d9xgtFAnC85ks1%2BkhSBq2pHVohOXkjxj3RfmbctowIVuWZvY6MfJpBsaoYyVxDQv%2BMuQlcCUEHl9AJ8Xs%2BWTD7tNE9FfrC4KY2BGHedJYf52GgTsQ7CuCfr5uJg4YBvuTmWyYN78uJu3nhB86AstH1doFZFbBt%2FroDTEUJfBYlS40afyu2h749TRxoiU4xcWDNDUIi%2B6zINKu9qI5X4XfH%2BoRrq7ZYgkoHQQRAW7YCYdirZLXoO2ETACtWPa5nyukSpsZ%2F8mmmkr4uC7MPP6uKgGOrIBCrIPzsKyYiYmXbfpjP3Q51XNqU0RvILr5XTqNaH6BkaJc7iqpnIwN%2FwpnoQ9ykcsf6gSCQUk9Fr3CRZm11fApJXeKbQ3cP7fcLscjO5J9oxYuZzrFKcuMO2l1VecXevCmP4wSmgs9gPOQP%2BjPbUXioCzwZ3NoL2q1W%2Bdvc2hJhiDeOCAy58REfH1mTOf633Nzxlb510ZtNV%2FKoIE6XLQtlIo6pnGn%2FyDTqTX7RGJ0U39bA%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=49e29025149e2d6238a52fa831cb098311246f2eeb8ba957ecb1f9da8035a675"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 17041120,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "I'm not entirely sure what you mean with \"low resolution\" here. If you mean to say that this somehow depends on the size of the original message, no, that is not a limitation. The attacker can choose how large message they will spoof. The size can be 1 to 2^32-1 bytes. See:\n\nhttps://github.com/curl/curl/blob/7007324a6a50693b089896fe078186bc8965d452/lib/krb5.c#L510\n\nIf the message is >= 4 bytes the first 5 chars will be forced to \"599 \\0\" however:\n\nhttps://github.com/curl/curl/blob/7007324a6a50693b089896fe078186bc8965d452/lib/krb5.c#L144\n\nThis appears to be a 1 byte heap overflow btw, as the strcpy will write 5th byte even if the buffer is allocated for 4 bytes. Likely totally unexploitable, however.",
+      "automated_response": false,
+      "created_at": "2022-06-08T09:11:32.779Z",
+      "updated_at": "2022-06-08T09:11:32.779Z",
+      "actor": {
+        "username": "nyymi",
+        "cleared": false,
+        "verified": false,
+        "url": "/nyymi",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 17052071,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Here's a graphical representation of the issue. It might be easier to follow than my written explanation.",
+      "automated_response": false,
+      "created_at": "2022-06-08T19:30:52.139Z",
+      "updated_at": "2022-06-08T19:30:52.139Z",
+      "actor": {
+        "username": "nyymi",
+        "cleared": false,
+        "verified": false,
+        "url": "/nyymi",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "attachments": [
+        {
+          "id": 1762308,
+          "filename": "libcurl-gss_unwrap-1.png",
+          "type": "image/png",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/nut9eg1ocp31pqlyb9a36tgyrxvb?response-content-disposition=attachment%3B%20filename%3D%22libcurl-gss_unwrap-1.png%22%3B%20filename%2A%3DUTF-8%27%27libcurl-gss_unwrap-1.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQSQ2EO4J6%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070211Z&X-Amz-Expires=2161&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJGMEQCIDdaOxaU2Kc7XK%2BFPO0xwEcua0EmQNQ0KITjMo%2BKI7S%2FAiAzEGtwS8msUueXSru5QP82dF7uwkPFZmzhjY8laBf5ySqxBQgiEAMaDDAxMzYxOTI3NDg0OSIMMwqH%2BrtGLzp0nfFJKo4FfKwfKYelWDcX3DZmXtAToi%2BfdIW%2FTskJuWscWNQ76Tnp8xifpkkQJqzgVzQ1mNVCoJr7%2BHlI2zJhu0AXuqUf6FD0aST%2BKfWDBNuzGTpRcWWnx07Sch98UNn54OsKQbkd78QdkYbYIIydcW4rDyHcf69tkUPFukaryTwqFIQUzVC34LtpkpFeA9lDvrXGajNXbhcjKrAFt5HqSOZuuuzssNNlvHJE05jjBky2NSGdLPAbwZ5PyWIPopmg1W4zjYBUwa%2F0z3qTgn0zEoCTBSKgTZOxPGLRSTPuvxrR0mqU9OcBLyJp193C17CIZVqQgijrtvyXYk%2FM2oDDkUsD7oeMeAFi8iq1vQlGMOgky5Mb4a6rOsWjihhywKDJptVFAvuD5Dj3tbSEYMt48EBT7kCNQd8x2uZADjILGD3cpoZLKeNeqFmfFNRBUEpMfGc5V1%2FI9fJ%2FzgQyr2nb6tNoGRs2QoePdMvOr42ig5kYNAYT7qahQE3vKgClxMTOREjRXfYOrHcHAtPXN4664bTPb1qQrBbF3foKJfwP06KCyM3rFnllobDOLYckn%2FGBEHSl4G2Hnse7CaI%2BGpBkpP0Ud8awKHx3d9xgtFAnC85ks1%2BkhSBq2pHVohOXkjxj3RfmbctowIVuWZvY6MfJpBsaoYyVxDQv%2BMuQlcCUEHl9AJ8Xs%2BWTD7tNE9FfrC4KY2BGHedJYf52GgTsQ7CuCfr5uJg4YBvuTmWyYN78uJu3nhB86AstH1doFZFbBt%2FroDTEUJfBYlS40afyu2h749TRxoiU4xcWDNDUIi%2B6zINKu9qI5X4XfH%2BoRrq7ZYgkoHQQRAW7YCYdirZLXoO2ETACtWPa5nyukSpsZ%2F8mmmkr4uC7MPP6uKgGOrIBCrIPzsKyYiYmXbfpjP3Q51XNqU0RvILr5XTqNaH6BkaJc7iqpnIwN%2FwpnoQ9ykcsf6gSCQUk9Fr3CRZm11fApJXeKbQ3cP7fcLscjO5J9oxYuZzrFKcuMO2l1VecXevCmP4wSmgs9gPOQP%2BjPbUXioCzwZ3NoL2q1W%2Bdvc2hJhiDeOCAy58REfH1mTOf633Nzxlb510ZtNV%2FKoIE6XLQtlIo6pnGn%2FyDTqTX7RGJ0U39bA%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=62e3977ba438265dd5d8f2828fadd6c0c016c792437513f990a49a6e68ff03ae"
+        }
+      ],
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 17052563,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "I checked a normal simple FTP download procedure with curl (test case 103). Out of the commands curl sends there, curl silently ignores a 599 response for two commands: `PWD` and `SIZE`. No other command accepts a 599 response undetected. In fact 599 triggers a failure in all other cases.",
+      "automated_response": false,
+      "created_at": "2022-06-08T20:43:10.728Z",
+      "updated_at": "2022-06-08T20:43:10.728Z",
+      "actor": {
+        "username": "bagder",
+        "cleared": false,
+        "verified": false,
+        "url": "/bagder",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/y9xzl5ayi7du4kz3l6pa6sff2ha5/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22final-12-1000x1000.jpg%22%3B%20filename%2A%3DUTF-8%27%27final-12-1000x1000.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQSQ2EO4J6%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070211Z&X-Amz-Expires=2161&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJGMEQCIDdaOxaU2Kc7XK%2BFPO0xwEcua0EmQNQ0KITjMo%2BKI7S%2FAiAzEGtwS8msUueXSru5QP82dF7uwkPFZmzhjY8laBf5ySqxBQgiEAMaDDAxMzYxOTI3NDg0OSIMMwqH%2BrtGLzp0nfFJKo4FfKwfKYelWDcX3DZmXtAToi%2BfdIW%2FTskJuWscWNQ76Tnp8xifpkkQJqzgVzQ1mNVCoJr7%2BHlI2zJhu0AXuqUf6FD0aST%2BKfWDBNuzGTpRcWWnx07Sch98UNn54OsKQbkd78QdkYbYIIydcW4rDyHcf69tkUPFukaryTwqFIQUzVC34LtpkpFeA9lDvrXGajNXbhcjKrAFt5HqSOZuuuzssNNlvHJE05jjBky2NSGdLPAbwZ5PyWIPopmg1W4zjYBUwa%2F0z3qTgn0zEoCTBSKgTZOxPGLRSTPuvxrR0mqU9OcBLyJp193C17CIZVqQgijrtvyXYk%2FM2oDDkUsD7oeMeAFi8iq1vQlGMOgky5Mb4a6rOsWjihhywKDJptVFAvuD5Dj3tbSEYMt48EBT7kCNQd8x2uZADjILGD3cpoZLKeNeqFmfFNRBUEpMfGc5V1%2FI9fJ%2FzgQyr2nb6tNoGRs2QoePdMvOr42ig5kYNAYT7qahQE3vKgClxMTOREjRXfYOrHcHAtPXN4664bTPb1qQrBbF3foKJfwP06KCyM3rFnllobDOLYckn%2FGBEHSl4G2Hnse7CaI%2BGpBkpP0Ud8awKHx3d9xgtFAnC85ks1%2BkhSBq2pHVohOXkjxj3RfmbctowIVuWZvY6MfJpBsaoYyVxDQv%2BMuQlcCUEHl9AJ8Xs%2BWTD7tNE9FfrC4KY2BGHedJYf52GgTsQ7CuCfr5uJg4YBvuTmWyYN78uJu3nhB86AstH1doFZFbBt%2FroDTEUJfBYlS40afyu2h749TRxoiU4xcWDNDUIi%2B6zINKu9qI5X4XfH%2BoRrq7ZYgkoHQQRAW7YCYdirZLXoO2ETACtWPa5nyukSpsZ%2F8mmmkr4uC7MPP6uKgGOrIBCrIPzsKyYiYmXbfpjP3Q51XNqU0RvILr5XTqNaH6BkaJc7iqpnIwN%2FwpnoQ9ykcsf6gSCQUk9Fr3CRZm11fApJXeKbQ3cP7fcLscjO5J9oxYuZzrFKcuMO2l1VecXevCmP4wSmgs9gPOQP%2BjPbUXioCzwZ3NoL2q1W%2Bdvc2hJhiDeOCAy58REfH1mTOf633Nzxlb510ZtNV%2FKoIE6XLQtlIo6pnGn%2FyDTqTX7RGJ0U39bA%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=49e29025149e2d6238a52fa831cb098311246f2eeb8ba957ecb1f9da8035a675"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 17052590,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "It indeed is hard to find this to be super useful in the control channel. The attack would be more fruitful against the actual downloaded data though. Even then part of it will be overwritten by the \"599 \\0\" of course, which somewhat limits the usability of the attack.",
+      "automated_response": false,
+      "created_at": "2022-06-08T20:48:58.831Z",
+      "updated_at": "2022-06-08T20:48:58.831Z",
+      "actor": {
+        "username": "nyymi",
+        "cleared": false,
+        "verified": false,
+        "url": "/nyymi",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 17052643,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@nyymi so the attacker can split `olen + data` in two and deliver as two separate `tampered_len + data` packets without it getting noticed?",
+      "automated_response": false,
+      "created_at": "2022-06-08T21:00:39.305Z",
+      "updated_at": "2022-06-08T21:00:39.305Z",
+      "actor": {
+        "username": "bagder",
+        "cleared": false,
+        "verified": false,
+        "url": "/bagder",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/y9xzl5ayi7du4kz3l6pa6sff2ha5/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22final-12-1000x1000.jpg%22%3B%20filename%2A%3DUTF-8%27%27final-12-1000x1000.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQSQ2EO4J6%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070211Z&X-Amz-Expires=2161&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJGMEQCIDdaOxaU2Kc7XK%2BFPO0xwEcua0EmQNQ0KITjMo%2BKI7S%2FAiAzEGtwS8msUueXSru5QP82dF7uwkPFZmzhjY8laBf5ySqxBQgiEAMaDDAxMzYxOTI3NDg0OSIMMwqH%2BrtGLzp0nfFJKo4FfKwfKYelWDcX3DZmXtAToi%2BfdIW%2FTskJuWscWNQ76Tnp8xifpkkQJqzgVzQ1mNVCoJr7%2BHlI2zJhu0AXuqUf6FD0aST%2BKfWDBNuzGTpRcWWnx07Sch98UNn54OsKQbkd78QdkYbYIIydcW4rDyHcf69tkUPFukaryTwqFIQUzVC34LtpkpFeA9lDvrXGajNXbhcjKrAFt5HqSOZuuuzssNNlvHJE05jjBky2NSGdLPAbwZ5PyWIPopmg1W4zjYBUwa%2F0z3qTgn0zEoCTBSKgTZOxPGLRSTPuvxrR0mqU9OcBLyJp193C17CIZVqQgijrtvyXYk%2FM2oDDkUsD7oeMeAFi8iq1vQlGMOgky5Mb4a6rOsWjihhywKDJptVFAvuD5Dj3tbSEYMt48EBT7kCNQd8x2uZADjILGD3cpoZLKeNeqFmfFNRBUEpMfGc5V1%2FI9fJ%2FzgQyr2nb6tNoGRs2QoePdMvOr42ig5kYNAYT7qahQE3vKgClxMTOREjRXfYOrHcHAtPXN4664bTPb1qQrBbF3foKJfwP06KCyM3rFnllobDOLYckn%2FGBEHSl4G2Hnse7CaI%2BGpBkpP0Ud8awKHx3d9xgtFAnC85ks1%2BkhSBq2pHVohOXkjxj3RfmbctowIVuWZvY6MfJpBsaoYyVxDQv%2BMuQlcCUEHl9AJ8Xs%2BWTD7tNE9FfrC4KY2BGHedJYf52GgTsQ7CuCfr5uJg4YBvuTmWyYN78uJu3nhB86AstH1doFZFbBt%2FroDTEUJfBYlS40afyu2h749TRxoiU4xcWDNDUIi%2B6zINKu9qI5X4XfH%2BoRrq7ZYgkoHQQRAW7YCYdirZLXoO2ETACtWPa5nyukSpsZ%2F8mmmkr4uC7MPP6uKgGOrIBCrIPzsKyYiYmXbfpjP3Q51XNqU0RvILr5XTqNaH6BkaJc7iqpnIwN%2FwpnoQ9ykcsf6gSCQUk9Fr3CRZm11fApJXeKbQ3cP7fcLscjO5J9oxYuZzrFKcuMO2l1VecXevCmP4wSmgs9gPOQP%2BjPbUXioCzwZ3NoL2q1W%2Bdvc2hJhiDeOCAy58REfH1mTOf633Nzxlb510ZtNV%2FKoIE6XLQtlIo6pnGn%2FyDTqTX7RGJ0U39bA%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=49e29025149e2d6238a52fa831cb098311246f2eeb8ba957ecb1f9da8035a675"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 17052713,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "If that's the case, then we can avoid getting the \"599 \" into the data. Remember that it only stores that number if the block is actually 4 bytes or larger, so if the attacker injects an error using a smaller packet, it might be be possible to make transparent:\n~~~c\n    if(len >= 4)\n      strcpy(buf, \"599 \");\n",
+      "automated_response": false,
+      "created_at": "2022-06-08T21:10:30.558Z",
+      "updated_at": "2022-06-08T21:10:30.558Z",
+      "actor": {
+        "username": "bagder",
+        "cleared": false,
+        "verified": false,
+        "url": "/bagder",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/y9xzl5ayi7du4kz3l6pa6sff2ha5/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22final-12-1000x1000.jpg%22%3B%20filename%2A%3DUTF-8%27%27final-12-1000x1000.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQSQ2EO4J6%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070211Z&X-Amz-Expires=2161&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJGMEQCIDdaOxaU2Kc7XK%2BFPO0xwEcua0EmQNQ0KITjMo%2BKI7S%2FAiAzEGtwS8msUueXSru5QP82dF7uwkPFZmzhjY8laBf5ySqxBQgiEAMaDDAxMzYxOTI3NDg0OSIMMwqH%2BrtGLzp0nfFJKo4FfKwfKYelWDcX3DZmXtAToi%2BfdIW%2FTskJuWscWNQ76Tnp8xifpkkQJqzgVzQ1mNVCoJr7%2BHlI2zJhu0AXuqUf6FD0aST%2BKfWDBNuzGTpRcWWnx07Sch98UNn54OsKQbkd78QdkYbYIIydcW4rDyHcf69tkUPFukaryTwqFIQUzVC34LtpkpFeA9lDvrXGajNXbhcjKrAFt5HqSOZuuuzssNNlvHJE05jjBky2NSGdLPAbwZ5PyWIPopmg1W4zjYBUwa%2F0z3qTgn0zEoCTBSKgTZOxPGLRSTPuvxrR0mqU9OcBLyJp193C17CIZVqQgijrtvyXYk%2FM2oDDkUsD7oeMeAFi8iq1vQlGMOgky5Mb4a6rOsWjihhywKDJptVFAvuD5Dj3tbSEYMt48EBT7kCNQd8x2uZADjILGD3cpoZLKeNeqFmfFNRBUEpMfGc5V1%2FI9fJ%2FzgQyr2nb6tNoGRs2QoePdMvOr42ig5kYNAYT7qahQE3vKgClxMTOREjRXfYOrHcHAtPXN4664bTPb1qQrBbF3foKJfwP06KCyM3rFnllobDOLYckn%2FGBEHSl4G2Hnse7CaI%2BGpBkpP0Ud8awKHx3d9xgtFAnC85ks1%2BkhSBq2pHVohOXkjxj3RfmbctowIVuWZvY6MfJpBsaoYyVxDQv%2BMuQlcCUEHl9AJ8Xs%2BWTD7tNE9FfrC4KY2BGHedJYf52GgTsQ7CuCfr5uJg4YBvuTmWyYN78uJu3nhB86AstH1doFZFbBt%2FroDTEUJfBYlS40afyu2h749TRxoiU4xcWDNDUIi%2B6zINKu9qI5X4XfH%2BoRrq7ZYgkoHQQRAW7YCYdirZLXoO2ETACtWPa5nyukSpsZ%2F8mmmkr4uC7MPP6uKgGOrIBCrIPzsKyYiYmXbfpjP3Q51XNqU0RvILr5XTqNaH6BkaJc7iqpnIwN%2FwpnoQ9ykcsf6gSCQUk9Fr3CRZm11fApJXeKbQ3cP7fcLscjO5J9oxYuZzrFKcuMO2l1VecXevCmP4wSmgs9gPOQP%2BjPbUXioCzwZ3NoL2q1W%2Bdvc2hJhiDeOCAy58REfH1mTOf633Nzxlb510ZtNV%2FKoIE6XLQtlIo6pnGn%2FyDTqTX7RGJ0U39bA%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=49e29025149e2d6238a52fa831cb098311246f2eeb8ba957ecb1f9da8035a675"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 17052856,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "It can't be split. This is due to the fact that the buffer length becomes (size_t)-1 on `gss_unwrap()` error. Thus  the attacker needs to send a single response that will satisfy the remainder of `conn->recv()` done on that connection. If curl `conn->recv()` more data than what the attacker provides the `memcpy` in `buffer_read` will hit unrelated heap (and if more and more data is `conn->recv()` it will eventually crash due to running out of mapped memory).\n\nSo in practice the attacker would need to provide \"enough\" data to satisfy the transfer they target. Adding padding to the end will solve this issue in most cases as there are only certain file formats that are parsed from the end towards the beginning. Of course the specific things targeted needs to survive the \"599 \\0\".\n\nNote that it is possible to target transfer in the middle, assuming the normal transfer is done in chunks (I presume it is). Then it would be possible to switch to attacker content at given position during the transfer. There would still be the \"599 \\0\" in the buffer in the spot where the switch happens, but it would not be in the start of the file.  The attacker doesn't know the prior content being transferred making this kind of attack somewhat tricky. If the attacker knows what is being transferred they will be able to pull this variant off as well.",
+      "automated_response": false,
+      "created_at": "2022-06-08T21:38:41.415Z",
+      "updated_at": "2022-06-08T21:44:22.063Z",
+      "actor": {
+        "username": "nyymi",
+        "cleared": false,
+        "verified": false,
+        "url": "/nyymi",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 17053003,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Suitable targets for this attack are for example text based scripts that would later get executed explicitly (without relying on a shebang).\n\nShell scripts would work as well as for example perl.\n\nShell script:\n```\n$ hexdump -Cv test.sh\n00000000  35 39 39 20 00 3b 0a 65  63 68 6f 20 22 66 6f 6f  |599 .;.echo \"foo|\n00000010  22 0a                                             |\".|\n00000012\n$ sh test.sh\ntest.sh: 1: 599: not found\nfoo\n```\n\nPerl script:\n```\n$ hexdump -Cv test.pl\n00000000  35 39 39 20 00 3b 0a 70  72 69 6e 74 20 22 66 6f  |599 .;.print \"fo|\n00000010  6f 5c 6e 22 3b 0a                                 |o\\n\";.|\n00000016\n$ perl test.pl\nfoo\n```\nI'm sure there are various other suitable targets as well, but these are the obvious ones I could think of right now.\n\n",
+      "automated_response": false,
+      "created_at": "2022-06-08T22:12:48.088Z",
+      "updated_at": "2022-06-08T22:12:48.088Z",
+      "actor": {
+        "username": "nyymi",
+        "cleared": false,
+        "verified": false,
+        "url": "/nyymi",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 17053055,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Zip files are great candidates for this  attack since zip command is very flexible when parsing the file:\n```\n$ hexdump -C test.zip\n00000000  35 39 39 20 00 50 4b 03  04 0a 00 00 00 00 00 44  |599 .PK........D|\n00000010  09 c9 54 0e 65 40 07 12  00 00 00 12 00 00 00 07  |..T.e@..........|\n00000020  00 1c 00 74 65 73 74 2e  73 68 55 54 09 00 03 3f  |...test.shUT...?|\n00000030  1e a1 62 34 1e a1 62 75  78 0b 00 01 04 e9 03 00  |..b4..bux.......|\n00000040  00 04 e9 03 00 00 35 39  39 20 00 3b 0a 65 63 68  |......599 .;.ech|\n00000050  6f 20 22 66 6f 6f 22 0a  50 4b 01 02 1e 03 0a 00  |o \"foo\".PK......|\n00000060  00 00 00 00 44 09 c9 54  0e 65 40 07 12 00 00 00  |....D..T.e@.....|\n00000070  12 00 00 00 07 00 18 00  00 00 00 00 00 00 00 00  |................|\n00000080  80 81 00 00 00 00 74 65  73 74 2e 73 68 55 54 05  |......test.shUT.|\n00000090  00 03 3f 1e a1 62 75 78  0b 00 01 04 e9 03 00 00  |..?..bux........|\n000000a0  04 e9 03 00 00 50 4b 05  06 00 00 00 00 01 00 01  |.....PK.........|\n000000b0  00 4d 00 00 00 53 00 00  00 00 00 00 00 00 00 00  |.M...S..........|\n000000c0  00 00 00 00 00 00 00 00  00 00 00 00 00 00 00 00  |................|\n*\n000100b0  00 00 00 00 00 00 00 00  00 00 00                 |...........|\n000100bb\n$ unzip -t test.zip\nArchive:  test.zip\nwarning [test.zip]:  5 extra bytes at beginning or within zipfile\n  (attempting to process anyway)\n    testing: test.sh                  OK\nNo errors detected in compressed data of test.zip.\n```",
+      "automated_response": false,
+      "created_at": "2022-06-08T22:28:51.155Z",
+      "updated_at": "2022-06-08T22:28:51.155Z",
+      "actor": {
+        "username": "nyymi",
+        "cleared": false,
+        "verified": false,
+        "url": "/nyymi",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 17054945,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "It's a way more aggressive MITM though, to pull that off. An FTP MITM that can intercept the data connection for a passive FTP transfer without seeing the control connection would need to just unconditionally accept connections to just about any port.",
+      "automated_response": false,
+      "created_at": "2022-06-09T06:56:21.739Z",
+      "updated_at": "2022-06-09T06:56:21.739Z",
+      "actor": {
+        "username": "bagder",
+        "cleared": false,
+        "verified": false,
+        "url": "/bagder",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/y9xzl5ayi7du4kz3l6pa6sff2ha5/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22final-12-1000x1000.jpg%22%3B%20filename%2A%3DUTF-8%27%27final-12-1000x1000.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQSQ2EO4J6%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070211Z&X-Amz-Expires=2161&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJGMEQCIDdaOxaU2Kc7XK%2BFPO0xwEcua0EmQNQ0KITjMo%2BKI7S%2FAiAzEGtwS8msUueXSru5QP82dF7uwkPFZmzhjY8laBf5ySqxBQgiEAMaDDAxMzYxOTI3NDg0OSIMMwqH%2BrtGLzp0nfFJKo4FfKwfKYelWDcX3DZmXtAToi%2BfdIW%2FTskJuWscWNQ76Tnp8xifpkkQJqzgVzQ1mNVCoJr7%2BHlI2zJhu0AXuqUf6FD0aST%2BKfWDBNuzGTpRcWWnx07Sch98UNn54OsKQbkd78QdkYbYIIydcW4rDyHcf69tkUPFukaryTwqFIQUzVC34LtpkpFeA9lDvrXGajNXbhcjKrAFt5HqSOZuuuzssNNlvHJE05jjBky2NSGdLPAbwZ5PyWIPopmg1W4zjYBUwa%2F0z3qTgn0zEoCTBSKgTZOxPGLRSTPuvxrR0mqU9OcBLyJp193C17CIZVqQgijrtvyXYk%2FM2oDDkUsD7oeMeAFi8iq1vQlGMOgky5Mb4a6rOsWjihhywKDJptVFAvuD5Dj3tbSEYMt48EBT7kCNQd8x2uZADjILGD3cpoZLKeNeqFmfFNRBUEpMfGc5V1%2FI9fJ%2FzgQyr2nb6tNoGRs2QoePdMvOr42ig5kYNAYT7qahQE3vKgClxMTOREjRXfYOrHcHAtPXN4664bTPb1qQrBbF3foKJfwP06KCyM3rFnllobDOLYckn%2FGBEHSl4G2Hnse7CaI%2BGpBkpP0Ud8awKHx3d9xgtFAnC85ks1%2BkhSBq2pHVohOXkjxj3RfmbctowIVuWZvY6MfJpBsaoYyVxDQv%2BMuQlcCUEHl9AJ8Xs%2BWTD7tNE9FfrC4KY2BGHedJYf52GgTsQ7CuCfr5uJg4YBvuTmWyYN78uJu3nhB86AstH1doFZFbBt%2FroDTEUJfBYlS40afyu2h749TRxoiU4xcWDNDUIi%2B6zINKu9qI5X4XfH%2BoRrq7ZYgkoHQQRAW7YCYdirZLXoO2ETACtWPa5nyukSpsZ%2F8mmmkr4uC7MPP6uKgGOrIBCrIPzsKyYiYmXbfpjP3Q51XNqU0RvILr5XTqNaH6BkaJc7iqpnIwN%2FwpnoQ9ykcsf6gSCQUk9Fr3CRZm11fApJXeKbQ3cP7fcLscjO5J9oxYuZzrFKcuMO2l1VecXevCmP4wSmgs9gPOQP%2BjPbUXioCzwZ3NoL2q1W%2Bdvc2hJhiDeOCAy58REfH1mTOf633Nzxlb510ZtNV%2FKoIE6XLQtlIo6pnGn%2FyDTqTX7RGJ0U39bA%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=49e29025149e2d6238a52fa831cb098311246f2eeb8ba957ecb1f9da8035a675"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 17055005,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugTriaged",
+      "message": "Here's a first proposed patch:\n~~~diff\nindex 787137c19..2eb420009 100644\n--- a/lib/krb5.c\n+++ b/lib/krb5.c\n@@ -138,15 +138,12 @@ krb5_decode(void *app_data, void *buf, int len,\n   (void)conn;\n \n   enc.value = buf;\n   enc.length = len;\n   maj = gss_unwrap(&min, *context, &enc, &dec, NULL, NULL);\n-  if(maj != GSS_S_COMPLETE) {\n-    if(len >= 4)\n-      strcpy(buf, \"599 \");\n+  if(maj != GSS_S_COMPLETE)\n     return -1;\n-  }\n \n   memcpy(buf, dec.value, dec.length);\n   len = curlx_uztosi(dec.length);\n   gss_release_buffer(&min, &dec);\n \n@@ -523,10 +520,12 @@ static CURLcode read_data(struct connectdata *conn,\n   if(result)\n     return result;\n   buf->size = conn->mech->decode(conn->app_data, buf->data, len,\n                                  conn->data_prot, conn);\n   buf->index = 0;\n+  if(buf->size <= 0)\n+    return CURLE_RECV_ERROR;\n   return CURLE_OK;\n }\n \n static size_t\n buffer_read(struct krb5buffer *buf, void *data, size_t len)\n",
+      "automated_response": false,
+      "created_at": "2022-06-09T07:04:57.813Z",
+      "updated_at": "2022-06-09T07:04:57.813Z",
+      "actor": {
+        "username": "bagder",
+        "cleared": false,
+        "verified": false,
+        "url": "/bagder",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/y9xzl5ayi7du4kz3l6pa6sff2ha5/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22final-12-1000x1000.jpg%22%3B%20filename%2A%3DUTF-8%27%27final-12-1000x1000.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQSQ2EO4J6%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070211Z&X-Amz-Expires=2161&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJGMEQCIDdaOxaU2Kc7XK%2BFPO0xwEcua0EmQNQ0KITjMo%2BKI7S%2FAiAzEGtwS8msUueXSru5QP82dF7uwkPFZmzhjY8laBf5ySqxBQgiEAMaDDAxMzYxOTI3NDg0OSIMMwqH%2BrtGLzp0nfFJKo4FfKwfKYelWDcX3DZmXtAToi%2BfdIW%2FTskJuWscWNQ76Tnp8xifpkkQJqzgVzQ1mNVCoJr7%2BHlI2zJhu0AXuqUf6FD0aST%2BKfWDBNuzGTpRcWWnx07Sch98UNn54OsKQbkd78QdkYbYIIydcW4rDyHcf69tkUPFukaryTwqFIQUzVC34LtpkpFeA9lDvrXGajNXbhcjKrAFt5HqSOZuuuzssNNlvHJE05jjBky2NSGdLPAbwZ5PyWIPopmg1W4zjYBUwa%2F0z3qTgn0zEoCTBSKgTZOxPGLRSTPuvxrR0mqU9OcBLyJp193C17CIZVqQgijrtvyXYk%2FM2oDDkUsD7oeMeAFi8iq1vQlGMOgky5Mb4a6rOsWjihhywKDJptVFAvuD5Dj3tbSEYMt48EBT7kCNQd8x2uZADjILGD3cpoZLKeNeqFmfFNRBUEpMfGc5V1%2FI9fJ%2FzgQyr2nb6tNoGRs2QoePdMvOr42ig5kYNAYT7qahQE3vKgClxMTOREjRXfYOrHcHAtPXN4664bTPb1qQrBbF3foKJfwP06KCyM3rFnllobDOLYckn%2FGBEHSl4G2Hnse7CaI%2BGpBkpP0Ud8awKHx3d9xgtFAnC85ks1%2BkhSBq2pHVohOXkjxj3RfmbctowIVuWZvY6MfJpBsaoYyVxDQv%2BMuQlcCUEHl9AJ8Xs%2BWTD7tNE9FfrC4KY2BGHedJYf52GgTsQ7CuCfr5uJg4YBvuTmWyYN78uJu3nhB86AstH1doFZFbBt%2FroDTEUJfBYlS40afyu2h749TRxoiU4xcWDNDUIi%2B6zINKu9qI5X4XfH%2BoRrq7ZYgkoHQQRAW7YCYdirZLXoO2ETACtWPa5nyukSpsZ%2F8mmmkr4uC7MPP6uKgGOrIBCrIPzsKyYiYmXbfpjP3Q51XNqU0RvILr5XTqNaH6BkaJc7iqpnIwN%2FwpnoQ9ykcsf6gSCQUk9Fr3CRZm11fApJXeKbQ3cP7fcLscjO5J9oxYuZzrFKcuMO2l1VecXevCmP4wSmgs9gPOQP%2BjPbUXioCzwZ3NoL2q1W%2Bdvc2hJhiDeOCAy58REfH1mTOf633Nzxlb510ZtNV%2FKoIE6XLQtlIo6pnGn%2FyDTqTX7RGJ0U39bA%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=49e29025149e2d6238a52fa831cb098311246f2eeb8ba957ecb1f9da8035a675"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 17055018,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hm, that second check should probably only do `if(buf->size < 0)`",
+      "automated_response": false,
+      "created_at": "2022-06-09T07:07:12.401Z",
+      "updated_at": "2022-06-09T07:07:12.401Z",
+      "actor": {
+        "username": "bagder",
+        "cleared": false,
+        "verified": false,
+        "url": "/bagder",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/y9xzl5ayi7du4kz3l6pa6sff2ha5/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22final-12-1000x1000.jpg%22%3B%20filename%2A%3DUTF-8%27%27final-12-1000x1000.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQSQ2EO4J6%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070211Z&X-Amz-Expires=2161&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJGMEQCIDdaOxaU2Kc7XK%2BFPO0xwEcua0EmQNQ0KITjMo%2BKI7S%2FAiAzEGtwS8msUueXSru5QP82dF7uwkPFZmzhjY8laBf5ySqxBQgiEAMaDDAxMzYxOTI3NDg0OSIMMwqH%2BrtGLzp0nfFJKo4FfKwfKYelWDcX3DZmXtAToi%2BfdIW%2FTskJuWscWNQ76Tnp8xifpkkQJqzgVzQ1mNVCoJr7%2BHlI2zJhu0AXuqUf6FD0aST%2BKfWDBNuzGTpRcWWnx07Sch98UNn54OsKQbkd78QdkYbYIIydcW4rDyHcf69tkUPFukaryTwqFIQUzVC34LtpkpFeA9lDvrXGajNXbhcjKrAFt5HqSOZuuuzssNNlvHJE05jjBky2NSGdLPAbwZ5PyWIPopmg1W4zjYBUwa%2F0z3qTgn0zEoCTBSKgTZOxPGLRSTPuvxrR0mqU9OcBLyJp193C17CIZVqQgijrtvyXYk%2FM2oDDkUsD7oeMeAFi8iq1vQlGMOgky5Mb4a6rOsWjihhywKDJptVFAvuD5Dj3tbSEYMt48EBT7kCNQd8x2uZADjILGD3cpoZLKeNeqFmfFNRBUEpMfGc5V1%2FI9fJ%2FzgQyr2nb6tNoGRs2QoePdMvOr42ig5kYNAYT7qahQE3vKgClxMTOREjRXfYOrHcHAtPXN4664bTPb1qQrBbF3foKJfwP06KCyM3rFnllobDOLYckn%2FGBEHSl4G2Hnse7CaI%2BGpBkpP0Ud8awKHx3d9xgtFAnC85ks1%2BkhSBq2pHVohOXkjxj3RfmbctowIVuWZvY6MfJpBsaoYyVxDQv%2BMuQlcCUEHl9AJ8Xs%2BWTD7tNE9FfrC4KY2BGHedJYf52GgTsQ7CuCfr5uJg4YBvuTmWyYN78uJu3nhB86AstH1doFZFbBt%2FroDTEUJfBYlS40afyu2h749TRxoiU4xcWDNDUIi%2B6zINKu9qI5X4XfH%2BoRrq7ZYgkoHQQRAW7YCYdirZLXoO2ETACtWPa5nyukSpsZ%2F8mmmkr4uC7MPP6uKgGOrIBCrIPzsKyYiYmXbfpjP3Q51XNqU0RvILr5XTqNaH6BkaJc7iqpnIwN%2FwpnoQ9ykcsf6gSCQUk9Fr3CRZm11fApJXeKbQ3cP7fcLscjO5J9oxYuZzrFKcuMO2l1VecXevCmP4wSmgs9gPOQP%2BjPbUXioCzwZ3NoL2q1W%2Bdvc2hJhiDeOCAy58REfH1mTOf633Nzxlb510ZtNV%2FKoIE6XLQtlIo6pnGn%2FyDTqTX7RGJ0U39bA%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=49e29025149e2d6238a52fa831cb098311246f2eeb8ba957ecb1f9da8035a675"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 17055961,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "That won't work because `buf->size` is `size_t`, and thus cannot be < 0.",
+      "automated_response": false,
+      "created_at": "2022-06-09T07:16:34.366Z",
+      "updated_at": "2022-06-09T07:16:34.366Z",
+      "actor": {
+        "username": "nyymi",
+        "cleared": false,
+        "verified": false,
+        "url": "/nyymi",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 17055963,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "didn't work exactly like that, a v2 is attached",
+      "automated_response": false,
+      "created_at": "2022-06-09T07:16:36.668Z",
+      "updated_at": "2022-06-09T07:16:36.668Z",
+      "actor": {
+        "username": "bagder",
+        "cleared": false,
+        "verified": false,
+        "url": "/bagder",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/y9xzl5ayi7du4kz3l6pa6sff2ha5/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22final-12-1000x1000.jpg%22%3B%20filename%2A%3DUTF-8%27%27final-12-1000x1000.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQSQ2EO4J6%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070211Z&X-Amz-Expires=2161&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJGMEQCIDdaOxaU2Kc7XK%2BFPO0xwEcua0EmQNQ0KITjMo%2BKI7S%2FAiAzEGtwS8msUueXSru5QP82dF7uwkPFZmzhjY8laBf5ySqxBQgiEAMaDDAxMzYxOTI3NDg0OSIMMwqH%2BrtGLzp0nfFJKo4FfKwfKYelWDcX3DZmXtAToi%2BfdIW%2FTskJuWscWNQ76Tnp8xifpkkQJqzgVzQ1mNVCoJr7%2BHlI2zJhu0AXuqUf6FD0aST%2BKfWDBNuzGTpRcWWnx07Sch98UNn54OsKQbkd78QdkYbYIIydcW4rDyHcf69tkUPFukaryTwqFIQUzVC34LtpkpFeA9lDvrXGajNXbhcjKrAFt5HqSOZuuuzssNNlvHJE05jjBky2NSGdLPAbwZ5PyWIPopmg1W4zjYBUwa%2F0z3qTgn0zEoCTBSKgTZOxPGLRSTPuvxrR0mqU9OcBLyJp193C17CIZVqQgijrtvyXYk%2FM2oDDkUsD7oeMeAFi8iq1vQlGMOgky5Mb4a6rOsWjihhywKDJptVFAvuD5Dj3tbSEYMt48EBT7kCNQd8x2uZADjILGD3cpoZLKeNeqFmfFNRBUEpMfGc5V1%2FI9fJ%2FzgQyr2nb6tNoGRs2QoePdMvOr42ig5kYNAYT7qahQE3vKgClxMTOREjRXfYOrHcHAtPXN4664bTPb1qQrBbF3foKJfwP06KCyM3rFnllobDOLYckn%2FGBEHSl4G2Hnse7CaI%2BGpBkpP0Ud8awKHx3d9xgtFAnC85ks1%2BkhSBq2pHVohOXkjxj3RfmbctowIVuWZvY6MfJpBsaoYyVxDQv%2BMuQlcCUEHl9AJ8Xs%2BWTD7tNE9FfrC4KY2BGHedJYf52GgTsQ7CuCfr5uJg4YBvuTmWyYN78uJu3nhB86AstH1doFZFbBt%2FroDTEUJfBYlS40afyu2h749TRxoiU4xcWDNDUIi%2B6zINKu9qI5X4XfH%2BoRrq7ZYgkoHQQRAW7YCYdirZLXoO2ETACtWPa5nyukSpsZ%2F8mmmkr4uC7MPP6uKgGOrIBCrIPzsKyYiYmXbfpjP3Q51XNqU0RvILr5XTqNaH6BkaJc7iqpnIwN%2FwpnoQ9ykcsf6gSCQUk9Fr3CRZm11fApJXeKbQ3cP7fcLscjO5J9oxYuZzrFKcuMO2l1VecXevCmP4wSmgs9gPOQP%2BjPbUXioCzwZ3NoL2q1W%2Bdvc2hJhiDeOCAy58REfH1mTOf633Nzxlb510ZtNV%2FKoIE6XLQtlIo6pnGn%2FyDTqTX7RGJ0U39bA%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=49e29025149e2d6238a52fa831cb098311246f2eeb8ba957ecb1f9da8035a675"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "attachments": [
+        {
+          "id": 1762801,
+          "filename": "v2-0001-krb5-return-error-properly-on-decode-errors.patch",
+          "type": "application/mbox",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/qw1e5aodrloe4mqoi6na1mn0ngwq?response-content-disposition=attachment%3B%20filename%3D%22v2-0001-krb5-return-error-properly-on-decode-errors.patch%22%3B%20filename%2A%3DUTF-8%27%27v2-0001-krb5-return-error-properly-on-decode-errors.patch&response-content-type=application%2Fmbox&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQSQ2EO4J6%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070211Z&X-Amz-Expires=2161&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJGMEQCIDdaOxaU2Kc7XK%2BFPO0xwEcua0EmQNQ0KITjMo%2BKI7S%2FAiAzEGtwS8msUueXSru5QP82dF7uwkPFZmzhjY8laBf5ySqxBQgiEAMaDDAxMzYxOTI3NDg0OSIMMwqH%2BrtGLzp0nfFJKo4FfKwfKYelWDcX3DZmXtAToi%2BfdIW%2FTskJuWscWNQ76Tnp8xifpkkQJqzgVzQ1mNVCoJr7%2BHlI2zJhu0AXuqUf6FD0aST%2BKfWDBNuzGTpRcWWnx07Sch98UNn54OsKQbkd78QdkYbYIIydcW4rDyHcf69tkUPFukaryTwqFIQUzVC34LtpkpFeA9lDvrXGajNXbhcjKrAFt5HqSOZuuuzssNNlvHJE05jjBky2NSGdLPAbwZ5PyWIPopmg1W4zjYBUwa%2F0z3qTgn0zEoCTBSKgTZOxPGLRSTPuvxrR0mqU9OcBLyJp193C17CIZVqQgijrtvyXYk%2FM2oDDkUsD7oeMeAFi8iq1vQlGMOgky5Mb4a6rOsWjihhywKDJptVFAvuD5Dj3tbSEYMt48EBT7kCNQd8x2uZADjILGD3cpoZLKeNeqFmfFNRBUEpMfGc5V1%2FI9fJ%2FzgQyr2nb6tNoGRs2QoePdMvOr42ig5kYNAYT7qahQE3vKgClxMTOREjRXfYOrHcHAtPXN4664bTPb1qQrBbF3foKJfwP06KCyM3rFnllobDOLYckn%2FGBEHSl4G2Hnse7CaI%2BGpBkpP0Ud8awKHx3d9xgtFAnC85ks1%2BkhSBq2pHVohOXkjxj3RfmbctowIVuWZvY6MfJpBsaoYyVxDQv%2BMuQlcCUEHl9AJ8Xs%2BWTD7tNE9FfrC4KY2BGHedJYf52GgTsQ7CuCfr5uJg4YBvuTmWyYN78uJu3nhB86AstH1doFZFbBt%2FroDTEUJfBYlS40afyu2h749TRxoiU4xcWDNDUIi%2B6zINKu9qI5X4XfH%2BoRrq7ZYgkoHQQRAW7YCYdirZLXoO2ETACtWPa5nyukSpsZ%2F8mmmkr4uC7MPP6uKgGOrIBCrIPzsKyYiYmXbfpjP3Q51XNqU0RvILr5XTqNaH6BkaJc7iqpnIwN%2FwpnoQ9ykcsf6gSCQUk9Fr3CRZm11fApJXeKbQ3cP7fcLscjO5J9oxYuZzrFKcuMO2l1VecXevCmP4wSmgs9gPOQP%2BjPbUXioCzwZ3NoL2q1W%2Bdvc2hJhiDeOCAy58REfH1mTOf633Nzxlb510ZtNV%2FKoIE6XLQtlIo6pnGn%2FyDTqTX7RGJ0U39bA%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=d55bd73cc53b27cc6879e609c4f927355d16821eb2b851c368d6b2e8e1d73deb"
+        }
+      ],
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 17055991,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Maybe even address the blind trust of the block size as that can be set by the MITM?\n~~~diff\n--- a/lib/krb5.c\n+++ b/lib/krb5.c\n@@ -510,11 +510,14 @@ static CURLcode read_data(struct connectdata *conn,\n     return result;\n \n   if(len) {\n     /* only realloc if there was a length */\n     len = ntohl(len);\n-    buf->data = Curl_saferealloc(buf->data, len);\n+    if(len > CURL_MAX_INPUT_LENGTH)\n+      len = 0;\n+    else\n+      buf->data = Curl_saferealloc(buf->data, len);\n   }\n   if(!len || !buf->data)\n     return CURLE_OUT_OF_MEMORY;\n \n   result = socket_read(fd, buf->data, len);\n",
+      "automated_response": false,
+      "created_at": "2022-06-09T07:20:35.437Z",
+      "updated_at": "2022-06-09T07:20:35.437Z",
+      "actor": {
+        "username": "bagder",
+        "cleared": false,
+        "verified": false,
+        "url": "/bagder",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/y9xzl5ayi7du4kz3l6pa6sff2ha5/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22final-12-1000x1000.jpg%22%3B%20filename%2A%3DUTF-8%27%27final-12-1000x1000.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQSQ2EO4J6%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070211Z&X-Amz-Expires=2161&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJGMEQCIDdaOxaU2Kc7XK%2BFPO0xwEcua0EmQNQ0KITjMo%2BKI7S%2FAiAzEGtwS8msUueXSru5QP82dF7uwkPFZmzhjY8laBf5ySqxBQgiEAMaDDAxMzYxOTI3NDg0OSIMMwqH%2BrtGLzp0nfFJKo4FfKwfKYelWDcX3DZmXtAToi%2BfdIW%2FTskJuWscWNQ76Tnp8xifpkkQJqzgVzQ1mNVCoJr7%2BHlI2zJhu0AXuqUf6FD0aST%2BKfWDBNuzGTpRcWWnx07Sch98UNn54OsKQbkd78QdkYbYIIydcW4rDyHcf69tkUPFukaryTwqFIQUzVC34LtpkpFeA9lDvrXGajNXbhcjKrAFt5HqSOZuuuzssNNlvHJE05jjBky2NSGdLPAbwZ5PyWIPopmg1W4zjYBUwa%2F0z3qTgn0zEoCTBSKgTZOxPGLRSTPuvxrR0mqU9OcBLyJp193C17CIZVqQgijrtvyXYk%2FM2oDDkUsD7oeMeAFi8iq1vQlGMOgky5Mb4a6rOsWjihhywKDJptVFAvuD5Dj3tbSEYMt48EBT7kCNQd8x2uZADjILGD3cpoZLKeNeqFmfFNRBUEpMfGc5V1%2FI9fJ%2FzgQyr2nb6tNoGRs2QoePdMvOr42ig5kYNAYT7qahQE3vKgClxMTOREjRXfYOrHcHAtPXN4664bTPb1qQrBbF3foKJfwP06KCyM3rFnllobDOLYckn%2FGBEHSl4G2Hnse7CaI%2BGpBkpP0Ud8awKHx3d9xgtFAnC85ks1%2BkhSBq2pHVohOXkjxj3RfmbctowIVuWZvY6MfJpBsaoYyVxDQv%2BMuQlcCUEHl9AJ8Xs%2BWTD7tNE9FfrC4KY2BGHedJYf52GgTsQ7CuCfr5uJg4YBvuTmWyYN78uJu3nhB86AstH1doFZFbBt%2FroDTEUJfBYlS40afyu2h749TRxoiU4xcWDNDUIi%2B6zINKu9qI5X4XfH%2BoRrq7ZYgkoHQQRAW7YCYdirZLXoO2ETACtWPa5nyukSpsZ%2F8mmmkr4uC7MPP6uKgGOrIBCrIPzsKyYiYmXbfpjP3Q51XNqU0RvILr5XTqNaH6BkaJc7iqpnIwN%2FwpnoQ9ykcsf6gSCQUk9Fr3CRZm11fApJXeKbQ3cP7fcLscjO5J9oxYuZzrFKcuMO2l1VecXevCmP4wSmgs9gPOQP%2BjPbUXioCzwZ3NoL2q1W%2Bdvc2hJhiDeOCAy58REfH1mTOf633Nzxlb510ZtNV%2FKoIE6XLQtlIo6pnGn%2FyDTqTX7RGJ0U39bA%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=49e29025149e2d6238a52fa831cb098311246f2eeb8ba957ecb1f9da8035a675"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 17056033,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "maybe something like this:\n\n```\nint bytes;\n...\nbytes = conn->mech->decode(conn->app_data, buf->data, len,\n                           conn->data_prot, conn);\nif(bytes == -1)\n  return CURLE_RECV_ERROR;\nbuf->size = (size_t) bytes;\n```\n*EDIT* ah v2 is pretty much this already.\n\n> Maybe even address the blind trust of the block size as that can be set by the MITM?\n\nSounds like a good idea. It's a bit icky that mitm can force alloc of 2^32-1 bytes...",
+      "automated_response": false,
+      "created_at": "2022-06-09T07:24:16.517Z",
+      "updated_at": "2022-06-09T07:26:37.658Z",
+      "actor": {
+        "username": "nyymi",
+        "cleared": false,
+        "verified": false,
+        "url": "/nyymi",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 17056068,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "v3",
+      "automated_response": false,
+      "created_at": "2022-06-09T07:27:52.629Z",
+      "updated_at": "2022-06-09T07:27:52.629Z",
+      "actor": {
+        "username": "bagder",
+        "cleared": false,
+        "verified": false,
+        "url": "/bagder",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/y9xzl5ayi7du4kz3l6pa6sff2ha5/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22final-12-1000x1000.jpg%22%3B%20filename%2A%3DUTF-8%27%27final-12-1000x1000.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQSQ2EO4J6%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070211Z&X-Amz-Expires=2161&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJGMEQCIDdaOxaU2Kc7XK%2BFPO0xwEcua0EmQNQ0KITjMo%2BKI7S%2FAiAzEGtwS8msUueXSru5QP82dF7uwkPFZmzhjY8laBf5ySqxBQgiEAMaDDAxMzYxOTI3NDg0OSIMMwqH%2BrtGLzp0nfFJKo4FfKwfKYelWDcX3DZmXtAToi%2BfdIW%2FTskJuWscWNQ76Tnp8xifpkkQJqzgVzQ1mNVCoJr7%2BHlI2zJhu0AXuqUf6FD0aST%2BKfWDBNuzGTpRcWWnx07Sch98UNn54OsKQbkd78QdkYbYIIydcW4rDyHcf69tkUPFukaryTwqFIQUzVC34LtpkpFeA9lDvrXGajNXbhcjKrAFt5HqSOZuuuzssNNlvHJE05jjBky2NSGdLPAbwZ5PyWIPopmg1W4zjYBUwa%2F0z3qTgn0zEoCTBSKgTZOxPGLRSTPuvxrR0mqU9OcBLyJp193C17CIZVqQgijrtvyXYk%2FM2oDDkUsD7oeMeAFi8iq1vQlGMOgky5Mb4a6rOsWjihhywKDJptVFAvuD5Dj3tbSEYMt48EBT7kCNQd8x2uZADjILGD3cpoZLKeNeqFmfFNRBUEpMfGc5V1%2FI9fJ%2FzgQyr2nb6tNoGRs2QoePdMvOr42ig5kYNAYT7qahQE3vKgClxMTOREjRXfYOrHcHAtPXN4664bTPb1qQrBbF3foKJfwP06KCyM3rFnllobDOLYckn%2FGBEHSl4G2Hnse7CaI%2BGpBkpP0Ud8awKHx3d9xgtFAnC85ks1%2BkhSBq2pHVohOXkjxj3RfmbctowIVuWZvY6MfJpBsaoYyVxDQv%2BMuQlcCUEHl9AJ8Xs%2BWTD7tNE9FfrC4KY2BGHedJYf52GgTsQ7CuCfr5uJg4YBvuTmWyYN78uJu3nhB86AstH1doFZFbBt%2FroDTEUJfBYlS40afyu2h749TRxoiU4xcWDNDUIi%2B6zINKu9qI5X4XfH%2BoRrq7ZYgkoHQQRAW7YCYdirZLXoO2ETACtWPa5nyukSpsZ%2F8mmmkr4uC7MPP6uKgGOrIBCrIPzsKyYiYmXbfpjP3Q51XNqU0RvILr5XTqNaH6BkaJc7iqpnIwN%2FwpnoQ9ykcsf6gSCQUk9Fr3CRZm11fApJXeKbQ3cP7fcLscjO5J9oxYuZzrFKcuMO2l1VecXevCmP4wSmgs9gPOQP%2BjPbUXioCzwZ3NoL2q1W%2Bdvc2hJhiDeOCAy58REfH1mTOf633Nzxlb510ZtNV%2FKoIE6XLQtlIo6pnGn%2FyDTqTX7RGJ0U39bA%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=49e29025149e2d6238a52fa831cb098311246f2eeb8ba957ecb1f9da8035a675"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "attachments": [
+        {
+          "id": 1762820,
+          "filename": "v3-0001-krb5-return-error-properly-on-decode-errors.patch",
+          "type": "application/mbox",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/bncflau9uj5jr928nk1p8mv27nex?response-content-disposition=attachment%3B%20filename%3D%22v3-0001-krb5-return-error-properly-on-decode-errors.patch%22%3B%20filename%2A%3DUTF-8%27%27v3-0001-krb5-return-error-properly-on-decode-errors.patch&response-content-type=application%2Fmbox&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQSQ2EO4J6%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070211Z&X-Amz-Expires=2161&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJGMEQCIDdaOxaU2Kc7XK%2BFPO0xwEcua0EmQNQ0KITjMo%2BKI7S%2FAiAzEGtwS8msUueXSru5QP82dF7uwkPFZmzhjY8laBf5ySqxBQgiEAMaDDAxMzYxOTI3NDg0OSIMMwqH%2BrtGLzp0nfFJKo4FfKwfKYelWDcX3DZmXtAToi%2BfdIW%2FTskJuWscWNQ76Tnp8xifpkkQJqzgVzQ1mNVCoJr7%2BHlI2zJhu0AXuqUf6FD0aST%2BKfWDBNuzGTpRcWWnx07Sch98UNn54OsKQbkd78QdkYbYIIydcW4rDyHcf69tkUPFukaryTwqFIQUzVC34LtpkpFeA9lDvrXGajNXbhcjKrAFt5HqSOZuuuzssNNlvHJE05jjBky2NSGdLPAbwZ5PyWIPopmg1W4zjYBUwa%2F0z3qTgn0zEoCTBSKgTZOxPGLRSTPuvxrR0mqU9OcBLyJp193C17CIZVqQgijrtvyXYk%2FM2oDDkUsD7oeMeAFi8iq1vQlGMOgky5Mb4a6rOsWjihhywKDJptVFAvuD5Dj3tbSEYMt48EBT7kCNQd8x2uZADjILGD3cpoZLKeNeqFmfFNRBUEpMfGc5V1%2FI9fJ%2FzgQyr2nb6tNoGRs2QoePdMvOr42ig5kYNAYT7qahQE3vKgClxMTOREjRXfYOrHcHAtPXN4664bTPb1qQrBbF3foKJfwP06KCyM3rFnllobDOLYckn%2FGBEHSl4G2Hnse7CaI%2BGpBkpP0Ud8awKHx3d9xgtFAnC85ks1%2BkhSBq2pHVohOXkjxj3RfmbctowIVuWZvY6MfJpBsaoYyVxDQv%2BMuQlcCUEHl9AJ8Xs%2BWTD7tNE9FfrC4KY2BGHedJYf52GgTsQ7CuCfr5uJg4YBvuTmWyYN78uJu3nhB86AstH1doFZFbBt%2FroDTEUJfBYlS40afyu2h749TRxoiU4xcWDNDUIi%2B6zINKu9qI5X4XfH%2BoRrq7ZYgkoHQQRAW7YCYdirZLXoO2ETACtWPa5nyukSpsZ%2F8mmmkr4uC7MPP6uKgGOrIBCrIPzsKyYiYmXbfpjP3Q51XNqU0RvILr5XTqNaH6BkaJc7iqpnIwN%2FwpnoQ9ykcsf6gSCQUk9Fr3CRZm11fApJXeKbQ3cP7fcLscjO5J9oxYuZzrFKcuMO2l1VecXevCmP4wSmgs9gPOQP%2BjPbUXioCzwZ3NoL2q1W%2Bdvc2hJhiDeOCAy58REfH1mTOf633Nzxlb510ZtNV%2FKoIE6XLQtlIo6pnGn%2FyDTqTX7RGJ0U39bA%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=65b52505ad82fec0613fa92538df9de7a16296833bb8c35e610d55a887f0ea94"
+        }
+      ],
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 17056228,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "> It's a way more aggressive MITM though, to pull that off. An FTP MITM that can intercept the data connection for a passive FTP transfer without seeing the control connection would need to just unconditionally accept connections to just about any port.\n\nSure, this part is relatively \"easy\" to pull off though since you can just examine the traffic and identify the GSS-API traffic (the headers etc are in clear). The more difficult part is determining for which data connections to replace the downloaded data for. If you have any prior knowledge what is being downloaded this makes it easier. Fully blind attack will be far more difficult to target since just replacing any download with for example evil zip files won't get you far.\n\nYou would learn this information if the mode is `clear` (neither Integrity nor Privacy) or `safe` (Integrity without Privacy) for some reason. If encryption is in place they really need to know what is being downloaded some other way (timed transfer repeating every n minutes, specific type of download always being done to specific host or something along those lines). Either way some additional information is likely needed for successful exploitation.",
+      "automated_response": false,
+      "created_at": "2022-06-09T07:44:03.442Z",
+      "updated_at": "2022-06-09T07:44:03.442Z",
+      "actor": {
+        "username": "nyymi",
+        "cleared": false,
+        "verified": false,
+        "url": "/nyymi",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 17056317,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "v3 looks ok to me.",
+      "automated_response": false,
+      "created_at": "2022-06-09T07:53:44.735Z",
+      "updated_at": "2022-06-09T07:53:44.735Z",
+      "actor": {
+        "username": "nyymi",
+        "cleared": false,
+        "verified": false,
+        "url": "/nyymi",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 17059265,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Thinking:\n\nCWE-924: Improper Enforcement of Message Integrity During Transmission in a Communication Channel",
+      "automated_response": false,
+      "created_at": "2022-06-09T09:41:10.136Z",
+      "updated_at": "2022-06-09T09:41:10.136Z",
+      "actor": {
+        "username": "bagder",
+        "cleared": false,
+        "verified": false,
+        "url": "/bagder",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/y9xzl5ayi7du4kz3l6pa6sff2ha5/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22final-12-1000x1000.jpg%22%3B%20filename%2A%3DUTF-8%27%27final-12-1000x1000.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQSQ2EO4J6%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070211Z&X-Amz-Expires=2161&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJGMEQCIDdaOxaU2Kc7XK%2BFPO0xwEcua0EmQNQ0KITjMo%2BKI7S%2FAiAzEGtwS8msUueXSru5QP82dF7uwkPFZmzhjY8laBf5ySqxBQgiEAMaDDAxMzYxOTI3NDg0OSIMMwqH%2BrtGLzp0nfFJKo4FfKwfKYelWDcX3DZmXtAToi%2BfdIW%2FTskJuWscWNQ76Tnp8xifpkkQJqzgVzQ1mNVCoJr7%2BHlI2zJhu0AXuqUf6FD0aST%2BKfWDBNuzGTpRcWWnx07Sch98UNn54OsKQbkd78QdkYbYIIydcW4rDyHcf69tkUPFukaryTwqFIQUzVC34LtpkpFeA9lDvrXGajNXbhcjKrAFt5HqSOZuuuzssNNlvHJE05jjBky2NSGdLPAbwZ5PyWIPopmg1W4zjYBUwa%2F0z3qTgn0zEoCTBSKgTZOxPGLRSTPuvxrR0mqU9OcBLyJp193C17CIZVqQgijrtvyXYk%2FM2oDDkUsD7oeMeAFi8iq1vQlGMOgky5Mb4a6rOsWjihhywKDJptVFAvuD5Dj3tbSEYMt48EBT7kCNQd8x2uZADjILGD3cpoZLKeNeqFmfFNRBUEpMfGc5V1%2FI9fJ%2FzgQyr2nb6tNoGRs2QoePdMvOr42ig5kYNAYT7qahQE3vKgClxMTOREjRXfYOrHcHAtPXN4664bTPb1qQrBbF3foKJfwP06KCyM3rFnllobDOLYckn%2FGBEHSl4G2Hnse7CaI%2BGpBkpP0Ud8awKHx3d9xgtFAnC85ks1%2BkhSBq2pHVohOXkjxj3RfmbctowIVuWZvY6MfJpBsaoYyVxDQv%2BMuQlcCUEHl9AJ8Xs%2BWTD7tNE9FfrC4KY2BGHedJYf52GgTsQ7CuCfr5uJg4YBvuTmWyYN78uJu3nhB86AstH1doFZFbBt%2FroDTEUJfBYlS40afyu2h749TRxoiU4xcWDNDUIi%2B6zINKu9qI5X4XfH%2BoRrq7ZYgkoHQQRAW7YCYdirZLXoO2ETACtWPa5nyukSpsZ%2F8mmmkr4uC7MPP6uKgGOrIBCrIPzsKyYiYmXbfpjP3Q51XNqU0RvILr5XTqNaH6BkaJc7iqpnIwN%2FwpnoQ9ykcsf6gSCQUk9Fr3CRZm11fApJXeKbQ3cP7fcLscjO5J9oxYuZzrFKcuMO2l1VecXevCmP4wSmgs9gPOQP%2BjPbUXioCzwZ3NoL2q1W%2Bdvc2hJhiDeOCAy58REfH1mTOf633Nzxlb510ZtNV%2FKoIE6XLQtlIo6pnGn%2FyDTqTX7RGJ0U39bA%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=49e29025149e2d6238a52fa831cb098311246f2eeb8ba957ecb1f9da8035a675"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 17061194,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "That looks suitable indeed.",
+      "automated_response": false,
+      "created_at": "2022-06-09T11:41:36.485Z",
+      "updated_at": "2022-06-09T11:41:36.485Z",
+      "actor": {
+        "username": "nyymi",
+        "cleared": false,
+        "verified": false,
+        "url": "/nyymi",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 17061204,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::CveIdAdded",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2022-06-09T11:42:19.394Z",
+      "updated_at": "2022-06-09T11:42:19.394Z",
+      "cve_ids": [
+        "CVE-2022-32208"
+      ],
+      "actor": {
+        "username": "bagder",
+        "cleared": false,
+        "verified": false,
+        "url": "/bagder",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/y9xzl5ayi7du4kz3l6pa6sff2ha5/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22final-12-1000x1000.jpg%22%3B%20filename%2A%3DUTF-8%27%27final-12-1000x1000.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQSQ2EO4J6%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070211Z&X-Amz-Expires=2161&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJGMEQCIDdaOxaU2Kc7XK%2BFPO0xwEcua0EmQNQ0KITjMo%2BKI7S%2FAiAzEGtwS8msUueXSru5QP82dF7uwkPFZmzhjY8laBf5ySqxBQgiEAMaDDAxMzYxOTI3NDg0OSIMMwqH%2BrtGLzp0nfFJKo4FfKwfKYelWDcX3DZmXtAToi%2BfdIW%2FTskJuWscWNQ76Tnp8xifpkkQJqzgVzQ1mNVCoJr7%2BHlI2zJhu0AXuqUf6FD0aST%2BKfWDBNuzGTpRcWWnx07Sch98UNn54OsKQbkd78QdkYbYIIydcW4rDyHcf69tkUPFukaryTwqFIQUzVC34LtpkpFeA9lDvrXGajNXbhcjKrAFt5HqSOZuuuzssNNlvHJE05jjBky2NSGdLPAbwZ5PyWIPopmg1W4zjYBUwa%2F0z3qTgn0zEoCTBSKgTZOxPGLRSTPuvxrR0mqU9OcBLyJp193C17CIZVqQgijrtvyXYk%2FM2oDDkUsD7oeMeAFi8iq1vQlGMOgky5Mb4a6rOsWjihhywKDJptVFAvuD5Dj3tbSEYMt48EBT7kCNQd8x2uZADjILGD3cpoZLKeNeqFmfFNRBUEpMfGc5V1%2FI9fJ%2FzgQyr2nb6tNoGRs2QoePdMvOr42ig5kYNAYT7qahQE3vKgClxMTOREjRXfYOrHcHAtPXN4664bTPb1qQrBbF3foKJfwP06KCyM3rFnllobDOLYckn%2FGBEHSl4G2Hnse7CaI%2BGpBkpP0Ud8awKHx3d9xgtFAnC85ks1%2BkhSBq2pHVohOXkjxj3RfmbctowIVuWZvY6MfJpBsaoYyVxDQv%2BMuQlcCUEHl9AJ8Xs%2BWTD7tNE9FfrC4KY2BGHedJYf52GgTsQ7CuCfr5uJg4YBvuTmWyYN78uJu3nhB86AstH1doFZFbBt%2FroDTEUJfBYlS40afyu2h749TRxoiU4xcWDNDUIi%2B6zINKu9qI5X4XfH%2BoRrq7ZYgkoHQQRAW7YCYdirZLXoO2ETACtWPa5nyukSpsZ%2F8mmmkr4uC7MPP6uKgGOrIBCrIPzsKyYiYmXbfpjP3Q51XNqU0RvILr5XTqNaH6BkaJc7iqpnIwN%2FwpnoQ9ykcsf6gSCQUk9Fr3CRZm11fApJXeKbQ3cP7fcLscjO5J9oxYuZzrFKcuMO2l1VecXevCmP4wSmgs9gPOQP%2BjPbUXioCzwZ3NoL2q1W%2Bdvc2hJhiDeOCAy58REfH1mTOf633Nzxlb510ZtNV%2FKoIE6XLQtlIo6pnGn%2FyDTqTX7RGJ0U39bA%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=49e29025149e2d6238a52fa831cb098311246f2eeb8ba957ecb1f9da8035a675"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 17061217,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportTitleUpdated",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2022-06-09T11:42:34.182Z",
+      "updated_at": "2022-06-09T11:42:34.182Z",
+      "additional_data": {
+        "old_title": "FTP-KRB: Broken GSSAPI message verification",
+        "new_title": "CVE-2022-32208: FTP-KRB bad message verification"
+      },
+      "actor": {
+        "username": "bagder",
+        "cleared": false,
+        "verified": false,
+        "url": "/bagder",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/y9xzl5ayi7du4kz3l6pa6sff2ha5/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22final-12-1000x1000.jpg%22%3B%20filename%2A%3DUTF-8%27%27final-12-1000x1000.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQSQ2EO4J6%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070211Z&X-Amz-Expires=2161&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJGMEQCIDdaOxaU2Kc7XK%2BFPO0xwEcua0EmQNQ0KITjMo%2BKI7S%2FAiAzEGtwS8msUueXSru5QP82dF7uwkPFZmzhjY8laBf5ySqxBQgiEAMaDDAxMzYxOTI3NDg0OSIMMwqH%2BrtGLzp0nfFJKo4FfKwfKYelWDcX3DZmXtAToi%2BfdIW%2FTskJuWscWNQ76Tnp8xifpkkQJqzgVzQ1mNVCoJr7%2BHlI2zJhu0AXuqUf6FD0aST%2BKfWDBNuzGTpRcWWnx07Sch98UNn54OsKQbkd78QdkYbYIIydcW4rDyHcf69tkUPFukaryTwqFIQUzVC34LtpkpFeA9lDvrXGajNXbhcjKrAFt5HqSOZuuuzssNNlvHJE05jjBky2NSGdLPAbwZ5PyWIPopmg1W4zjYBUwa%2F0z3qTgn0zEoCTBSKgTZOxPGLRSTPuvxrR0mqU9OcBLyJp193C17CIZVqQgijrtvyXYk%2FM2oDDkUsD7oeMeAFi8iq1vQlGMOgky5Mb4a6rOsWjihhywKDJptVFAvuD5Dj3tbSEYMt48EBT7kCNQd8x2uZADjILGD3cpoZLKeNeqFmfFNRBUEpMfGc5V1%2FI9fJ%2FzgQyr2nb6tNoGRs2QoePdMvOr42ig5kYNAYT7qahQE3vKgClxMTOREjRXfYOrHcHAtPXN4664bTPb1qQrBbF3foKJfwP06KCyM3rFnllobDOLYckn%2FGBEHSl4G2Hnse7CaI%2BGpBkpP0Ud8awKHx3d9xgtFAnC85ks1%2BkhSBq2pHVohOXkjxj3RfmbctowIVuWZvY6MfJpBsaoYyVxDQv%2BMuQlcCUEHl9AJ8Xs%2BWTD7tNE9FfrC4KY2BGHedJYf52GgTsQ7CuCfr5uJg4YBvuTmWyYN78uJu3nhB86AstH1doFZFbBt%2FroDTEUJfBYlS40afyu2h749TRxoiU4xcWDNDUIi%2B6zINKu9qI5X4XfH%2BoRrq7ZYgkoHQQRAW7YCYdirZLXoO2ETACtWPa5nyukSpsZ%2F8mmmkr4uC7MPP6uKgGOrIBCrIPzsKyYiYmXbfpjP3Q51XNqU0RvILr5XTqNaH6BkaJc7iqpnIwN%2FwpnoQ9ykcsf6gSCQUk9Fr3CRZm11fApJXeKbQ3cP7fcLscjO5J9oxYuZzrFKcuMO2l1VecXevCmP4wSmgs9gPOQP%2BjPbUXioCzwZ3NoL2q1W%2Bdvc2hJhiDeOCAy58REfH1mTOf633Nzxlb510ZtNV%2FKoIE6XLQtlIo6pnGn%2FyDTqTX7RGJ0U39bA%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=49e29025149e2d6238a52fa831cb098311246f2eeb8ba957ecb1f9da8035a675"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 17061326,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Advisory draft",
+      "automated_response": false,
+      "created_at": "2022-06-09T11:48:30.308Z",
+      "updated_at": "2022-06-09T11:48:30.308Z",
+      "actor": {
+        "username": "bagder",
+        "cleared": false,
+        "verified": false,
+        "url": "/bagder",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/y9xzl5ayi7du4kz3l6pa6sff2ha5/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22final-12-1000x1000.jpg%22%3B%20filename%2A%3DUTF-8%27%27final-12-1000x1000.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQSQ2EO4J6%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070211Z&X-Amz-Expires=2161&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJGMEQCIDdaOxaU2Kc7XK%2BFPO0xwEcua0EmQNQ0KITjMo%2BKI7S%2FAiAzEGtwS8msUueXSru5QP82dF7uwkPFZmzhjY8laBf5ySqxBQgiEAMaDDAxMzYxOTI3NDg0OSIMMwqH%2BrtGLzp0nfFJKo4FfKwfKYelWDcX3DZmXtAToi%2BfdIW%2FTskJuWscWNQ76Tnp8xifpkkQJqzgVzQ1mNVCoJr7%2BHlI2zJhu0AXuqUf6FD0aST%2BKfWDBNuzGTpRcWWnx07Sch98UNn54OsKQbkd78QdkYbYIIydcW4rDyHcf69tkUPFukaryTwqFIQUzVC34LtpkpFeA9lDvrXGajNXbhcjKrAFt5HqSOZuuuzssNNlvHJE05jjBky2NSGdLPAbwZ5PyWIPopmg1W4zjYBUwa%2F0z3qTgn0zEoCTBSKgTZOxPGLRSTPuvxrR0mqU9OcBLyJp193C17CIZVqQgijrtvyXYk%2FM2oDDkUsD7oeMeAFi8iq1vQlGMOgky5Mb4a6rOsWjihhywKDJptVFAvuD5Dj3tbSEYMt48EBT7kCNQd8x2uZADjILGD3cpoZLKeNeqFmfFNRBUEpMfGc5V1%2FI9fJ%2FzgQyr2nb6tNoGRs2QoePdMvOr42ig5kYNAYT7qahQE3vKgClxMTOREjRXfYOrHcHAtPXN4664bTPb1qQrBbF3foKJfwP06KCyM3rFnllobDOLYckn%2FGBEHSl4G2Hnse7CaI%2BGpBkpP0Ud8awKHx3d9xgtFAnC85ks1%2BkhSBq2pHVohOXkjxj3RfmbctowIVuWZvY6MfJpBsaoYyVxDQv%2BMuQlcCUEHl9AJ8Xs%2BWTD7tNE9FfrC4KY2BGHedJYf52GgTsQ7CuCfr5uJg4YBvuTmWyYN78uJu3nhB86AstH1doFZFbBt%2FroDTEUJfBYlS40afyu2h749TRxoiU4xcWDNDUIi%2B6zINKu9qI5X4XfH%2BoRrq7ZYgkoHQQRAW7YCYdirZLXoO2ETACtWPa5nyukSpsZ%2F8mmmkr4uC7MPP6uKgGOrIBCrIPzsKyYiYmXbfpjP3Q51XNqU0RvILr5XTqNaH6BkaJc7iqpnIwN%2FwpnoQ9ykcsf6gSCQUk9Fr3CRZm11fApJXeKbQ3cP7fcLscjO5J9oxYuZzrFKcuMO2l1VecXevCmP4wSmgs9gPOQP%2BjPbUXioCzwZ3NoL2q1W%2Bdvc2hJhiDeOCAy58REfH1mTOf633Nzxlb510ZtNV%2FKoIE6XLQtlIo6pnGn%2FyDTqTX7RGJ0U39bA%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=49e29025149e2d6238a52fa831cb098311246f2eeb8ba957ecb1f9da8035a675"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "attachments": [
+        {
+          "id": 1763111,
+          "filename": "CVE-2022-32208.md",
+          "type": "text/markdown",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/xtckfa7gqercu3otlupopu62avx4?response-content-disposition=attachment%3B%20filename%3D%22CVE-2022-32208.md%22%3B%20filename%2A%3DUTF-8%27%27CVE-2022-32208.md&response-content-type=text%2Fmarkdown&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQSQ2EO4J6%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070211Z&X-Amz-Expires=2161&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJGMEQCIDdaOxaU2Kc7XK%2BFPO0xwEcua0EmQNQ0KITjMo%2BKI7S%2FAiAzEGtwS8msUueXSru5QP82dF7uwkPFZmzhjY8laBf5ySqxBQgiEAMaDDAxMzYxOTI3NDg0OSIMMwqH%2BrtGLzp0nfFJKo4FfKwfKYelWDcX3DZmXtAToi%2BfdIW%2FTskJuWscWNQ76Tnp8xifpkkQJqzgVzQ1mNVCoJr7%2BHlI2zJhu0AXuqUf6FD0aST%2BKfWDBNuzGTpRcWWnx07Sch98UNn54OsKQbkd78QdkYbYIIydcW4rDyHcf69tkUPFukaryTwqFIQUzVC34LtpkpFeA9lDvrXGajNXbhcjKrAFt5HqSOZuuuzssNNlvHJE05jjBky2NSGdLPAbwZ5PyWIPopmg1W4zjYBUwa%2F0z3qTgn0zEoCTBSKgTZOxPGLRSTPuvxrR0mqU9OcBLyJp193C17CIZVqQgijrtvyXYk%2FM2oDDkUsD7oeMeAFi8iq1vQlGMOgky5Mb4a6rOsWjihhywKDJptVFAvuD5Dj3tbSEYMt48EBT7kCNQd8x2uZADjILGD3cpoZLKeNeqFmfFNRBUEpMfGc5V1%2FI9fJ%2FzgQyr2nb6tNoGRs2QoePdMvOr42ig5kYNAYT7qahQE3vKgClxMTOREjRXfYOrHcHAtPXN4664bTPb1qQrBbF3foKJfwP06KCyM3rFnllobDOLYckn%2FGBEHSl4G2Hnse7CaI%2BGpBkpP0Ud8awKHx3d9xgtFAnC85ks1%2BkhSBq2pHVohOXkjxj3RfmbctowIVuWZvY6MfJpBsaoYyVxDQv%2BMuQlcCUEHl9AJ8Xs%2BWTD7tNE9FfrC4KY2BGHedJYf52GgTsQ7CuCfr5uJg4YBvuTmWyYN78uJu3nhB86AstH1doFZFbBt%2FroDTEUJfBYlS40afyu2h749TRxoiU4xcWDNDUIi%2B6zINKu9qI5X4XfH%2BoRrq7ZYgkoHQQRAW7YCYdirZLXoO2ETACtWPa5nyukSpsZ%2F8mmmkr4uC7MPP6uKgGOrIBCrIPzsKyYiYmXbfpjP3Q51XNqU0RvILr5XTqNaH6BkaJc7iqpnIwN%2FwpnoQ9ykcsf6gSCQUk9Fr3CRZm11fApJXeKbQ3cP7fcLscjO5J9oxYuZzrFKcuMO2l1VecXevCmP4wSmgs9gPOQP%2BjPbUXioCzwZ3NoL2q1W%2Bdvc2hJhiDeOCAy58REfH1mTOf633Nzxlb510ZtNV%2FKoIE6XLQtlIo6pnGn%2FyDTqTX7RGJ0U39bA%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=6953a098228dfa1ee24b6910297be41f1876f31d585a8199c7cfe276044c64bb"
+        }
+      ],
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 17061670,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Looking good.\n\nI dunno if it would be relevant to mention that this vulnerability could also be used to expose unrelated application heap memory content locally? This is usually not a problem of course, but it could be prudent to mention this impact as well.",
+      "automated_response": false,
+      "created_at": "2022-06-09T12:06:03.998Z",
+      "updated_at": "2022-06-09T12:06:03.998Z",
+      "actor": {
+        "username": "nyymi",
+        "cleared": false,
+        "verified": false,
+        "url": "/nyymi",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 17063548,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "How exactly do you do that? Or maybe put another way: how do you propose we add that mention?",
+      "automated_response": false,
+      "created_at": "2022-06-09T14:48:45.741Z",
+      "updated_at": "2022-06-09T14:48:45.741Z",
+      "actor": {
+        "username": "bagder",
+        "cleared": false,
+        "verified": false,
+        "url": "/bagder",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/y9xzl5ayi7du4kz3l6pa6sff2ha5/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22final-12-1000x1000.jpg%22%3B%20filename%2A%3DUTF-8%27%27final-12-1000x1000.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQSQ2EO4J6%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070211Z&X-Amz-Expires=2161&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJGMEQCIDdaOxaU2Kc7XK%2BFPO0xwEcua0EmQNQ0KITjMo%2BKI7S%2FAiAzEGtwS8msUueXSru5QP82dF7uwkPFZmzhjY8laBf5ySqxBQgiEAMaDDAxMzYxOTI3NDg0OSIMMwqH%2BrtGLzp0nfFJKo4FfKwfKYelWDcX3DZmXtAToi%2BfdIW%2FTskJuWscWNQ76Tnp8xifpkkQJqzgVzQ1mNVCoJr7%2BHlI2zJhu0AXuqUf6FD0aST%2BKfWDBNuzGTpRcWWnx07Sch98UNn54OsKQbkd78QdkYbYIIydcW4rDyHcf69tkUPFukaryTwqFIQUzVC34LtpkpFeA9lDvrXGajNXbhcjKrAFt5HqSOZuuuzssNNlvHJE05jjBky2NSGdLPAbwZ5PyWIPopmg1W4zjYBUwa%2F0z3qTgn0zEoCTBSKgTZOxPGLRSTPuvxrR0mqU9OcBLyJp193C17CIZVqQgijrtvyXYk%2FM2oDDkUsD7oeMeAFi8iq1vQlGMOgky5Mb4a6rOsWjihhywKDJptVFAvuD5Dj3tbSEYMt48EBT7kCNQd8x2uZADjILGD3cpoZLKeNeqFmfFNRBUEpMfGc5V1%2FI9fJ%2FzgQyr2nb6tNoGRs2QoePdMvOr42ig5kYNAYT7qahQE3vKgClxMTOREjRXfYOrHcHAtPXN4664bTPb1qQrBbF3foKJfwP06KCyM3rFnllobDOLYckn%2FGBEHSl4G2Hnse7CaI%2BGpBkpP0Ud8awKHx3d9xgtFAnC85ks1%2BkhSBq2pHVohOXkjxj3RfmbctowIVuWZvY6MfJpBsaoYyVxDQv%2BMuQlcCUEHl9AJ8Xs%2BWTD7tNE9FfrC4KY2BGHedJYf52GgTsQ7CuCfr5uJg4YBvuTmWyYN78uJu3nhB86AstH1doFZFbBt%2FroDTEUJfBYlS40afyu2h749TRxoiU4xcWDNDUIi%2B6zINKu9qI5X4XfH%2BoRrq7ZYgkoHQQRAW7YCYdirZLXoO2ETACtWPa5nyukSpsZ%2F8mmmkr4uC7MPP6uKgGOrIBCrIPzsKyYiYmXbfpjP3Q51XNqU0RvILr5XTqNaH6BkaJc7iqpnIwN%2FwpnoQ9ykcsf6gSCQUk9Fr3CRZm11fApJXeKbQ3cP7fcLscjO5J9oxYuZzrFKcuMO2l1VecXevCmP4wSmgs9gPOQP%2BjPbUXioCzwZ3NoL2q1W%2Bdvc2hJhiDeOCAy58REfH1mTOf633Nzxlb510ZtNV%2FKoIE6XLQtlIo6pnGn%2FyDTqTX7RGJ0U39bA%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=49e29025149e2d6238a52fa831cb098311246f2eeb8ba957ecb1f9da8035a675"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 17064021,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Maybe something along the lines of: \"This vulnerability may also lead to out of bound memory accesses, which may lead to local exposure of unrelated heap contents or application crash.\"\n\nI'm not sure about this though, since this may lead to unnecessary alarm.",
+      "automated_response": false,
+      "created_at": "2022-06-09T15:15:55.230Z",
+      "updated_at": "2022-06-09T15:26:36.990Z",
+      "actor": {
+        "username": "nyymi",
+        "cleared": false,
+        "verified": false,
+        "url": "/nyymi",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 17194135,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Since I accidentally but stupidly committed a draft version of the advisory for this issue to the master branch of the curl web site git repository a few days ago (only to realize it today). We have decided to speed up the release process and instead do it on June 27. I'm very sorry for this.",
+      "automated_response": false,
+      "created_at": "2022-06-18T21:44:22.704Z",
+      "updated_at": "2022-06-18T21:44:22.704Z",
+      "actor": {
+        "username": "bagder",
+        "cleared": false,
+        "verified": false,
+        "url": "/bagder",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/y9xzl5ayi7du4kz3l6pa6sff2ha5/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22final-12-1000x1000.jpg%22%3B%20filename%2A%3DUTF-8%27%27final-12-1000x1000.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQSQ2EO4J6%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070211Z&X-Amz-Expires=2161&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJGMEQCIDdaOxaU2Kc7XK%2BFPO0xwEcua0EmQNQ0KITjMo%2BKI7S%2FAiAzEGtwS8msUueXSru5QP82dF7uwkPFZmzhjY8laBf5ySqxBQgiEAMaDDAxMzYxOTI3NDg0OSIMMwqH%2BrtGLzp0nfFJKo4FfKwfKYelWDcX3DZmXtAToi%2BfdIW%2FTskJuWscWNQ76Tnp8xifpkkQJqzgVzQ1mNVCoJr7%2BHlI2zJhu0AXuqUf6FD0aST%2BKfWDBNuzGTpRcWWnx07Sch98UNn54OsKQbkd78QdkYbYIIydcW4rDyHcf69tkUPFukaryTwqFIQUzVC34LtpkpFeA9lDvrXGajNXbhcjKrAFt5HqSOZuuuzssNNlvHJE05jjBky2NSGdLPAbwZ5PyWIPopmg1W4zjYBUwa%2F0z3qTgn0zEoCTBSKgTZOxPGLRSTPuvxrR0mqU9OcBLyJp193C17CIZVqQgijrtvyXYk%2FM2oDDkUsD7oeMeAFi8iq1vQlGMOgky5Mb4a6rOsWjihhywKDJptVFAvuD5Dj3tbSEYMt48EBT7kCNQd8x2uZADjILGD3cpoZLKeNeqFmfFNRBUEpMfGc5V1%2FI9fJ%2FzgQyr2nb6tNoGRs2QoePdMvOr42ig5kYNAYT7qahQE3vKgClxMTOREjRXfYOrHcHAtPXN4664bTPb1qQrBbF3foKJfwP06KCyM3rFnllobDOLYckn%2FGBEHSl4G2Hnse7CaI%2BGpBkpP0Ud8awKHx3d9xgtFAnC85ks1%2BkhSBq2pHVohOXkjxj3RfmbctowIVuWZvY6MfJpBsaoYyVxDQv%2BMuQlcCUEHl9AJ8Xs%2BWTD7tNE9FfrC4KY2BGHedJYf52GgTsQ7CuCfr5uJg4YBvuTmWyYN78uJu3nhB86AstH1doFZFbBt%2FroDTEUJfBYlS40afyu2h749TRxoiU4xcWDNDUIi%2B6zINKu9qI5X4XfH%2BoRrq7ZYgkoHQQRAW7YCYdirZLXoO2ETACtWPa5nyukSpsZ%2F8mmmkr4uC7MPP6uKgGOrIBCrIPzsKyYiYmXbfpjP3Q51XNqU0RvILr5XTqNaH6BkaJc7iqpnIwN%2FwpnoQ9ykcsf6gSCQUk9Fr3CRZm11fApJXeKbQ3cP7fcLscjO5J9oxYuZzrFKcuMO2l1VecXevCmP4wSmgs9gPOQP%2BjPbUXioCzwZ3NoL2q1W%2Bdvc2hJhiDeOCAy58REfH1mTOf633Nzxlb510ZtNV%2FKoIE6XLQtlIo6pnGn%2FyDTqTX7RGJ0U39bA%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=49e29025149e2d6238a52fa831cb098311246f2eeb8ba957ecb1f9da8035a675"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 17294080,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "Thanks for your work. The actual monetary reward part for this issue is managed by the [Internet Bug Bounty](https://hackerone.com/ibb) so the curl project itself therefor sets the reward amount to **zero USD**. If you haven't already, please submit your reward request to them and refer back to this issue.\n",
+      "automated_response": false,
+      "created_at": "2022-06-27T06:50:50.508Z",
+      "updated_at": "2022-06-27T06:50:50.508Z",
+      "actor": {
+        "username": "bagder",
+        "cleared": false,
+        "verified": false,
+        "url": "/bagder",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/y9xzl5ayi7du4kz3l6pa6sff2ha5/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22final-12-1000x1000.jpg%22%3B%20filename%2A%3DUTF-8%27%27final-12-1000x1000.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQSQ2EO4J6%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070211Z&X-Amz-Expires=2161&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJGMEQCIDdaOxaU2Kc7XK%2BFPO0xwEcua0EmQNQ0KITjMo%2BKI7S%2FAiAzEGtwS8msUueXSru5QP82dF7uwkPFZmzhjY8laBf5ySqxBQgiEAMaDDAxMzYxOTI3NDg0OSIMMwqH%2BrtGLzp0nfFJKo4FfKwfKYelWDcX3DZmXtAToi%2BfdIW%2FTskJuWscWNQ76Tnp8xifpkkQJqzgVzQ1mNVCoJr7%2BHlI2zJhu0AXuqUf6FD0aST%2BKfWDBNuzGTpRcWWnx07Sch98UNn54OsKQbkd78QdkYbYIIydcW4rDyHcf69tkUPFukaryTwqFIQUzVC34LtpkpFeA9lDvrXGajNXbhcjKrAFt5HqSOZuuuzssNNlvHJE05jjBky2NSGdLPAbwZ5PyWIPopmg1W4zjYBUwa%2F0z3qTgn0zEoCTBSKgTZOxPGLRSTPuvxrR0mqU9OcBLyJp193C17CIZVqQgijrtvyXYk%2FM2oDDkUsD7oeMeAFi8iq1vQlGMOgky5Mb4a6rOsWjihhywKDJptVFAvuD5Dj3tbSEYMt48EBT7kCNQd8x2uZADjILGD3cpoZLKeNeqFmfFNRBUEpMfGc5V1%2FI9fJ%2FzgQyr2nb6tNoGRs2QoePdMvOr42ig5kYNAYT7qahQE3vKgClxMTOREjRXfYOrHcHAtPXN4664bTPb1qQrBbF3foKJfwP06KCyM3rFnllobDOLYckn%2FGBEHSl4G2Hnse7CaI%2BGpBkpP0Ud8awKHx3d9xgtFAnC85ks1%2BkhSBq2pHVohOXkjxj3RfmbctowIVuWZvY6MfJpBsaoYyVxDQv%2BMuQlcCUEHl9AJ8Xs%2BWTD7tNE9FfrC4KY2BGHedJYf52GgTsQ7CuCfr5uJg4YBvuTmWyYN78uJu3nhB86AstH1doFZFbBt%2FroDTEUJfBYlS40afyu2h749TRxoiU4xcWDNDUIi%2B6zINKu9qI5X4XfH%2BoRrq7ZYgkoHQQRAW7YCYdirZLXoO2ETACtWPa5nyukSpsZ%2F8mmmkr4uC7MPP6uKgGOrIBCrIPzsKyYiYmXbfpjP3Q51XNqU0RvILr5XTqNaH6BkaJc7iqpnIwN%2FwpnoQ9ykcsf6gSCQUk9Fr3CRZm11fApJXeKbQ3cP7fcLscjO5J9oxYuZzrFKcuMO2l1VecXevCmP4wSmgs9gPOQP%2BjPbUXioCzwZ3NoL2q1W%2Bdvc2hJhiDeOCAy58REfH1mTOf633Nzxlb510ZtNV%2FKoIE6XLQtlIo6pnGn%2FyDTqTX7RGJ0U39bA%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=49e29025149e2d6238a52fa831cb098311246f2eeb8ba957ecb1f9da8035a675"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "reporter": {
+        "username": "nyymi",
+        "url": "/nyymi"
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 17294104,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::NotEligibleForBounty",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2022-06-27T06:53:42.269Z",
+      "updated_at": "2022-06-27T06:53:42.269Z",
+      "actor": {
+        "url": "/curl",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/035/663/2faf4c279d437d64bfda6d23d62ce1833813a4d9_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "curl"
+        }
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 17294105,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2022-06-27T06:53:55.247Z",
+      "updated_at": "2022-06-27T06:53:55.247Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "bagder",
+        "cleared": false,
+        "verified": false,
+        "url": "/bagder",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/y9xzl5ayi7du4kz3l6pa6sff2ha5/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22final-12-1000x1000.jpg%22%3B%20filename%2A%3DUTF-8%27%27final-12-1000x1000.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQSQ2EO4J6%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070211Z&X-Amz-Expires=2161&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJGMEQCIDdaOxaU2Kc7XK%2BFPO0xwEcua0EmQNQ0KITjMo%2BKI7S%2FAiAzEGtwS8msUueXSru5QP82dF7uwkPFZmzhjY8laBf5ySqxBQgiEAMaDDAxMzYxOTI3NDg0OSIMMwqH%2BrtGLzp0nfFJKo4FfKwfKYelWDcX3DZmXtAToi%2BfdIW%2FTskJuWscWNQ76Tnp8xifpkkQJqzgVzQ1mNVCoJr7%2BHlI2zJhu0AXuqUf6FD0aST%2BKfWDBNuzGTpRcWWnx07Sch98UNn54OsKQbkd78QdkYbYIIydcW4rDyHcf69tkUPFukaryTwqFIQUzVC34LtpkpFeA9lDvrXGajNXbhcjKrAFt5HqSOZuuuzssNNlvHJE05jjBky2NSGdLPAbwZ5PyWIPopmg1W4zjYBUwa%2F0z3qTgn0zEoCTBSKgTZOxPGLRSTPuvxrR0mqU9OcBLyJp193C17CIZVqQgijrtvyXYk%2FM2oDDkUsD7oeMeAFi8iq1vQlGMOgky5Mb4a6rOsWjihhywKDJptVFAvuD5Dj3tbSEYMt48EBT7kCNQd8x2uZADjILGD3cpoZLKeNeqFmfFNRBUEpMfGc5V1%2FI9fJ%2FzgQyr2nb6tNoGRs2QoePdMvOr42ig5kYNAYT7qahQE3vKgClxMTOREjRXfYOrHcHAtPXN4664bTPb1qQrBbF3foKJfwP06KCyM3rFnllobDOLYckn%2FGBEHSl4G2Hnse7CaI%2BGpBkpP0Ud8awKHx3d9xgtFAnC85ks1%2BkhSBq2pHVohOXkjxj3RfmbctowIVuWZvY6MfJpBsaoYyVxDQv%2BMuQlcCUEHl9AJ8Xs%2BWTD7tNE9FfrC4KY2BGHedJYf52GgTsQ7CuCfr5uJg4YBvuTmWyYN78uJu3nhB86AstH1doFZFbBt%2FroDTEUJfBYlS40afyu2h749TRxoiU4xcWDNDUIi%2B6zINKu9qI5X4XfH%2BoRrq7ZYgkoHQQRAW7YCYdirZLXoO2ETACtWPa5nyukSpsZ%2F8mmmkr4uC7MPP6uKgGOrIBCrIPzsKyYiYmXbfpjP3Q51XNqU0RvILr5XTqNaH6BkaJc7iqpnIwN%2FwpnoQ9ykcsf6gSCQUk9Fr3CRZm11fApJXeKbQ3cP7fcLscjO5J9oxYuZzrFKcuMO2l1VecXevCmP4wSmgs9gPOQP%2BjPbUXioCzwZ3NoL2q1W%2Bdvc2hJhiDeOCAy58REfH1mTOf633Nzxlb510ZtNV%2FKoIE6XLQtlIo6pnGn%2FyDTqTX7RGJ0U39bA%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=49e29025149e2d6238a52fa831cb098311246f2eeb8ba957ecb1f9da8035a675"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 17294113,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2022-06-27T06:55:10.560Z",
+      "updated_at": "2022-06-27T06:55:10.560Z",
+      "actor": {
+        "username": "nyymi",
+        "cleared": false,
+        "verified": false,
+        "url": "/nyymi",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 17294114,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportBecamePublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2022-06-27T06:55:10.693Z",
+      "updated_at": "2022-06-27T06:55:10.693Z",
+      "actor": {
+        "username": "nyymi",
+        "cleared": false,
+        "verified": false,
+        "url": "/nyymi",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    }
+  ],
+  "activity_page_count": 1,
+  "activity_page_number": 1,
+  "summaries": [
+    {
+      "category": "team",
+      "can_view?": true,
+      "can_create?": false
+    },
+    {
+      "category": "researcher",
+      "can_view?": true,
+      "can_create?": false
+    }
+  ]
+}

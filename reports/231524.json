@@ -1,0 +1,430 @@
+{
+  "id": 231524,
+  "global_id": "Z2lkOi8vaGFja2Vyb25lL1JlcG9ydC8yMzE1MjQ=",
+  "url": "https://hackerone.com/reports/231524",
+  "title": "HTML injection and limited XSS via logo image upload - Nextcloud 12.0.0",
+  "state": "Closed",
+  "substate": "resolved",
+  "severity_rating": "low",
+  "readable_substate": "Resolved",
+  "created_at": "2017-05-24T19:29:29.963Z",
+  "submitted_at": "2017-05-24T19:29:29.963Z",
+  "is_member_of_team?": false,
+  "is_organization_group_member?": false,
+  "reporter": {
+    "disabled": false,
+    "username": "icewater",
+    "url": "/icewater",
+    "profile_picture_urls": {
+      "small": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+    },
+    "is_me?": false,
+    "cleared": false,
+    "verified": false,
+    "hackerone_triager": false,
+    "hacker_mediation": false
+  },
+  "team": {
+    "id": 13291,
+    "url": "https://hackerone.com/nextcloud",
+    "handle": "nextcloud",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/tnqlkt8d6fcch8hj8brdjp8nw864/d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98",
+      "medium": "https://profile-photos.hackerone-user-content.com/variants/tnqlkt8d6fcch8hj8brdjp8nw864/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+    },
+    "permissions": [
+
+    ],
+    "submission_state": "open",
+    "default_currency": "usd",
+    "awards_miles": false,
+    "offers_bounties": true,
+    "state": "public_mode",
+    "only_cleared_hackers": false,
+    "pentest_feature_enabled?": false,
+    "profile": {
+      "name": "Nextcloud",
+      "twitter_handle": "nextclouders",
+      "website": "https://nextcloud.com",
+      "about": "Access, share and protect your files, calendars, contacts, communication & more at home and in your enterprise."
+    }
+  },
+  "has_bounty?": false,
+  "in_validation?": false,
+  "can_view_team": true,
+  "can_view_report": true,
+  "is_external_bug": false,
+  "is_published": false,
+  "is_participant": false,
+  "has_collaborators": false,
+  "submitted_by_team_member": false,
+  "stage": 4,
+  "public": true,
+  "visibility": "full",
+  "cve_ids": [
+
+  ],
+  "singular_disclosure_disabled": false,
+  "disclosed_at": "2020-01-31T16:17:31.465Z",
+  "bug_reporter_agreed_on_going_public_at": "2020-01-31T16:17:31.397Z",
+  "team_member_agreed_on_going_public_at": "2020-01-31T14:05:38.512Z",
+  "comments_closed?": false,
+  "facebook_team?": false,
+  "team_private?": false,
+  "vulnerability_information": "## Summary\nThe logo image upload function in Nextcloud Server v12.0.0 does not validate the uploaded file, leading to XSS in certain circumstances.\n\n## Vulnerable URL(s)\nReplace [server] with the IP address or hostname of your Nextcloud server.\nFile upload - http://[server]/nextcloud/index.php/apps/theming/ajax/updateLogo\nXSS endpoint - http://[server]/nextcloud/index.php/apps/theming/logo\n\n## Description\nA Nextcloud user with administrator rights has the option to upload a new site logo image file. However, the Nextcloud server does not verify that the uploaded file is actually an image file and accepts any file. An HTML file can be uploaded as the logo and accessed at the XSS endpoint URL: http://[server]/nextcloud/index.php/apps/theming/logo.\n\nIf a user visits the XSS endpoint URL (through a phishing link for example; since the URL is located on the valid Nextcloud server this shouldn't be too difficult) the victim's browser renders the contents of the file like any HTML page. An attacker can also include Javascript in the HTML file but it will be blocked by most major browsers through Nextcloud's Content Security Policy. However, I found 2 Javascript vectors that appear to bypass CSP and result in successful Javascript execution under Internet Explorer 11 (see Reproduction section).\n\n## Reproduction\nCreate an HTML file with the following content and upload it as the Nextcloud site's logo. Alternatively, upload the HTML file provided with this report.\n\n<!DOCTYPE html>\n<head>\n</head>\n<body>\n<h1>The logo!</h1>\n\n<p>This HTML page was uploaded instead of a logo image.</p>\n<p>Content Security Policy (CSP) prevents Javascript from executing as far as I can tell - except in Internet Explorer 11. View this page in IE 11 and you should see a pair of Javascript alert dialogs demonstrating code execution.</p>\n<!-- Following both bypass CSP in IE -->\n\n<!-- For some reason if spaces appear in the alert text this one won't work -->\n<svg/onload=alert('SVG\n\n<img/id=\"alert&lpar;'image XSS')\"/alt=\"/\"src=\"/\"onerror=eval(id)>'\">\n\n</body>\n</html>\n\nOnce uploaded, visit http://[server]/nextcloud/index.php/apps/theming/logo in any web browser. The browser should display rendered HTML content. Javascript execution is blocked by Nextcloud's CSP in most browsers; however, if you visit the page in IE 11, a pair of Javascript alert boxes should appear. The use of the onload attribute in an SVG tag and an IMG onerror attribute both appear to execute Javascript in IE 11:\n\n<svg/onload=alert('SVG')>\n<img/id=\"alert&lpar;'image XSS')\"/alt=\"/\"src=\"/\"onerror=eval(id)>'\">\n\nDuring testing, IE 11 on Windows 7, 10 and IE on Windows Phone 8.1 update 2 executed the Javascript. Firefox, Chrome, Edge, Opera Mini, and Safari IOS all rendered the HTML page but did not execute the Javascript.\n\n## Impact/Notes\nOnly users who are members of the Admin group have permission to change the logo. The Nextcloud Threat Model (https://nextcloud.com/security/threat-model/) indicates that Nextcloud admins are trusted. Therefore, if this vulnerability is considered an acceptable risk I understand; I thought it best to report it just in case.\n\nOne potential attack could involve one user who has admin rights uploading a malicious HTML file and tricking another admin or regular user into visiting the logo page. If the victim is using IE 11, the attacker can execute Javascript code under the victim user's session and potentially bypass CSRF protections. If an admin user has access to the underlying server OS/insfrastucture, he/she already has the power to modify another user's settings, files, etc; however, not all admin users necessarily have permission to the underlying Nextcloud server OS or infrastructure. For example, in deployments with many people several users may be given admin permissions in the web interface but that does not mean they all have access to the underlying file system; they should not be able to modify or view another user's data even though they are web admins. This vulnerability could allow for that to happen if the victim uses IE 11. I only tested with IE 11; I don't know if other IE versions behave the same.\n\n## Mitigation\nTo mitigate this vulnerability, consider restricting the logo file to image files only (png, jpg, etc.) and reject non-image files.",
+  "weakness": {
+    "id": 62,
+    "name": "Cross-site Scripting (XSS) - Stored"
+  },
+  "original_report_id": null,
+  "original_report_url": null,
+  "attachments": [
+    {
+      "id": 187810,
+      "file_name": "logo.html",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/187/810/7aecfe6083a9d14f666ff25727a052bac73b28c2/logo.html?response-content-disposition=attachment%3B%20filename%3D%22logo.html%22%3B%20filename%2A%3DUTF-8%27%27logo.html&response-content-type=application%2Foctet-stream&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQU5JYKTGM%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T073342Z&X-Amz-Expires=2370&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQDPextUgVMaFUn7J3YE8kNYUZyiY2543ePlEF9CwFfM8QIhAIRilag%2FrZ1iszKpt2JLQyz8teMsWBamJF4Iou7wqMU3KrIFCCMQAxoMMDEzNjE5Mjc0ODQ5Igwu56k94pqVtX8r%2Bo4qjwXEh1PM7wf2Np3Qm66HGnlSD0VTqg7R%2FtI4UnXMImbHLHRC5z94z14%2FX2eWyQeiZAAq3PHSCaPLB7tsZX%2ByCkLvYSKIVEDIBAiJLNfPf0mrHAbRDGyc8keEypRUwMaT5cop25r%2FpVpMdM%2BVhJVrWWa5ovVSzsmubSxixbH%2BvSDMHrKZm1mklKunLYykTJQX%2BiX5bQw3i%2BjEj3n27mXAVXGx17uJj4AZzaAdAN%2Fb7nblHihfCONYhSlmArkzxiwacZx5n%2BkCMiJbI49SZjueO3VcmcjD7qJl9BwZ1W4QT01LH5E0r%2FauBeDReLPQR2A89V610Uem1zJCLjoNtjcpr%2Fy6PNyHeeAwa067JLmyxsCZL2gdW81O9EGHtcrxXf7TlH8A3h0yPO%2B8zVoyJSSsEzzjpzkscidQ86LAyX6CNqqcdHnUJsXeboKB5dqjOphDJLDRfmLzgZTuPihjRKzkML0G3QjO1fWCgDatC%2FHiCuz%2F4Hm5bamHTrdiVE9y%2B%2Bv6QZ2edEQAzLX1lowLp2RzYtTYHwDzZkAjKZJKVeO9zj1pkoJhjfz2VARzHSySfXw0YMwPUVlRPg7L6f%2BQAjpso7C6uYEeozwfIwrkmBFVTZW%2BLEzdRLHNNz7rHyr9w1WlRj4OjJLn5Ee5sdJ5cEyQgF8ir1s09BXAP%2FsqR7THqh25ijYpQsYTzGdJxWFw9Mcq455M0MG7I8oz1i3cTjV9eJJer5Vnjtubr681ZNh6Cbl85VC5gKL3xiZ%2BRa64M54QAtb9tRvCFdlmV7U2Yel7eiB1thRiUc%2BQBXeECkUKbOXNfSGQ6%2FRqu7AD4Qz0GIKmc6obQ3vJeTlVjbt80VYdsyGeWYLjRSjnDrYNEFDoOJTBMPSHuagGOrABfJMTnU4%2FETzLB2BZXf541hyjNiWZ3tqKyh4p%2BOtMGjGYCmsTcu5RXXYGZ3G0puxZ27J20XRP2zhvuPBXAixyr8lz8adwCOfLJe0oCYgqgYmQxwbXeE5pLP9eHwIk2aiqxaN2tTNVGnFifZgT%2BzaAvEW1M5e4bcPdHOcraaqJVAJKjLuYHBPVtsgKcNUbL9bdOH2zFoQgd6ok2JFMDfaY%2FOJ38QDDXR4GXVTD01IxQcc%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=fa8df8eeaf84ed6fec2fb177ca1991614d9f4810c7e9750e69a8aa963dbdaa09",
+      "file_size": 590,
+      "type": "text/html",
+      "moderated": null
+    }
+  ],
+  "allow_singular_disclosure_at": "2020-03-01T14:05:38.590Z",
+  "allow_singular_disclosure_after": -112382883.85540722,
+  "singular_disclosure_allowed": true,
+  "vote_count": 5,
+  "voters": [
+    "eveeez",
+    "0x08",
+    "hackingmaching101",
+    "rodmartin",
+    "umerkakar"
+  ],
+  "severity": {
+    "rating": "low",
+    "score": 2.4,
+    "author_type": "Team",
+    "metrics": {
+      "attack_vector": "network",
+      "attack_complexity": "low",
+      "privileges_required": "high",
+      "user_interaction": "required",
+      "scope": "unchanged",
+      "confidentiality": "none",
+      "integrity": "low",
+      "availability": "none"
+    }
+  },
+  "structured_scope": null,
+  "abilities": {
+    "assignable_team_members": [
+
+    ],
+    "assignable_team_member_groups": [
+
+    ]
+  },
+  "activities": [
+    {
+      "id": 1698732,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Thanks a lot for reporting this potential issue back to us!\n\nOur security team will take a look at this issue as soon as possible. We will reply to your report within 72 hours, usually much faster. For obvious reasons we'd like to ask you to not disclose this issue to any other party.",
+      "automated_response": true,
+      "created_at": "2017-05-24T19:29:30.142Z",
+      "updated_at": "2017-05-24T19:29:30.142Z",
+      "actor": {
+        "url": "/nextcloud",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/tnqlkt8d6fcch8hj8brdjp8nw864/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "Nextcloud"
+        }
+      },
+      "genius_execution_id": null,
+      "team_handle": "nextcloud"
+    },
+    {
+      "id": 1698736,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Feel free to let me know if I can provide any further information. Thanks!",
+      "automated_response": false,
+      "created_at": "2017-05-24T19:30:09.656Z",
+      "updated_at": "2017-05-24T19:30:09.656Z",
+      "actor": {
+        "username": "icewater",
+        "cleared": false,
+        "verified": false,
+        "url": "/icewater",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nextcloud"
+    },
+    {
+      "id": 1702683,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugTriaged",
+      "message": "Thanks for your report :-)\n\nI'm a little bit torn apart here because it only affects administrators which can also elevate their privileges using other ways. However, I think adding a `Content-Disposition: attachment` won't hurt here and may be considered best-practise. Thus we're happy to adjust this as a change towards best practice. \n\nI'll check back with the team if we can limit the uploaded mimetype here to `image/*` further.",
+      "automated_response": false,
+      "created_at": "2017-05-26T03:46:50.041Z",
+      "updated_at": "2017-05-26T03:46:50.041Z",
+      "actor": {
+        "username": "lukasreschke",
+        "cleared": false,
+        "verified": false,
+        "url": "/lukasreschke",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/037/891/e7fea4d5383dc07d1fe767b02f3bda2bc7639c63_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nextcloud"
+    },
+    {
+      "id": 1702684,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportSeverityUpdated",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2017-05-26T03:49:01.720Z",
+      "updated_at": "2017-05-26T03:49:01.720Z",
+      "additional_data": {
+        "old_severity": "Low",
+        "new_severity": "Low (2.4)",
+        "old_severity_id": 44646,
+        "new_severity_id": 45140
+      },
+      "actor": {
+        "username": "lukasreschke",
+        "cleared": false,
+        "verified": false,
+        "url": "/lukasreschke",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/037/891/e7fea4d5383dc07d1fe767b02f3bda2bc7639c63_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nextcloud"
+    },
+    {
+      "id": 1702685,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::SwagAwarded",
+      "message": "While this one won't meet the bar for a monetary reward we'd be happy to award you some swag as a small thank you.",
+      "automated_response": false,
+      "created_at": "2017-05-26T03:49:37.653Z",
+      "updated_at": "2017-05-26T03:49:37.653Z",
+      "actor": {
+        "url": "/nextcloud",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/tnqlkt8d6fcch8hj8brdjp8nw864/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "Nextcloud"
+        }
+      },
+      "reporter": {
+        "username": "icewater",
+        "url": "/icewater"
+      },
+      "genius_execution_id": null,
+      "team_handle": "nextcloud"
+    },
+    {
+      "id": 1702686,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::NotEligibleForBounty",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2017-05-26T03:49:47.834Z",
+      "updated_at": "2017-05-26T03:49:47.834Z",
+      "actor": {
+        "url": "/nextcloud",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/tnqlkt8d6fcch8hj8brdjp8nw864/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "Nextcloud"
+        }
+      },
+      "genius_execution_id": null,
+      "team_handle": "nextcloud"
+    },
+    {
+      "id": 1703630,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Agreed, since it's only exploitable by an admin user it's not a major issue or anything. Thank you for the swag, that is very nice of you! :)",
+      "automated_response": false,
+      "created_at": "2017-05-26T15:24:27.034Z",
+      "updated_at": "2017-05-26T15:24:27.034Z",
+      "actor": {
+        "username": "icewater",
+        "cleared": false,
+        "verified": false,
+        "url": "/icewater",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nextcloud"
+    },
+    {
+      "id": 2833679,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @icewater,\n\nTo give a quick update.\n\nWe added additional checks in our current master to solve this.\nThis will be released with Nextcloud 14.\n\nCheers,\n--Roeland",
+      "automated_response": false,
+      "created_at": "2018-06-02T20:27:04.862Z",
+      "updated_at": "2018-06-02T20:27:04.862Z",
+      "actor": {
+        "username": "rullzer",
+        "cleared": false,
+        "verified": false,
+        "url": "/rullzer",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/086/005/20095c4a0c77c88375f8db5d6ed10f350d98a5a3_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nextcloud"
+    },
+    {
+      "id": 2838645,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "Thanks a lot for your report again. This will be resovled in Nextcloud 14.",
+      "automated_response": false,
+      "created_at": "2018-06-04T12:28:00.604Z",
+      "updated_at": "2018-06-04T12:28:00.604Z",
+      "actor": {
+        "username": "rullzer",
+        "cleared": false,
+        "verified": false,
+        "url": "/rullzer",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/086/005/20095c4a0c77c88375f8db5d6ed10f350d98a5a3_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "reporter": {
+        "username": "icewater",
+        "url": "/icewater"
+      },
+      "genius_execution_id": null,
+      "team_handle": "nextcloud"
+    },
+    {
+      "id": 6932728,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2020-01-31T14:05:38.532Z",
+      "updated_at": "2020-01-31T14:05:38.532Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "nickvergessen",
+        "cleared": false,
+        "verified": false,
+        "url": "/nickvergessen",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/5DBbeB7om4ZiKgskrEoeTyGH/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nextcloud"
+    },
+    {
+      "id": 6933663,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2020-01-31T16:17:31.420Z",
+      "updated_at": "2020-01-31T16:17:31.420Z",
+      "actor": {
+        "username": "icewater",
+        "cleared": false,
+        "verified": false,
+        "url": "/icewater",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nextcloud"
+    },
+    {
+      "id": 6933664,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportBecamePublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2020-01-31T16:17:31.479Z",
+      "updated_at": "2020-01-31T16:17:31.479Z",
+      "actor": {
+        "username": "icewater",
+        "cleared": false,
+        "verified": false,
+        "url": "/icewater",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nextcloud"
+    }
+  ],
+  "activity_page_count": 1,
+  "activity_page_number": 1,
+  "summaries": [
+    {
+      "category": "team",
+      "can_view?": true,
+      "can_create?": false
+    },
+    {
+      "category": "researcher",
+      "can_view?": true,
+      "can_create?": false
+    }
+  ]
+}

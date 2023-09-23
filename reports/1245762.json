@@ -1,0 +1,777 @@
+{
+  "id": 1245762,
+  "global_id": "Z2lkOi8vaGFja2Vyb25lL1JlcG9ydC8xMjQ1NzYy",
+  "url": "https://hackerone.com/reports/1245762",
+  "title": "Account Takeover via SMS Authentication Flow ",
+  "state": "Closed",
+  "substate": "resolved",
+  "severity_rating": "high",
+  "readable_substate": "Resolved",
+  "created_at": "2021-06-27T15:45:27.660Z",
+  "submitted_at": "2021-06-27T15:45:27.780Z",
+  "is_member_of_team?": false,
+  "is_organization_group_member?": false,
+  "reporter": {
+    "disabled": false,
+    "username": "yetanotherhacker",
+    "url": "/yetanotherhacker",
+    "profile_picture_urls": {
+      "small": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+    },
+    "is_me?": false,
+    "cleared": false,
+    "verified": false,
+    "hackerone_triager": false,
+    "hacker_mediation": false
+  },
+  "team": {
+    "id": 28545,
+    "url": "https://hackerone.com/zenly",
+    "handle": "zenly",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/fejdhan217zjloubmj19c0phf2vc/d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98",
+      "medium": "https://profile-photos.hackerone-user-content.com/variants/fejdhan217zjloubmj19c0phf2vc/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+    },
+    "permissions": [
+
+    ],
+    "submission_state": "disabled",
+    "default_currency": "usd",
+    "awards_miles": false,
+    "offers_bounties": true,
+    "state": "public_mode",
+    "only_cleared_hackers": false,
+    "pentest_feature_enabled?": false,
+    "profile": {
+      "name": "Zenly",
+      "twitter_handle": "zenly",
+      "website": "https://zen.ly",
+      "about": ""
+    }
+  },
+  "has_bounty?": true,
+  "in_validation?": false,
+  "can_view_team": true,
+  "can_view_report": true,
+  "is_external_bug": false,
+  "is_published": false,
+  "is_participant": false,
+  "has_collaborators": false,
+  "submitted_by_team_member": false,
+  "stage": 4,
+  "public": true,
+  "visibility": "full",
+  "cve_ids": [
+
+  ],
+  "singular_disclosure_disabled": true,
+  "disclosed_at": "2022-01-12T10:08:30.046Z",
+  "bug_reporter_agreed_on_going_public_at": "2022-01-05T17:13:50.057Z",
+  "team_member_agreed_on_going_public_at": "2022-01-12T10:08:29.911Z",
+  "comments_closed?": false,
+  "facebook_team?": false,
+  "team_private?": false,
+  "vulnerability_information": "## Summary:\nDuring the **authentication** flow, an SMS is sent to the user in order to validate the session and proceed to the user account. The way Zenly API handles this flow is by:\n1. Calling the `/SessionCreate` endpoint with the mobile phone number of the user.\n2. A session for the user is created and a session token is returned, but no operations with this session are possible until the verification is complete.\n3. An SMS message is sent to the user, containing a verification code.\n4. Calling the `/SessionVerify` endpoint with both the session token and the verification code received by SMS.\n5. Once this request is successfully completed, the session token becomes valid and the user is now logged in.\nAfter the first call to `/SessionCreate`, subsequent calls will return ==the same session token==, until a call to `/SessionVerify` is made with a valid verification code. \n\n## Steps To Reproduce:\nTo reproduce this issue, an environment that enables intercepting and decoding network requests is required. Once this environment is set up, we are able to gain visibility over network activity.\nBy following a typical login flow, we can gain knowledge of the network requests that are involved. The flow starts by requesting the mobile phone number from the user. Once the user inputs their phone number, they will be prompted for a verification code that is sent through SMS.\n{F1355357}\nAt this moment, before entering the verification code, a request to `/SessionCreate` is launched. Note that this request (on the left) contains the mobile phone number of the user, and the response (on the right) to this request contains a **session token**, as shown below.\n███████\nNow, if an attacker also sends a request to `/SessionCreate` with the mobile phone number of the legitimate user, they will obtain the same session token. The response to this request, initiated by the attacker, is shown below:\n█████████\n**Note:** In this example, the attacker called `/SessionCreate` after the legitimate user. However, the attacker could also have called `/SessionCreate` before the legitimate user. This would have caused Zenly (on the side of the legitimate user) to obtain **the same session token that the attacker obtained**.\nAt this moment, the legitimate user will receive an SMS message containing a verification code. The authentication flow is finished (meaning the session token will become valid) once the user inputs this code in their Zenly application. However, once the user does this, the attacker will also end up with a valid session token in their hands (**since it is the same token**).\nThe attacker can then use this token to impersonate the legitimate user, executing any request to the Zenly API with it. The attacker can also, at any time, check if the session token is valid by launching a request to `/Me`, an endpoint that returns information about the current session. If the verification code has not yet been entered by the legitimate user, requests to `/Me` will return a 401 Unauthorized response. Once the code is entered, requests to `/Me` will return session information (such as phone number and user identifier), as shown below:\n████\nOnce the attacker knows the session is valid, they can launch requests to `███████`, `██████` or `████` instead, thus **gaining access to notifications, geolocation, and conversations** of the legitimate user and their friends. \n\n## Suggested Mitigation:\nIn order to mitigate this issue, the following steps could be taken:\n-\tSession tokens should be unique for each call to `/SessionCreate`.\n-\tA new SMS code should be sent on every call to `/SessionCreate`.\n-\tPrevious SMS codes should be invalidated once a new one is sent.\n-\tApply rate-limiting to both `/SessionCreate` and `/SessionVerify` endpoints.\n\n## Impact\n\nAn attacker can take over a user account by abusing the `/SessionCreate endpoint`, which will consistently return the same session token (although not yet valid) for the same user. Once the legitimate user validates the SMS code for that session token, the session will become valid for both the legitimate user and the attacker.\nThe main point of this issue is that the attacker needs to obtain a session token before the legitimate user calls the `/SessionVerify` endpoint. This can be done either before or after the legitimate user calls the `/SessionCreate endpoint`. \nAllowing both the legitimate user and an attacker to have the same session token will give an advantage to the attacker. The verification code sent through SMS will remain valid for the same amount of time that the session token is valid, and it will not be regenerated within that time period, meaning that if the legitimate user inputs this code in the application (triggering a call to `/SessionVerify`), the session token that both the legitimate user and the attacker hold will become valid. This means that the attacker now has a valid session for the account of the legitimate user, even though the attacker never knew the verification code.\nOn the other hand, even if the attacker wasn’t able to obtain the session token (through a call to `/SessionCreate`) before the legitimate user, this attack is still possible while the legitimate user doesn’t input the correct verification code in the application, although this scenario would be less likely since the time window for carrying out this attack can be rather short.\n**Once the attacker has a valid session for the account of the legitimate user, they can access their location, notifications, conversations, and friends’ information just like the legitimate user could.**",
+  "weakness": {
+    "id": 27,
+    "name": "Improper Authentication - Generic"
+  },
+  "original_report_id": null,
+  "original_report_url": null,
+  "attachments": [
+    {
+      "id": 1355357,
+      "file_name": "Picture7.png",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/6yp9j1c7uykpw447bn55wldwsllh?response-content-disposition=attachment%3B%20filename%3D%22Picture7.png%22%3B%20filename%2A%3DUTF-8%27%27Picture7.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQXL2TV4JY%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070611Z&X-Amz-Expires=2609&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQC6gxJ2Fgorv1CGF8se8AzeZarVMBLse4f%2Fv1LWZPPIbAIhAIe13AyRf7KoGQmk0MZsohJbY2mmh8fOJTnvWpEfZdoaKrEFCCMQAxoMMDEzNjE5Mjc0ODQ5IgzcVzLSCfqhl64LbOoqjgXEg5yJowTgB6h0qoSj2KgKW%2FmO5%2Fb22frcKudampbs5LOCE%2Bl%2BTzvnLlh8zfsY9Insep7fcRUtb%2F%2Ba%2BgVdyMNa5k1sDhv63hYhXctRIhsubT4u%2BKuj6RCLHJY3dXzqK889huk5FJgsPR61WQfBkCfEQC8iLWjotXcQ24R5LylVYeAdAfDTBXiQl0%2Ba%2BsgeYEoj5X7QnFy0DX62VlrQT9rRHS%2BIe%2F4W0R8qQqELu9%2Fy2ZB8v7fPotewALFtGyLN4MQlE6%2BVl4GI35jgi1WT1qpLseSJ1p25J9nDGI0NHpdpJMKM5E5L7%2B7%2BsgEZUdYkWeEF%2BG2KgYj%2BzPGsOkRbev%2BBTlxTRT56vZh2BRi%2B7sFDgxdE9NJnxxH8jgVf1E5Ct0dLWQGpSMpZO8f%2BytRKMtjz6dgiSnO6iQESsRG4RRbxtSJ8Q8G0cVH7H8u%2BerokbE32PnqwkjuLNE0gsVc8huN5G1P8RNdp8r2ey4m2akCouacY8lQOFlyPG6vZt7JBfvSkSSeDsbntLEW%2B5kw6heg5vyz4VHHUBtamMvWasHge4MYAJCQwVSCo6Bi9PphSSWqY5Fxm%2BNXcTJ7TPGzYD3k3A56HihvKmfDPJeQgsOSp4EIHxZNlD5RO4k6VuxWFSWHmfDKgnWPobSypItRUebo7ysrxPeAhcG2U%2FtrFJ6c2ZosszPY%2FH59x4%2BfV5NBF2Jd7i8ENzcU7YQRNAjqwgIPfx%2FneHwZpkr%2Byxa%2BJJ2OmPe9rY%2FzN0lLqdrjIoYEeo3EMS9SVaDjVLU4VHKBE7jBWfPqA4KtQ0k9%2BOXLZyOzFIt1Tw4LmwjOTNELjF19oHFeBobYeeWBAaW8yAqvbuqQ9vAW%2BzNZlxiXed4sFhe4whIa5qAY6sAHLr4%2F9PHLdkIzOpDMedWUTk8aJzmnJUfV88BMC69XqLdUVuF5lgOfwWykGqhdHJcdd3HpN5u%2FHo%2B83%2BGJoiPKJmXhOQe9FM5DVP4kYrIwsbZ4L0BTJd%2FkqEwGkjVprA7%2BEXsI%2FPKeL8nhijDijPctTq5akS%2FashM8yWrO3PeZId%2BcQDzw0vMnnxt3w6el0izvNlb%2FxKQ2ULn%2F8qTT7eIADRYt52%2BO3AJVBd%2F8I3XgSyA%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=a34aae425ef505394ee1c316f5bd8596e877b71d9132b5f5fd6ce4e75135d790",
+      "file_size": 43003,
+      "type": "image/png",
+      "moderated": null
+    }
+  ],
+  "allow_singular_disclosure_at": "2022-02-04T17:13:50.133Z",
+  "allow_singular_disclosure_after": -51457941.64228435,
+  "singular_disclosure_allowed": true,
+  "vote_count": 82,
+  "voters": [
+    "th3hidd3nmist",
+    "alp",
+    "drsniper",
+    "foobar7",
+    "awararesearcher",
+    "error",
+    "run_win",
+    "yassinek3ch",
+    "whybee",
+    "tess",
+    "and 72 more..."
+  ],
+  "severity": {
+    "rating": "high",
+    "author_type": "User"
+  },
+  "structured_scope": {
+    "databaseId": 18486,
+    "asset_type": "URL",
+    "asset_identifier": "rpc.znly.co",
+    "max_severity": "critical"
+  },
+  "abilities": {
+    "assignable_team_members": [
+
+    ],
+    "assignable_team_member_groups": [
+
+    ]
+  },
+  "activities": [
+    {
+      "id": 12268281,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugTriaged",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2021-06-28T09:44:40.158Z",
+      "updated_at": "2021-06-28T09:44:40.158Z",
+      "actor": {
+        "username": "spud",
+        "cleared": false,
+        "verified": false,
+        "url": "/spud",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/8oh8szgckzyde0syfm692lalzqg2/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22shoie_otomo2.jpg%22%3B%20filename%2A%3DUTF-8%27%27shoie_otomo2.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQXL2TV4JY%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070611Z&X-Amz-Expires=2609&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQC6gxJ2Fgorv1CGF8se8AzeZarVMBLse4f%2Fv1LWZPPIbAIhAIe13AyRf7KoGQmk0MZsohJbY2mmh8fOJTnvWpEfZdoaKrEFCCMQAxoMMDEzNjE5Mjc0ODQ5IgzcVzLSCfqhl64LbOoqjgXEg5yJowTgB6h0qoSj2KgKW%2FmO5%2Fb22frcKudampbs5LOCE%2Bl%2BTzvnLlh8zfsY9Insep7fcRUtb%2F%2Ba%2BgVdyMNa5k1sDhv63hYhXctRIhsubT4u%2BKuj6RCLHJY3dXzqK889huk5FJgsPR61WQfBkCfEQC8iLWjotXcQ24R5LylVYeAdAfDTBXiQl0%2Ba%2BsgeYEoj5X7QnFy0DX62VlrQT9rRHS%2BIe%2F4W0R8qQqELu9%2Fy2ZB8v7fPotewALFtGyLN4MQlE6%2BVl4GI35jgi1WT1qpLseSJ1p25J9nDGI0NHpdpJMKM5E5L7%2B7%2BsgEZUdYkWeEF%2BG2KgYj%2BzPGsOkRbev%2BBTlxTRT56vZh2BRi%2B7sFDgxdE9NJnxxH8jgVf1E5Ct0dLWQGpSMpZO8f%2BytRKMtjz6dgiSnO6iQESsRG4RRbxtSJ8Q8G0cVH7H8u%2BerokbE32PnqwkjuLNE0gsVc8huN5G1P8RNdp8r2ey4m2akCouacY8lQOFlyPG6vZt7JBfvSkSSeDsbntLEW%2B5kw6heg5vyz4VHHUBtamMvWasHge4MYAJCQwVSCo6Bi9PphSSWqY5Fxm%2BNXcTJ7TPGzYD3k3A56HihvKmfDPJeQgsOSp4EIHxZNlD5RO4k6VuxWFSWHmfDKgnWPobSypItRUebo7ysrxPeAhcG2U%2FtrFJ6c2ZosszPY%2FH59x4%2BfV5NBF2Jd7i8ENzcU7YQRNAjqwgIPfx%2FneHwZpkr%2Byxa%2BJJ2OmPe9rY%2FzN0lLqdrjIoYEeo3EMS9SVaDjVLU4VHKBE7jBWfPqA4KtQ0k9%2BOXLZyOzFIt1Tw4LmwjOTNELjF19oHFeBobYeeWBAaW8yAqvbuqQ9vAW%2BzNZlxiXed4sFhe4whIa5qAY6sAHLr4%2F9PHLdkIzOpDMedWUTk8aJzmnJUfV88BMC69XqLdUVuF5lgOfwWykGqhdHJcdd3HpN5u%2FHo%2B83%2BGJoiPKJmXhOQe9FM5DVP4kYrIwsbZ4L0BTJd%2FkqEwGkjVprA7%2BEXsI%2FPKeL8nhijDijPctTq5akS%2FashM8yWrO3PeZId%2BcQDzw0vMnnxt3w6el0izvNlb%2FxKQ2ULn%2F8qTT7eIADRYt52%2BO3AJVBd%2F8I3XgSyA%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=86625278ea105a82b7bcd77928a935f99600d55d743b18e7ffa157654319dfdc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "zenly"
+    },
+    {
+      "id": 12280085,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @yetanotherhacker, thanks for both your reports ! The team will look into them and we'll come back to you (it could take several days). Can you tell us which version of the app you used for your tests and how did you decode the proto ?\n\nRegards,",
+      "automated_response": false,
+      "created_at": "2021-06-29T06:04:34.770Z",
+      "updated_at": "2021-06-29T06:04:34.770Z",
+      "actor": {
+        "username": "spud",
+        "cleared": false,
+        "verified": false,
+        "url": "/spud",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/8oh8szgckzyde0syfm692lalzqg2/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22shoie_otomo2.jpg%22%3B%20filename%2A%3DUTF-8%27%27shoie_otomo2.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQXL2TV4JY%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070611Z&X-Amz-Expires=2609&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQC6gxJ2Fgorv1CGF8se8AzeZarVMBLse4f%2Fv1LWZPPIbAIhAIe13AyRf7KoGQmk0MZsohJbY2mmh8fOJTnvWpEfZdoaKrEFCCMQAxoMMDEzNjE5Mjc0ODQ5IgzcVzLSCfqhl64LbOoqjgXEg5yJowTgB6h0qoSj2KgKW%2FmO5%2Fb22frcKudampbs5LOCE%2Bl%2BTzvnLlh8zfsY9Insep7fcRUtb%2F%2Ba%2BgVdyMNa5k1sDhv63hYhXctRIhsubT4u%2BKuj6RCLHJY3dXzqK889huk5FJgsPR61WQfBkCfEQC8iLWjotXcQ24R5LylVYeAdAfDTBXiQl0%2Ba%2BsgeYEoj5X7QnFy0DX62VlrQT9rRHS%2BIe%2F4W0R8qQqELu9%2Fy2ZB8v7fPotewALFtGyLN4MQlE6%2BVl4GI35jgi1WT1qpLseSJ1p25J9nDGI0NHpdpJMKM5E5L7%2B7%2BsgEZUdYkWeEF%2BG2KgYj%2BzPGsOkRbev%2BBTlxTRT56vZh2BRi%2B7sFDgxdE9NJnxxH8jgVf1E5Ct0dLWQGpSMpZO8f%2BytRKMtjz6dgiSnO6iQESsRG4RRbxtSJ8Q8G0cVH7H8u%2BerokbE32PnqwkjuLNE0gsVc8huN5G1P8RNdp8r2ey4m2akCouacY8lQOFlyPG6vZt7JBfvSkSSeDsbntLEW%2B5kw6heg5vyz4VHHUBtamMvWasHge4MYAJCQwVSCo6Bi9PphSSWqY5Fxm%2BNXcTJ7TPGzYD3k3A56HihvKmfDPJeQgsOSp4EIHxZNlD5RO4k6VuxWFSWHmfDKgnWPobSypItRUebo7ysrxPeAhcG2U%2FtrFJ6c2ZosszPY%2FH59x4%2BfV5NBF2Jd7i8ENzcU7YQRNAjqwgIPfx%2FneHwZpkr%2Byxa%2BJJ2OmPe9rY%2FzN0lLqdrjIoYEeo3EMS9SVaDjVLU4VHKBE7jBWfPqA4KtQ0k9%2BOXLZyOzFIt1Tw4LmwjOTNELjF19oHFeBobYeeWBAaW8yAqvbuqQ9vAW%2BzNZlxiXed4sFhe4whIa5qAY6sAHLr4%2F9PHLdkIzOpDMedWUTk8aJzmnJUfV88BMC69XqLdUVuF5lgOfwWykGqhdHJcdd3HpN5u%2FHo%2B83%2BGJoiPKJmXhOQe9FM5DVP4kYrIwsbZ4L0BTJd%2FkqEwGkjVprA7%2BEXsI%2FPKeL8nhijDijPctTq5akS%2FashM8yWrO3PeZId%2BcQDzw0vMnnxt3w6el0izvNlb%2FxKQ2ULn%2F8qTT7eIADRYt52%2BO3AJVBd%2F8I3XgSyA%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=86625278ea105a82b7bcd77928a935f99600d55d743b18e7ffa157654319dfdc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "zenly"
+    },
+    {
+      "id": 12291355,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hello @spud,\nThe tests on Android used versions 4.36.5 and 4.39.0. On iOS, I can't recall and don't have access to it anymore, but it is important to understand that the issue is not on the apps but on the APIs.\nTo decode protobuf a modified tool called [mitmproxy](https://mitmproxy.org/) was used. The names of the fields were not known, only their types. After looking into the content of some messages, I tried to understand what type of information each field would carry on each request.\nHope that helps.",
+      "automated_response": false,
+      "created_at": "2021-06-29T20:28:09.122Z",
+      "updated_at": "2021-06-29T20:28:09.122Z",
+      "actor": {
+        "username": "yetanotherhacker",
+        "cleared": false,
+        "verified": false,
+        "url": "/yetanotherhacker",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "zenly"
+    },
+    {
+      "id": 12291954,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @yetanotherhacker,\nIssue is indeed API side.\nVanilla mitmproxy doesn't seem to be able decode the proto (from what I tried), hence the question - since your screenshots of it show the decoded fields, I was wondering if somehow you were made aware of the proto, or if you used an custom addon.",
+      "automated_response": false,
+      "created_at": "2021-06-29T21:33:32.823Z",
+      "updated_at": "2021-06-29T21:33:32.823Z",
+      "actor": {
+        "username": "spud",
+        "cleared": false,
+        "verified": false,
+        "url": "/spud",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/8oh8szgckzyde0syfm692lalzqg2/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22shoie_otomo2.jpg%22%3B%20filename%2A%3DUTF-8%27%27shoie_otomo2.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQXL2TV4JY%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070611Z&X-Amz-Expires=2609&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQC6gxJ2Fgorv1CGF8se8AzeZarVMBLse4f%2Fv1LWZPPIbAIhAIe13AyRf7KoGQmk0MZsohJbY2mmh8fOJTnvWpEfZdoaKrEFCCMQAxoMMDEzNjE5Mjc0ODQ5IgzcVzLSCfqhl64LbOoqjgXEg5yJowTgB6h0qoSj2KgKW%2FmO5%2Fb22frcKudampbs5LOCE%2Bl%2BTzvnLlh8zfsY9Insep7fcRUtb%2F%2Ba%2BgVdyMNa5k1sDhv63hYhXctRIhsubT4u%2BKuj6RCLHJY3dXzqK889huk5FJgsPR61WQfBkCfEQC8iLWjotXcQ24R5LylVYeAdAfDTBXiQl0%2Ba%2BsgeYEoj5X7QnFy0DX62VlrQT9rRHS%2BIe%2F4W0R8qQqELu9%2Fy2ZB8v7fPotewALFtGyLN4MQlE6%2BVl4GI35jgi1WT1qpLseSJ1p25J9nDGI0NHpdpJMKM5E5L7%2B7%2BsgEZUdYkWeEF%2BG2KgYj%2BzPGsOkRbev%2BBTlxTRT56vZh2BRi%2B7sFDgxdE9NJnxxH8jgVf1E5Ct0dLWQGpSMpZO8f%2BytRKMtjz6dgiSnO6iQESsRG4RRbxtSJ8Q8G0cVH7H8u%2BerokbE32PnqwkjuLNE0gsVc8huN5G1P8RNdp8r2ey4m2akCouacY8lQOFlyPG6vZt7JBfvSkSSeDsbntLEW%2B5kw6heg5vyz4VHHUBtamMvWasHge4MYAJCQwVSCo6Bi9PphSSWqY5Fxm%2BNXcTJ7TPGzYD3k3A56HihvKmfDPJeQgsOSp4EIHxZNlD5RO4k6VuxWFSWHmfDKgnWPobSypItRUebo7ysrxPeAhcG2U%2FtrFJ6c2ZosszPY%2FH59x4%2BfV5NBF2Jd7i8ENzcU7YQRNAjqwgIPfx%2FneHwZpkr%2Byxa%2BJJ2OmPe9rY%2FzN0lLqdrjIoYEeo3EMS9SVaDjVLU4VHKBE7jBWfPqA4KtQ0k9%2BOXLZyOzFIt1Tw4LmwjOTNELjF19oHFeBobYeeWBAaW8yAqvbuqQ9vAW%2BzNZlxiXed4sFhe4whIa5qAY6sAHLr4%2F9PHLdkIzOpDMedWUTk8aJzmnJUfV88BMC69XqLdUVuF5lgOfwWykGqhdHJcdd3HpN5u%2FHo%2B83%2BGJoiPKJmXhOQe9FM5DVP4kYrIwsbZ4L0BTJd%2FkqEwGkjVprA7%2BEXsI%2FPKeL8nhijDijPctTq5akS%2FashM8yWrO3PeZId%2BcQDzw0vMnnxt3w6el0izvNlb%2FxKQ2ULn%2F8qTT7eIADRYt52%2BO3AJVBd%2F8I3XgSyA%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=86625278ea105a82b7bcd77928a935f99600d55d743b18e7ffa157654319dfdc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "zenly"
+    },
+    {
+      "id": 12332401,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "\n\nHi @spud,\nSorry for my late response. I was trying to write down the entire process. Hopefully, that will give you all the info you need.\nSo here goes:\n\n---\nOne of the first steps in every research is intercepting the network requests being sent by the application. It proved to be somewhat tricky with Zenly since tools like [Burp]( https://portswigger.net/burp) and [Charles](https://www.charlesproxy.com/) displayed some difficulties in intercepting and forwarding this traffic at the time of testing. Achieving this in iOS posed additional problems since every TLS handshake consistently failed due to the certificate authority allow-list in the application. It was possible to deal with this by tampering with that list with a [Frida](https://frida.re/) script each time the application started up. On the other hand, for Android, adding a custom certificate to the system store was enough.\nOnce this restriction was bypassed, an instance of [mitmproxy](https://mitmproxy.org/) was spun up and forwarded the network traffic through it. That allowed some visibility on the domain and path (ex: https://rpc.znly.co/zenly.protobuf.services.ZenlyService/Configuration), and headers of requests. These contain a few hints regarding the protocol that is in use:\n- **Domain** contains the keyword `rpc`.\n- **Path** contains the keyword `protobuf`.\n- **Content-Type header** has the value application`/grpc`. \n- **User-Agent header** contains the value `grpc-go`.\n- **Request** contains several headers referencing gRPC. (for example, `grpc-encoding`, `grpc-accept-encoding` and `grpc-timeout`).\n\nIt was not yet possible to correctly decode the body contents in these requests with mitmproxy. Still, after some poking, it was possible to understand that the data being displayed by mitmproxy was under some [zlib](https://zlib.net/) compression.\nA custom add-on was developed for mitmproxy for this purpose. The add-on first decompresses the body contents and then pipes the obtained data to [protobuf-inspector](https://github.com/mildsunrise/protobuf-inspector), which provides visibility regarding the type and contents of each protobuf field. At this time, there was still no knowledge of any field names.\nUsing that methodology and intercepting a handful of requests, It was possible to deduce each endpoint's expected protobuf structure, which allowed correctly decoding each Request and corresponding Response. When the decoding became possible, it enabled the creation of new messages (with the expected structure but different values for each field), and the possibility to communicate with the API **without** using the mobile application.\nIn addition, in situations where a request did not match the expected protobuf structure, the server would respond with an error message containing the field name. These responses allowed to guess the expected type further and better understand the expected protobuf structure for each endpoint.\n\n---\nI hope that helps understanding the methodology that was used. I believe it is not something out of the ordinary for experienced attackers.\nPlease let me know if there is any further information you need.\n\n",
+      "automated_response": false,
+      "created_at": "2021-07-02T18:00:12.528Z",
+      "updated_at": "2021-07-02T18:00:12.528Z",
+      "actor": {
+        "username": "yetanotherhacker",
+        "cleared": false,
+        "verified": false,
+        "url": "/yetanotherhacker",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "zenly"
+    },
+    {
+      "id": 12355473,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @yetanotherhacker, thank you so much for the details ! I managed to reproduce with wireshark and protoc (not auto) but it's really nice of you to have detailed your process.\nWe're not forgetting you, fixes are on the way and bounties should come during the week.\n",
+      "automated_response": false,
+      "created_at": "2021-07-05T10:35:17.739Z",
+      "updated_at": "2021-07-05T10:35:17.739Z",
+      "actor": {
+        "username": "spud",
+        "cleared": false,
+        "verified": false,
+        "url": "/spud",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/8oh8szgckzyde0syfm692lalzqg2/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22shoie_otomo2.jpg%22%3B%20filename%2A%3DUTF-8%27%27shoie_otomo2.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQXL2TV4JY%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070611Z&X-Amz-Expires=2609&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQC6gxJ2Fgorv1CGF8se8AzeZarVMBLse4f%2Fv1LWZPPIbAIhAIe13AyRf7KoGQmk0MZsohJbY2mmh8fOJTnvWpEfZdoaKrEFCCMQAxoMMDEzNjE5Mjc0ODQ5IgzcVzLSCfqhl64LbOoqjgXEg5yJowTgB6h0qoSj2KgKW%2FmO5%2Fb22frcKudampbs5LOCE%2Bl%2BTzvnLlh8zfsY9Insep7fcRUtb%2F%2Ba%2BgVdyMNa5k1sDhv63hYhXctRIhsubT4u%2BKuj6RCLHJY3dXzqK889huk5FJgsPR61WQfBkCfEQC8iLWjotXcQ24R5LylVYeAdAfDTBXiQl0%2Ba%2BsgeYEoj5X7QnFy0DX62VlrQT9rRHS%2BIe%2F4W0R8qQqELu9%2Fy2ZB8v7fPotewALFtGyLN4MQlE6%2BVl4GI35jgi1WT1qpLseSJ1p25J9nDGI0NHpdpJMKM5E5L7%2B7%2BsgEZUdYkWeEF%2BG2KgYj%2BzPGsOkRbev%2BBTlxTRT56vZh2BRi%2B7sFDgxdE9NJnxxH8jgVf1E5Ct0dLWQGpSMpZO8f%2BytRKMtjz6dgiSnO6iQESsRG4RRbxtSJ8Q8G0cVH7H8u%2BerokbE32PnqwkjuLNE0gsVc8huN5G1P8RNdp8r2ey4m2akCouacY8lQOFlyPG6vZt7JBfvSkSSeDsbntLEW%2B5kw6heg5vyz4VHHUBtamMvWasHge4MYAJCQwVSCo6Bi9PphSSWqY5Fxm%2BNXcTJ7TPGzYD3k3A56HihvKmfDPJeQgsOSp4EIHxZNlD5RO4k6VuxWFSWHmfDKgnWPobSypItRUebo7ysrxPeAhcG2U%2FtrFJ6c2ZosszPY%2FH59x4%2BfV5NBF2Jd7i8ENzcU7YQRNAjqwgIPfx%2FneHwZpkr%2Byxa%2BJJ2OmPe9rY%2FzN0lLqdrjIoYEeo3EMS9SVaDjVLU4VHKBE7jBWfPqA4KtQ0k9%2BOXLZyOzFIt1Tw4LmwjOTNELjF19oHFeBobYeeWBAaW8yAqvbuqQ9vAW%2BzNZlxiXed4sFhe4whIa5qAY6sAHLr4%2F9PHLdkIzOpDMedWUTk8aJzmnJUfV88BMC69XqLdUVuF5lgOfwWykGqhdHJcdd3HpN5u%2FHo%2B83%2BGJoiPKJmXhOQe9FM5DVP4kYrIwsbZ4L0BTJd%2FkqEwGkjVprA7%2BEXsI%2FPKeL8nhijDijPctTq5akS%2FashM8yWrO3PeZId%2BcQDzw0vMnnxt3w6el0izvNlb%2FxKQ2ULn%2F8qTT7eIADRYt52%2BO3AJVBd%2F8I3XgSyA%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=86625278ea105a82b7bcd77928a935f99600d55d743b18e7ffa157654319dfdc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "zenly"
+    },
+    {
+      "id": 12465973,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BountyAwarded",
+      "message": "Hi @yetanotherhacker, thanks again for your report ! We set the award according to the program and add a bonus for your kindness in explaining your process.\nThe issue should be fixed, we'll ask for a re-test before closing this one.\n\nRegards",
+      "automated_response": false,
+      "created_at": "2021-07-13T08:44:04.818Z",
+      "updated_at": "2021-07-13T08:44:04.818Z",
+      "actor": {
+        "url": "/zenly",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/fejdhan217zjloubmj19c0phf2vc/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "Zenly"
+        }
+      },
+      "bounty_currency": "usd",
+      "genius_execution_id": null,
+      "team_handle": "zenly",
+      "collaborator": {
+        "username": "yetanotherhacker",
+        "url": "/yetanotherhacker"
+      }
+    },
+    {
+      "id": 12465984,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugRetesting",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2021-07-13T08:44:18.186Z",
+      "updated_at": "2021-07-13T08:44:18.309Z",
+      "actor": {
+        "username": "spud",
+        "cleared": false,
+        "verified": false,
+        "url": "/spud",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/8oh8szgckzyde0syfm692lalzqg2/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22shoie_otomo2.jpg%22%3B%20filename%2A%3DUTF-8%27%27shoie_otomo2.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQXL2TV4JY%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070611Z&X-Amz-Expires=2609&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQC6gxJ2Fgorv1CGF8se8AzeZarVMBLse4f%2Fv1LWZPPIbAIhAIe13AyRf7KoGQmk0MZsohJbY2mmh8fOJTnvWpEfZdoaKrEFCCMQAxoMMDEzNjE5Mjc0ODQ5IgzcVzLSCfqhl64LbOoqjgXEg5yJowTgB6h0qoSj2KgKW%2FmO5%2Fb22frcKudampbs5LOCE%2Bl%2BTzvnLlh8zfsY9Insep7fcRUtb%2F%2Ba%2BgVdyMNa5k1sDhv63hYhXctRIhsubT4u%2BKuj6RCLHJY3dXzqK889huk5FJgsPR61WQfBkCfEQC8iLWjotXcQ24R5LylVYeAdAfDTBXiQl0%2Ba%2BsgeYEoj5X7QnFy0DX62VlrQT9rRHS%2BIe%2F4W0R8qQqELu9%2Fy2ZB8v7fPotewALFtGyLN4MQlE6%2BVl4GI35jgi1WT1qpLseSJ1p25J9nDGI0NHpdpJMKM5E5L7%2B7%2BsgEZUdYkWeEF%2BG2KgYj%2BzPGsOkRbev%2BBTlxTRT56vZh2BRi%2B7sFDgxdE9NJnxxH8jgVf1E5Ct0dLWQGpSMpZO8f%2BytRKMtjz6dgiSnO6iQESsRG4RRbxtSJ8Q8G0cVH7H8u%2BerokbE32PnqwkjuLNE0gsVc8huN5G1P8RNdp8r2ey4m2akCouacY8lQOFlyPG6vZt7JBfvSkSSeDsbntLEW%2B5kw6heg5vyz4VHHUBtamMvWasHge4MYAJCQwVSCo6Bi9PphSSWqY5Fxm%2BNXcTJ7TPGzYD3k3A56HihvKmfDPJeQgsOSp4EIHxZNlD5RO4k6VuxWFSWHmfDKgnWPobSypItRUebo7ysrxPeAhcG2U%2FtrFJ6c2ZosszPY%2FH59x4%2BfV5NBF2Jd7i8ENzcU7YQRNAjqwgIPfx%2FneHwZpkr%2Byxa%2BJJ2OmPe9rY%2FzN0lLqdrjIoYEeo3EMS9SVaDjVLU4VHKBE7jBWfPqA4KtQ0k9%2BOXLZyOzFIt1Tw4LmwjOTNELjF19oHFeBobYeeWBAaW8yAqvbuqQ9vAW%2BzNZlxiXed4sFhe4whIa5qAY6sAHLr4%2F9PHLdkIzOpDMedWUTk8aJzmnJUfV88BMC69XqLdUVuF5lgOfwWykGqhdHJcdd3HpN5u%2FHo%2B83%2BGJoiPKJmXhOQe9FM5DVP4kYrIwsbZ4L0BTJd%2FkqEwGkjVprA7%2BEXsI%2FPKeL8nhijDijPctTq5akS%2FashM8yWrO3PeZId%2BcQDzw0vMnnxt3w6el0izvNlb%2FxKQ2ULn%2F8qTT7eIADRYt52%2BO3AJVBd%2F8I3XgSyA%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=86625278ea105a82b7bcd77928a935f99600d55d743b18e7ffa157654319dfdc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "zenly"
+    },
+    {
+      "id": 12484927,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::RetestUserExpired",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2021-07-14T08:55:07.381Z",
+      "updated_at": "2021-07-14T08:55:07.381Z",
+      "actor": {
+        "username": "yetanotherhacker",
+        "cleared": false,
+        "verified": false,
+        "url": "/yetanotherhacker",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "zenly"
+    },
+    {
+      "id": 12498765,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ExternalUserJoined",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2021-07-15T03:30:22.690Z",
+      "updated_at": "2021-07-15T03:30:22.690Z",
+      "additional_data": {
+        "report_permissions": null,
+        "report_retest_user_id": 13127
+      },
+      "actor": {
+        "username": "shewhoisblack",
+        "cleared": false,
+        "verified": true,
+        "url": "/shewhoisblack",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/pi2gewc6uyb5bu2gqzzcjhms2qqx/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "zenly"
+    },
+    {
+      "id": 12503154,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "I confirm that the issue is fixed.\nIt is clear that access tokens associated with each device were added. To bypass this you need access to the UUID device of the victim.\n\nGood work Zenly!\n:)\n",
+      "automated_response": false,
+      "created_at": "2021-07-15T09:18:49.664Z",
+      "updated_at": "2021-07-15T09:18:49.664Z",
+      "actor": {
+        "username": "yetanotherhacker",
+        "cleared": false,
+        "verified": false,
+        "url": "/yetanotherhacker",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "zenly"
+    },
+    {
+      "id": 12503215,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::UserCompletedRetest",
+      "message": "Yes he @yetanotherhacker is correct ...\n\nIssue is fixed now.\n\n@newpapa",
+      "automated_response": false,
+      "created_at": "2021-07-15T09:21:42.307Z",
+      "updated_at": "2021-07-15T09:21:42.307Z",
+      "actor": {
+        "username": "shewhoisblack",
+        "cleared": false,
+        "verified": true,
+        "url": "/shewhoisblack",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/pi2gewc6uyb5bu2gqzzcjhms2qqx/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "zenly"
+    },
+    {
+      "id": 12572213,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportRetestApproved",
+      "message": "Thanks !",
+      "automated_response": false,
+      "created_at": "2021-07-19T15:43:09.015Z",
+      "updated_at": "2021-07-19T15:43:09.015Z",
+      "actor": {
+        "url": "/zenly",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/fejdhan217zjloubmj19c0phf2vc/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "Zenly"
+        }
+      },
+      "genius_execution_id": null,
+      "team_handle": "zenly"
+    },
+    {
+      "id": 12572214,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2021-07-19T15:43:09.092Z",
+      "updated_at": "2021-07-19T15:43:09.092Z",
+      "actor": {
+        "username": "spud",
+        "cleared": false,
+        "verified": false,
+        "url": "/spud",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/8oh8szgckzyde0syfm692lalzqg2/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22shoie_otomo2.jpg%22%3B%20filename%2A%3DUTF-8%27%27shoie_otomo2.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQXL2TV4JY%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070611Z&X-Amz-Expires=2609&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQC6gxJ2Fgorv1CGF8se8AzeZarVMBLse4f%2Fv1LWZPPIbAIhAIe13AyRf7KoGQmk0MZsohJbY2mmh8fOJTnvWpEfZdoaKrEFCCMQAxoMMDEzNjE5Mjc0ODQ5IgzcVzLSCfqhl64LbOoqjgXEg5yJowTgB6h0qoSj2KgKW%2FmO5%2Fb22frcKudampbs5LOCE%2Bl%2BTzvnLlh8zfsY9Insep7fcRUtb%2F%2Ba%2BgVdyMNa5k1sDhv63hYhXctRIhsubT4u%2BKuj6RCLHJY3dXzqK889huk5FJgsPR61WQfBkCfEQC8iLWjotXcQ24R5LylVYeAdAfDTBXiQl0%2Ba%2BsgeYEoj5X7QnFy0DX62VlrQT9rRHS%2BIe%2F4W0R8qQqELu9%2Fy2ZB8v7fPotewALFtGyLN4MQlE6%2BVl4GI35jgi1WT1qpLseSJ1p25J9nDGI0NHpdpJMKM5E5L7%2B7%2BsgEZUdYkWeEF%2BG2KgYj%2BzPGsOkRbev%2BBTlxTRT56vZh2BRi%2B7sFDgxdE9NJnxxH8jgVf1E5Ct0dLWQGpSMpZO8f%2BytRKMtjz6dgiSnO6iQESsRG4RRbxtSJ8Q8G0cVH7H8u%2BerokbE32PnqwkjuLNE0gsVc8huN5G1P8RNdp8r2ey4m2akCouacY8lQOFlyPG6vZt7JBfvSkSSeDsbntLEW%2B5kw6heg5vyz4VHHUBtamMvWasHge4MYAJCQwVSCo6Bi9PphSSWqY5Fxm%2BNXcTJ7TPGzYD3k3A56HihvKmfDPJeQgsOSp4EIHxZNlD5RO4k6VuxWFSWHmfDKgnWPobSypItRUebo7ysrxPeAhcG2U%2FtrFJ6c2ZosszPY%2FH59x4%2BfV5NBF2Jd7i8ENzcU7YQRNAjqwgIPfx%2FneHwZpkr%2Byxa%2BJJ2OmPe9rY%2FzN0lLqdrjIoYEeo3EMS9SVaDjVLU4VHKBE7jBWfPqA4KtQ0k9%2BOXLZyOzFIt1Tw4LmwjOTNELjF19oHFeBobYeeWBAaW8yAqvbuqQ9vAW%2BzNZlxiXed4sFhe4whIa5qAY6sAHLr4%2F9PHLdkIzOpDMedWUTk8aJzmnJUfV88BMC69XqLdUVuF5lgOfwWykGqhdHJcdd3HpN5u%2FHo%2B83%2BGJoiPKJmXhOQe9FM5DVP4kYrIwsbZ4L0BTJd%2FkqEwGkjVprA7%2BEXsI%2FPKeL8nhijDijPctTq5akS%2FashM8yWrO3PeZId%2BcQDzw0vMnnxt3w6el0izvNlb%2FxKQ2ULn%2F8qTT7eIADRYt52%2BO3AJVBd%2F8I3XgSyA%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=86625278ea105a82b7bcd77928a935f99600d55d743b18e7ffa157654319dfdc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "reporter": {
+        "username": "yetanotherhacker",
+        "url": "/yetanotherhacker"
+      },
+      "genius_execution_id": null,
+      "team_handle": "zenly"
+    },
+    {
+      "id": 12708457,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @spud,\nI want to publish this research as I believe this is a very interesting technical case. I wish to discuss gRPC security and also to mention the professionalism and responsiveness of the Zenly security team.\nIs there an official Zenly response/comment you want me to add?\nI'll be happy to share the publication with you before publishing.",
+      "automated_response": false,
+      "created_at": "2021-07-28T08:28:41.139Z",
+      "updated_at": "2021-07-28T08:28:41.139Z",
+      "actor": {
+        "username": "yetanotherhacker",
+        "cleared": false,
+        "verified": false,
+        "url": "/yetanotherhacker",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "zenly"
+    },
+    {
+      "id": 12746797,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @yetanotherhacker,\nThanks for your kind words. Since we still have at least one ongoing issue (your second report) that hasn’t been fixed, we would like to not be mentioned and the information identifying Zenly to be anonymised or redacted (endpoints / methods name etc..). I don’t think it would make your paper less interesting, wdyt ?\n\nRegards,",
+      "automated_response": false,
+      "created_at": "2021-07-30T09:22:24.029Z",
+      "updated_at": "2021-07-30T09:22:24.029Z",
+      "actor": {
+        "username": "spud",
+        "cleared": false,
+        "verified": false,
+        "url": "/spud",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/8oh8szgckzyde0syfm692lalzqg2/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22shoie_otomo2.jpg%22%3B%20filename%2A%3DUTF-8%27%27shoie_otomo2.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQXL2TV4JY%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070611Z&X-Amz-Expires=2609&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQC6gxJ2Fgorv1CGF8se8AzeZarVMBLse4f%2Fv1LWZPPIbAIhAIe13AyRf7KoGQmk0MZsohJbY2mmh8fOJTnvWpEfZdoaKrEFCCMQAxoMMDEzNjE5Mjc0ODQ5IgzcVzLSCfqhl64LbOoqjgXEg5yJowTgB6h0qoSj2KgKW%2FmO5%2Fb22frcKudampbs5LOCE%2Bl%2BTzvnLlh8zfsY9Insep7fcRUtb%2F%2Ba%2BgVdyMNa5k1sDhv63hYhXctRIhsubT4u%2BKuj6RCLHJY3dXzqK889huk5FJgsPR61WQfBkCfEQC8iLWjotXcQ24R5LylVYeAdAfDTBXiQl0%2Ba%2BsgeYEoj5X7QnFy0DX62VlrQT9rRHS%2BIe%2F4W0R8qQqELu9%2Fy2ZB8v7fPotewALFtGyLN4MQlE6%2BVl4GI35jgi1WT1qpLseSJ1p25J9nDGI0NHpdpJMKM5E5L7%2B7%2BsgEZUdYkWeEF%2BG2KgYj%2BzPGsOkRbev%2BBTlxTRT56vZh2BRi%2B7sFDgxdE9NJnxxH8jgVf1E5Ct0dLWQGpSMpZO8f%2BytRKMtjz6dgiSnO6iQESsRG4RRbxtSJ8Q8G0cVH7H8u%2BerokbE32PnqwkjuLNE0gsVc8huN5G1P8RNdp8r2ey4m2akCouacY8lQOFlyPG6vZt7JBfvSkSSeDsbntLEW%2B5kw6heg5vyz4VHHUBtamMvWasHge4MYAJCQwVSCo6Bi9PphSSWqY5Fxm%2BNXcTJ7TPGzYD3k3A56HihvKmfDPJeQgsOSp4EIHxZNlD5RO4k6VuxWFSWHmfDKgnWPobSypItRUebo7ysrxPeAhcG2U%2FtrFJ6c2ZosszPY%2FH59x4%2BfV5NBF2Jd7i8ENzcU7YQRNAjqwgIPfx%2FneHwZpkr%2Byxa%2BJJ2OmPe9rY%2FzN0lLqdrjIoYEeo3EMS9SVaDjVLU4VHKBE7jBWfPqA4KtQ0k9%2BOXLZyOzFIt1Tw4LmwjOTNELjF19oHFeBobYeeWBAaW8yAqvbuqQ9vAW%2BzNZlxiXed4sFhe4whIa5qAY6sAHLr4%2F9PHLdkIzOpDMedWUTk8aJzmnJUfV88BMC69XqLdUVuF5lgOfwWykGqhdHJcdd3HpN5u%2FHo%2B83%2BGJoiPKJmXhOQe9FM5DVP4kYrIwsbZ4L0BTJd%2FkqEwGkjVprA7%2BEXsI%2FPKeL8nhijDijPctTq5akS%2FashM8yWrO3PeZId%2BcQDzw0vMnnxt3w6el0izvNlb%2FxKQ2ULn%2F8qTT7eIADRYt52%2BO3AJVBd%2F8I3XgSyA%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=86625278ea105a82b7bcd77928a935f99600d55d743b18e7ffa157654319dfdc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "zenly"
+    },
+    {
+      "id": 13525541,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "FYI, I decided to wait with the publication until the second issue is fixed.\nBest,\nYAH",
+      "automated_response": false,
+      "created_at": "2021-09-19T12:11:11.318Z",
+      "updated_at": "2021-09-19T12:11:11.318Z",
+      "actor": {
+        "username": "yetanotherhacker",
+        "cleared": false,
+        "verified": false,
+        "url": "/yetanotherhacker",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "zenly"
+    },
+    {
+      "id": 14278134,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi There,\nNow that everything is fixed, I would like to publish.\nPlease let me know where I should send the paper for your review before publication.\nThanks,\nYAH",
+      "automated_response": false,
+      "created_at": "2021-11-12T10:22:01.672Z",
+      "updated_at": "2021-11-12T10:22:01.672Z",
+      "actor": {
+        "username": "yetanotherhacker",
+        "cleared": false,
+        "verified": false,
+        "url": "/yetanotherhacker",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "zenly"
+    },
+    {
+      "id": 14312958,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @yetanotherhacker, you can attach a doc/pdf/txt here if you'd like",
+      "automated_response": false,
+      "created_at": "2021-11-15T18:24:46.621Z",
+      "updated_at": "2021-11-15T18:24:46.621Z",
+      "actor": {
+        "username": "spud",
+        "cleared": false,
+        "verified": false,
+        "url": "/spud",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/8oh8szgckzyde0syfm692lalzqg2/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22shoie_otomo2.jpg%22%3B%20filename%2A%3DUTF-8%27%27shoie_otomo2.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQXL2TV4JY%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070611Z&X-Amz-Expires=2609&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQC6gxJ2Fgorv1CGF8se8AzeZarVMBLse4f%2Fv1LWZPPIbAIhAIe13AyRf7KoGQmk0MZsohJbY2mmh8fOJTnvWpEfZdoaKrEFCCMQAxoMMDEzNjE5Mjc0ODQ5IgzcVzLSCfqhl64LbOoqjgXEg5yJowTgB6h0qoSj2KgKW%2FmO5%2Fb22frcKudampbs5LOCE%2Bl%2BTzvnLlh8zfsY9Insep7fcRUtb%2F%2Ba%2BgVdyMNa5k1sDhv63hYhXctRIhsubT4u%2BKuj6RCLHJY3dXzqK889huk5FJgsPR61WQfBkCfEQC8iLWjotXcQ24R5LylVYeAdAfDTBXiQl0%2Ba%2BsgeYEoj5X7QnFy0DX62VlrQT9rRHS%2BIe%2F4W0R8qQqELu9%2Fy2ZB8v7fPotewALFtGyLN4MQlE6%2BVl4GI35jgi1WT1qpLseSJ1p25J9nDGI0NHpdpJMKM5E5L7%2B7%2BsgEZUdYkWeEF%2BG2KgYj%2BzPGsOkRbev%2BBTlxTRT56vZh2BRi%2B7sFDgxdE9NJnxxH8jgVf1E5Ct0dLWQGpSMpZO8f%2BytRKMtjz6dgiSnO6iQESsRG4RRbxtSJ8Q8G0cVH7H8u%2BerokbE32PnqwkjuLNE0gsVc8huN5G1P8RNdp8r2ey4m2akCouacY8lQOFlyPG6vZt7JBfvSkSSeDsbntLEW%2B5kw6heg5vyz4VHHUBtamMvWasHge4MYAJCQwVSCo6Bi9PphSSWqY5Fxm%2BNXcTJ7TPGzYD3k3A56HihvKmfDPJeQgsOSp4EIHxZNlD5RO4k6VuxWFSWHmfDKgnWPobSypItRUebo7ysrxPeAhcG2U%2FtrFJ6c2ZosszPY%2FH59x4%2BfV5NBF2Jd7i8ENzcU7YQRNAjqwgIPfx%2FneHwZpkr%2Byxa%2BJJ2OmPe9rY%2FzN0lLqdrjIoYEeo3EMS9SVaDjVLU4VHKBE7jBWfPqA4KtQ0k9%2BOXLZyOzFIt1Tw4LmwjOTNELjF19oHFeBobYeeWBAaW8yAqvbuqQ9vAW%2BzNZlxiXed4sFhe4whIa5qAY6sAHLr4%2F9PHLdkIzOpDMedWUTk8aJzmnJUfV88BMC69XqLdUVuF5lgOfwWykGqhdHJcdd3HpN5u%2FHo%2B83%2BGJoiPKJmXhOQe9FM5DVP4kYrIwsbZ4L0BTJd%2FkqEwGkjVprA7%2BEXsI%2FPKeL8nhijDijPctTq5akS%2FashM8yWrO3PeZId%2BcQDzw0vMnnxt3w6el0izvNlb%2FxKQ2ULn%2F8qTT7eIADRYt52%2BO3AJVBd%2F8I3XgSyA%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=86625278ea105a82b7bcd77928a935f99600d55d743b18e7ffa157654319dfdc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "zenly"
+    },
+    {
+      "id": 14750341,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hello,\nAttached is the almost final draft of the blog.\nNot sure when we will publish, but it will not be in the coming week.\nIt was a pleasure working with you and I will be very happy to include Zenly's quote in the publication, so please let me know if and what you want me to add.\n\nBest,\nYAH (Erez Yalon)",
+      "automated_response": false,
+      "created_at": "2021-12-20T17:06:48.556Z",
+      "updated_at": "2021-12-20T17:06:48.556Z",
+      "actor": {
+        "username": "yetanotherhacker",
+        "cleared": false,
+        "verified": false,
+        "url": "/yetanotherhacker",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "zenly"
+    },
+    {
+      "id": 14881957,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi Erez, happy new year ! \nThanks for the draft but I think I haven't be clear : we don't want Zenly mentioned in the blog post. This is going on your company blog, and sorry but it looks more like  \"we found flaws on a famous application\" than \"here's how to reverse grpc / protobuf\" , aka more publicity than technical information. If you want to write a technical post in which you obfuscate the company name, hosts and endpoints, go for it, that's what interesting :)\n\nRegards,",
+      "automated_response": false,
+      "created_at": "2022-01-03T08:49:03.655Z",
+      "updated_at": "2022-01-03T08:49:03.655Z",
+      "actor": {
+        "username": "spud",
+        "cleared": false,
+        "verified": false,
+        "url": "/spud",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/8oh8szgckzyde0syfm692lalzqg2/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22shoie_otomo2.jpg%22%3B%20filename%2A%3DUTF-8%27%27shoie_otomo2.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQXL2TV4JY%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070611Z&X-Amz-Expires=2609&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQC6gxJ2Fgorv1CGF8se8AzeZarVMBLse4f%2Fv1LWZPPIbAIhAIe13AyRf7KoGQmk0MZsohJbY2mmh8fOJTnvWpEfZdoaKrEFCCMQAxoMMDEzNjE5Mjc0ODQ5IgzcVzLSCfqhl64LbOoqjgXEg5yJowTgB6h0qoSj2KgKW%2FmO5%2Fb22frcKudampbs5LOCE%2Bl%2BTzvnLlh8zfsY9Insep7fcRUtb%2F%2Ba%2BgVdyMNa5k1sDhv63hYhXctRIhsubT4u%2BKuj6RCLHJY3dXzqK889huk5FJgsPR61WQfBkCfEQC8iLWjotXcQ24R5LylVYeAdAfDTBXiQl0%2Ba%2BsgeYEoj5X7QnFy0DX62VlrQT9rRHS%2BIe%2F4W0R8qQqELu9%2Fy2ZB8v7fPotewALFtGyLN4MQlE6%2BVl4GI35jgi1WT1qpLseSJ1p25J9nDGI0NHpdpJMKM5E5L7%2B7%2BsgEZUdYkWeEF%2BG2KgYj%2BzPGsOkRbev%2BBTlxTRT56vZh2BRi%2B7sFDgxdE9NJnxxH8jgVf1E5Ct0dLWQGpSMpZO8f%2BytRKMtjz6dgiSnO6iQESsRG4RRbxtSJ8Q8G0cVH7H8u%2BerokbE32PnqwkjuLNE0gsVc8huN5G1P8RNdp8r2ey4m2akCouacY8lQOFlyPG6vZt7JBfvSkSSeDsbntLEW%2B5kw6heg5vyz4VHHUBtamMvWasHge4MYAJCQwVSCo6Bi9PphSSWqY5Fxm%2BNXcTJ7TPGzYD3k3A56HihvKmfDPJeQgsOSp4EIHxZNlD5RO4k6VuxWFSWHmfDKgnWPobSypItRUebo7ysrxPeAhcG2U%2FtrFJ6c2ZosszPY%2FH59x4%2BfV5NBF2Jd7i8ENzcU7YQRNAjqwgIPfx%2FneHwZpkr%2Byxa%2BJJ2OmPe9rY%2FzN0lLqdrjIoYEeo3EMS9SVaDjVLU4VHKBE7jBWfPqA4KtQ0k9%2BOXLZyOzFIt1Tw4LmwjOTNELjF19oHFeBobYeeWBAaW8yAqvbuqQ9vAW%2BzNZlxiXed4sFhe4whIa5qAY6sAHLr4%2F9PHLdkIzOpDMedWUTk8aJzmnJUfV88BMC69XqLdUVuF5lgOfwWykGqhdHJcdd3HpN5u%2FHo%2B83%2BGJoiPKJmXhOQe9FM5DVP4kYrIwsbZ4L0BTJd%2FkqEwGkjVprA7%2BEXsI%2FPKeL8nhijDijPctTq5akS%2FashM8yWrO3PeZId%2BcQDzw0vMnnxt3w6el0izvNlb%2FxKQ2ULn%2F8qTT7eIADRYt52%2BO3AJVBd%2F8I3XgSyA%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=86625278ea105a82b7bcd77928a935f99600d55d743b18e7ffa157654319dfdc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "zenly"
+    },
+    {
+      "id": 14918637,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2022-01-05T17:13:50.097Z",
+      "updated_at": "2022-01-05T17:13:50.097Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "yetanotherhacker",
+        "cleared": false,
+        "verified": false,
+        "url": "/yetanotherhacker",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "zenly"
+    },
+    {
+      "id": 14972469,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi Erez, \nAfter discussing it internally we agreed that there are nothing preventing us to disclose those reports, i'll do it this week (I will redact minor stuff). \nWe are also willing to continue the discussion on the blog post, nothing much to change except minor stuff to redact too, Is there a mail I can contact you on regarding this ?\n\nRegards,",
+      "automated_response": false,
+      "created_at": "2022-01-10T12:50:57.812Z",
+      "updated_at": "2022-01-10T12:50:57.812Z",
+      "actor": {
+        "username": "spud",
+        "cleared": false,
+        "verified": false,
+        "url": "/spud",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/8oh8szgckzyde0syfm692lalzqg2/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22shoie_otomo2.jpg%22%3B%20filename%2A%3DUTF-8%27%27shoie_otomo2.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQXL2TV4JY%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070611Z&X-Amz-Expires=2609&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQC6gxJ2Fgorv1CGF8se8AzeZarVMBLse4f%2Fv1LWZPPIbAIhAIe13AyRf7KoGQmk0MZsohJbY2mmh8fOJTnvWpEfZdoaKrEFCCMQAxoMMDEzNjE5Mjc0ODQ5IgzcVzLSCfqhl64LbOoqjgXEg5yJowTgB6h0qoSj2KgKW%2FmO5%2Fb22frcKudampbs5LOCE%2Bl%2BTzvnLlh8zfsY9Insep7fcRUtb%2F%2Ba%2BgVdyMNa5k1sDhv63hYhXctRIhsubT4u%2BKuj6RCLHJY3dXzqK889huk5FJgsPR61WQfBkCfEQC8iLWjotXcQ24R5LylVYeAdAfDTBXiQl0%2Ba%2BsgeYEoj5X7QnFy0DX62VlrQT9rRHS%2BIe%2F4W0R8qQqELu9%2Fy2ZB8v7fPotewALFtGyLN4MQlE6%2BVl4GI35jgi1WT1qpLseSJ1p25J9nDGI0NHpdpJMKM5E5L7%2B7%2BsgEZUdYkWeEF%2BG2KgYj%2BzPGsOkRbev%2BBTlxTRT56vZh2BRi%2B7sFDgxdE9NJnxxH8jgVf1E5Ct0dLWQGpSMpZO8f%2BytRKMtjz6dgiSnO6iQESsRG4RRbxtSJ8Q8G0cVH7H8u%2BerokbE32PnqwkjuLNE0gsVc8huN5G1P8RNdp8r2ey4m2akCouacY8lQOFlyPG6vZt7JBfvSkSSeDsbntLEW%2B5kw6heg5vyz4VHHUBtamMvWasHge4MYAJCQwVSCo6Bi9PphSSWqY5Fxm%2BNXcTJ7TPGzYD3k3A56HihvKmfDPJeQgsOSp4EIHxZNlD5RO4k6VuxWFSWHmfDKgnWPobSypItRUebo7ysrxPeAhcG2U%2FtrFJ6c2ZosszPY%2FH59x4%2BfV5NBF2Jd7i8ENzcU7YQRNAjqwgIPfx%2FneHwZpkr%2Byxa%2BJJ2OmPe9rY%2FzN0lLqdrjIoYEeo3EMS9SVaDjVLU4VHKBE7jBWfPqA4KtQ0k9%2BOXLZyOzFIt1Tw4LmwjOTNELjF19oHFeBobYeeWBAaW8yAqvbuqQ9vAW%2BzNZlxiXed4sFhe4whIa5qAY6sAHLr4%2F9PHLdkIzOpDMedWUTk8aJzmnJUfV88BMC69XqLdUVuF5lgOfwWykGqhdHJcdd3HpN5u%2FHo%2B83%2BGJoiPKJmXhOQe9FM5DVP4kYrIwsbZ4L0BTJd%2FkqEwGkjVprA7%2BEXsI%2FPKeL8nhijDijPctTq5akS%2FashM8yWrO3PeZId%2BcQDzw0vMnnxt3w6el0izvNlb%2FxKQ2ULn%2F8qTT7eIADRYt52%2BO3AJVBd%2F8I3XgSyA%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=86625278ea105a82b7bcd77928a935f99600d55d743b18e7ffa157654319dfdc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "zenly"
+    },
+    {
+      "id": 15007346,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2022-01-12T10:08:29.946Z",
+      "updated_at": "2022-01-12T10:08:29.946Z",
+      "actor": {
+        "username": "spud",
+        "cleared": false,
+        "verified": false,
+        "url": "/spud",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/8oh8szgckzyde0syfm692lalzqg2/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22shoie_otomo2.jpg%22%3B%20filename%2A%3DUTF-8%27%27shoie_otomo2.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQXL2TV4JY%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070611Z&X-Amz-Expires=2609&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQC6gxJ2Fgorv1CGF8se8AzeZarVMBLse4f%2Fv1LWZPPIbAIhAIe13AyRf7KoGQmk0MZsohJbY2mmh8fOJTnvWpEfZdoaKrEFCCMQAxoMMDEzNjE5Mjc0ODQ5IgzcVzLSCfqhl64LbOoqjgXEg5yJowTgB6h0qoSj2KgKW%2FmO5%2Fb22frcKudampbs5LOCE%2Bl%2BTzvnLlh8zfsY9Insep7fcRUtb%2F%2Ba%2BgVdyMNa5k1sDhv63hYhXctRIhsubT4u%2BKuj6RCLHJY3dXzqK889huk5FJgsPR61WQfBkCfEQC8iLWjotXcQ24R5LylVYeAdAfDTBXiQl0%2Ba%2BsgeYEoj5X7QnFy0DX62VlrQT9rRHS%2BIe%2F4W0R8qQqELu9%2Fy2ZB8v7fPotewALFtGyLN4MQlE6%2BVl4GI35jgi1WT1qpLseSJ1p25J9nDGI0NHpdpJMKM5E5L7%2B7%2BsgEZUdYkWeEF%2BG2KgYj%2BzPGsOkRbev%2BBTlxTRT56vZh2BRi%2B7sFDgxdE9NJnxxH8jgVf1E5Ct0dLWQGpSMpZO8f%2BytRKMtjz6dgiSnO6iQESsRG4RRbxtSJ8Q8G0cVH7H8u%2BerokbE32PnqwkjuLNE0gsVc8huN5G1P8RNdp8r2ey4m2akCouacY8lQOFlyPG6vZt7JBfvSkSSeDsbntLEW%2B5kw6heg5vyz4VHHUBtamMvWasHge4MYAJCQwVSCo6Bi9PphSSWqY5Fxm%2BNXcTJ7TPGzYD3k3A56HihvKmfDPJeQgsOSp4EIHxZNlD5RO4k6VuxWFSWHmfDKgnWPobSypItRUebo7ysrxPeAhcG2U%2FtrFJ6c2ZosszPY%2FH59x4%2BfV5NBF2Jd7i8ENzcU7YQRNAjqwgIPfx%2FneHwZpkr%2Byxa%2BJJ2OmPe9rY%2FzN0lLqdrjIoYEeo3EMS9SVaDjVLU4VHKBE7jBWfPqA4KtQ0k9%2BOXLZyOzFIt1Tw4LmwjOTNELjF19oHFeBobYeeWBAaW8yAqvbuqQ9vAW%2BzNZlxiXed4sFhe4whIa5qAY6sAHLr4%2F9PHLdkIzOpDMedWUTk8aJzmnJUfV88BMC69XqLdUVuF5lgOfwWykGqhdHJcdd3HpN5u%2FHo%2B83%2BGJoiPKJmXhOQe9FM5DVP4kYrIwsbZ4L0BTJd%2FkqEwGkjVprA7%2BEXsI%2FPKeL8nhijDijPctTq5akS%2FashM8yWrO3PeZId%2BcQDzw0vMnnxt3w6el0izvNlb%2FxKQ2ULn%2F8qTT7eIADRYt52%2BO3AJVBd%2F8I3XgSyA%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=86625278ea105a82b7bcd77928a935f99600d55d743b18e7ffa157654319dfdc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "zenly"
+    },
+    {
+      "id": 15007347,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportBecamePublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2022-01-12T10:08:30.097Z",
+      "updated_at": "2022-01-12T10:08:30.097Z",
+      "actor": {
+        "username": "spud",
+        "cleared": false,
+        "verified": false,
+        "url": "/spud",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/8oh8szgckzyde0syfm692lalzqg2/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22shoie_otomo2.jpg%22%3B%20filename%2A%3DUTF-8%27%27shoie_otomo2.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQXL2TV4JY%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070611Z&X-Amz-Expires=2609&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQC6gxJ2Fgorv1CGF8se8AzeZarVMBLse4f%2Fv1LWZPPIbAIhAIe13AyRf7KoGQmk0MZsohJbY2mmh8fOJTnvWpEfZdoaKrEFCCMQAxoMMDEzNjE5Mjc0ODQ5IgzcVzLSCfqhl64LbOoqjgXEg5yJowTgB6h0qoSj2KgKW%2FmO5%2Fb22frcKudampbs5LOCE%2Bl%2BTzvnLlh8zfsY9Insep7fcRUtb%2F%2Ba%2BgVdyMNa5k1sDhv63hYhXctRIhsubT4u%2BKuj6RCLHJY3dXzqK889huk5FJgsPR61WQfBkCfEQC8iLWjotXcQ24R5LylVYeAdAfDTBXiQl0%2Ba%2BsgeYEoj5X7QnFy0DX62VlrQT9rRHS%2BIe%2F4W0R8qQqELu9%2Fy2ZB8v7fPotewALFtGyLN4MQlE6%2BVl4GI35jgi1WT1qpLseSJ1p25J9nDGI0NHpdpJMKM5E5L7%2B7%2BsgEZUdYkWeEF%2BG2KgYj%2BzPGsOkRbev%2BBTlxTRT56vZh2BRi%2B7sFDgxdE9NJnxxH8jgVf1E5Ct0dLWQGpSMpZO8f%2BytRKMtjz6dgiSnO6iQESsRG4RRbxtSJ8Q8G0cVH7H8u%2BerokbE32PnqwkjuLNE0gsVc8huN5G1P8RNdp8r2ey4m2akCouacY8lQOFlyPG6vZt7JBfvSkSSeDsbntLEW%2B5kw6heg5vyz4VHHUBtamMvWasHge4MYAJCQwVSCo6Bi9PphSSWqY5Fxm%2BNXcTJ7TPGzYD3k3A56HihvKmfDPJeQgsOSp4EIHxZNlD5RO4k6VuxWFSWHmfDKgnWPobSypItRUebo7ysrxPeAhcG2U%2FtrFJ6c2ZosszPY%2FH59x4%2BfV5NBF2Jd7i8ENzcU7YQRNAjqwgIPfx%2FneHwZpkr%2Byxa%2BJJ2OmPe9rY%2FzN0lLqdrjIoYEeo3EMS9SVaDjVLU4VHKBE7jBWfPqA4KtQ0k9%2BOXLZyOzFIt1Tw4LmwjOTNELjF19oHFeBobYeeWBAaW8yAqvbuqQ9vAW%2BzNZlxiXed4sFhe4whIa5qAY6sAHLr4%2F9PHLdkIzOpDMedWUTk8aJzmnJUfV88BMC69XqLdUVuF5lgOfwWykGqhdHJcdd3HpN5u%2FHo%2B83%2BGJoiPKJmXhOQe9FM5DVP4kYrIwsbZ4L0BTJd%2FkqEwGkjVprA7%2BEXsI%2FPKeL8nhijDijPctTq5akS%2FashM8yWrO3PeZId%2BcQDzw0vMnnxt3w6el0izvNlb%2FxKQ2ULn%2F8qTT7eIADRYt52%2BO3AJVBd%2F8I3XgSyA%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=86625278ea105a82b7bcd77928a935f99600d55d743b18e7ffa157654319dfdc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "zenly"
+    },
+    {
+      "id": 15052833,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @spud, you can contact me at erez.yalon@checkmarx.com\nLooking forward to hearing from you.\n\nBest,\nErez",
+      "automated_response": false,
+      "created_at": "2022-01-15T21:36:42.776Z",
+      "updated_at": "2022-01-15T21:36:42.776Z",
+      "actor": {
+        "username": "yetanotherhacker",
+        "cleared": false,
+        "verified": false,
+        "url": "/yetanotherhacker",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "zenly"
+    }
+  ],
+  "activity_page_count": 1,
+  "activity_page_number": 1,
+  "summaries": [
+    {
+      "id": 119962,
+      "category": "team",
+      "content": "An attacker could have taken over a future user account by abusing the session creation endpoint, which was consistently returning the same session token (although not yet valid) for the same user. \nOnce the legitimate user validates the SMS code for that session token, the session would have become valid for both the legitimate user and the attacker.\n",
+      "user": {
+        "id": 466928,
+        "username": "spud",
+        "name": "spud",
+        "bio": "",
+        "cleared": false,
+        "verified": false,
+        "website": null,
+        "location": "",
+        "created_at": "2019-01-14T17:31:59.167Z",
+        "url": "https://hackerone.com/spud",
+        "hackerone_triager": false,
+        "hackerone_employee": false,
+        "user_type": "hacker",
+        "profile_picture_urls": {
+          "small": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/8oh8szgckzyde0syfm692lalzqg2/3c7b305354c9073c106ae3d1701798defaaf5be844fb8fdfa49ca62f991a2c2c?response-content-disposition=inline%3B%20filename%3D%22shoie_otomo2.jpg%22%3B%20filename%2A%3DUTF-8%27%27shoie_otomo2.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQXL2TV4JY%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070611Z&X-Amz-Expires=2609&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQC6gxJ2Fgorv1CGF8se8AzeZarVMBLse4f%2Fv1LWZPPIbAIhAIe13AyRf7KoGQmk0MZsohJbY2mmh8fOJTnvWpEfZdoaKrEFCCMQAxoMMDEzNjE5Mjc0ODQ5IgzcVzLSCfqhl64LbOoqjgXEg5yJowTgB6h0qoSj2KgKW%2FmO5%2Fb22frcKudampbs5LOCE%2Bl%2BTzvnLlh8zfsY9Insep7fcRUtb%2F%2Ba%2BgVdyMNa5k1sDhv63hYhXctRIhsubT4u%2BKuj6RCLHJY3dXzqK889huk5FJgsPR61WQfBkCfEQC8iLWjotXcQ24R5LylVYeAdAfDTBXiQl0%2Ba%2BsgeYEoj5X7QnFy0DX62VlrQT9rRHS%2BIe%2F4W0R8qQqELu9%2Fy2ZB8v7fPotewALFtGyLN4MQlE6%2BVl4GI35jgi1WT1qpLseSJ1p25J9nDGI0NHpdpJMKM5E5L7%2B7%2BsgEZUdYkWeEF%2BG2KgYj%2BzPGsOkRbev%2BBTlxTRT56vZh2BRi%2B7sFDgxdE9NJnxxH8jgVf1E5Ct0dLWQGpSMpZO8f%2BytRKMtjz6dgiSnO6iQESsRG4RRbxtSJ8Q8G0cVH7H8u%2BerokbE32PnqwkjuLNE0gsVc8huN5G1P8RNdp8r2ey4m2akCouacY8lQOFlyPG6vZt7JBfvSkSSeDsbntLEW%2B5kw6heg5vyz4VHHUBtamMvWasHge4MYAJCQwVSCo6Bi9PphSSWqY5Fxm%2BNXcTJ7TPGzYD3k3A56HihvKmfDPJeQgsOSp4EIHxZNlD5RO4k6VuxWFSWHmfDKgnWPobSypItRUebo7ysrxPeAhcG2U%2FtrFJ6c2ZosszPY%2FH59x4%2BfV5NBF2Jd7i8ENzcU7YQRNAjqwgIPfx%2FneHwZpkr%2Byxa%2BJJ2OmPe9rY%2FzN0lLqdrjIoYEeo3EMS9SVaDjVLU4VHKBE7jBWfPqA4KtQ0k9%2BOXLZyOzFIt1Tw4LmwjOTNELjF19oHFeBobYeeWBAaW8yAqvbuqQ9vAW%2BzNZlxiXed4sFhe4whIa5qAY6sAHLr4%2F9PHLdkIzOpDMedWUTk8aJzmnJUfV88BMC69XqLdUVuF5lgOfwWykGqhdHJcdd3HpN5u%2FHo%2B83%2BGJoiPKJmXhOQe9FM5DVP4kYrIwsbZ4L0BTJd%2FkqEwGkjVprA7%2BEXsI%2FPKeL8nhijDijPctTq5akS%2FashM8yWrO3PeZId%2BcQDzw0vMnnxt3w6el0izvNlb%2FxKQ2ULn%2F8qTT7eIADRYt52%2BO3AJVBd%2F8I3XgSyA%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=439fc13ebfb7d4cbcd1d9f2119c52d18e9cc7aebe3ed1289804c27f3ef56d61b",
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/8oh8szgckzyde0syfm692lalzqg2/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22shoie_otomo2.jpg%22%3B%20filename%2A%3DUTF-8%27%27shoie_otomo2.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQXL2TV4JY%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070611Z&X-Amz-Expires=2609&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQC6gxJ2Fgorv1CGF8se8AzeZarVMBLse4f%2Fv1LWZPPIbAIhAIe13AyRf7KoGQmk0MZsohJbY2mmh8fOJTnvWpEfZdoaKrEFCCMQAxoMMDEzNjE5Mjc0ODQ5IgzcVzLSCfqhl64LbOoqjgXEg5yJowTgB6h0qoSj2KgKW%2FmO5%2Fb22frcKudampbs5LOCE%2Bl%2BTzvnLlh8zfsY9Insep7fcRUtb%2F%2Ba%2BgVdyMNa5k1sDhv63hYhXctRIhsubT4u%2BKuj6RCLHJY3dXzqK889huk5FJgsPR61WQfBkCfEQC8iLWjotXcQ24R5LylVYeAdAfDTBXiQl0%2Ba%2BsgeYEoj5X7QnFy0DX62VlrQT9rRHS%2BIe%2F4W0R8qQqELu9%2Fy2ZB8v7fPotewALFtGyLN4MQlE6%2BVl4GI35jgi1WT1qpLseSJ1p25J9nDGI0NHpdpJMKM5E5L7%2B7%2BsgEZUdYkWeEF%2BG2KgYj%2BzPGsOkRbev%2BBTlxTRT56vZh2BRi%2B7sFDgxdE9NJnxxH8jgVf1E5Ct0dLWQGpSMpZO8f%2BytRKMtjz6dgiSnO6iQESsRG4RRbxtSJ8Q8G0cVH7H8u%2BerokbE32PnqwkjuLNE0gsVc8huN5G1P8RNdp8r2ey4m2akCouacY8lQOFlyPG6vZt7JBfvSkSSeDsbntLEW%2B5kw6heg5vyz4VHHUBtamMvWasHge4MYAJCQwVSCo6Bi9PphSSWqY5Fxm%2BNXcTJ7TPGzYD3k3A56HihvKmfDPJeQgsOSp4EIHxZNlD5RO4k6VuxWFSWHmfDKgnWPobSypItRUebo7ysrxPeAhcG2U%2FtrFJ6c2ZosszPY%2FH59x4%2BfV5NBF2Jd7i8ENzcU7YQRNAjqwgIPfx%2FneHwZpkr%2Byxa%2BJJ2OmPe9rY%2FzN0lLqdrjIoYEeo3EMS9SVaDjVLU4VHKBE7jBWfPqA4KtQ0k9%2BOXLZyOzFIt1Tw4LmwjOTNELjF19oHFeBobYeeWBAaW8yAqvbuqQ9vAW%2BzNZlxiXed4sFhe4whIa5qAY6sAHLr4%2F9PHLdkIzOpDMedWUTk8aJzmnJUfV88BMC69XqLdUVuF5lgOfwWykGqhdHJcdd3HpN5u%2FHo%2B83%2BGJoiPKJmXhOQe9FM5DVP4kYrIwsbZ4L0BTJd%2FkqEwGkjVprA7%2BEXsI%2FPKeL8nhijDijPctTq5akS%2FashM8yWrO3PeZId%2BcQDzw0vMnnxt3w6el0izvNlb%2FxKQ2ULn%2F8qTT7eIADRYt52%2BO3AJVBd%2F8I3XgSyA%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=86625278ea105a82b7bcd77928a935f99600d55d743b18e7ffa157654319dfdc",
+          "xtralarge": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/8oh8szgckzyde0syfm692lalzqg2/114764ec8f01b1a3e153599212c9f011fb3b0bce3a4fdc1f9a3c551f8c94acf8?response-content-disposition=inline%3B%20filename%3D%22shoie_otomo2.jpg%22%3B%20filename%2A%3DUTF-8%27%27shoie_otomo2.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQXL2TV4JY%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070611Z&X-Amz-Expires=2609&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQC6gxJ2Fgorv1CGF8se8AzeZarVMBLse4f%2Fv1LWZPPIbAIhAIe13AyRf7KoGQmk0MZsohJbY2mmh8fOJTnvWpEfZdoaKrEFCCMQAxoMMDEzNjE5Mjc0ODQ5IgzcVzLSCfqhl64LbOoqjgXEg5yJowTgB6h0qoSj2KgKW%2FmO5%2Fb22frcKudampbs5LOCE%2Bl%2BTzvnLlh8zfsY9Insep7fcRUtb%2F%2Ba%2BgVdyMNa5k1sDhv63hYhXctRIhsubT4u%2BKuj6RCLHJY3dXzqK889huk5FJgsPR61WQfBkCfEQC8iLWjotXcQ24R5LylVYeAdAfDTBXiQl0%2Ba%2BsgeYEoj5X7QnFy0DX62VlrQT9rRHS%2BIe%2F4W0R8qQqELu9%2Fy2ZB8v7fPotewALFtGyLN4MQlE6%2BVl4GI35jgi1WT1qpLseSJ1p25J9nDGI0NHpdpJMKM5E5L7%2B7%2BsgEZUdYkWeEF%2BG2KgYj%2BzPGsOkRbev%2BBTlxTRT56vZh2BRi%2B7sFDgxdE9NJnxxH8jgVf1E5Ct0dLWQGpSMpZO8f%2BytRKMtjz6dgiSnO6iQESsRG4RRbxtSJ8Q8G0cVH7H8u%2BerokbE32PnqwkjuLNE0gsVc8huN5G1P8RNdp8r2ey4m2akCouacY8lQOFlyPG6vZt7JBfvSkSSeDsbntLEW%2B5kw6heg5vyz4VHHUBtamMvWasHge4MYAJCQwVSCo6Bi9PphSSWqY5Fxm%2BNXcTJ7TPGzYD3k3A56HihvKmfDPJeQgsOSp4EIHxZNlD5RO4k6VuxWFSWHmfDKgnWPobSypItRUebo7ysrxPeAhcG2U%2FtrFJ6c2ZosszPY%2FH59x4%2BfV5NBF2Jd7i8ENzcU7YQRNAjqwgIPfx%2FneHwZpkr%2Byxa%2BJJ2OmPe9rY%2FzN0lLqdrjIoYEeo3EMS9SVaDjVLU4VHKBE7jBWfPqA4KtQ0k9%2BOXLZyOzFIt1Tw4LmwjOTNELjF19oHFeBobYeeWBAaW8yAqvbuqQ9vAW%2BzNZlxiXed4sFhe4whIa5qAY6sAHLr4%2F9PHLdkIzOpDMedWUTk8aJzmnJUfV88BMC69XqLdUVuF5lgOfwWykGqhdHJcdd3HpN5u%2FHo%2B83%2BGJoiPKJmXhOQe9FM5DVP4kYrIwsbZ4L0BTJd%2FkqEwGkjVprA7%2BEXsI%2FPKeL8nhijDijPctTq5akS%2FashM8yWrO3PeZId%2BcQDzw0vMnnxt3w6el0izvNlb%2FxKQ2ULn%2F8qTT7eIADRYt52%2BO3AJVBd%2F8I3XgSyA%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=1d174d383031f4374147c87b093d378d4ebcbe05c34708dba3434f2d639160c6"
+        }
+      },
+      "can_view?": true,
+      "can_create?": false,
+      "attachments": [
+
+      ]
+    },
+    {
+      "category": "researcher",
+      "can_view?": true,
+      "can_create?": false
+    }
+  ]
+}

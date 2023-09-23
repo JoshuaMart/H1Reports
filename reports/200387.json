@@ -1,0 +1,325 @@
+{
+  "id": 200387,
+  "global_id": "Z2lkOi8vaGFja2Vyb25lL1JlcG9ydC8yMDAzODc=",
+  "url": "https://hackerone.com/reports/200387",
+  "title": "Incorrect code generation with redo inside NODE_RESCUE.",
+  "state": "Closed",
+  "substate": "resolved",
+  "severity_rating": "low",
+  "readable_substate": "Resolved",
+  "created_at": "2017-01-22T18:09:42.398Z",
+  "submitted_at": "2017-01-22T18:09:42.398Z",
+  "is_member_of_team?": false,
+  "is_organization_group_member?": false,
+  "reporter": {
+    "disabled": false,
+    "username": "dgaletic",
+    "url": "/dgaletic",
+    "profile_picture_urls": {
+      "small": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+    },
+    "is_me?": false,
+    "cleared": false,
+    "verified": false,
+    "hackerone_triager": false,
+    "hacker_mediation": false
+  },
+  "team": {
+    "id": 15668,
+    "url": "https://hackerone.com/shopify-scripts",
+    "handle": "shopify-scripts",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/015/668/ebbe467de8ef2fc936053593e1289e30f04c3b06_original.jpg/3c7b305354c9073c106ae3d1701798defaaf5be844fb8fdfa49ca62f991a2c2c",
+      "medium": "https://profile-photos.hackerone-user-content.com/variants/000/015/668/ebbe467de8ef2fc936053593e1289e30f04c3b06_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+    },
+    "permissions": [
+
+    ],
+    "submission_state": "paused",
+    "default_currency": "usd",
+    "awards_miles": false,
+    "offers_bounties": true,
+    "state": "public_mode",
+    "only_cleared_hackers": false,
+    "pentest_feature_enabled?": false,
+    "profile": {
+      "name": "shopify-scripts",
+      "twitter_handle": "",
+      "website": "",
+      "about": ""
+    }
+  },
+  "has_bounty?": true,
+  "in_validation?": false,
+  "can_view_team": true,
+  "can_view_report": true,
+  "is_external_bug": false,
+  "is_published": false,
+  "is_participant": false,
+  "has_collaborators": false,
+  "submitted_by_team_member": false,
+  "stage": 4,
+  "public": true,
+  "visibility": "full",
+  "cve_ids": [
+
+  ],
+  "singular_disclosure_disabled": false,
+  "disclosed_at": "2017-02-28T13:30:14.189Z",
+  "bug_reporter_agreed_on_going_public_at": "2017-02-28T13:30:14.146Z",
+  "team_member_agreed_on_going_public_at": "2017-02-27T23:30:32.152Z",
+  "comments_closed?": false,
+  "facebook_team?": false,
+  "team_private?": false,
+  "vulnerability_information": "The following code causes mruby to use up all available memory:\n\n`class A redo\nrescue c\nend`\n\nFollowing the execution, we see the code in codegen.c jumping between\nCASE(OP_ONERR) and CASE(OP_JMP). CASE(OP_ONERR) uses realloc to double\nthe size of mrb->c->rescue, and since it is stuck in an infinite loop\nbetween the two instructions, it runs out of memory.\n\nThe problematic jump is visible in the bytcode (emphasis added).\n\n00001 NODE_SCOPE:\n00001   NODE_BEGIN:\n00001     NODE_CLASS:\n00003       :A\n00003       body:\n00001         NODE_RESCUE:\n00003           body:\n00001             NODE_BEGIN:\n00001               NODE_REDO\n00003           rescue:\n00003             handle classes:\n00002               NODE_FCALL:\n00002                 NODE_SELF\n00002                 method='c' (670)\n00003             rescue body:\n00003               NODE_BEGIN:\n\nirep 0x715200 nregs=3 nlocals=1 pools=0 syms=1 reps=1\n    1 000 OP_LOADNIL    R1\n    1 001 OP_LOADNIL    R2\n    1 002 OP_CLASS      R1      :A\n    1 003 OP_EXEC       R1      I(+1)\n    1 004 OP_STOP\n\nirep 0x71b400 nregs=4 nlocals=1 pools=0 syms=2 reps=0\n    **1 000 OP_ONERR      003**   <------- Infinite loop\n    **1 001 OP_JMP        000**   <------- created here.\n    1 002 OP_JMP        013\n    1 003 OP_RESCUE     R1\n    2 004 OP_LOADSELF   R2\n    2 005 OP_SEND       R2      :c      0\n    2 006 OP_MOVE       R3      R1\n    2 007 OP_SEND       R2      :===    1\n    2 008 OP_JMPIF      R2      010\n    2 009 OP_JMP        012\n    3 010 OP_LOADNIL    R1\n    3 011 OP_JMP        014\n    3 012 OP_RAISE      R1\n    3 013 OP_POPERR     1\n    3 014 OP_RETURN     R1      return\n\nTesting the same code with MRI Ruby shows that MRI Ruby rejects it as a syntax\nerror. It would seem MRI Ruby forbids the use of `redo` in the context of\n`rescue` so the patch below disallows the related LOOP_* types. The test suite\nruns successfully with the patch. The bug is mitigated inside the mruby-engine\nsandbox because it triggers the instruction quota.\n\n```\n--- a/mrbgems/mruby-compiler/core/codegen.c\n+++ b/mrbgems/mruby-compiler/core/codegen.c\n@@ -2031,7 +2031,7 @@ codegen(codegen_scope *s, node *tree, int val)\n     break;\n \n   case NODE_REDO:\n-    if (!s->loop) {\n+    if (!s->loop || s->loop->type == LOOP_BEGIN || s->loop->type == LOOP_RESCUE) {\n       raise_error(s, \"unexpected redo\");\n     }\n     else {\n```\n",
+  "bounty_amount": "100.0",
+  "formatted_bounty": "$100",
+  "weakness": {
+    "id": 48,
+    "name": "Denial of Service"
+  },
+  "original_report_id": null,
+  "original_report_url": null,
+  "attachments": [
+    {
+      "id": 154258,
+      "file_name": "0001-Fix-incorrect-code-generation-with-redo-inside-NODE_.patch",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/154/258/ce6d3f538a4a9f1ce241c078b3eed528a411f0ee/0001-Fix-incorrect-code-generation-with-redo-inside-NODE_.patch?response-content-disposition=attachment%3B%20filename%3D%220001-Fix-incorrect-code-generation-with-redo-inside-NODE_.patch%22%3B%20filename%2A%3DUTF-8%27%270001-Fix-incorrect-code-generation-with-redo-inside-NODE_.patch&response-content-type=text%2Fx-diff&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQQSHJJ4WA%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T080928Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEC8aCXVzLXdlc3QtMiJIMEYCIQCNRRGWf9hqfbRBySP%2BzD3duT3V0C4SVoEYLwEPiMhgAQIhAIeKUum7lpgC4B%2BlIMof5Ry9tN2v1yK0PkBLjM0lnVMZKrEFCCgQAxoMMDEzNjE5Mjc0ODQ5IgyTOJ9XbCJM8MalVqcqjgU3AuXbr468nUKncUk5OkTZ%2BN4JJRxzVuyROMbUt8%2F45LK4ZdRjaJtd0jOUwDBlGIEYfaqjjbXeQ86Nkq8mUzLVWXziRMoTMwuJuyK%2BNu1aBuLbkLT0cdLuiYucJXQ4vdys8xP5aTjpqu3AL%2FaialU0XTvNdznpXg2aaQuf6ZioHSNyx8Itu%2Bi4H6Alf1677jgfv9AMQgVtTUlLsLvnA%2FDHJZK2f86kj%2FLQf9XdysUd9Ty6vT1WO4FBhDp%2FqsCqzHld8zXwdSKazUZwONsr3GQJ%2BDfgFwYpN5NChxBI9ZQ1%2BMEQp4nolJBiTmUUKz7BuS%2BxDtIlMYCV23Yb3aq71YTwlvvbK52Khh7s8eTfKHTcavmnZ83gaQEC%2FaoqhoGIKmtUq1PP2G2qPHDLKAbHMzXcoSlfGMRHnRfTHG68baxBZ5Ok%2BgUuUCy5KzkRiT5P%2BEry0h1NuA7EKk4H66y9wjKAr4xFzhJUR0Ij4naAbk7ZMWj6ZyHOGHw93XsjkE352bTRjsA7zRh07rjOla%2B5J4faAIfhn7xz6HV0lBx%2BGHJ2MElhTXSXZoDknOpgd7YkA2%2Bkba%2BYHCsnmctuqid9xDxR4ARYDA5f3v0G%2FlF1EyzLjxfNDm0IxB4UakNjrjq58vdweP%2B3ov2QFZFP8Sns0UW4LQrVHng59ZTZr83nHO1U7JgG2inskd7h4NhEQO6ONhggdpImObVlwVvmxCketPIW37wUjLZX4%2FjeAi%2B8GDPFDiaP5tbJjqurQwVxHtsMvUqJGNK0cLkmyO%2B0gRgAb6KT5wZYPo0OPOWrVdyEY8Tmg%2Bp%2F6uBSrwm5UKSpH0qdNaBc00PATubeMe1EP2X5ny%2FZBT5wuo7VnuKUoa%2BuALkw35O6qAY6sAGhr8cu8V6nlRKzTa9Onbd4KOFt2E6lPiBC9RY1tY7ZEOdiDvmfl8iCh3WKTHyKK7r6T07ABQMvlgzU7A%2FErWaWhY8wbGoOoOPZfPAmWJSDUU0YfIpiD802IaKtsyZMsP2ZFk7WcNTfSZR85%2Ba9umLUG43ZK64isT1eJpjfOleGwme5uXu55QsM8%2BEl7T1NBFV%2F3HDWGKGus%2BKgpHcKreUShsqb2LV670al4qaleKFlhA%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=306ab7d68191cdb9fc3c19a795a1dd32badd4ac518e0fae17fa9582e6d6560be",
+      "file_size": 825,
+      "type": "text/x-diff",
+      "moderated": null
+    }
+  ],
+  "allow_singular_disclosure_at": "2017-03-29T23:30:32.185Z",
+  "allow_singular_disclosure_after": -204626336.463394,
+  "singular_disclosure_allowed": true,
+  "vote_count": 3,
+  "voters": [
+    "eveeez",
+    "spetr0x",
+    "mstuhin23"
+  ],
+  "severity": {
+    "rating": "low",
+    "author_type": "User"
+  },
+  "structured_scope": null,
+  "abilities": {
+    "assignable_team_members": [
+
+    ],
+    "assignable_team_member_groups": [
+
+    ]
+  },
+  "activities": [
+    {
+      "id": 1437143,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Thank you for reporting this bug! This is an automated response to let you know that we've received your issue, and we'll process it as soon as possible.\n\nDue to the large volume of reports we have received, it may take us up to three weeks to respond. Thank you for your patience!",
+      "automated_response": true,
+      "created_at": "2017-01-22T18:09:42.582Z",
+      "updated_at": "2017-01-22T18:09:42.582Z",
+      "actor": {
+        "url": "/shopify-scripts",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/015/668/ebbe467de8ef2fc936053593e1289e30f04c3b06_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "profile": {
+          "name": "shopify-scripts"
+        }
+      },
+      "genius_execution_id": null,
+      "team_handle": "shopify-scripts"
+    },
+    {
+      "id": 1456595,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugTriaged",
+      "message": "Thank you for the detailed report. We've opened the issue upstream: https://github.com/mruby/mruby/issues/3422",
+      "automated_response": false,
+      "created_at": "2017-02-01T17:10:24.348Z",
+      "updated_at": "2017-02-01T17:10:24.348Z",
+      "actor": {
+        "username": "clayton",
+        "cleared": false,
+        "verified": false,
+        "url": "/clayton",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/YKjJrQvn996bd2n67ELXwtHt/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "shopify-scripts"
+    },
+    {
+      "id": 1461741,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Edit: Ignore this; accidentally posted here, and I don't see a \"delete comment\" option.",
+      "automated_response": false,
+      "created_at": "2017-02-03T21:20:54.711Z",
+      "updated_at": "2017-02-03T21:23:50.811Z",
+      "actor": {
+        "username": "dgaletic",
+        "cleared": false,
+        "verified": false,
+        "url": "/dgaletic",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "shopify-scripts"
+    },
+    {
+      "id": 1499526,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "Thanks again for your report. This was resolved upstream in https://github.com/mruby/mruby/commit/ecb6ac8b4aca56582ebed3e955178a0ad6c77d5d\n\nOur next round of bounty decisions will take place within two weeks, so we'll be in touch with you again soon.",
+      "automated_response": false,
+      "created_at": "2017-02-22T15:57:16.273Z",
+      "updated_at": "2017-02-22T15:57:16.273Z",
+      "actor": {
+        "username": "clayton",
+        "cleared": false,
+        "verified": false,
+        "url": "/clayton",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/YKjJrQvn996bd2n67ELXwtHt/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "reporter": {
+        "username": "dgaletic",
+        "url": "/dgaletic"
+      },
+      "genius_execution_id": null,
+      "team_handle": "shopify-scripts"
+    },
+    {
+      "id": 1509645,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BountyAwarded",
+      "message": "Thanks for helping improve the security of the MRuby project!",
+      "automated_response": false,
+      "created_at": "2017-02-27T23:30:25.962Z",
+      "updated_at": "2017-02-27T23:30:25.962Z",
+      "actor": {
+        "url": "/shopify-scripts",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/015/668/ebbe467de8ef2fc936053593e1289e30f04c3b06_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "profile": {
+          "name": "shopify-scripts"
+        }
+      },
+      "bounty_amount": "100.0",
+      "bonus_amount": "0.0",
+      "bounty_currency": "usd",
+      "genius_execution_id": null,
+      "team_handle": "shopify-scripts",
+      "collaborator": {
+        "username": "dgaletic",
+        "url": "/dgaletic"
+      }
+    },
+    {
+      "id": 1509646,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2017-02-27T23:30:32.168Z",
+      "updated_at": "2017-02-27T23:30:32.168Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "andrewdunbar",
+        "cleared": false,
+        "verified": false,
+        "url": "/andrewdunbar",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/019/164/5b0e89675ed6dbb9df87223e9f8f58e2125bb56b_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "shopify-scripts"
+    },
+    {
+      "id": 1510924,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2017-02-28T13:30:14.172Z",
+      "updated_at": "2017-02-28T13:30:14.172Z",
+      "actor": {
+        "username": "dgaletic",
+        "cleared": false,
+        "verified": false,
+        "url": "/dgaletic",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "shopify-scripts"
+    },
+    {
+      "id": 1510925,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportBecamePublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2017-02-28T13:30:14.203Z",
+      "updated_at": "2017-02-28T13:30:14.203Z",
+      "actor": {
+        "username": "dgaletic",
+        "cleared": false,
+        "verified": false,
+        "url": "/dgaletic",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "shopify-scripts"
+    }
+  ],
+  "activity_page_count": 1,
+  "activity_page_number": 1,
+  "summaries": [
+    {
+      "category": "team",
+      "can_view?": true,
+      "can_create?": false
+    },
+    {
+      "category": "researcher",
+      "can_view?": true,
+      "can_create?": false
+    }
+  ]
+}

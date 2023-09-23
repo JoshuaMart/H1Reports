@@ -1,0 +1,795 @@
+{
+  "id": 819717,
+  "global_id": "Z2lkOi8vaGFja2Vyb25lL1JlcG9ydC84MTk3MTc=",
+  "url": "https://hackerone.com/reports/819717",
+  "title": "IPv4 only clusters susceptible to MitM attacks via IPv6 rogue router advertisements",
+  "state": "Closed",
+  "substate": "resolved",
+  "severity_rating": "medium",
+  "readable_substate": "Resolved",
+  "created_at": "2020-03-15T17:34:18.152Z",
+  "submitted_at": "2020-03-15T17:34:18.152Z",
+  "is_member_of_team?": false,
+  "is_organization_group_member?": false,
+  "reporter": {
+    "disabled": false,
+    "username": "champtar",
+    "url": "/champtar",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/gP6rmwtVzj4iV6taRZdmhSGU/d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98"
+    },
+    "is_me?": false,
+    "cleared": false,
+    "verified": false,
+    "hackerone_triager": false,
+    "hacker_mediation": false
+  },
+  "team": {
+    "id": 39386,
+    "url": "https://hackerone.com/kubernetes",
+    "handle": "kubernetes",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/039/386/486f4380e09776d05a912ca9f46be23f72fe8197_original.png/d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98",
+      "medium": "https://profile-photos.hackerone-user-content.com/variants/000/039/386/486f4380e09776d05a912ca9f46be23f72fe8197_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+    },
+    "permissions": [
+
+    ],
+    "submission_state": "open",
+    "default_currency": "usd",
+    "awards_miles": false,
+    "offers_bounties": true,
+    "state": "public_mode",
+    "only_cleared_hackers": false,
+    "pentest_feature_enabled?": false,
+    "profile": {
+      "name": "Kubernetes",
+      "twitter_handle": "kubernetesio",
+      "website": "https://kubernetes.io/",
+      "about": ""
+    }
+  },
+  "has_bounty?": true,
+  "in_validation?": false,
+  "can_view_team": true,
+  "can_view_report": true,
+  "is_external_bug": false,
+  "is_published": false,
+  "is_participant": false,
+  "has_collaborators": false,
+  "submitted_by_team_member": false,
+  "stage": 4,
+  "public": true,
+  "visibility": "full",
+  "cve_ids": [
+    "CVE-2019-9946",
+    "CVE-2019-3462"
+  ],
+  "singular_disclosure_disabled": false,
+  "disclosed_at": "2021-11-07T03:52:50.936Z",
+  "bug_reporter_agreed_on_going_public_at": "2021-10-08T03:52:49.109Z",
+  "team_member_agreed_on_going_public_at": null,
+  "comments_closed?": false,
+  "facebook_team?": false,
+  "team_private?": false,
+  "vulnerability_information": "This bug report mostly concerns the default CNI plugins (https://github.com/containernetworking/plugins) but I believe affects many K8S clusters.\nBecause the CNI team still doesn’t provide an explicit way to report security bugs, I hope the K8S security team doesn’t mind doing the coordination job again as was done for CVE-2019-9946.\nI understand this is out of scope for this bounty, and I understand if you want to close this report and prefer that I resend it via email to security@kubernetes.io or other.\n\n## Summary:\nIn many K8S network configurations the container network interface is a virtual ethernet link going to the host (veth interface). In this configuration, an attacker able to run a process as root in a container can send and receive arbitrary packets to the host using the CAP_NET_RAW capability (present in default configuration).\n\nIn a K8S cluster with an IPv4 internal network, if IPv6 is not totally disabled on the host (via ipv6.disable=1 on the kernel cmdline), it will be either unconfigured or configured on some interfaces, but it’s pretty likely that ipv6 forwarding is disabled, ie /proc/sys/net/ipv6/conf/*/forwarding == 0. Also by default, /proc/sys/net/ipv6/conf/*/accept_ra == 1. The combination of these 2 sysctls means that the host accepts router advertisements and configure the IPv6 stack using them.\n\nBy sending “rogue” router advertisements, an attacker can reconfigure the host to redirect part or all of the IPv6 traffic of the host to the attacker controlled container.\nEven if there was no IPv6 traffic before, if the DNS returns A (IPv4) and AAAA (IPv6) records, many HTTP libraries will try to connect via IPv6 first then fallback to IPv4, giving an opportunity to the attacker to respond.\nIf by chance you also have on the host a vulnerability like last year’s RCE in apt (CVE-2019-3462), you can now escalate to the host.\n\nAs CAP_NET_ADMIN is not present by default in K8S pods, the attacker can’t configure the IPs they want to MitM, they can’t use iptables to NAT or REDIRECT the traffic, and they can’t use IP_TRANSPARENT. The attacker can however still use CAP_NET_RAW and implement a tcp/ip stack in user space.\n\nThis report includes a POC based on smoltcp (https://github.com/smoltcp-rs/smoltcp) that sends router advertisements and implements a dummy HTTP server listening on any IPv6 addresses.\n\nThis vulnerability can easily be fixed by setting accept_ra = 0 by default on any interface managed by CNI / K8S.\n\n## Kubernetes Version:\nReproduced on:\nGKE Cos 1.14.10-gke.17 with native VPC\nGKE Cos 1.16.6-gke.12 with/without native VPC\nGKE Cos + containerd 1.16.6-gke.12 without native VPC\nKubespray k8s 1.17.3 + containerd\n\n\n## Component Version:\nCNI 0.7.5\n\n## Steps To Reproduce:\n\nPlease find attached F748694, a recording of my shell using asciinema (https://github.com/asciinema/asciinema)\n\nThe GKE cluster used was created using the following command:\n`gcloud beta container --project \"copper-frame-263204\" clusters create \"testipv6\" --zone \"us-central1-c\" --no-enable-basic-auth --release-channel \"rapid\" --machine-type \"n1-standard-1\" --image-type \"COS\" --disk-type \"pd-standard\" --disk-size \"100\" --metadata disable-legacy-endpoints=true --scopes \"https://www.googleapis.com/auth/devstorage.read_only\",\"https://www.googleapis.com/auth/logging.write\",\"https://www.googleapis.com/auth/monitoring\",\"https://www.googleapis.com/auth/servicecontrol\",\"https://www.googleapis.com/auth/service.management.readonly\",\"https://www.googleapis.com/auth/trace.append\" --num-nodes \"3\" --enable-stackdriver-kubernetes --no-enable-ip-alias --network \"projects/copper-frame-263204/global/networks/default\" --subnetwork \"projects/copper-frame-263204/regions/us-central1/subnetworks/default\" --no-enable-master-authorized-networks --addons HorizontalPodAutoscaling,HttpLoadBalancing --enable-autoupgrade --enable-autorepair`\n\nThis cluster is created without `--enable-ip-alias` (but the attack also with it)\n\n## Supporting Material/References:\nF748693: rust source code for the POC\nF748694: asciinema recording\n\n## Impact\n\nAn attacker able to run arbitrary code as root inside of a container can MitM part of the host’s traffic. This vulnerability if chained with other vulnerability like last year’s RCE in apt (CVE-2019-3462) could allow to escalate to the host.",
+  "weakness": {
+    "id": 30,
+    "name": "Man-in-the-Middle"
+  },
+  "original_report_id": null,
+  "original_report_url": null,
+  "attachments": [
+    {
+      "id": 748693,
+      "file_name": "ipv6mitm.tar.xz",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/SnSkQjHNsU552btjNy72aEWc?response-content-disposition=attachment%3B%20filename%3D%22ipv6mitm.tar.xz%22%3B%20filename%2A%3DUTF-8%27%27ipv6mitm.tar.xz&response-content-type=application%2Fx-xz&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQX3NXO7QZ%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070739Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQCbnlzM5i9WfTN9kNxGF%2BjO0%2FfzKIA0Hp70NjlTDwNasQIhAJyYEwtXT0%2BRZZxjv1NrFggoNOCoT3mU%2F7cjdG7P8rDbKrIFCCMQAxoMMDEzNjE5Mjc0ODQ5IgwINFq%2BLpY0xrM%2FogAqjwUr4hE%2FkGSCvZilvvzrBYsaW3zlott55AeXoNO%2Bj2HYvHW%2BaezLi6ZkzkofawG98TuqywgTo7pw1vT4K6IwMSLMTshH9WVsgHZCGplgQndh%2Byc9RHbjS5Vd8xr5Fz7oZobSe67MtQjAZRksk3xOS%2BnG%2BZdi591LH9JYcScpJi0a%2BayucR6SqtCTx3Ftfh0nKTYnFl4CvyKfDu3DIWu3N160aQ5ZH1xNmIB9u47MR7Y%2FPbUZ5zdMdhuN%2BDnB6z0vnZh9O8IR0bH5KF%2ByhW0ZDS5R8jyaDV%2F0lRV0O2taMMTbpJ%2F4EytVsnWR8sWfSzo6bVTiN%2B6mY%2BNLQChX0a8SL8ihPkK%2FueXSSAY9I4jT7HudO2YQwibAD%2Bdw9LKl35cfz7DRajTkq040qmhm91Yh3sPZpP1fuPVTsbSN7HfsvQGrZtNjEnMLOtMu61iHPDuEaC758m54aA56cSVZV6XrnGQQALFIgk7YTJ7APtpigQswVRHwyJyM2TOrarCDkx9FDWB3LkhBMfQjPTJwND4p0zsU2Td9KXP6Bl1O2xgmciDdmUWMsx45ZfUjMNiZ3PGvFGBzFZPsNJYuApSxy4oSGjI5o9WW0zLSETGgoUS4NFp1Kcv9YofmvzBSA08hDc2URAMdhmLCBhvZYKMA5IxeYX71XFIXJGVv9PamSlGZYUe5KPaagnP1MwmX3L227L9ytSPgmQEbhiZbUHzZrvRSB%2B5MnRZL225Rk0T7bKyORaST7iwdfCIhKdgDfuIPjykoBeXqMp8oE8hzVcNSrDaMqfYp%2FiMD99n6D4Q3kET9pMITkEi88Jw%2F5KSj9g77aiqCOhq8wf6%2FN7cEzwE1hPG9khV7asG7w7q5Ap09NS%2FoP0vPMJmGuagGOrAB55LPfipuctKTaGiNyV3c0qioH29nw%2FCxvbTC1WGAXoLJb3L25AlAYuDH8k1piCJEu5XYB84c%2B4aAb7sJGB2l8gv8cgewyAB1JuKmSpWOJ0dkGfMtQr627YQZFkefX%2B%2FekQoLWMLa6BWMaFqWi58mr23nneygiJiXGTTBD39ixLpEJxvuWk4%2F2pMnbJuQOLi8wolfYl8yYnBKLBKFqMTRVnYPYBE%2BTjE6e5FUUt0vkA4%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=1eb2ded986f0a8800cccab595cd278b357bcd80191114c5e81d2bc85c2c84957",
+      "file_size": 3444,
+      "type": "application/x-xz",
+      "moderated": null
+    },
+    {
+      "id": 748694,
+      "file_name": "ipv6mitm.cast",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/sAkRASHWVb3ytmjDxTZF21c1?response-content-disposition=attachment%3B%20filename%3D%22ipv6mitm.cast%22%3B%20filename%2A%3DUTF-8%27%27ipv6mitm.cast&response-content-type=application%2Foctet-stream&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQX3NXO7QZ%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070739Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQCbnlzM5i9WfTN9kNxGF%2BjO0%2FfzKIA0Hp70NjlTDwNasQIhAJyYEwtXT0%2BRZZxjv1NrFggoNOCoT3mU%2F7cjdG7P8rDbKrIFCCMQAxoMMDEzNjE5Mjc0ODQ5IgwINFq%2BLpY0xrM%2FogAqjwUr4hE%2FkGSCvZilvvzrBYsaW3zlott55AeXoNO%2Bj2HYvHW%2BaezLi6ZkzkofawG98TuqywgTo7pw1vT4K6IwMSLMTshH9WVsgHZCGplgQndh%2Byc9RHbjS5Vd8xr5Fz7oZobSe67MtQjAZRksk3xOS%2BnG%2BZdi591LH9JYcScpJi0a%2BayucR6SqtCTx3Ftfh0nKTYnFl4CvyKfDu3DIWu3N160aQ5ZH1xNmIB9u47MR7Y%2FPbUZ5zdMdhuN%2BDnB6z0vnZh9O8IR0bH5KF%2ByhW0ZDS5R8jyaDV%2F0lRV0O2taMMTbpJ%2F4EytVsnWR8sWfSzo6bVTiN%2B6mY%2BNLQChX0a8SL8ihPkK%2FueXSSAY9I4jT7HudO2YQwibAD%2Bdw9LKl35cfz7DRajTkq040qmhm91Yh3sPZpP1fuPVTsbSN7HfsvQGrZtNjEnMLOtMu61iHPDuEaC758m54aA56cSVZV6XrnGQQALFIgk7YTJ7APtpigQswVRHwyJyM2TOrarCDkx9FDWB3LkhBMfQjPTJwND4p0zsU2Td9KXP6Bl1O2xgmciDdmUWMsx45ZfUjMNiZ3PGvFGBzFZPsNJYuApSxy4oSGjI5o9WW0zLSETGgoUS4NFp1Kcv9YofmvzBSA08hDc2URAMdhmLCBhvZYKMA5IxeYX71XFIXJGVv9PamSlGZYUe5KPaagnP1MwmX3L227L9ytSPgmQEbhiZbUHzZrvRSB%2B5MnRZL225Rk0T7bKyORaST7iwdfCIhKdgDfuIPjykoBeXqMp8oE8hzVcNSrDaMqfYp%2FiMD99n6D4Q3kET9pMITkEi88Jw%2F5KSj9g77aiqCOhq8wf6%2FN7cEzwE1hPG9khV7asG7w7q5Ap09NS%2FoP0vPMJmGuagGOrAB55LPfipuctKTaGiNyV3c0qioH29nw%2FCxvbTC1WGAXoLJb3L25AlAYuDH8k1piCJEu5XYB84c%2B4aAb7sJGB2l8gv8cgewyAB1JuKmSpWOJ0dkGfMtQr627YQZFkefX%2B%2FekQoLWMLa6BWMaFqWi58mr23nneygiJiXGTTBD39ixLpEJxvuWk4%2F2pMnbJuQOLi8wolfYl8yYnBKLBKFqMTRVnYPYBE%2BTjE6e5FUUt0vkA4%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=dc55e61894bb14e07e3610f5780642d9fb3a3fe7285e1f4a5b6f89b0853e9c7a",
+      "file_size": 44512,
+      "type": "application/octet-stream",
+      "moderated": null
+    }
+  ],
+  "allow_singular_disclosure_at": "2021-11-07T03:52:49.178Z",
+  "allow_singular_disclosure_after": -59195690.45882602,
+  "singular_disclosure_allowed": true,
+  "vote_count": 10,
+  "voters": [
+    "aoxsin",
+    "vonypet",
+    "h4x0r_dz",
+    "ad1das",
+    "arjunkrishna",
+    "hend41234",
+    "goodsmile",
+    "hash_eem",
+    "meispi",
+    "qb1tz242"
+  ],
+  "severity": {
+    "rating": "medium",
+    "score": 6.0,
+    "author_type": "Team",
+    "metrics": {
+      "attack_vector": "network",
+      "attack_complexity": "high",
+      "privileges_required": "low",
+      "user_interaction": "none",
+      "scope": "changed",
+      "confidentiality": "low",
+      "integrity": "low",
+      "availability": "low"
+    }
+  },
+  "structured_scope": {
+    "databaseId": 32459,
+    "asset_type": "SOURCE_CODE",
+    "asset_identifier": "https://github.com/kubernetes/kubernetes",
+    "max_severity": "critical"
+  },
+  "abilities": {
+    "assignable_team_members": [
+
+    ],
+    "assignable_team_member_groups": [
+
+    ]
+  },
+  "activities": [
+    {
+      "id": 7329368,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hey @champtar - Thanks for the submission. Your report is currently being reviewed and the HackerOne triage team will get back to you once there is additional information to share.",
+      "automated_response": false,
+      "created_at": "2020-03-16T13:37:56.784Z",
+      "updated_at": "2020-03-16T13:37:56.784Z",
+      "actor": {
+        "username": "h1_analyst_leon",
+        "cleared": false,
+        "verified": false,
+        "url": "/h1_analyst_leon",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/9G6pgB95of3ikt3prqQunAfD/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "kubernetes"
+    },
+    {
+      "id": 7330996,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugNeedsMoreInfo",
+      "message": "Hey @champtar - Thank you for the report. Can you please provide clear step-by-step instructions to supplement your PoC video? Thanks! ",
+      "automated_response": false,
+      "created_at": "2020-03-16T15:37:55.424Z",
+      "updated_at": "2020-03-16T15:37:55.424Z",
+      "actor": {
+        "username": "h1_analyst_leon",
+        "cleared": false,
+        "verified": false,
+        "url": "/h1_analyst_leon",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/9G6pgB95of3ikt3prqQunAfD/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "kubernetes"
+    },
+    {
+      "id": 7338430,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugNew",
+      "message": "Hi @tuxedo,\n\nLast time I provided step-by-step, I was asked for a video, should I provide both in the future ?\n\n1) Deploy / connect to your kubernetes clusters. As I don’t know all the impacted clusters, here is the command I used to create the GKE cluster used in my video:\n```gcloud beta container --project \"copper-frame-263204\" clusters create \"testipv6\" --zone \"us-central1-c\" --no-enable-basic-auth --release-channel \"rapid\" --machine-type \"n1-standard-1\" --image-type \"COS\" --disk-type \"pd-standard\" --disk-size \"100\" --metadata disable-legacy-endpoints=true --scopes \"https://www.googleapis.com/auth/devstorage.read_only\",\"https://www.googleapis.com/auth/logging.write\",\"https://www.googleapis.com/auth/monitoring\",\"https://www.googleapis.com/auth/servicecontrol\",\"https://www.googleapis.com/auth/service.management.readonly\",\"https://www.googleapis.com/auth/trace.append\" --num-nodes \"3\" --enable-stackdriver-kubernetes --no-enable-ip-alias --network \"projects/copper-frame-263204/global/networks/default\" --subnetwork \"projects/copper-frame-263204/regions/us-central1/subnetworks/default\" --no-enable-master-authorized-networks --addons HorizontalPodAutoscaling,HttpLoadBalancing --enable-autoupgrade --enable-autorepair```\n(you of course need to replace the project name)\n\n2) Extract the rust project (F748693), and compile it with `cargo build --release`. You now have a binary called `ipv6mitm`.\nIf you prefer you can also directly use F750087.\n\n3) Launch a dummy Pod:\n```\nkubectl apply -f - <<'EOF'\napiVersion: v1\nkind: Pod\nmetadata:\n  name: ubuntu-pod\nspec:\n  containers:\n    - name: ubuntu\n      image: ubuntu:latest\n      command: [ \"/bin/sleep\", \"inf\" ]\nEOF\n```\n(In our scenario the attacker is able to run code as root in a \"normal\" pod of the cluster)\n\n4) Find on which node the ubuntu-pod is running using `kubectl get pod -o wide`, then ssh to it.\n\n5) on the node, try `curl http://www.google.com -v`.\nRight now you should get a normal response, and you can see on the first few lines that you used IPv4.\n\n6) This is the attack part:\ncopy the ipv6mitm binary\n`kubectl cp ipv6mitm ubuntu-pod:/`\nconnect to the pod\n`kubectl exec -it ubuntu-pod /bin/bash`\nand run the binary\n`/ipv6mitm -i eth0`\n\n7) on the node, try `curl http://www.google.com -v` again.\nYou should see that we used IPv6 and the response is just \"ok\", it came from the container.",
+      "automated_response": false,
+      "created_at": "2020-03-16T21:56:29.528Z",
+      "updated_at": "2020-03-16T21:56:29.528Z",
+      "actor": {
+        "username": "champtar",
+        "cleared": false,
+        "verified": false,
+        "url": "/champtar",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/gP6rmwtVzj4iV6taRZdmhSGU/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "attachments": [
+        {
+          "id": 750087,
+          "filename": "ipv6mitm",
+          "type": "application/x-sharedlib",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/e4fjJ8wAr7uEpJiz3gwyCsJC?response-content-disposition=attachment%3B%20filename%3D%22ipv6mitm%22%3B%20filename%2A%3DUTF-8%27%27ipv6mitm&response-content-type=application%2Fx-sharedlib&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQX3NXO7QZ%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070739Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQCbnlzM5i9WfTN9kNxGF%2BjO0%2FfzKIA0Hp70NjlTDwNasQIhAJyYEwtXT0%2BRZZxjv1NrFggoNOCoT3mU%2F7cjdG7P8rDbKrIFCCMQAxoMMDEzNjE5Mjc0ODQ5IgwINFq%2BLpY0xrM%2FogAqjwUr4hE%2FkGSCvZilvvzrBYsaW3zlott55AeXoNO%2Bj2HYvHW%2BaezLi6ZkzkofawG98TuqywgTo7pw1vT4K6IwMSLMTshH9WVsgHZCGplgQndh%2Byc9RHbjS5Vd8xr5Fz7oZobSe67MtQjAZRksk3xOS%2BnG%2BZdi591LH9JYcScpJi0a%2BayucR6SqtCTx3Ftfh0nKTYnFl4CvyKfDu3DIWu3N160aQ5ZH1xNmIB9u47MR7Y%2FPbUZ5zdMdhuN%2BDnB6z0vnZh9O8IR0bH5KF%2ByhW0ZDS5R8jyaDV%2F0lRV0O2taMMTbpJ%2F4EytVsnWR8sWfSzo6bVTiN%2B6mY%2BNLQChX0a8SL8ihPkK%2FueXSSAY9I4jT7HudO2YQwibAD%2Bdw9LKl35cfz7DRajTkq040qmhm91Yh3sPZpP1fuPVTsbSN7HfsvQGrZtNjEnMLOtMu61iHPDuEaC758m54aA56cSVZV6XrnGQQALFIgk7YTJ7APtpigQswVRHwyJyM2TOrarCDkx9FDWB3LkhBMfQjPTJwND4p0zsU2Td9KXP6Bl1O2xgmciDdmUWMsx45ZfUjMNiZ3PGvFGBzFZPsNJYuApSxy4oSGjI5o9WW0zLSETGgoUS4NFp1Kcv9YofmvzBSA08hDc2URAMdhmLCBhvZYKMA5IxeYX71XFIXJGVv9PamSlGZYUe5KPaagnP1MwmX3L227L9ytSPgmQEbhiZbUHzZrvRSB%2B5MnRZL225Rk0T7bKyORaST7iwdfCIhKdgDfuIPjykoBeXqMp8oE8hzVcNSrDaMqfYp%2FiMD99n6D4Q3kET9pMITkEi88Jw%2F5KSj9g77aiqCOhq8wf6%2FN7cEzwE1hPG9khV7asG7w7q5Ap09NS%2FoP0vPMJmGuagGOrAB55LPfipuctKTaGiNyV3c0qioH29nw%2FCxvbTC1WGAXoLJb3L25AlAYuDH8k1piCJEu5XYB84c%2B4aAb7sJGB2l8gv8cgewyAB1JuKmSpWOJ0dkGfMtQr627YQZFkefX%2B%2FekQoLWMLa6BWMaFqWi58mr23nneygiJiXGTTBD39ixLpEJxvuWk4%2F2pMnbJuQOLi8wolfYl8yYnBKLBKFqMTRVnYPYBE%2BTjE6e5FUUt0vkA4%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=1e9c843daeb12c7c7de30e2a61ce1f5c8da3c6d72a38e06212b87576710108f9"
+        }
+      ],
+      "genius_execution_id": null,
+      "team_handle": "kubernetes"
+    },
+    {
+      "id": 7344492,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @champtar - Yes, it's helpful to have both the step-by-step instructions and video demonstration. Thank you for the steps, I'm taking a look at this right now. ",
+      "automated_response": false,
+      "created_at": "2020-03-17T15:10:55.880Z",
+      "updated_at": "2020-03-17T15:10:55.880Z",
+      "actor": {
+        "username": "h1_analyst_leon",
+        "cleared": false,
+        "verified": false,
+        "url": "/h1_analyst_leon",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/9G6pgB95of3ikt3prqQunAfD/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "kubernetes"
+    },
+    {
+      "id": 7346358,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugTriaged",
+      "message": "Thank you @champtar! I was able to validate your report, and have submitted it to the appropriate remediation team for review. You will be updated on the status of this report as soon as there is additional information to share. Please note that the status and severity are subject to change.",
+      "automated_response": false,
+      "created_at": "2020-03-17T17:46:38.762Z",
+      "updated_at": "2020-03-17T17:46:38.762Z",
+      "actor": {
+        "username": "h1_analyst_leon",
+        "cleared": false,
+        "verified": false,
+        "url": "/h1_analyst_leon",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/9G6pgB95of3ikt3prqQunAfD/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "kubernetes"
+    },
+    {
+      "id": 7346368,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportSeverityUpdated",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2020-03-17T17:48:34.963Z",
+      "updated_at": "2020-03-17T17:48:34.963Z",
+      "additional_data": {
+        "old_severity": "Medium",
+        "new_severity": "Medium (6.6)",
+        "old_severity_id": 660009,
+        "new_severity_id": 662663
+      },
+      "actor": {
+        "username": "h1_analyst_leon",
+        "cleared": false,
+        "verified": false,
+        "url": "/h1_analyst_leon",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/9G6pgB95of3ikt3prqQunAfD/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "kubernetes"
+    },
+    {
+      "id": 7424654,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hello Kubernetes Security Team\n\nThis attack also work against docker default install (just tested on ubuntu 18.04)\nDo you want me to send a report to security@docker.com ? Maybe I should include the CVE id and a contact so you can sync on disclosure date ?\n(I'll check LXC when I have some time.)",
+      "automated_response": false,
+      "created_at": "2020-03-25T00:21:56.056Z",
+      "updated_at": "2020-03-25T00:21:56.056Z",
+      "actor": {
+        "username": "champtar",
+        "cleared": false,
+        "verified": false,
+        "url": "/champtar",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/gP6rmwtVzj4iV6taRZdmhSGU/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "kubernetes"
+    },
+    {
+      "id": 7438288,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Yes, please send a separate report to docker security. Docker uses a different networking setup, and needs to be addressed separately. On the Kubernetes side, we're still working out how we want to handle this.",
+      "automated_response": false,
+      "created_at": "2020-03-25T17:06:20.414Z",
+      "updated_at": "2020-03-25T17:06:20.414Z",
+      "actor": {
+        "username": "tallclair",
+        "cleared": false,
+        "verified": false,
+        "url": "/tallclair",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/418/594/6bbb78252759e1d1c1d67be48b7d7470926730de_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "kubernetes"
+    },
+    {
+      "id": 7438473,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "If a CVE for this issue for docker become public before you have a fix for kubernetes/CNI, it's pretty easy for people to find out kubernetes is also vulnerable.\n@tallclair:\n- Do you (Kubernetes Security Team) want to coordinate with docker team to release at the same time ?\n- Is it ok if I say that K8S is affected by this issue (not hard to figure it out) ?\n- Should I CC security@kubernetes.io to help start the conversation ?\n",
+      "automated_response": false,
+      "created_at": "2020-03-25T17:19:22.466Z",
+      "updated_at": "2020-03-25T17:19:22.466Z",
+      "actor": {
+        "username": "champtar",
+        "cleared": false,
+        "verified": false,
+        "url": "/champtar",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/gP6rmwtVzj4iV6taRZdmhSGU/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "kubernetes"
+    },
+    {
+      "id": 7438708,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Yes, that would be great. Thanks!",
+      "automated_response": false,
+      "created_at": "2020-03-25T17:36:48.425Z",
+      "updated_at": "2020-03-25T17:36:48.425Z",
+      "actor": {
+        "username": "tallclair",
+        "cleared": false,
+        "verified": false,
+        "url": "/tallclair",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/418/594/6bbb78252759e1d1c1d67be48b7d7470926730de_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "kubernetes"
+    },
+    {
+      "id": 7443080,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Done",
+      "automated_response": false,
+      "created_at": "2020-03-26T01:56:44.401Z",
+      "updated_at": "2020-03-26T01:56:44.401Z",
+      "actor": {
+        "username": "champtar",
+        "cleared": false,
+        "verified": false,
+        "url": "/champtar",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/gP6rmwtVzj4iV6taRZdmhSGU/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "kubernetes"
+    },
+    {
+      "id": 7534705,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hello @tallclair, hope you are doing alright.\n\nIs there a CVE for this issue already ? Can it be used for the Docker / LXD issues (can CVE be \"shared\" for multiple software) ?\nDocker and LXD team were also interested in a rough time table for disclosure, could you either respond to me or directly to the email chain ?\nThanks",
+      "automated_response": false,
+      "created_at": "2020-04-03T22:35:20.316Z",
+      "updated_at": "2020-04-03T22:35:20.316Z",
+      "actor": {
+        "username": "champtar",
+        "cleared": false,
+        "verified": false,
+        "url": "/champtar",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/gP6rmwtVzj4iV6taRZdmhSGU/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "kubernetes"
+    },
+    {
+      "id": 7575392,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@champtar If each software contains its own independently-fixable vulnerability, each should use a separate CVE ID.[1]  I'll respond on the email thread with Docker and LXD regarding a time table. Thanks!\n\n[1] https://cve.mitre.org/cve/cna/rules.html#section_7-2_how_many_vulnerabilities",
+      "automated_response": false,
+      "created_at": "2020-04-07T16:55:44.283Z",
+      "updated_at": "2020-04-07T16:55:44.283Z",
+      "actor": {
+        "username": "jk1joel",
+        "cleared": false,
+        "verified": false,
+        "url": "/jk1joel",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "kubernetes"
+    },
+    {
+      "id": 7647478,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hello @jk1joel \nFriendly ping, I haven't seen any email ;)",
+      "automated_response": false,
+      "created_at": "2020-04-13T19:31:19.202Z",
+      "updated_at": "2020-04-13T19:31:19.202Z",
+      "actor": {
+        "username": "champtar",
+        "cleared": false,
+        "verified": false,
+        "url": "/champtar",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/gP6rmwtVzj4iV6taRZdmhSGU/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "kubernetes"
+    },
+    {
+      "id": 7780160,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "hi @champtar , we are still on this and coordinating with the docker team. Thank you for your patience and we will be in touch soon. ",
+      "automated_response": false,
+      "created_at": "2020-04-24T09:15:50.102Z",
+      "updated_at": "2020-04-24T09:15:50.102Z",
+      "actor": {
+        "username": "lhinds",
+        "cleared": false,
+        "verified": false,
+        "url": "/lhinds",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/fCkgDUjggTMTjTRYQdtZyMqs/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "kubernetes"
+    },
+    {
+      "id": 7829536,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportSeverityUpdated",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2020-04-28T20:43:36.989Z",
+      "updated_at": "2020-04-28T20:43:36.989Z",
+      "additional_data": {
+        "old_severity": "Medium (6.6)",
+        "new_severity": "Medium (5.0)",
+        "old_severity_id": 662663,
+        "new_severity_id": 706671
+      },
+      "actor": {
+        "username": "tallclair",
+        "cleared": false,
+        "verified": false,
+        "url": "/tallclair",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/418/594/6bbb78252759e1d1c1d67be48b7d7470926730de_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "kubernetes"
+    },
+    {
+      "id": 8013342,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "note: CVE-2020-8556, scheduled release June 1 at 16:00 UTC",
+      "automated_response": false,
+      "created_at": "2020-05-15T16:29:45.852Z",
+      "updated_at": "2020-05-15T16:29:45.852Z",
+      "actor": {
+        "username": "champtar",
+        "cleared": false,
+        "verified": false,
+        "url": "/champtar",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/gP6rmwtVzj4iV6taRZdmhSGU/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "kubernetes"
+    },
+    {
+      "id": 8013387,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@champtar  as it turns out, we don't think any Kubernetes-owned code contains the specific vulnerability so since we only have authority to assign numbers for Kubernetes-owned projects, we won't be assigning CVE-2020-8556 to this issue. I got a little ahead of myself when I reserved it for this issue. Sorry for the confusion!\n\nI have told each CNI plugin vendor that if they make changes to fix this, they will need their own CVE. I'll keep you posted on any that share their CVE info with me. I haven't heard LXC/LXD or Docker say if they are reserving a number.",
+      "automated_response": false,
+      "created_at": "2020-05-15T16:34:24.189Z",
+      "updated_at": "2020-05-15T16:34:24.189Z",
+      "actor": {
+        "username": "jk1joel",
+        "cleared": false,
+        "verified": false,
+        "url": "/jk1joel",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "kubernetes"
+    },
+    {
+      "id": 8013651,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@jk1joel 100% agreed, problem is in CNI code, I though this was CNI CVE.\n\nSide note, It's the second CNI CVE that I report through you guys (K8S Team), this time because CNI github has no security contact.\nAs I'm sure you have direct communication with them, maybe you can bring this issue to them\nhttps://groups.google.com/forum/?utm_medium=email&utm_source=footer#!msg/cni-dev/ICLBBDl10m0/gtDH50PNBAAJ",
+      "automated_response": false,
+      "created_at": "2020-05-15T17:02:26.270Z",
+      "updated_at": "2020-05-15T17:02:26.270Z",
+      "actor": {
+        "username": "champtar",
+        "cleared": false,
+        "verified": false,
+        "url": "/champtar",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/gP6rmwtVzj4iV6taRZdmhSGU/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "kubernetes"
+    },
+    {
+      "id": 8082834,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportSeverityUpdated",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2020-05-22T19:42:00.888Z",
+      "updated_at": "2020-05-22T19:42:00.888Z",
+      "additional_data": {
+        "old_severity": "Medium (5.0)",
+        "new_severity": "Medium (6.0)",
+        "old_severity_id": 706671,
+        "new_severity_id": 729847
+      },
+      "actor": {
+        "username": "jk1joel",
+        "cleared": false,
+        "verified": false,
+        "url": "/jk1joel",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "kubernetes"
+    },
+    {
+      "id": 8121239,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BountyAwarded",
+      "message": "Thanks again for this report. Although the affected CNI components are technically out of scope for this bounty, we still want to reward you since this report was of excellent quality and shed light on an issue that is important to our users.",
+      "automated_response": false,
+      "created_at": "2020-05-27T16:56:03.192Z",
+      "updated_at": "2020-05-27T16:56:03.192Z",
+      "actor": {
+        "url": "/kubernetes",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/039/386/486f4380e09776d05a912ca9f46be23f72fe8197_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "Kubernetes"
+        }
+      },
+      "bounty_currency": "usd",
+      "genius_execution_id": null,
+      "team_handle": "kubernetes",
+      "collaborator": {
+        "username": "champtar",
+        "url": "/champtar"
+      }
+    },
+    {
+      "id": 8226579,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Thanks for the bounty !\nfor reference: https://github.com/kubernetes/kubernetes/issues/91507",
+      "automated_response": false,
+      "created_at": "2020-06-08T02:57:10.173Z",
+      "updated_at": "2020-06-08T02:57:10.173Z",
+      "actor": {
+        "username": "champtar",
+        "cleared": false,
+        "verified": false,
+        "url": "/champtar",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/gP6rmwtVzj4iV6taRZdmhSGU/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "kubernetes"
+    },
+    {
+      "id": 8612443,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "https://groups.google.com/forum/?oldui=1#!topic/kubernetes-security-announce/BMb_6ICCfp8",
+      "automated_response": false,
+      "created_at": "2020-07-15T21:27:20.785Z",
+      "updated_at": "2020-07-15T21:27:20.785Z",
+      "actor": {
+        "username": "tallclair",
+        "cleared": false,
+        "verified": false,
+        "url": "/tallclair",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/418/594/6bbb78252759e1d1c1d67be48b7d7470926730de_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "reporter": {
+        "username": "champtar",
+        "url": "/champtar"
+      },
+      "genius_execution_id": null,
+      "team_handle": "kubernetes"
+    },
+    {
+      "id": 13804881,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2021-10-08T03:52:49.130Z",
+      "updated_at": "2021-10-08T03:52:49.130Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "champtar",
+        "cleared": false,
+        "verified": false,
+        "url": "/champtar",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/gP6rmwtVzj4iV6taRZdmhSGU/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "kubernetes"
+    },
+    {
+      "id": 14207713,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportBecamePublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2021-11-07T03:52:50.984Z",
+      "updated_at": "2021-11-07T03:52:50.984Z",
+      "actor": {
+        "url": "/kubernetes",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/039/386/486f4380e09776d05a912ca9f46be23f72fe8197_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "Kubernetes"
+        }
+      },
+      "genius_execution_id": null,
+      "team_handle": "kubernetes"
+    }
+  ],
+  "activity_page_count": 1,
+  "activity_page_number": 1,
+  "summaries": [
+    {
+      "category": "team",
+      "can_view?": true,
+      "can_create?": false
+    },
+    {
+      "id": 96745,
+      "category": "researcher",
+      "content": "Write up available at https://blog.champtar.fr/IPv6_RA_MITM/",
+      "user": {
+        "id": 700624,
+        "username": "champtar",
+        "name": "Etienne Champetier",
+        "bio": "",
+        "cleared": false,
+        "verified": false,
+        "website": null,
+        "location": "",
+        "created_at": "2019-08-07T07:30:17.243Z",
+        "url": "https://hackerone.com/champtar",
+        "hackerone_triager": false,
+        "hackerone_employee": false,
+        "user_type": "hacker",
+        "profile_picture_urls": {
+          "small": "https://profile-photos.hackerone-user-content.com/variants/gP6rmwtVzj4iV6taRZdmhSGU/d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98",
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/gP6rmwtVzj4iV6taRZdmhSGU/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937",
+          "xtralarge": "https://profile-photos.hackerone-user-content.com/variants/gP6rmwtVzj4iV6taRZdmhSGU/60f411638706d89ae3052af6fe8b88fa9a798e291deee40f6a22e81418d78d5f"
+        }
+      },
+      "can_view?": true,
+      "can_create?": false,
+      "attachments": [
+
+      ]
+    }
+  ]
+}

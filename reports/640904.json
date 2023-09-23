@@ -1,0 +1,798 @@
+{
+  "id": 640904,
+  "global_id": "Z2lkOi8vaGFja2Vyb25lL1JlcG9ydC82NDA5MDQ=",
+  "url": "https://hackerone.com/reports/640904",
+  "title": "Yarn transfers npm credentials over unencrypted http connection",
+  "state": "Closed",
+  "substate": "resolved",
+  "severity_rating": "high",
+  "readable_substate": "Resolved",
+  "created_at": "2019-07-12T11:31:20.661Z",
+  "submitted_at": "2019-07-12T11:31:20.661Z",
+  "is_member_of_team?": false,
+  "is_organization_group_member?": false,
+  "reporter": {
+    "disabled": false,
+    "username": "chalker",
+    "url": "/chalker",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/068/907/abd483931dad2c93e376707dd59719cc277309cd_original.png/d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98"
+    },
+    "is_me?": false,
+    "cleared": false,
+    "verified": false,
+    "hackerone_triager": false,
+    "hacker_mediation": false
+  },
+  "team": {
+    "id": 23949,
+    "url": "https://hackerone.com/nodejs-ecosystem",
+    "handle": "nodejs-ecosystem",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/023/949/3ea3b2ae039a8f955a4a8fe65d99fe85dc817398_original./d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98",
+      "medium": "https://profile-photos.hackerone-user-content.com/variants/000/023/949/3ea3b2ae039a8f955a4a8fe65d99fe85dc817398_original./5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+    },
+    "permissions": [
+
+    ],
+    "submission_state": "disabled",
+    "default_currency": "usd",
+    "awards_miles": false,
+    "offers_bounties": true,
+    "state": "public_mode",
+    "only_cleared_hackers": false,
+    "pentest_feature_enabled?": false,
+    "profile": {
+      "name": "Node.js third-party modules",
+      "twitter_handle": "",
+      "website": "https://nodejs.org/en/security/",
+      "about": "This program was used to handle vulnerabilities in the Node.js ecosystem."
+    }
+  },
+  "has_bounty?": false,
+  "in_validation?": false,
+  "can_view_team": true,
+  "can_view_report": true,
+  "is_external_bug": false,
+  "is_published": false,
+  "is_participant": false,
+  "has_collaborators": false,
+  "submitted_by_team_member": false,
+  "stage": 4,
+  "public": true,
+  "visibility": "full",
+  "cve_ids": [
+    "CVE-2019-5448"
+  ],
+  "singular_disclosure_disabled": false,
+  "disclosed_at": "2019-08-14T11:27:55.400Z",
+  "bug_reporter_agreed_on_going_public_at": null,
+  "team_member_agreed_on_going_public_at": "2019-07-15T11:27:50.320Z",
+  "comments_closed?": false,
+  "facebook_team?": false,
+  "team_private?": false,
+  "vulnerability_information": "# Module\n\n**module name:** yarn\n**version:** 1.16.0\n**npm page:** `https://www.npmjs.com/package/yarn`\n\n## Module Description\n\n> Fast, reliable, and secure dependency management.\n\n## Module Stats\n\n> Replace stats below with numbers from npm’s module page:\n\n166 703 downloads in the last day\n849 928 downloads in the last week\n3 772 290 downloads in the last month\n\n# Vulnerability\n\n## Vulnerability Description\n\nFor scoped packages that are listed as `resolved \"http://registry.npmjs.org/@...` in yarn.lock, yarn trasfers npm credentials (i.e. `_authToken`) over unencrypted http connection. This allows any MitM (for example, a proxy or a VPN) to sniff out npm credentials, given that the developer in question performs `yarn install` on such a yarn.lock file.\n\nA quick search shows that there is a number of `yarn.lock` files affected by this on GitHub, some examples:\n * https://github.com/EC-Nordbund/ec-verwaltungs-app/blob/ab961352d5dd53834a51793d6e2c4bc69a2b22d4/packages/api/yarn.lock#L36\n *  https://github.com/nujabes403/boilerplate2/blob/61613e526aec02c5dd4227457deb8676d66780d0/yarn.lock#L7\n\nThere seem to be __many of those__ on GitHub.\n\nLooks like not only it was possible to craft a yarn.lock with a malicious intent, but also this seems to be a common pattern that yarn created itself at some point or under some circumstances and that gets persistent from older versions.\n\n## Steps To Reproduce:\n\n1. Perform an `npm login` or just write `//registry.npmjs.org/:_authToken=38bb8d1f-a39b-47d1-a78e-3bf0626ff77e` (which is the format npm uses) to ~/.npmrc. **Doing this from your own account would leak your npm credentials on next steps, so better just use a placeholder.**\n2. Create an empty package with a single dependency on `\"@babel/core\": \"^7.5.4\"`\n3. Perform `yarn install`\n4. Replace all occurances of `https://registry.yarnpkg.com` with `http://registry.npmjs.org/` in the generated `yarn.lock`\n    \n    Alternatively to steps 2-4 -- just use an already existing yarn.lock with `resolved \"http://registry.npmjs.org/@` in it (lots of those on GitHub), but be careful with that.\n5. Clear yarn cache and node_modules: `rm -rf ~/.cache/yarn/ node_modules`. Let's assume you just downloaded an affected yarn.lock on your clean machine.\n6. Start wireshark with `tcp dst port 80` filter.\n7. Run `yarn install`\n\nObserved result is attached on a screenshot.\n\n## Supporting Material/References:\n\n- `Linux yoga 5.1.5-arch1-2-ARCH #1 SMP PREEMPT Mon May 27 03:37:39 UTC 2019 x86_64 GNU/Linux`\n- Node.js v12.6.0\n- npm 6.10.1\n\n# Wrap up\n\n> Select Y or N for the following statements:\n\n- I contacted the maintainer to let them know: N \n- I opened an issue in the related repository: N\n\n## Impact\n\nAttacker (MitM) being able to:\n* Impersonate the affected account\n* Publish packages from the affected account that could also get used by the affected account/company in the future (for protected packages) and by anyone in the ecosystem (for public packages)\n* Perform logout and break installs of protected packages",
+  "weakness": {
+    "id": 84,
+    "name": "Missing Encryption of Sensitive Data"
+  },
+  "original_report_id": null,
+  "original_report_url": null,
+  "attachments": [
+    {
+      "id": 527543,
+      "file_name": "Screenshot_20190712_142351.png",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/527/543/ce4b280cdc06cd143e6f5d6ef490d20c986d996c/Screenshot_20190712_142351.png?response-content-disposition=attachment%3B%20filename%3D%22Screenshot_20190712_142351.png%22%3B%20filename%2A%3DUTF-8%27%27Screenshot_20190712_142351.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ7IF72EGR%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T074058Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEC8aCXVzLXdlc3QtMiJIMEYCIQD0TAEi1peTsxNRMRsx2vBHR2pUGB7uHpbMRYg22KJXXAIhAOfNKRDia06ZOZMyd%2Fls3%2FTdPcLekbPiNmiZSXFYcx5uKrEFCCgQAxoMMDEzNjE5Mjc0ODQ5IgwjRpsfqQF%2BFfykAFMqjgXdivFzeRynUaxnCxzNhWzgVNVya2lqgNeJCfGD3wMjYG5xSgEab7GM4w5o9oGAL8%2BfjsZ7blKNrUlARcDh6fKoJ4rUV9jhNZz%2FvPSgXu6wzQtWtT5a2Ana5wpZSTzm8K62COIpOoBhJTTkJTT%2FdALIxUIidxqFRrLKAi89qr9bgJyQDu33TMI14lRF%2Bvauvx%2Bl9XKOvUSvEFRVuXhxrd%2FQ2SR68RCv05i8EW6Rw11j76ipoSR9CW95fmmNJg%2FEV4hGCi%2FyNDsBu4CQ2GM3PH2T%2ByfbJw85lnD6T%2Bcos3FcMzWc%2BVDZLk2j5FrFa0YExa9%2BN8LdhGVphEYnfjt9OFFnxcoC%2BnrZCSna21kk9sD1g0D8YjpQnNJmMJP%2BnOM7I%2Fk%2F77n4v30KuuC6hpT8twhDKILhks8yAwVuiyDBLgEMMdV1PeuUZFokagw0ONgLFZMZ5ElGYijYV8Dv0UlVGFJRzrpaxVl2Dy%2FWWgy0XMx%2FwG5k95kd%2FLkZ7w7o0%2FM%2FDJToli3C27uWWejCiuq95TXpXKCEzEWb0J4rh29e4hk7hq7OWOtQQTUde2q9wchyksu1rYzq2RCV2gM10O1mMJunqQSg6lES7Z5AvaCVheBpt2uRDsodnl9KD2I3VWF0kgJXSmcDVcQ4UxMShaao7WC7bcYWs%2BIjKN6C9mY9CzgacHoYHms6kZzPz2NrN%2F3cHhxk0zzINkWgZhR8IaHWOGyuyiZIbmQ2sv86YBVwYSb0hQj6n4rBtD8jilSYSnBbvxlJnRSCSIaYwiHuOcQhzmmbIT4pWyAbV4%2FmXomyu0ZvHzcxJiqRiIaBq0fx4B8qyvHCZ0MAWnqCAAlgmS%2BHlRuvxigPCB4nXZ59bhSNtaQw6pq6qAY6sAHlFHUDOcxyHvFiK44%2BbKKoa8xJyrD9kvKV1skKJvix2qkHIcCQAaIne5%2FQOqOFhO25Mu%2BP%2FIg08%2BZTLOQt7xdkt%2FsKZut84hBLHJYAq9vY1kXUeIPQ1avQ9%2FT2wWy9L5CTYbnxh26j%2Bo3NcBtG0oDQg%2BqPGSdORofiFd9dZKqJouuppKCv20%2FFJzBNvMZPpqAVejqiWUAwyYGwtPQUNvmJniwGk0kv1X8Rcycp1eaOEg%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=aba5bf1c94c2e91d15f77dc5889fa9630a89c70586afef8a5efd121fa9027084",
+      "file_size": 466082,
+      "type": "image/png",
+      "moderated": null
+    }
+  ],
+  "allow_singular_disclosure_at": "2019-08-14T11:27:50.462Z",
+  "allow_singular_disclosure_after": -129672788.07571927,
+  "singular_disclosure_allowed": true,
+  "vote_count": 8,
+  "voters": [
+    "bl4de",
+    "optimus90",
+    "armansameer",
+    "rajivshah",
+    "wilkin27",
+    "eperstu",
+    "saboteurr",
+    "salex"
+  ],
+  "severity": {
+    "rating": "high",
+    "score": 8.2,
+    "author_type": "User",
+    "metrics": {
+      "attack_vector": "network",
+      "attack_complexity": "high",
+      "privileges_required": "none",
+      "user_interaction": "required",
+      "scope": "changed",
+      "confidentiality": "high",
+      "integrity": "low",
+      "availability": "high"
+    }
+  },
+  "structured_scope": {
+    "databaseId": 2986,
+    "asset_type": "SOURCE_CODE",
+    "asset_identifier": "Other module",
+    "max_severity": "critical"
+  },
+  "abilities": {
+    "assignable_team_members": [
+
+    ],
+    "assignable_team_member_groups": [
+
+    ]
+  },
+  "activities": [
+    {
+      "id": 5306238,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugTriaged",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2019-07-12T12:12:39.192Z",
+      "updated_at": "2019-07-12T12:12:39.192Z",
+      "actor": {
+        "username": "vdeturckheim",
+        "cleared": false,
+        "verified": false,
+        "url": "/vdeturckheim",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/161/010/6f383ac0f9296c13b5ac0d38741f0685dbace58c_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 5306270,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ExternalUserJoined",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2019-07-12T12:19:44.355Z",
+      "updated_at": "2019-07-12T12:19:44.355Z",
+      "actor": {
+        "username": "arcanis",
+        "cleared": false,
+        "verified": false,
+        "url": "/arcanis",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/EsbrQMX6UibsxVnUpxG8gLi7/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 5306372,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "To give you some context, the npm registry returns (used to?) tarballs with the http protocol. This was tracked at least [here](https://npm.community/t/some-packages-have-dist-tarball-as-http-and-not-https/285/40), and lasted for at least a few months. I'm not sure whether it got fixed, but all the lockfiles generated during that time that referenced the affected packages store the bogus protocols.\n\nTo mitigate the issue we'll push an update that will lead Yarn to disregard the stored values (and what the registry returns) and always use https for the most common registries. This unfortunately won't fix the issue until after our users upgrade.\n\n---\n\nRegarding someone enabling this with a malicious intent in general (as in, submitting a PR to a project with a lockfile containing such a pattern), I'd tend to assume it's the user responsibility to review PRs, as a compromised lockfile (whether it's for Yarn or npm) will be dangerous in many ways (for example, you'd just have to put a typo somewhere in the resolved tarball url to download potentially different code). In fact, I've opened [a thread](https://github.com/github/linguist/issues/4348) in the past to ask for lockfiles to not be collapsed on Github precisely for this reason.",
+      "automated_response": false,
+      "created_at": "2019-07-12T12:47:59.066Z",
+      "updated_at": "2019-07-12T12:47:59.066Z",
+      "actor": {
+        "username": "arcanis",
+        "cleared": false,
+        "verified": false,
+        "url": "/arcanis",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/EsbrQMX6UibsxVnUpxG8gLi7/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 5306449,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Affiliation notice: I am currently working for [Exodus](https://www.exodus.io/) and am sponsored by them to perform security research.",
+      "automated_response": false,
+      "created_at": "2019-07-12T13:02:18.749Z",
+      "updated_at": "2019-07-12T13:02:18.749Z",
+      "actor": {
+        "username": "chalker",
+        "cleared": false,
+        "verified": false,
+        "url": "/chalker",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/068/907/abd483931dad2c93e376707dd59719cc277309cd_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 5306546,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Here's [a patch](https://github.com/yarnpkg/yarn/compare/https-enforcement?expand=1#diff-9917e0f368cd09d6825a5fb10c3c6d7c); can you confirm @chalker that it fixes the vulnerability you described?\n\nI've also opened an [issue](https://github.com/yarnpkg/berry/issues/293) on the v2 tracker to change our https policy starting from the v2 (we won't be able to do it in the v1 since it would be a breaking changes for people using third-party registries).",
+      "automated_response": false,
+      "created_at": "2019-07-12T13:20:39.624Z",
+      "updated_at": "2019-07-12T13:20:39.624Z",
+      "actor": {
+        "username": "arcanis",
+        "cleared": false,
+        "verified": false,
+        "url": "/arcanis",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/EsbrQMX6UibsxVnUpxG8gLi7/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 5306566,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@arcanis I think registry.npmjs.com should be also forced to use https? Not only registry.npmjs.org.",
+      "automated_response": false,
+      "created_at": "2019-07-12T13:26:52.982Z",
+      "updated_at": "2019-07-12T13:27:08.414Z",
+      "actor": {
+        "username": "chalker",
+        "cleared": false,
+        "verified": false,
+        "url": "/chalker",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/068/907/abd483931dad2c93e376707dd59719cc277309cd_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 5306621,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Good point! Fixed in https://github.com/yarnpkg/yarn/pull/7393",
+      "automated_response": false,
+      "created_at": "2019-07-12T13:38:02.117Z",
+      "updated_at": "2019-07-12T13:38:02.117Z",
+      "actor": {
+        "username": "arcanis",
+        "cleared": false,
+        "verified": false,
+        "url": "/arcanis",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/EsbrQMX6UibsxVnUpxG8gLi7/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 5306623,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@arcanis Apart from that -- how possible would it be to not transfer auth at all for http:// registries, like it is apparently done for non-scoped npm packages? That should be a less breaking change than completely blacklisting http:// by default, perhaps it could be acceptable? Or not?",
+      "automated_response": false,
+      "created_at": "2019-07-12T13:38:48.540Z",
+      "updated_at": "2019-07-12T13:38:48.540Z",
+      "actor": {
+        "username": "chalker",
+        "cleared": false,
+        "verified": false,
+        "url": "/chalker",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/068/907/abd483931dad2c93e376707dd59719cc277309cd_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 5306669,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "I'm not sure; the problem is that I'm guessing that some setups use third-party registries. On those setups, it's reasonable to assume that part of them are accessed through http. It's also reasonable to assume that part of them have some kind of authentication. Now the question is how much they intersect, and I lack data to have a real idea - although given the size of the JS ecosystem, even 1‰ would significantly break setups 😕\n\nGiven that we're already working on a major anyway (expected before the end of the year), I would tend to err on the cautious side and keep the existing behaviour for now.",
+      "automated_response": false,
+      "created_at": "2019-07-12T13:48:39.012Z",
+      "updated_at": "2019-07-12T13:48:39.012Z",
+      "actor": {
+        "username": "arcanis",
+        "cleared": false,
+        "verified": false,
+        "url": "/arcanis",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/EsbrQMX6UibsxVnUpxG8gLi7/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 5306752,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ExternalUserJoined",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2019-07-12T14:10:53.122Z",
+      "updated_at": "2019-07-12T14:10:53.122Z",
+      "actor": {
+        "username": "aeleuterio",
+        "cleared": false,
+        "verified": false,
+        "url": "/aeleuterio",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 5306765,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@aeleuterio would it be possible/sensible to auto-logout all tokens that were transfered to npm registry via unencrypted connection?",
+      "automated_response": false,
+      "created_at": "2019-07-12T14:14:12.471Z",
+      "updated_at": "2019-07-12T14:15:27.117Z",
+      "actor": {
+        "username": "chalker",
+        "cleared": false,
+        "verified": false,
+        "url": "/chalker",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/068/907/abd483931dad2c93e376707dd59719cc277309cd_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 5310377,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "> Regarding someone enabling this with a malicious intent in general (as in, submitting a PR to a project with a lockfile containing such a pattern), I'd tend to assume it's the user responsibility to review PRs, as a compromised lockfile\n\nThe problem is that users probably won't catch that packages being resolved to `http://` could mean that the yarn lock is \"compromised\". A lot of such existing yarn.lock files that no one noticed (even with scoped packages) indicate that.\n\nMoreover, yarnpkg/yarn lockfile itself has a `http://`-resolved dep that apparently passed PR review: https://github.com/yarnpkg/yarn/blob/v1.17.3/yarn.lock#L5646. It's not scoped, but that difference might also be subtle while reviewing a PR. There are more of those in git history.",
+      "automated_response": false,
+      "created_at": "2019-07-12T17:17:03.157Z",
+      "updated_at": "2019-07-12T17:28:03.165Z",
+      "actor": {
+        "username": "chalker",
+        "cleared": false,
+        "verified": false,
+        "url": "/chalker",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/068/907/abd483931dad2c93e376707dd59719cc277309cd_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 5310400,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@arcanis Re: https://github.com/yarnpkg/yarn/pull/7393 -- I can confirm that yarn with that PR does not use unencrypted connections to npm registry on my tests.\n\nBut perhaps it would make sense to also update the lockfile to point to https:// endpoints and write it to disk?\nSo that a fixed yarn.lock gets commited to the repo.",
+      "automated_response": false,
+      "created_at": "2019-07-12T17:22:37.704Z",
+      "updated_at": "2019-07-12T17:22:53.987Z",
+      "actor": {
+        "username": "chalker",
+        "cleared": false,
+        "verified": false,
+        "url": "/chalker",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/068/907/abd483931dad2c93e376707dd59719cc277309cd_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 5310415,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ExternalUserJoined",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2019-07-12T17:28:05.194Z",
+      "updated_at": "2019-07-12T17:28:05.194Z",
+      "actor": {
+        "username": "adam_baldwin",
+        "cleared": false,
+        "verified": false,
+        "url": "/adam_baldwin",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/006/681/1cd93a2ad19ed2eb3ee91383a9c68b1f3bb1355b_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 5310483,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "An example of an affected yarn.lock in a popular project (uses http: for scoped packages, leaks credentials): https://github.com/facebook/docusaurus/blob/v1.4.0/yarn.lock#L7, same file: https://github.com/facebook/docusaurus/blob/v1.6.0/v1/yarn.lock#L7\n\n@arcanis I do not think that this is something that is likely to be catched by PR review unless one knows what to look for.",
+      "automated_response": false,
+      "created_at": "2019-07-12T17:43:58.544Z",
+      "updated_at": "2019-07-12T17:47:16.283Z",
+      "actor": {
+        "username": "chalker",
+        "cleared": false,
+        "verified": false,
+        "url": "/chalker",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/068/907/abd483931dad2c93e376707dd59719cc277309cd_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 5310590,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Also https://github.com/facebook/jest/blob/v23.4.0/yarn.lock#L101.\n\nThis looks *very* common, mostly coming from `@babel` and `@types` scopes.",
+      "automated_response": false,
+      "created_at": "2019-07-12T18:12:46.135Z",
+      "updated_at": "2019-07-12T18:15:00.912Z",
+      "actor": {
+        "username": "chalker",
+        "cleared": false,
+        "verified": false,
+        "url": "/chalker",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/068/907/abd483931dad2c93e376707dd59719cc277309cd_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 5311902,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "I see that a version of yarn with the fix from https://github.com/yarnpkg/yarn/pull/7393 was published as v1.17.3 (rc, not latest).\n\nWhat will the disclosure timeline look like?",
+      "automated_response": false,
+      "created_at": "2019-07-12T21:30:45.150Z",
+      "updated_at": "2019-07-12T21:30:53.180Z",
+      "actor": {
+        "username": "chalker",
+        "cleared": false,
+        "verified": false,
+        "url": "/chalker",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/068/907/abd483931dad2c93e376707dd59719cc277309cd_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 5312040,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "We have some unrelated issues with the website, which affects the release process. Once it's back to normal I'll move the 1.17.3 to stable, and after that I think we'll post an article explaining the problem and suggesting to upgrade when users get the chance (and crediting you for the discovery). Does that sound reasonable?",
+      "automated_response": false,
+      "created_at": "2019-07-12T21:42:42.470Z",
+      "updated_at": "2019-07-12T21:42:42.470Z",
+      "actor": {
+        "username": "arcanis",
+        "cleared": false,
+        "verified": false,
+        "url": "/arcanis",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/EsbrQMX6UibsxVnUpxG8gLi7/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 5312082,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "The 1.17.3 reached stable, the blog post PR is here: https://github.com/yarnpkg/website/pull/980/files\nI plan to submit it tomorrow after getting some other maintainers to ack it.",
+      "automated_response": false,
+      "created_at": "2019-07-12T21:59:01.770Z",
+      "updated_at": "2019-07-12T21:59:01.770Z",
+      "actor": {
+        "username": "arcanis",
+        "cleared": false,
+        "verified": false,
+        "url": "/arcanis",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/EsbrQMX6UibsxVnUpxG8gLi7/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 5312099,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@arcanis Thanks! I am planning to file a blog post in my notes repo once that gets merged, mostly with information from this ticket. Does that sound good?\n\nAs for the blog post -- I would also recommend to refresh all npm tokens (i.e. to revoke them and relogin, and do that periodically in general) and to enable 2FA.",
+      "automated_response": false,
+      "created_at": "2019-07-12T22:04:43.071Z",
+      "updated_at": "2019-07-12T22:08:32.926Z",
+      "actor": {
+        "username": "chalker",
+        "cleared": false,
+        "verified": false,
+        "url": "/chalker",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/068/907/abd483931dad2c93e376707dd59719cc277309cd_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 5312114,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "For sure 👍",
+      "automated_response": false,
+      "created_at": "2019-07-12T22:06:47.664Z",
+      "updated_at": "2019-07-12T22:06:47.664Z",
+      "actor": {
+        "username": "arcanis",
+        "cleared": false,
+        "verified": false,
+        "url": "/arcanis",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/EsbrQMX6UibsxVnUpxG8gLi7/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 5312556,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@chalker do you have a list of tokens for us to revoke? We'll revoke them and contact users. Thank you for looping us in this issue!",
+      "automated_response": false,
+      "created_at": "2019-07-12T23:22:04.688Z",
+      "updated_at": "2019-07-12T23:22:04.688Z",
+      "actor": {
+        "username": "aeleuterio",
+        "cleared": false,
+        "verified": false,
+        "url": "/aeleuterio",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 5314105,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Blog post released, and tweeted over at https://twitter.com/yarnpkg/status/1149960702356013056 🙂",
+      "automated_response": false,
+      "created_at": "2019-07-13T08:37:32.788Z",
+      "updated_at": "2019-07-13T08:37:32.788Z",
+      "actor": {
+        "username": "arcanis",
+        "cleared": false,
+        "verified": false,
+        "url": "/arcanis",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/EsbrQMX6UibsxVnUpxG8gLi7/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 5314865,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@arcanis My post also released here: https://github.com/ChALkeR/notes/blob/master/Yarn-vuln.md\nThanks!\n\n@aeleuterio I do not, it is impossible to tell what tokens exactly were affected by this without having registry server-side logs (if there are any). I was asking if it would be possible (and reasonable) to implement a protocol check on the registry side that would mark all tokens received over http as compromised in real-time.",
+      "automated_response": false,
+      "created_at": "2019-07-13T11:21:37.050Z",
+      "updated_at": "2019-07-13T11:21:37.050Z",
+      "actor": {
+        "username": "chalker",
+        "cleared": false,
+        "verified": false,
+        "url": "/chalker",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/068/907/abd483931dad2c93e376707dd59719cc277309cd_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 5322437,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "CVE required, will disclose when available.",
+      "automated_response": false,
+      "created_at": "2019-07-15T11:16:37.226Z",
+      "updated_at": "2019-07-15T11:16:37.226Z",
+      "actor": {
+        "username": "vdeturckheim",
+        "cleared": false,
+        "verified": false,
+        "url": "/vdeturckheim",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/161/010/6f383ac0f9296c13b5ac0d38741f0685dbace58c_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 5322440,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2019-07-15T11:16:51.819Z",
+      "updated_at": "2019-07-15T11:16:51.819Z",
+      "actor": {
+        "username": "vdeturckheim",
+        "cleared": false,
+        "verified": false,
+        "url": "/vdeturckheim",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/161/010/6f383ac0f9296c13b5ac0d38741f0685dbace58c_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "reporter": {
+        "username": "chalker",
+        "url": "/chalker"
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 5322485,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2019-07-15T11:27:50.362Z",
+      "updated_at": "2019-07-15T11:27:50.362Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "vdeturckheim",
+        "cleared": false,
+        "verified": false,
+        "url": "/vdeturckheim",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/161/010/6f383ac0f9296c13b5ac0d38741f0685dbace58c_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 5574206,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportBecamePublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2019-08-14T11:27:55.462Z",
+      "updated_at": "2019-08-14T11:27:55.462Z",
+      "actor": {
+        "url": "/nodejs-ecosystem",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/023/949/3ea3b2ae039a8f955a4a8fe65d99fe85dc817398_original./5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "Node.js third-party modules"
+        }
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    }
+  ],
+  "activity_page_count": 1,
+  "activity_page_number": 1,
+  "summaries": [
+    {
+      "category": "team",
+      "can_view?": true,
+      "can_create?": false
+    },
+    {
+      "category": "researcher",
+      "can_view?": true,
+      "can_create?": false
+    }
+  ]
+}

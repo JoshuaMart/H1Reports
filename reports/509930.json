@@ -1,0 +1,561 @@
+{
+  "id": 509930,
+  "global_id": "Z2lkOi8vaGFja2Vyb25lL1JlcG9ydC81MDk5MzA=",
+  "url": "https://hackerone.com/reports/509930",
+  "title": "Potential unprivileged Stored XSS through wp_targeted_link_rel",
+  "state": "Closed",
+  "substate": "resolved",
+  "severity_rating": "high",
+  "readable_substate": "Resolved",
+  "created_at": "2019-03-14T21:37:27.180Z",
+  "submitted_at": "2019-03-14T21:37:27.180Z",
+  "is_member_of_team?": false,
+  "is_organization_group_member?": false,
+  "reporter": {
+    "disabled": false,
+    "username": "simonscannell",
+    "url": "/simonscannell",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/HvE5FGgP56eXFMNMr4rwmunu/3c7b305354c9073c106ae3d1701798defaaf5be844fb8fdfa49ca62f991a2c2c"
+    },
+    "is_me?": false,
+    "cleared": false,
+    "verified": false,
+    "hackerone_triager": false,
+    "hacker_mediation": false
+  },
+  "team": {
+    "id": 55,
+    "url": "https://hackerone.com/wordpress",
+    "handle": "wordpress",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/000/055/f114d1d31f904e3b903cd99a6cf566bb531f8401_original.jpg/3c7b305354c9073c106ae3d1701798defaaf5be844fb8fdfa49ca62f991a2c2c",
+      "medium": "https://profile-photos.hackerone-user-content.com/variants/000/000/055/f114d1d31f904e3b903cd99a6cf566bb531f8401_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+    },
+    "permissions": [
+
+    ],
+    "submission_state": "open",
+    "default_currency": "usd",
+    "awards_miles": false,
+    "offers_bounties": true,
+    "state": "public_mode",
+    "only_cleared_hackers": false,
+    "pentest_feature_enabled?": false,
+    "profile": {
+      "name": "WordPress",
+      "twitter_handle": "wordpress",
+      "website": "https://wordpress.org/",
+      "about": "Beautiful sites of any kind."
+    }
+  },
+  "has_bounty?": true,
+  "in_validation?": false,
+  "can_view_team": true,
+  "can_view_report": true,
+  "is_external_bug": false,
+  "is_published": false,
+  "is_participant": false,
+  "has_collaborators": false,
+  "submitted_by_team_member": false,
+  "stage": 4,
+  "public": true,
+  "visibility": "full",
+  "cve_ids": [
+    "CVE-2019-16773"
+  ],
+  "singular_disclosure_disabled": false,
+  "disclosed_at": "2020-01-08T16:12:24.864Z",
+  "bug_reporter_agreed_on_going_public_at": "2020-01-03T23:02:01.930Z",
+  "team_member_agreed_on_going_public_at": "2020-01-08T16:12:24.447Z",
+  "comments_closed?": false,
+  "facebook_team?": false,
+  "team_private?": false,
+  "vulnerability_information": "The user description is vulnerable to a Stored XSS via an attribute injection. At fault is the `wp_targeted_link_rel()` filter that parses attributes regardless of their position.\n\n```\nfunction wp_targeted_link_rel( $text ) {\n\t// Don't run (more expensive) regex if no links with targets.\n\tif ( stripos( $text, 'target' ) !== false && stripos( $text, '<a ' ) !== false ) {\n\t\t$text = preg_replace_callback( '|<a\\s([^>]*target\\s*=[^>]*)>|i', 'wp_targeted_link_rel_callback', $text );\n\t}\n```\n\nIt essentially just parses the attribute string of all `<a>` tags and passes them to the preg replace callback.\n\n```\nfunction wp_targeted_link_rel_callback( $matches ) {\n\t$link_html = $matches[1];\n\t$rel_match = array();\n...\n// Value with delimiters, spaces around are optional.\n\t$attr_regex = '|rel\\s*=\\s*?(\\\\\\\\{0,1}[\"\\'])(.*?)\\\\1|i';\n\tpreg_match( $attr_regex, $link_html, $rel_match );\n\n\tif ( empty( $rel_match[0] ) ) {\n\t\t// No delimiters, try with a single value and spaces, because `rel =  va\"lue` is totally fine...\n\t\t$attr_regex = '|rel\\s*=(\\s*)([^\\s]*)|i';\n\t\tpreg_match( $attr_regex, $link_html, $rel_match );\n\t}\n```\n\nAs can be seen it then uses a regex to parse the `rel` attribute, its value and its delimeter from the string.\n\nIf the rel attribute is found, the following happens:\n\n```\n\n\tif ( ! empty( $rel_match[0] ) ) {\n\t\t$parts     = preg_split( '|\\s+|', strtolower( $rel_match[2] ) );\n\t\t$parts     = array_map( 'esc_attr', $parts );\n\t\t$needed    = explode( ' ', $rel );\n\t\t$parts     = array_unique( array_merge( $parts, $needed ) );\n\t\t$delimiter = trim( $rel_match[1] ) ? $rel_match[1] : '\"';\n\t\t$rel       = 'rel=' . $delimiter . trim( implode( ' ', $parts ) ) . $delimiter;\n\t\t$link_html = str_replace( $rel_match[0], $rel, $link_html );\n```\n\nAs you can see the value of the `rel` attribute is splitted by whitespaces and each part is then escaped. The targeted `rel` value is then added to the alread existing ones and put back together.\n\nMost importantly, are the following line:\n\n```\n\t\t$delimiter = trim( $rel_match[1] ) ? $rel_match[1] : '\"';\n\t\t$rel       = 'rel=' . $delimiter . trim( implode( ' ', $parts ) ) . $delimiter;\n\t\t$link_html = str_replace( $rel_match[0], $rel, $link_html );\n```\nif the delimeter is empty (e.g. when `rel=abc` has no quotes), the delimer becomes  `\"`. The original rel attribute is then replaced with the new one. \n\nThis is a problem since the following payload:\n\n`<a title=\"  target='xyz'  rel=abc \">PoC</a>`\n\nwould turn into\n\n`<a title=\" target='xyz' rel=\"abc\" \">PoC</a>` Note that an additional `\"` has been injected and the title attribute has been escaped.\n\nThis is because the regex to match the rel attribute ignores the position of the `rel` attribute within the attribute string. The above payload shows how the rel attribute is placed within a double quoted attribute. Since no delimeter is set, the delimer becomes a double quote and when the rel attribute is inserted back into the string, the double quote is injected.\n\nI recommend using something like `parse_shortcode_atts()` as in `wp_rel_nofollow()` to prevent this from happening.\n\nBy abusing the attribute injection, it is easily possible to create a Stored XSS payload. \n\nTge `wp_targeted_link_rel()` filter is not only called on the user description, however, this is where it becomes exploitable. This is because this vulnerable filter is added before the `kses` filters are added, which means that the injected attribute would be caught by `wp_post_kses()`. The user description is the only exception where the kses filters are called before `wp_targeted_link_rel()` is called.\n\n`<a href=\"#\" title=\" target='abc' rel= onmouseover=alert(/XSS/) \">This is a PoC for a Stored XSS</a>`\n\n\n## Proof of Concept\n\nThe following will demonstrate how a normal forum user can achieve stored XSS on their profile page in BuddyPress\n████████\n\n1. This works if the Bio of forum users is displayed in their profile page. Log in as an administrator and go to Appearence -> Customize and then BuddyPress Nouveu -> Member front page and make sure that displaying the user bio is enabled\n\n2. Create a normal forum user account\n3. Login and edit your profile. Paste \n`<a href=\"#\" title=\" target='abc' rel= onmouseover=alert(/XSS/) \">This is a PoC for a Stored XSS</a>` as your user description\n4. visit your profil and hover over the link.\n\n## Impact\n\nThe Impact of this can vary from site to site. I have shown how this can be exploited in BuddyPress as a mere, normal forum user. Since you can also inject a style attribute and make the link span over the entire page, one can turn this into a wormable Stored XSS in BuddyPress.\n\nBasically every plugin or forum is affected that displays the user description.",
+  "weakness": {
+    "id": 62,
+    "name": "Cross-site Scripting (XSS) - Stored"
+  },
+  "original_report_id": null,
+  "original_report_url": null,
+  "attachments": [
+
+  ],
+  "allow_singular_disclosure_at": "2020-02-02T23:02:01.985Z",
+  "allow_singular_disclosure_after": -114769940.8422384,
+  "singular_disclosure_allowed": true,
+  "vote_count": 80,
+  "voters": [
+    "thaivu",
+    "foobar7",
+    "mashoud1122",
+    "simonscannell",
+    "bibekshah",
+    "sameerphad72",
+    "tess",
+    "ali",
+    "0xbeven",
+    "b3hlull",
+    "and 70 more..."
+  ],
+  "severity": {
+    "rating": "high",
+    "author_type": "User"
+  },
+  "structured_scope": {
+    "databaseId": 2750,
+    "asset_type": "SOURCE_CODE",
+    "asset_identifier": "WordPress Core",
+    "max_severity": "critical"
+  },
+  "abilities": {
+    "assignable_team_members": [
+
+    ],
+    "assignable_team_member_groups": [
+
+    ]
+  },
+  "activities": [
+    {
+      "id": 4370008,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugTriaged",
+      "message": "Thanks for the report, we're currently testing a patch for the issue and will keep you updated with any developments.",
+      "automated_response": false,
+      "created_at": "2019-03-21T23:16:29.893Z",
+      "updated_at": "2019-03-21T23:16:29.893Z",
+      "actor": {
+        "username": "vortfu",
+        "cleared": false,
+        "verified": false,
+        "url": "/vortfu",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/004/982/1ef285fb263d30f189dc6a8038e1d5c46086e9d9_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "wordpress"
+    },
+    {
+      "id": 4910299,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "████ ",
+      "automated_response": false,
+      "created_at": "2019-05-23T13:43:28.991Z",
+      "updated_at": "2020-01-08T16:15:01.751Z",
+      "actor": {
+        "username": "simonscannell",
+        "cleared": false,
+        "verified": false,
+        "url": "/simonscannell",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/HvE5FGgP56eXFMNMr4rwmunu/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "wordpress"
+    },
+    {
+      "id": 6345943,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @vortfu ,\n\nAre there any updates on the patch?",
+      "automated_response": false,
+      "created_at": "2019-11-19T14:01:29.206Z",
+      "updated_at": "2019-11-19T14:01:29.206Z",
+      "actor": {
+        "username": "simonscannell",
+        "cleared": false,
+        "verified": false,
+        "url": "/simonscannell",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/HvE5FGgP56eXFMNMr4rwmunu/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "wordpress"
+    },
+    {
+      "id": 6352337,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hey @simonscannell,\n\nWe put together this patch that aims to fix this problem. Could you please review?\n\nCheers,\n\n@whyisjake",
+      "automated_response": false,
+      "created_at": "2019-11-20T01:20:40.557Z",
+      "updated_at": "2019-11-20T01:20:40.557Z",
+      "actor": {
+        "username": "whyisjake",
+        "cleared": false,
+        "verified": false,
+        "url": "/whyisjake",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/499/942/de8d53f71535e9531105209e14875727a9e88cfe_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "wordpress"
+    },
+    {
+      "id": 6400697,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @whyisjake ,\n\nSeems effective to me!\n\nBest,\nSimon",
+      "automated_response": false,
+      "created_at": "2019-11-25T17:01:30.755Z",
+      "updated_at": "2019-11-25T17:01:30.755Z",
+      "actor": {
+        "username": "simonscannell",
+        "cleared": false,
+        "verified": false,
+        "url": "/simonscannell",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/HvE5FGgP56eXFMNMr4rwmunu/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "wordpress"
+    },
+    {
+      "id": 6518341,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hey there @simonscannell,\n\nDo you have a GitHub account? Would like to add you to the Security Advisory there.\n\nAlso, would the \"Props to Simon Scannell of RIPS Technologies\" still work for the release on Thursday?\n\nCheers,\n\n@whyisjake",
+      "automated_response": false,
+      "created_at": "2019-12-11T01:26:37.937Z",
+      "updated_at": "2019-12-11T01:26:37.937Z",
+      "actor": {
+        "username": "whyisjake",
+        "cleared": false,
+        "verified": false,
+        "url": "/whyisjake",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/499/942/de8d53f71535e9531105209e14875727a9e88cfe_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "wordpress"
+    },
+    {
+      "id": 6518462,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @whyisjake ,\n\nMy github account is https://github.com/scannells thank you!\n\nYes, please do use this props for all Security issues reported by me!\n\nBest regards,\nSimon",
+      "automated_response": false,
+      "created_at": "2019-12-11T02:36:45.325Z",
+      "updated_at": "2019-12-11T02:36:45.325Z",
+      "actor": {
+        "username": "simonscannell",
+        "cleared": false,
+        "verified": false,
+        "url": "/simonscannell",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/HvE5FGgP56eXFMNMr4rwmunu/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "wordpress"
+    },
+    {
+      "id": 6556644,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi Simon,\n\nThis went out in https://wordpress.org/news/2019/12/wordpress-5-3-1-security-and-maintenance-release/ \n\nWorking on getting the bounty released. Thank you for your great research as always! :) ",
+      "automated_response": false,
+      "created_at": "2019-12-16T09:34:48.772Z",
+      "updated_at": "2019-12-16T09:34:48.772Z",
+      "actor": {
+        "username": "ehtis",
+        "cleared": false,
+        "verified": false,
+        "url": "/ehtis",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "wordpress"
+    },
+    {
+      "id": 6577760,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BountyAwarded",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2019-12-18T09:48:26.590Z",
+      "updated_at": "2019-12-18T09:48:26.590Z",
+      "actor": {
+        "url": "/wordpress",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/000/055/f114d1d31f904e3b903cd99a6cf566bb531f8401_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "profile": {
+          "name": "WordPress"
+        }
+      },
+      "bounty_currency": "usd",
+      "genius_execution_id": null,
+      "team_handle": "wordpress",
+      "collaborator": {
+        "username": "simonscannell",
+        "url": "/simonscannell"
+      }
+    },
+    {
+      "id": 6577855,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2019-12-18T10:01:31.876Z",
+      "updated_at": "2019-12-18T10:01:31.876Z",
+      "actor": {
+        "username": "ehtis",
+        "cleared": false,
+        "verified": false,
+        "url": "/ehtis",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "reporter": {
+        "username": "simonscannell",
+        "url": "/simonscannell"
+      },
+      "genius_execution_id": null,
+      "team_handle": "wordpress"
+    },
+    {
+      "id": 6583244,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Thank you very much!\n\nI was told ██████████\nIs also in the queue, but since it was Not included in this round I just wanted to make sure there are no confusions, thank you!",
+      "automated_response": false,
+      "created_at": "2019-12-18T21:50:56.618Z",
+      "updated_at": "2020-01-08T16:16:45.513Z",
+      "actor": {
+        "username": "simonscannell",
+        "cleared": false,
+        "verified": false,
+        "url": "/simonscannell",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/HvE5FGgP56eXFMNMr4rwmunu/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "wordpress"
+    },
+    {
+      "id": 6591342,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Yep! Also working on getting that released.",
+      "automated_response": false,
+      "created_at": "2019-12-19T19:03:07.339Z",
+      "updated_at": "2019-12-19T19:03:07.339Z",
+      "actor": {
+        "username": "ehtis",
+        "cleared": false,
+        "verified": false,
+        "url": "/ehtis",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "wordpress"
+    },
+    {
+      "id": 6591391,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Thank you for taking care of this!",
+      "automated_response": false,
+      "created_at": "2019-12-19T19:15:30.604Z",
+      "updated_at": "2019-12-19T19:15:30.604Z",
+      "actor": {
+        "username": "simonscannell",
+        "cleared": false,
+        "verified": false,
+        "url": "/simonscannell",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/HvE5FGgP56eXFMNMr4rwmunu/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "wordpress"
+    },
+    {
+      "id": 6684513,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2020-01-03T23:02:01.958Z",
+      "updated_at": "2020-01-03T23:02:01.958Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "simonscannell",
+        "cleared": false,
+        "verified": false,
+        "url": "/simonscannell",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/HvE5FGgP56eXFMNMr4rwmunu/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "wordpress"
+    },
+    {
+      "id": 6719040,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "@simonscannell,\n\nI just published this security advisory with associated CVE: CVE-2019-16773\n\nhttps://github.com/WordPress/wordpress-develop/security/advisories/GHSA-xvg2-m2f4-83m7\n\nCheers,\n\n@whyisjake",
+      "automated_response": false,
+      "created_at": "2020-01-08T16:12:24.493Z",
+      "updated_at": "2020-01-08T16:12:24.493Z",
+      "actor": {
+        "username": "whyisjake",
+        "cleared": false,
+        "verified": false,
+        "url": "/whyisjake",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/499/942/de8d53f71535e9531105209e14875727a9e88cfe_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "wordpress"
+    },
+    {
+      "id": 6719041,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportBecamePublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2020-01-08T16:12:24.894Z",
+      "updated_at": "2020-01-08T16:12:24.894Z",
+      "actor": {
+        "username": "whyisjake",
+        "cleared": false,
+        "verified": false,
+        "url": "/whyisjake",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/499/942/de8d53f71535e9531105209e14875727a9e88cfe_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "wordpress"
+    },
+    {
+      "id": 6719227,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @whyisjake ,\n\nThank you! I like the direction WordPress is going with full disclosure.\n\nAll the best,\nSimon",
+      "automated_response": false,
+      "created_at": "2020-01-08T16:40:22.854Z",
+      "updated_at": "2020-01-08T16:40:22.854Z",
+      "actor": {
+        "username": "simonscannell",
+        "cleared": false,
+        "verified": false,
+        "url": "/simonscannell",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/HvE5FGgP56eXFMNMr4rwmunu/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "wordpress"
+    },
+    {
+      "id": 6867027,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::CveIdAdded",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2020-01-25T04:46:32.701Z",
+      "updated_at": "2020-01-25T04:46:32.701Z",
+      "cve_ids": [
+        "CVE-2019-16773"
+      ],
+      "actor": {
+        "username": "peterwilsoncc",
+        "cleared": false,
+        "verified": false,
+        "url": "/peterwilsoncc",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/088/233/1bc225b5a7eece788797207b092f8b9083a4ed4d_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "wordpress"
+    }
+  ],
+  "activity_page_count": 1,
+  "activity_page_number": 1,
+  "summaries": [
+    {
+      "category": "team",
+      "can_view?": true,
+      "can_create?": false
+    },
+    {
+      "category": "researcher",
+      "can_view?": true,
+      "can_create?": false
+    }
+  ]
+}

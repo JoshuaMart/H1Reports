@@ -1,0 +1,353 @@
+{
+  "id": 115702,
+  "global_id": "Z2lkOi8vaGFja2Vyb25lL1JlcG9ydC8xMTU3MDI=",
+  "url": "https://hackerone.com/reports/115702",
+  "title": "[tor] libevent dns OOB read",
+  "state": "Closed",
+  "substate": "resolved",
+  "readable_substate": "Resolved",
+  "created_at": "2016-02-10T14:43:24.014Z",
+  "submitted_at": "2016-02-10T14:43:24.014Z",
+  "is_member_of_team?": false,
+  "is_organization_group_member?": false,
+  "reporter": {
+    "disabled": false,
+    "username": "guido",
+    "url": "/guido",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/002/983/e55b0b2324777fb7efc2de4212fd8d337ca816bd_original.jpg/3c7b305354c9073c106ae3d1701798defaaf5be844fb8fdfa49ca62f991a2c2c"
+    },
+    "is_me?": false,
+    "cleared": false,
+    "verified": false,
+    "hackerone_triager": false,
+    "hacker_mediation": false
+  },
+  "team": {
+    "id": 1800,
+    "url": "https://hackerone.com/torproject",
+    "handle": "torproject",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/001/800/6e575d0a9127b91e83833cf4a9e6be6e8b30cbc3_original.jpg/3c7b305354c9073c106ae3d1701798defaaf5be844fb8fdfa49ca62f991a2c2c",
+      "medium": "https://profile-photos.hackerone-user-content.com/variants/000/001/800/6e575d0a9127b91e83833cf4a9e6be6e8b30cbc3_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+    },
+    "permissions": [
+
+    ],
+    "submission_state": "open",
+    "default_currency": "usd",
+    "awards_miles": false,
+    "offers_bounties": true,
+    "state": "public_mode",
+    "only_cleared_hackers": false,
+    "pentest_feature_enabled?": false,
+    "profile": {
+      "name": "Tor",
+      "twitter_handle": "torproject",
+      "website": "https://www.torproject.org/",
+      "about": "Anonymity Online"
+    }
+  },
+  "has_bounty?": true,
+  "in_validation?": false,
+  "can_view_team": true,
+  "can_view_report": true,
+  "is_external_bug": false,
+  "is_published": false,
+  "is_participant": false,
+  "has_collaborators": false,
+  "submitted_by_team_member": false,
+  "stage": 4,
+  "public": true,
+  "visibility": "full",
+  "cve_ids": [
+
+  ],
+  "singular_disclosure_disabled": false,
+  "disclosed_at": "2017-10-19T10:15:46.793Z",
+  "bug_reporter_agreed_on_going_public_at": "2017-10-19T10:15:46.733Z",
+  "team_member_agreed_on_going_public_at": "2017-10-19T09:36:32.722Z",
+  "comments_closed?": false,
+  "facebook_team?": false,
+  "team_private?": false,
+  "vulnerability_information": "The DNS code of Libevent contains this rather obvious OOB read:\n\n```c\n3122 static char *\n3123 search_make_new(const struct search_state *const state, int n, const char *const base_name) {\n3124     const size_t base_len = strlen(base_name);\n3125     const char need_to_append_dot = base_name[base_len - 1] == '.' ? 0 : 1;\n```\n\nIf the length of ```base_name``` is 0, then line 3125 reads 1 byte before the buffer. This will trigger a crash on ASAN-protected builds.\n\nTo reproduce:\n\nBuild libevent with ASAN:\n```\n$ CFLAGS='-fomit-frame-pointer -fsanitize=address' ./configure && make -j4\n```\nPut the attached ```resolv.conf``` and ```poc.c``` in the source directory and then do:\n\n```\n$ gcc -fsanitize=address -fomit-frame-pointer poc.c .libs/libevent.a\n$ ./a.out\n=================================================================\n==22201== ERROR: AddressSanitizer: heap-buffer-overflow on address 0x60060000efdf at pc 0x4429da bp 0x7ffe1ed47300 sp 0x7ffe1ed472f8\nREAD of size 1 at 0x60060000efdf thread T0\n```\n\nThis happens because I create a zero-length string in ```poc.c```:\n```c\n    char* hostname = malloc(32);\n    memset(hostname, 0, 32);\n    //hostname[0] = 'x';\n```\n\nIf you uncomment the last line, it will not crash.\n\nGuido",
+  "weakness": {
+    "id": 2,
+    "name": "Memory Corruption - Generic"
+  },
+  "original_report_id": null,
+  "original_report_url": null,
+  "attachments": [
+    {
+      "id": 72902,
+      "file_name": "resolv.conf",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/072/902/baee457cdd269e35bc84db5711c42fc37a196dbe/resolv.conf?response-content-disposition=attachment%3B%20filename%3D%22resolv.conf%22%3B%20filename%2A%3DUTF-8%27%27resolv.conf&response-content-type=text%2Fplain&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQXJ6D5F5L%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T075839Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEDAaCXVzLXdlc3QtMiJHMEUCIQDyP3EMkvTL0V6wTAvXT68cqPExihI2tf1xKvIQBLAgGQIgChCfiV8aqCpMhU25ctkvWGY92pvBfPR17F6tP9zzz9YqsgUIKRADGgwwMTM2MTkyNzQ4NDkiDFSK4MgRgfyw8Ls3lSqPBc15dmBku9gi%2BCKowlVcgedrfye0tu%2Fx1j0CjLpEjeiWrLjspN%2BSOgA2S18fCqOPkyvqnF%2FJqtOQ11yStizzcOHrMjIGmBiFd2uh2AQxjMEOATRd%2BtvkdhIGP0jSX%2B2hkExagmSyylow7gV%2BqgjUHCN16fdfmoa4p3RB%2FdtVnnK4s9kroID0O6aQliqzwXPCSpNN4EWDlP42e8a%2FuMmJXr%2Ft3yz%2FDV0Au8YnOIAALIyejGUU7Q3LVzSM6esTWTNtol3txZBSjUKLmgG45SqCnjhd1DYJ1VMhPaHv%2B51leg5qoYnbSwwyTrYDN%2FJwT7aIH%2BgLZ9NGCHJiVU%2BOUuooyiPSWE%2BdH7WVFkEiYLOr5y%2FG0zcdNGTPPNVAnPirdiuKZv0gyGDN8Bcvzp%2FrvBYNEK7W2ot7sNlFbuY39lN4qKTyOqCt5iackrYE8nKDY6OpQBVEejeyBNRHTWVfSjwPPwAh8%2F4to1J7q68Q4ZHlW4SoA9nHn7GPgrVHEme1reHQNEAisfZ%2FMT6sonQBj88%2FiJrPlfx%2FGDMEGXndSXYYZ7qfXqrmi3s12G42QJQ3MBVpByQJg%2BGYVluCmH%2FzTYT219Nl1JUae48YJU%2BdtDo3kWpIa6%2BwwXgYRKIQ337%2FJWDFuk1HxIu79qMRQZeKDKpAIOPJ1pFd1nWtn07HBQX08v1SPe5eScDzhwwELRGI95p%2FDzjsX3tv9uFrjwo6WPI3u98OEtOrswXaUU2iSx0d9QnkOMwnkSO%2FVDOusFq564cZMTip%2BL789juFh23AkZaruJMzkmoEwvFfCzA1dYmjR6EX3ujHsrdunub1eg4J%2BFJRvJ%2BK%2BkubKTubdAD20d9%2FSv3eo%2BXmZMlFprvdij%2FJx4Ewj6W6qAY6sQG6KlSAE8XQTNIipND5514nCatkaeOfD18B0bSzmtjwXZ7%2FXF2U7uWQ5NCNUaK2DTkEzo%2FhiTKNnDPI%2Frx6JGnB5loBPosllWp3WyrwrC0gSVmJdCM%2Fxcm8rvWiMGzm%2B7K9EH5QkmiOWj7Ufj2zd1lPLgMQ7vU0a3o%2FW4165LXUQMtqfkXwZ4j1K7xV%2BKYfeCC2U0SRmi92FjyS5gd4UGg0GN50j2TrWTXkNcBNZRJ8uiA%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=07380972b747f4d216190e494d0e161d1bcc8cbfcce6ade9e7d26b9252874148",
+      "file_size": 32,
+      "type": "text/plain",
+      "moderated": null
+    },
+    {
+      "id": 72903,
+      "file_name": "poc.c",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/072/903/3fa201f32bd9240fd74e4bbe3c74ca5661dbd46f/poc.c?response-content-disposition=attachment%3B%20filename%3D%22poc.c%22%3B%20filename%2A%3DUTF-8%27%27poc.c&response-content-type=text%2Fx-c&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQXJ6D5F5L%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T075839Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEDAaCXVzLXdlc3QtMiJHMEUCIQDyP3EMkvTL0V6wTAvXT68cqPExihI2tf1xKvIQBLAgGQIgChCfiV8aqCpMhU25ctkvWGY92pvBfPR17F6tP9zzz9YqsgUIKRADGgwwMTM2MTkyNzQ4NDkiDFSK4MgRgfyw8Ls3lSqPBc15dmBku9gi%2BCKowlVcgedrfye0tu%2Fx1j0CjLpEjeiWrLjspN%2BSOgA2S18fCqOPkyvqnF%2FJqtOQ11yStizzcOHrMjIGmBiFd2uh2AQxjMEOATRd%2BtvkdhIGP0jSX%2B2hkExagmSyylow7gV%2BqgjUHCN16fdfmoa4p3RB%2FdtVnnK4s9kroID0O6aQliqzwXPCSpNN4EWDlP42e8a%2FuMmJXr%2Ft3yz%2FDV0Au8YnOIAALIyejGUU7Q3LVzSM6esTWTNtol3txZBSjUKLmgG45SqCnjhd1DYJ1VMhPaHv%2B51leg5qoYnbSwwyTrYDN%2FJwT7aIH%2BgLZ9NGCHJiVU%2BOUuooyiPSWE%2BdH7WVFkEiYLOr5y%2FG0zcdNGTPPNVAnPirdiuKZv0gyGDN8Bcvzp%2FrvBYNEK7W2ot7sNlFbuY39lN4qKTyOqCt5iackrYE8nKDY6OpQBVEejeyBNRHTWVfSjwPPwAh8%2F4to1J7q68Q4ZHlW4SoA9nHn7GPgrVHEme1reHQNEAisfZ%2FMT6sonQBj88%2FiJrPlfx%2FGDMEGXndSXYYZ7qfXqrmi3s12G42QJQ3MBVpByQJg%2BGYVluCmH%2FzTYT219Nl1JUae48YJU%2BdtDo3kWpIa6%2BwwXgYRKIQ337%2FJWDFuk1HxIu79qMRQZeKDKpAIOPJ1pFd1nWtn07HBQX08v1SPe5eScDzhwwELRGI95p%2FDzjsX3tv9uFrjwo6WPI3u98OEtOrswXaUU2iSx0d9QnkOMwnkSO%2FVDOusFq564cZMTip%2BL789juFh23AkZaruJMzkmoEwvFfCzA1dYmjR6EX3ujHsrdunub1eg4J%2BFJRvJ%2BK%2BkubKTubdAD20d9%2FSv3eo%2BXmZMlFprvdij%2FJx4Ewj6W6qAY6sQG6KlSAE8XQTNIipND5514nCatkaeOfD18B0bSzmtjwXZ7%2FXF2U7uWQ5NCNUaK2DTkEzo%2FhiTKNnDPI%2Frx6JGnB5loBPosllWp3WyrwrC0gSVmJdCM%2Fxcm8rvWiMGzm%2B7K9EH5QkmiOWj7Ufj2zd1lPLgMQ7vU0a3o%2FW4165LXUQMtqfkXwZ4j1K7xV%2BKYfeCC2U0SRmi92FjyS5gd4UGg0GN50j2TrWTXkNcBNZRJ8uiA%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=a33c0c637bb5a0d686640a50e7f0045a1f6051a19f5e7ad427f99604a4ed8f9f",
+      "file_size": 4217,
+      "type": "text/x-c",
+      "moderated": null
+    }
+  ],
+  "allow_singular_disclosure_at": "2017-11-18T09:36:32.866Z",
+  "allow_singular_disclosure_after": -184458126.90736008,
+  "singular_disclosure_allowed": true,
+  "vote_count": 8,
+  "voters": [
+    "sp1d3rs",
+    "xiaoyinl",
+    "geeknik",
+    "eveeez",
+    "mr_r3boot",
+    "spetr0x",
+    "b4155f7c29acd42c27d007a",
+    "unixphil"
+  ],
+  "structured_scope": null,
+  "abilities": {
+    "assignable_team_members": [
+
+    ],
+    "assignable_team_member_groups": [
+
+    ]
+  },
+  "activities": [
+    {
+      "id": 802690,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BountyAwarded",
+      "message": "Seems like a real bug that can be triggered in Tor if the `ServerDNSSearchDomains` option is set to 1.\n\nWe are awarding $200 for this bug because it might be a DoS threat for relays with that option enabled, and because it's an obvious libevent bug as well.\n\nLet me know if something is not right. Thanks!",
+      "automated_response": false,
+      "created_at": "2016-02-18T11:40:20.446Z",
+      "updated_at": "2016-02-18T11:40:20.446Z",
+      "actor": {
+        "url": "/torproject",
+        "ibb": true,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/001/800/6e575d0a9127b91e83833cf4a9e6be6e8b30cbc3_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "profile": {
+          "name": "Tor"
+        }
+      },
+      "bounty_currency": "usd",
+      "genius_execution_id": null,
+      "team_handle": "torproject",
+      "collaborator": {
+        "username": "guido",
+        "url": "/guido"
+      }
+    },
+    {
+      "id": 803455,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Thank you!",
+      "automated_response": false,
+      "created_at": "2016-02-18T21:41:51.470Z",
+      "updated_at": "2016-02-18T21:41:51.470Z",
+      "actor": {
+        "username": "guido",
+        "cleared": false,
+        "verified": false,
+        "url": "/guido",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/002/983/e55b0b2324777fb7efc2de4212fd8d337ca816bd_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "torproject"
+    },
+    {
+      "id": 822650,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Filed this under https://github.com/libevent/libevent/issues/332 .\n\nThanks!",
+      "automated_response": false,
+      "created_at": "2016-03-03T15:00:35.028Z",
+      "updated_at": "2016-03-03T15:00:35.028Z",
+      "actor": {
+        "username": "asn",
+        "cleared": false,
+        "verified": false,
+        "url": "/asn",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "torproject"
+    },
+    {
+      "id": 864322,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugTriaged",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2016-03-23T08:59:52.884Z",
+      "updated_at": "2016-03-23T08:59:52.884Z",
+      "actor": {
+        "username": "geko",
+        "cleared": false,
+        "verified": false,
+        "url": "/geko",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "torproject"
+    },
+    {
+      "id": 991612,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "You can close this one too if you're ready for it.",
+      "automated_response": false,
+      "created_at": "2016-05-31T00:44:18.014Z",
+      "updated_at": "2016-05-31T00:44:18.014Z",
+      "actor": {
+        "username": "guido",
+        "cleared": false,
+        "verified": false,
+        "url": "/guido",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/002/983/e55b0b2324777fb7efc2de4212fd8d337ca816bd_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "torproject"
+    },
+    {
+      "id": 992846,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "Done.",
+      "automated_response": false,
+      "created_at": "2016-05-31T16:03:26.561Z",
+      "updated_at": "2016-05-31T16:03:26.561Z",
+      "actor": {
+        "username": "asn",
+        "cleared": false,
+        "verified": false,
+        "url": "/asn",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "reporter": {
+        "username": "guido",
+        "url": "/guido"
+      },
+      "genius_execution_id": null,
+      "team_handle": "torproject"
+    },
+    {
+      "id": 2083670,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2017-10-19T09:36:32.800Z",
+      "updated_at": "2017-10-19T09:36:32.800Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "geko",
+        "cleared": false,
+        "verified": false,
+        "url": "/geko",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "torproject"
+    },
+    {
+      "id": 2083739,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2017-10-19T10:15:46.751Z",
+      "updated_at": "2017-10-19T10:15:46.751Z",
+      "actor": {
+        "username": "guido",
+        "cleared": false,
+        "verified": false,
+        "url": "/guido",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/002/983/e55b0b2324777fb7efc2de4212fd8d337ca816bd_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "torproject"
+    },
+    {
+      "id": 2083740,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportBecamePublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2017-10-19T10:15:46.813Z",
+      "updated_at": "2017-10-19T10:15:46.813Z",
+      "actor": {
+        "username": "guido",
+        "cleared": false,
+        "verified": false,
+        "url": "/guido",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/002/983/e55b0b2324777fb7efc2de4212fd8d337ca816bd_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "torproject"
+    }
+  ],
+  "activity_page_count": 1,
+  "activity_page_number": 1,
+  "summaries": [
+    {
+      "category": "team",
+      "can_view?": true,
+      "can_create?": false
+    },
+    {
+      "category": "researcher",
+      "can_view?": true,
+      "can_create?": false
+    }
+  ]
+}

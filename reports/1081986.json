@@ -1,0 +1,321 @@
+{
+  "id": 1081986,
+  "global_id": "Z2lkOi8vaGFja2Vyb25lL1JlcG9ydC8xMDgxOTg2",
+  "url": "https://hackerone.com/reports/1081986",
+  "title": "Potential Authentication Bypass through \"autologin\" feature",
+  "state": "Closed",
+  "substate": "resolved",
+  "severity_rating": "low",
+  "readable_substate": "Resolved",
+  "created_at": "2021-01-19T23:53:03.642Z",
+  "submitted_at": "2021-01-19T23:53:03.773Z",
+  "is_member_of_team?": false,
+  "is_organization_group_member?": false,
+  "reporter": {
+    "disabled": false,
+    "username": "egix",
+    "url": "/egix",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/001/431/9435ac0bb25492f164582fbbc7e3f6f8f016b1d1_original.jpg/3c7b305354c9073c106ae3d1701798defaaf5be844fb8fdfa49ca62f991a2c2c"
+    },
+    "is_me?": false,
+    "cleared": false,
+    "verified": true,
+    "hackerone_triager": false,
+    "hacker_mediation": false
+  },
+  "team": {
+    "id": 38302,
+    "url": "https://hackerone.com/impresscms",
+    "handle": "impresscms",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/038/302/c9f69b5546e2b4211c0a26681a398b1685cc5ebb_original./d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98",
+      "medium": "https://profile-photos.hackerone-user-content.com/variants/000/038/302/c9f69b5546e2b4211c0a26681a398b1685cc5ebb_original./5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+    },
+    "permissions": [
+
+    ],
+    "submission_state": "paused",
+    "default_currency": "usd",
+    "awards_miles": false,
+    "offers_bounties": false,
+    "state": "public_mode",
+    "only_cleared_hackers": false,
+    "pentest_feature_enabled?": false,
+    "profile": {
+      "name": "ImpressCMS",
+      "twitter_handle": "impresscms",
+      "website": "https://www.impresscms.org",
+      "about": "PHP and MySQL content management system"
+    }
+  },
+  "has_bounty?": false,
+  "in_validation?": false,
+  "can_view_team": true,
+  "can_view_report": true,
+  "is_external_bug": false,
+  "is_published": false,
+  "is_participant": false,
+  "has_collaborators": false,
+  "submitted_by_team_member": false,
+  "stage": 4,
+  "public": true,
+  "visibility": "full",
+  "cve_ids": [
+    "CVE-2021-26600"
+  ],
+  "singular_disclosure_disabled": false,
+  "disclosed_at": "2022-03-22T22:56:24.152Z",
+  "bug_reporter_agreed_on_going_public_at": "2022-02-20T22:56:20.737Z",
+  "team_member_agreed_on_going_public_at": null,
+  "comments_closed?": false,
+  "facebook_team?": false,
+  "team_private?": false,
+  "vulnerability_information": "## Summary:\nThe vulnerability is located in the `/plugins/preloads/autologin.php` script:\n\n```\n45.\t\t\t$uname = $myts->stripSlashesGPC($autologinName);\n46.\t\t\t$pass = $myts->stripSlashesGPC($autologinPass);\n47.\t\t\tif (empty($uname) || is_numeric($pass)) {\n48.\t\t\t\t$user = false ;\n49.\t\t\t} else {\n50.\t\t\t\t// V3\n51.\t\t\t\t$uname4sql = addslashes($uname);\n52.\t\t\t\t$criteria = new icms_db_criteria_Compo(new icms_db_criteria_Item('login_name', $uname4sql));\n53.\t\t\t\t$user_handler = icms::handler('icms_member_user');\n54.\t\t\t\t$users = $user_handler->getObjects($criteria, false);\n55.\t\t\t\tif (empty($users) || count($users) != 1) {\n56.\t\t\t\t\t$user = false ;\n57.\t\t\t\t} else {\n58.\t\t\t\t\t// V3.1 begin\n59.\t\t\t\t\t$user = $users[0] ;\n60.\t\t\t\t\t$old_limit = time() - (defined('ICMS_AUTOLOGIN_LIFETIME') ? ICMS_AUTOLOGIN_LIFETIME : 604800);\n61.\t\t\t\t\tlist($old_Ynj, $old_encpass) = explode(':', $pass);\n62.\t\t\t\t\tif (strtotime($old_Ynj) < $old_limit || md5($user->getVar('pass') .\n63.\t\t\t\t\t\t\tICMS_DB_PASS . ICMS_DB_PREFIX . $old_Ynj) != $old_encpass)\n64.\t\t\t\t\t{\n65.\t\t\t\t\t\t$user = false;\n66.\t\t\t\t\t}\n```\n\nUser input passed through the \"autologin_uname\" and \"autologin_pass\" cookie values is being used at lines 51-54 to fetch an user object from the database, and then at lines 62-63 to check the correctness of the user's password. The vulnerability exists because of an unsafe way of comparing those parameters, due to comparison operator `!=` is being used instead of `!==` within the “if” statement at lines 62-63. The latter operator returns “true” only if the compared values are equal and the same type, while the first compare the values after “[type juggling](https://github.com/swisskyrepo/PayloadsAllTheThings/tree/master/Type%20Juggling)”. This might be exploited to bypass the authentication mechanism and login as any user without the knowledge of the relative password.\n\n## ImpressCMS branch :\nThe vulnerability has been spotted on ImpressCMS version 1.4.2 (the latest at the time of writing).\n\n## Steps To Reproduce:\nUse the attached Proof of Concept (PoC) script to reproduce this vulnerability. It's a PHP script supposed to be used from the command-line (CLI). You should see an output like the following:\n```\n$ php auth-bypass.php http://localhost/impresscms/ admin\n[-] Starting authentication bypass attack...\n[-] 2021-01-20 022141\n[-] You can autologin with the following cookies:\n[-] Cookie: autologin_uname=admin; autologin_pass=2021-01-20 022141:0\n```\n\n**NOTE**: the script will try to send multiple requests with incremental dates within the `autologin_pass` cookie (that will be the value of the `$old_Ynj` variable), and this will generate a different MD5 hash for each request, until something like `0e174892301580325162390102935332` will be returned by the `md5()` function. For this reason, the exploitation likelihood is very low, and the script execution might take days, months, or a theoretically infinite time.\n\n## Impact\n\nThis vulnerability could potentially be exploited to bypass the authentication mechanism and login without valid credentials.",
+  "original_report_id": null,
+  "original_report_url": null,
+  "attachments": [
+    {
+      "id": 1164379,
+      "file_name": "auth-bypass.php",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/7u4gcitnycrl59wj9vsaudqwxwjv?response-content-disposition=attachment%3B%20filename%3D%22auth-bypass.php%22%3B%20filename%2A%3DUTF-8%27%27auth-bypass.php&response-content-type=application%2Fx-php&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQQM3U3QWN%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070438Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQC8AS0gj74xLCqoISG6HxbEYSI0PEfdF96wfaJ9XQRYXAIhANMJJf7iKjV7IKfTVUDY%2FFCPGSxnhIyV8N48256%2BMYR9KrEFCCMQAxoMMDEzNjE5Mjc0ODQ5Igxhj6IY2dpHIu8rk%2FQqjgVrs6hBhGYkbRpwnTMlcXODs%2BzBfQF20UuznJ4WeEETbBCS5xrQKwNciUh8fTXTf3AeLW8ma7i6nN2J%2FTPJmdDJep9LOqCCNnNfoot3TxHeog3PIzq8bBqzv%2FWnZ6WZiSTCgT0fRuUO%2F0NoLfCI2HO7HAJbzDCBBPLDbovCdCCec9tOhSCo4zeTxGL%2B5eNFzvxdrScMsFkSDHqK1nYzB%2BNHu67VcVBNgokTZ%2FiE0D5F2UMHD7Q41spCK9XBNhkLLcYkYcOLSZPgh0y0%2BhAqiB%2F5M75rvi%2FwL4GzjvstCuMp7%2BMlU5uW0LxRNU4av%2Fnf1lTfZJBbJdVp7t47cyPMsPTAh8YfP7rASoDKsUHiH%2BFUgz23qjds1QkLL5EbNJyfMeGE%2BXtoslgNninHIYEKrR5ds5PZuyrZzZMTDLF%2Fh1nIMmJ5vq2TjJfh421jqFfaYQ9GW34apWkiqGr0hGH8SptwKhv4intOnjJEMXalYWlbtl1Pzp1BC18KUB2I%2FxBURyEaaUVKRBbvabpkEgXV%2FnQqzWJTjCL5HnMD4ljLJgc%2BWfWt1Q1EKcMewZWvcY5%2By7QeV5XQIye%2F0GmL5eIhaBkMGzga%2B%2BT%2Btd2hzvF%2BJzR2we9VQYubOGxpQQuF9r%2FV8wkrGgx3sAX8Zd2QX8ckdW6pg1Klcdh7SLABopVWthPu4QV7L3BabFZmhQUAZxdk0ekb1%2Fw1u8af%2Fr51748Lwtjkx8eOWD49jDTLn6Xt0mW91m5QJ4eaq4%2FNmdjUMwnuXKlgK8ZooXSz0KzkvnZ9T%2F7ULiIfcJCltTowwu8hMBaBndUsJxqBhc8BqU6f%2BkchljSoaUmROWNJOFB0Hq9gD7TyVdCAdV0rFjpJkF%2Bqsjsw2Ym5qAY6sAF%2B%2FtGSYZrDIqtpyxX4SjQXtSTuGpkpw2NJ5IoQLX1kapRTuos3cgYmRQqD2osbXW8GAYux38XCyjB7nnsQGwJ0JEKqlWKQK6b0%2FrXO6AT6H0SgoF4kOVUPnUFGdGx5WY2LMvGJ%2FMBV8%2BSm%2FBqOEyct%2F4MP9bhaeuzEeKXirmXTi9G37p059sF1j%2Fald6zrk2x03j7jMV76l15cHOy6ntmTDUBjHYJB0MZDtEpHFj1bVg%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=90b86dafe4eb516d8025da5b6610f650037092e3395c6b3a670a9fbf845d8a71",
+      "file_size": 1067,
+      "type": "application/x-php",
+      "moderated": null
+    }
+  ],
+  "allow_singular_disclosure_at": "2022-03-22T22:56:20.788Z",
+  "allow_singular_disclosure_after": -47462897.677240655,
+  "singular_disclosure_allowed": true,
+  "vote_count": 3,
+  "voters": [
+    "khizer47",
+    "shivammusic",
+    "mixin_star"
+  ],
+  "severity": {
+    "rating": "low",
+    "author_type": "User"
+  },
+  "structured_scope": {
+    "databaseId": 28943,
+    "asset_type": "SOURCE_CODE",
+    "asset_identifier": "https://github.com/impresscms/impresscms",
+    "max_severity": "critical"
+  },
+  "abilities": {
+    "assignable_team_members": [
+
+    ],
+    "assignable_team_member_groups": [
+
+    ]
+  },
+  "activities": [
+    {
+      "id": 10527077,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugTriaged",
+      "message": "Hello, thanks for the information. Its not high risk at the moment, so we will probably have to look into it later (we still have several higher priority fixes to do).",
+      "automated_response": false,
+      "created_at": "2021-01-30T14:12:53.476Z",
+      "updated_at": "2021-01-30T14:12:53.476Z",
+      "actor": {
+        "username": "fiammybe",
+        "cleared": false,
+        "verified": false,
+        "url": "/fiammybe",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/lxkyst8a6qjynobukzkzu3703h0h/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22WIN_20201204_12_47_17_Pro.jpg%22%3B%20filename%2A%3DUTF-8%27%27WIN_20201204_12_47_17_Pro.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQQM3U3QWN%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070438Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQC8AS0gj74xLCqoISG6HxbEYSI0PEfdF96wfaJ9XQRYXAIhANMJJf7iKjV7IKfTVUDY%2FFCPGSxnhIyV8N48256%2BMYR9KrEFCCMQAxoMMDEzNjE5Mjc0ODQ5Igxhj6IY2dpHIu8rk%2FQqjgVrs6hBhGYkbRpwnTMlcXODs%2BzBfQF20UuznJ4WeEETbBCS5xrQKwNciUh8fTXTf3AeLW8ma7i6nN2J%2FTPJmdDJep9LOqCCNnNfoot3TxHeog3PIzq8bBqzv%2FWnZ6WZiSTCgT0fRuUO%2F0NoLfCI2HO7HAJbzDCBBPLDbovCdCCec9tOhSCo4zeTxGL%2B5eNFzvxdrScMsFkSDHqK1nYzB%2BNHu67VcVBNgokTZ%2FiE0D5F2UMHD7Q41spCK9XBNhkLLcYkYcOLSZPgh0y0%2BhAqiB%2F5M75rvi%2FwL4GzjvstCuMp7%2BMlU5uW0LxRNU4av%2Fnf1lTfZJBbJdVp7t47cyPMsPTAh8YfP7rASoDKsUHiH%2BFUgz23qjds1QkLL5EbNJyfMeGE%2BXtoslgNninHIYEKrR5ds5PZuyrZzZMTDLF%2Fh1nIMmJ5vq2TjJfh421jqFfaYQ9GW34apWkiqGr0hGH8SptwKhv4intOnjJEMXalYWlbtl1Pzp1BC18KUB2I%2FxBURyEaaUVKRBbvabpkEgXV%2FnQqzWJTjCL5HnMD4ljLJgc%2BWfWt1Q1EKcMewZWvcY5%2By7QeV5XQIye%2F0GmL5eIhaBkMGzga%2B%2BT%2Btd2hzvF%2BJzR2we9VQYubOGxpQQuF9r%2FV8wkrGgx3sAX8Zd2QX8ckdW6pg1Klcdh7SLABopVWthPu4QV7L3BabFZmhQUAZxdk0ekb1%2Fw1u8af%2Fr51748Lwtjkx8eOWD49jDTLn6Xt0mW91m5QJ4eaq4%2FNmdjUMwnuXKlgK8ZooXSz0KzkvnZ9T%2F7ULiIfcJCltTowwu8hMBaBndUsJxqBhc8BqU6f%2BkchljSoaUmROWNJOFB0Hq9gD7TyVdCAdV0rFjpJkF%2Bqsjsw2Ym5qAY6sAF%2B%2FtGSYZrDIqtpyxX4SjQXtSTuGpkpw2NJ5IoQLX1kapRTuos3cgYmRQqD2osbXW8GAYux38XCyjB7nnsQGwJ0JEKqlWKQK6b0%2FrXO6AT6H0SgoF4kOVUPnUFGdGx5WY2LMvGJ%2FMBV8%2BSm%2FBqOEyct%2F4MP9bhaeuzEeKXirmXTi9G37p059sF1j%2Fald6zrk2x03j7jMV76l15cHOy6ntmTDUBjHYJB0MZDtEpHFj1bVg%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=1fe68801a7a0751930b5ab17f45571b6ac12a03fe31b1c6e335632dba57598b2"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "impresscms"
+    },
+    {
+      "id": 10527094,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @fiammybe, I know this is a low risk issue. However, I thought to report it because the fix is pretty simple and straightforward: just replace `!=` with `!==` at line 63.",
+      "automated_response": false,
+      "created_at": "2021-01-30T14:15:43.649Z",
+      "updated_at": "2021-01-30T14:15:43.649Z",
+      "actor": {
+        "username": "egix",
+        "cleared": false,
+        "verified": true,
+        "url": "/egix",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/001/431/9435ac0bb25492f164582fbbc7e3f6f8f016b1d1_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "impresscms"
+    },
+    {
+      "id": 10556048,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "This has been resolved and will be in ImpressCMS 1.4.3. Thank you!",
+      "automated_response": false,
+      "created_at": "2021-02-02T21:28:52.321Z",
+      "updated_at": "2021-02-02T21:28:52.321Z",
+      "actor": {
+        "username": "fiammybe",
+        "cleared": false,
+        "verified": false,
+        "url": "/fiammybe",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/lxkyst8a6qjynobukzkzu3703h0h/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22WIN_20201204_12_47_17_Pro.jpg%22%3B%20filename%2A%3DUTF-8%27%27WIN_20201204_12_47_17_Pro.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQQM3U3QWN%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070438Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQC8AS0gj74xLCqoISG6HxbEYSI0PEfdF96wfaJ9XQRYXAIhANMJJf7iKjV7IKfTVUDY%2FFCPGSxnhIyV8N48256%2BMYR9KrEFCCMQAxoMMDEzNjE5Mjc0ODQ5Igxhj6IY2dpHIu8rk%2FQqjgVrs6hBhGYkbRpwnTMlcXODs%2BzBfQF20UuznJ4WeEETbBCS5xrQKwNciUh8fTXTf3AeLW8ma7i6nN2J%2FTPJmdDJep9LOqCCNnNfoot3TxHeog3PIzq8bBqzv%2FWnZ6WZiSTCgT0fRuUO%2F0NoLfCI2HO7HAJbzDCBBPLDbovCdCCec9tOhSCo4zeTxGL%2B5eNFzvxdrScMsFkSDHqK1nYzB%2BNHu67VcVBNgokTZ%2FiE0D5F2UMHD7Q41spCK9XBNhkLLcYkYcOLSZPgh0y0%2BhAqiB%2F5M75rvi%2FwL4GzjvstCuMp7%2BMlU5uW0LxRNU4av%2Fnf1lTfZJBbJdVp7t47cyPMsPTAh8YfP7rASoDKsUHiH%2BFUgz23qjds1QkLL5EbNJyfMeGE%2BXtoslgNninHIYEKrR5ds5PZuyrZzZMTDLF%2Fh1nIMmJ5vq2TjJfh421jqFfaYQ9GW34apWkiqGr0hGH8SptwKhv4intOnjJEMXalYWlbtl1Pzp1BC18KUB2I%2FxBURyEaaUVKRBbvabpkEgXV%2FnQqzWJTjCL5HnMD4ljLJgc%2BWfWt1Q1EKcMewZWvcY5%2By7QeV5XQIye%2F0GmL5eIhaBkMGzga%2B%2BT%2Btd2hzvF%2BJzR2we9VQYubOGxpQQuF9r%2FV8wkrGgx3sAX8Zd2QX8ckdW6pg1Klcdh7SLABopVWthPu4QV7L3BabFZmhQUAZxdk0ekb1%2Fw1u8af%2Fr51748Lwtjkx8eOWD49jDTLn6Xt0mW91m5QJ4eaq4%2FNmdjUMwnuXKlgK8ZooXSz0KzkvnZ9T%2F7ULiIfcJCltTowwu8hMBaBndUsJxqBhc8BqU6f%2BkchljSoaUmROWNJOFB0Hq9gD7TyVdCAdV0rFjpJkF%2Bqsjsw2Ym5qAY6sAF%2B%2FtGSYZrDIqtpyxX4SjQXtSTuGpkpw2NJ5IoQLX1kapRTuos3cgYmRQqD2osbXW8GAYux38XCyjB7nnsQGwJ0JEKqlWKQK6b0%2FrXO6AT6H0SgoF4kOVUPnUFGdGx5WY2LMvGJ%2FMBV8%2BSm%2FBqOEyct%2F4MP9bhaeuzEeKXirmXTi9G37p059sF1j%2Fald6zrk2x03j7jMV76l15cHOy6ntmTDUBjHYJB0MZDtEpHFj1bVg%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=1fe68801a7a0751930b5ab17f45571b6ac12a03fe31b1c6e335632dba57598b2"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "reporter": {
+        "username": "egix",
+        "url": "/egix"
+      },
+      "genius_execution_id": null,
+      "team_handle": "impresscms"
+    },
+    {
+      "id": 10560747,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @fiammybe,\n\nthe Common Vulnerabilities and Exposures project (cve.mitre.org) has assigned the name CVE-2021-26600 to this vulnerability.",
+      "automated_response": false,
+      "created_at": "2021-02-03T11:28:45.572Z",
+      "updated_at": "2021-02-03T11:29:06.263Z",
+      "actor": {
+        "username": "egix",
+        "cleared": false,
+        "verified": true,
+        "url": "/egix",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/001/431/9435ac0bb25492f164582fbbc7e3f6f8f016b1d1_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "impresscms"
+    },
+    {
+      "id": 15439601,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@fiammybe I confirm this has been resolved in 1.4.3. Please feel free to close this report.\n",
+      "automated_response": false,
+      "created_at": "2022-02-11T18:53:42.611Z",
+      "updated_at": "2022-02-11T18:53:42.611Z",
+      "actor": {
+        "username": "egix",
+        "cleared": false,
+        "verified": true,
+        "url": "/egix",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/001/431/9435ac0bb25492f164582fbbc7e3f6f8f016b1d1_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "impresscms"
+    },
+    {
+      "id": 15554965,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2022-02-20T22:56:20.768Z",
+      "updated_at": "2022-02-20T22:56:20.768Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "egix",
+        "cleared": false,
+        "verified": true,
+        "url": "/egix",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/001/431/9435ac0bb25492f164582fbbc7e3f6f8f016b1d1_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "impresscms"
+    },
+    {
+      "id": 15554981,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::CveIdAdded",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2022-02-20T22:58:58.720Z",
+      "updated_at": "2022-02-20T22:58:58.720Z",
+      "cve_ids": [
+        "CVE-2021-26600"
+      ],
+      "actor": {
+        "username": "fiammybe",
+        "cleared": false,
+        "verified": false,
+        "url": "/fiammybe",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/lxkyst8a6qjynobukzkzu3703h0h/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc?response-content-disposition=inline%3B%20filename%3D%22WIN_20201204_12_47_17_Pro.jpg%22%3B%20filename%2A%3DUTF-8%27%27WIN_20201204_12_47_17_Pro.jpg&response-content-type=image%2Fjpeg&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQQM3U3QWN%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T070438Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQC8AS0gj74xLCqoISG6HxbEYSI0PEfdF96wfaJ9XQRYXAIhANMJJf7iKjV7IKfTVUDY%2FFCPGSxnhIyV8N48256%2BMYR9KrEFCCMQAxoMMDEzNjE5Mjc0ODQ5Igxhj6IY2dpHIu8rk%2FQqjgVrs6hBhGYkbRpwnTMlcXODs%2BzBfQF20UuznJ4WeEETbBCS5xrQKwNciUh8fTXTf3AeLW8ma7i6nN2J%2FTPJmdDJep9LOqCCNnNfoot3TxHeog3PIzq8bBqzv%2FWnZ6WZiSTCgT0fRuUO%2F0NoLfCI2HO7HAJbzDCBBPLDbovCdCCec9tOhSCo4zeTxGL%2B5eNFzvxdrScMsFkSDHqK1nYzB%2BNHu67VcVBNgokTZ%2FiE0D5F2UMHD7Q41spCK9XBNhkLLcYkYcOLSZPgh0y0%2BhAqiB%2F5M75rvi%2FwL4GzjvstCuMp7%2BMlU5uW0LxRNU4av%2Fnf1lTfZJBbJdVp7t47cyPMsPTAh8YfP7rASoDKsUHiH%2BFUgz23qjds1QkLL5EbNJyfMeGE%2BXtoslgNninHIYEKrR5ds5PZuyrZzZMTDLF%2Fh1nIMmJ5vq2TjJfh421jqFfaYQ9GW34apWkiqGr0hGH8SptwKhv4intOnjJEMXalYWlbtl1Pzp1BC18KUB2I%2FxBURyEaaUVKRBbvabpkEgXV%2FnQqzWJTjCL5HnMD4ljLJgc%2BWfWt1Q1EKcMewZWvcY5%2By7QeV5XQIye%2F0GmL5eIhaBkMGzga%2B%2BT%2Btd2hzvF%2BJzR2we9VQYubOGxpQQuF9r%2FV8wkrGgx3sAX8Zd2QX8ckdW6pg1Klcdh7SLABopVWthPu4QV7L3BabFZmhQUAZxdk0ekb1%2Fw1u8af%2Fr51748Lwtjkx8eOWD49jDTLn6Xt0mW91m5QJ4eaq4%2FNmdjUMwnuXKlgK8ZooXSz0KzkvnZ9T%2F7ULiIfcJCltTowwu8hMBaBndUsJxqBhc8BqU6f%2BkchljSoaUmROWNJOFB0Hq9gD7TyVdCAdV0rFjpJkF%2Bqsjsw2Ym5qAY6sAF%2B%2FtGSYZrDIqtpyxX4SjQXtSTuGpkpw2NJ5IoQLX1kapRTuos3cgYmRQqD2osbXW8GAYux38XCyjB7nnsQGwJ0JEKqlWKQK6b0%2FrXO6AT6H0SgoF4kOVUPnUFGdGx5WY2LMvGJ%2FMBV8%2BSm%2FBqOEyct%2F4MP9bhaeuzEeKXirmXTi9G37p059sF1j%2Fald6zrk2x03j7jMV76l15cHOy6ntmTDUBjHYJB0MZDtEpHFj1bVg%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=1fe68801a7a0751930b5ab17f45571b6ac12a03fe31b1c6e335632dba57598b2"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "impresscms"
+    },
+    {
+      "id": 15988660,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportBecamePublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2022-03-22T22:56:24.229Z",
+      "updated_at": "2022-03-22T22:56:24.229Z",
+      "actor": {
+        "url": "/impresscms",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/038/302/c9f69b5546e2b4211c0a26681a398b1685cc5ebb_original./5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "ImpressCMS"
+        }
+      },
+      "genius_execution_id": null,
+      "team_handle": "impresscms"
+    }
+  ],
+  "activity_page_count": 1,
+  "activity_page_number": 1,
+  "summaries": [
+    {
+      "category": "team",
+      "can_view?": true,
+      "can_create?": false
+    },
+    {
+      "category": "researcher",
+      "can_view?": true,
+      "can_create?": false
+    }
+  ]
+}

@@ -1,0 +1,377 @@
+{
+  "id": 210875,
+  "global_id": "Z2lkOi8vaGFja2Vyb25lL1JlcG9ydC8yMTA4NzU=",
+  "url": "https://hackerone.com/reports/210875",
+  "title": "use of unsafe host header leads to open redirect",
+  "state": "Closed",
+  "substate": "resolved",
+  "severity_rating": "low",
+  "readable_substate": "Resolved",
+  "created_at": "2017-03-05T15:05:05.461Z",
+  "submitted_at": "2017-03-05T15:05:05.461Z",
+  "is_member_of_team?": false,
+  "is_organization_group_member?": false,
+  "reporter": {
+    "disabled": false,
+    "username": "exception",
+    "url": "/exception",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/100/852/b1f7d559f94f85152099c4a3426ec92010ceba40_original.png/d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98"
+    },
+    "is_me?": false,
+    "cleared": false,
+    "verified": false,
+    "hackerone_triager": false,
+    "hacker_mediation": false
+  },
+  "team": {
+    "id": 2143,
+    "url": "https://hackerone.com/rockstargames",
+    "handle": "rockstargames",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/002/143/db40b290ac0adcde231da85c33a668f610e6f4df_original.png/d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98",
+      "medium": "https://profile-photos.hackerone-user-content.com/variants/000/002/143/db40b290ac0adcde231da85c33a668f610e6f4df_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+    },
+    "permissions": [
+
+    ],
+    "submission_state": "open",
+    "default_currency": "usd",
+    "awards_miles": false,
+    "offers_bounties": true,
+    "state": "public_mode",
+    "only_cleared_hackers": false,
+    "pentest_feature_enabled?": false,
+    "profile": {
+      "name": "Rockstar Games",
+      "twitter_handle": "RockstarGames",
+      "website": "http://www.rockstargames.com/",
+      "about": "Publishers of such popular games as Grand Theft Auto, Max Payne, Red Dead Redemption, L.A. Noire, Bully & more."
+    }
+  },
+  "has_bounty?": true,
+  "in_validation?": false,
+  "can_view_team": true,
+  "can_view_report": true,
+  "is_external_bug": false,
+  "is_published": false,
+  "is_participant": false,
+  "has_collaborators": false,
+  "submitted_by_team_member": false,
+  "stage": 4,
+  "public": true,
+  "visibility": "full",
+  "cve_ids": [
+
+  ],
+  "singular_disclosure_disabled": false,
+  "disclosed_at": "2017-05-01T14:20:41.291Z",
+  "bug_reporter_agreed_on_going_public_at": "2017-04-01T14:20:27.223Z",
+  "team_member_agreed_on_going_public_at": null,
+  "comments_closed?": false,
+  "facebook_team?": false,
+  "team_private?": false,
+  "vulnerability_information": "Hi guys\n\nI noticed you are using unsafe host header in generating short links.\n\n#Details \nFirst i navigated to my account \n`https://socialclub.rockstargames.com/member/xerojuzto`\n\nThen i created a new message , and i clicked on share button which shortens the url for example \n\nFrom `https://socialclub.rockstargames.com/member/xerojuzto/feed/3073813190982488067` \nto `http://rsg.ms/517ae7c`\n\nI fetched the http requests to find the end-point which is used to shorten urls.\n`https://socialclub.rockstargames.com/some_dirs/share/Person/getcontent?_=1488723542848`\n\nthe end-point is taking all the url parts before `/Share/Person` and creates a short link corresponding to this cut url.\n\nI Guess the code looks like \n```\n<?php\n$actual_link = \"https://$_SERVER[HTTP_HOST]$_SERVER[REQUEST_URI]\";\n$trimed_link=explode($actual_link,\"/Share\");\n\n$short=DB_Create_short_link($trimed_link);\necho $short;\n?>\n```\nDid you notice the usage of `HTTP_HOST` which  is variable and could be changed by sending different host header values , this will result in creating malicious urls.\n\nThe following request \n```\nGET /feed/102126489/activity/3073813190982488067/share/Person/getcontent?_=1488723542848 HTTP/1.1\nHost: socialclub.rockstargames.com\n```\nIs meant to shorten `/feed/102126489/activity/3073813190982488067` to `http://rsg.ms/517ae7c`   but due to not sharing my wall , it will create another redirect to my profile `https://socialclub.rockstargames.com/member/xerojuzto`\n\n#Exploiting\nI tried to manipulate the host header to force it to redirect the client  to my domain\n\n```\nGET /feed/102126489/activity/2960911889698885091/share/Person/getcontent?_=1488725310707 HTTP/1.1\nHost: socialclub.rockstargames.com.this.is.my.domain.evil.net\n```\n\nand it resulted in creating `http://rsg.ms/5350b75` if you visited it , you would be redirected to \n\n`https://socialclub.rockstargames.com.this.is.my.domain.evil.net/member/xerojuzto/feed/2960911889698885091` \nWhich is not your domain.\n\n#Consequences\n1- Phishing attacks\n2- Open redirects\n3- Cache poisoning and password reset leakage (Limited)\n\n#Steps to reproduce\n1- Log into your account at socialclub\n2- Navigate to your profile\n3- Post a new message\n4- Set up a proxy server (i used burp)\n5- Configure your browser(firefox in my case) to work with the proxy server\n6- Click on share button \n7- Intercept the request\n8- Manipulate the host header and copy the generated shorten url (ex: rsg.ms/5350b75)\n9- Visit it and you will see a redirect to the injected domain.\n\nyou can visit `http://rsg.ms/5350b75` , if you need a video just shout me .\n\n\n#Fix\n- If you are shortening urls from only `socialclub` , then you should correctly validate the host header \n-If you are using many domains \n   you should create a white list for them before constructing urls.\n\n\n#Ref \nhttp://www.skeletonscribe.net/2013/05/practical-http-host-header-attacks.html\n\n\n\nBest regards\nYasser\n\n\n\n\n\n\n\n\n\n\n",
+  "bounty_amount": "300.0",
+  "formatted_bounty": "$300",
+  "weakness": {
+    "id": 57,
+    "name": "Violation of Secure Design Principles"
+  },
+  "original_report_id": null,
+  "original_report_url": null,
+  "attachments": [
+    {
+      "id": 166441,
+      "file_name": "RSG_Request.http",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/166/441/8fbf9a23b0e6e72f6ff469a5df3d6519ad1b7616/RSG_Request.http?response-content-disposition=attachment%3B%20filename%3D%22RSG_Request.http%22%3B%20filename%2A%3DUTF-8%27%27RSG_Request.http&response-content-type=text%2Fplain&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQRWDIYOMA%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T080646Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEC8aCXVzLXdlc3QtMiJHMEUCIFNLdnPGtLwKMqDt0NQfrZo0FnfieCdt70b8x7mZltnYAiEAvoj8eBF%2Fz9RmxiwioQTjaAkY5y8glP7YJHIdVEiSRjIqsgUIKBADGgwwMTM2MTkyNzQ4NDkiDKwmuAj4%2Be1s5lbylSqPBcomyuxhildk0NUANV3%2BftlYYJCWX1M%2B1xqa23Q06%2By7YS%2BQATcLYhjMRKLHIGZfd3bianhW%2FgdFm4gpQAmwDHRw2igbV1zSavkNvXqacnFdw4Oln9SHRd2e4zuwk%2F2GviKwn1nZunhhdOuu6g7A2DA%2FQefyAlyQYpy%2FHRGl7J9kIPlFGlBK9CAul0kzKyTjlygr3Hz7DB5F6X4FcS71gvzmFC%2Fa6bf1tdfq46kICi9nBXV8Yep%2FEmkoi%2FkPVN6jpqZHrrqGL%2BeKOCEw6yXkZefklvRs%2Bmud%2BPdLs6D35uN9GpF0h2lyRl7mI1tGYSVdAxrxhb%2FnLZ%2BBbcvE%2FzPbIbOkYt%2F4kzBjPA33r7a6gRZo6xBI%2BqcHTUEoZlsC%2FePoA0bzI%2BY%2B9Kn7r266PdCrFtOI0TtLDtrt1a%2FsYB7r39ZReNeBUZjFy71DofxHhuMplWoZ%2B5suYOSkCpnX8ox%2FexG03tPH%2B%2BYi%2B7JKgMNo8Ywg0LUY4FIgqUOY3m9G4vsQ2yNVvhHzc1zFQ%2BaZDinuNqUJycV22%2Bal4yI7Vu8zRPT0XS8nU9mRxPyMOxBhqiEpipRhHvEk6ruVgSYpVrhEqZHRnwv%2FiS2CGZuiFnzVyfzzNc0a1K3NA%2Bqp8X%2FGc2IrCqLgJiIar1EgInaI6d3yXHytJb5boQ1Ym5HsML5oSphvP1hBCFvgtrkpt3teC9sz%2F02EwDEGzubXTtTxqnHBOiqeNpfNEReBvGYlciW1L%2FxLQxgqD5RpQ5CUBnf67bJivw%2BtoZ%2BpV3UvOdvkG99R3Yb6KV5k2Ly3LruRvseHIOA2KILhuT0Arnm9FUq1BvuB593ehUm8src6x4P2nT6wjhA9E2kekyi7othxiuSueSwwyp66qAY6sQGfl2fsTY6VWTPrJHQD%2BPDh1xgsgnaytGIcrwK1OGEf8WVcLpw6bEJ6BKLFS7l9GZDwFvjz7J48x%2Bl7YfFRkEZXRmoO3ak0duYeBuy3U2I6DbXdUZZIWlnrcVoExjgWQHiADxJVCKngMqQP1GNwrY9M5Of5s5Z3zUQwD3EqxVcljRFvNHznFkHj8b2eCVcdpPMI6JyXX4H9nyjUW4XvHJwg%2F0AQay6G%2BksUHKVQvEI2UA4%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=725a8f64742653e8f689df61b990fcbd4155e876fa80accb14558f5fb94def55",
+      "file_size": 1382,
+      "type": "text/plain",
+      "moderated": null
+    },
+    {
+      "id": 166443,
+      "file_name": "RS_req_resp.png",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/166/443/b9e7c9827927936755a6168e029b0a0276cbdd16/RS_req_resp.png?response-content-disposition=attachment%3B%20filename%3D%22RS_req_resp.png%22%3B%20filename%2A%3DUTF-8%27%27RS_req_resp.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQRWDIYOMA%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T080646Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEC8aCXVzLXdlc3QtMiJHMEUCIFNLdnPGtLwKMqDt0NQfrZo0FnfieCdt70b8x7mZltnYAiEAvoj8eBF%2Fz9RmxiwioQTjaAkY5y8glP7YJHIdVEiSRjIqsgUIKBADGgwwMTM2MTkyNzQ4NDkiDKwmuAj4%2Be1s5lbylSqPBcomyuxhildk0NUANV3%2BftlYYJCWX1M%2B1xqa23Q06%2By7YS%2BQATcLYhjMRKLHIGZfd3bianhW%2FgdFm4gpQAmwDHRw2igbV1zSavkNvXqacnFdw4Oln9SHRd2e4zuwk%2F2GviKwn1nZunhhdOuu6g7A2DA%2FQefyAlyQYpy%2FHRGl7J9kIPlFGlBK9CAul0kzKyTjlygr3Hz7DB5F6X4FcS71gvzmFC%2Fa6bf1tdfq46kICi9nBXV8Yep%2FEmkoi%2FkPVN6jpqZHrrqGL%2BeKOCEw6yXkZefklvRs%2Bmud%2BPdLs6D35uN9GpF0h2lyRl7mI1tGYSVdAxrxhb%2FnLZ%2BBbcvE%2FzPbIbOkYt%2F4kzBjPA33r7a6gRZo6xBI%2BqcHTUEoZlsC%2FePoA0bzI%2BY%2B9Kn7r266PdCrFtOI0TtLDtrt1a%2FsYB7r39ZReNeBUZjFy71DofxHhuMplWoZ%2B5suYOSkCpnX8ox%2FexG03tPH%2B%2BYi%2B7JKgMNo8Ywg0LUY4FIgqUOY3m9G4vsQ2yNVvhHzc1zFQ%2BaZDinuNqUJycV22%2Bal4yI7Vu8zRPT0XS8nU9mRxPyMOxBhqiEpipRhHvEk6ruVgSYpVrhEqZHRnwv%2FiS2CGZuiFnzVyfzzNc0a1K3NA%2Bqp8X%2FGc2IrCqLgJiIar1EgInaI6d3yXHytJb5boQ1Ym5HsML5oSphvP1hBCFvgtrkpt3teC9sz%2F02EwDEGzubXTtTxqnHBOiqeNpfNEReBvGYlciW1L%2FxLQxgqD5RpQ5CUBnf67bJivw%2BtoZ%2BpV3UvOdvkG99R3Yb6KV5k2Ly3LruRvseHIOA2KILhuT0Arnm9FUq1BvuB593ehUm8src6x4P2nT6wjhA9E2kekyi7othxiuSueSwwyp66qAY6sQGfl2fsTY6VWTPrJHQD%2BPDh1xgsgnaytGIcrwK1OGEf8WVcLpw6bEJ6BKLFS7l9GZDwFvjz7J48x%2Bl7YfFRkEZXRmoO3ak0duYeBuy3U2I6DbXdUZZIWlnrcVoExjgWQHiADxJVCKngMqQP1GNwrY9M5Of5s5Z3zUQwD3EqxVcljRFvNHznFkHj8b2eCVcdpPMI6JyXX4H9nyjUW4XvHJwg%2F0AQay6G%2BksUHKVQvEI2UA4%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=b70bfff86893bc4b5ae4e4c4395d81fa2599d09ab6718eda37b7cae95bddce34",
+      "file_size": 87855,
+      "type": "image/png",
+      "moderated": null
+    }
+  ],
+  "allow_singular_disclosure_at": "2017-05-01T14:20:27.268Z",
+  "allow_singular_disclosure_after": -201807979.08373412,
+  "singular_disclosure_allowed": true,
+  "vote_count": 20,
+  "voters": [
+    "adn",
+    "zombiehelp54",
+    "its_afolic",
+    "brodie_codie",
+    "supernatural",
+    "malcolmx",
+    "mahmoud0x00",
+    "geeknik",
+    "eveeez",
+    "m16",
+    "and 10 more..."
+  ],
+  "severity": {
+    "rating": "low",
+    "author_type": "Team"
+  },
+  "structured_scope": {
+    "databaseId": 430,
+    "asset_type": "URL",
+    "asset_identifier": "socialclub.rockstargames.com",
+    "max_severity": "critical"
+  },
+  "abilities": {
+    "assignable_team_members": [
+
+    ],
+    "assignable_team_member_groups": [
+
+    ]
+  },
+  "activities": [
+    {
+      "id": 1523517,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@exception, thanks for the report.  We are looking into this now.  We'll let you know when we have an update.",
+      "automated_response": false,
+      "created_at": "2017-03-07T04:24:31.822Z",
+      "updated_at": "2017-03-07T04:24:31.822Z",
+      "actor": {
+        "username": "0xffe4",
+        "cleared": false,
+        "verified": false,
+        "url": "/0xffe4",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "rockstargames"
+    },
+    {
+      "id": 1533407,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugTriaged",
+      "message": "Hi @exception ,\n\nWe have successfully reproduced this and notified our developers of the issue. We'll let you know as soon as we have any updates on this matter. Thanks again!",
+      "automated_response": false,
+      "created_at": "2017-03-10T21:14:01.764Z",
+      "updated_at": "2017-03-10T21:14:01.764Z",
+      "actor": {
+        "username": "jmarshall",
+        "cleared": false,
+        "verified": false,
+        "url": "/jmarshall",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "rockstargames"
+    },
+    {
+      "id": 1546208,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BountyAwarded",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2017-03-16T19:04:17.129Z",
+      "updated_at": "2017-03-16T19:04:17.129Z",
+      "actor": {
+        "url": "/rockstargames",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/002/143/db40b290ac0adcde231da85c33a668f610e6f4df_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "Rockstar Games"
+        }
+      },
+      "bounty_amount": "250.0",
+      "bonus_amount": "50.0",
+      "bounty_currency": "usd",
+      "genius_execution_id": null,
+      "team_handle": "rockstargames",
+      "collaborator": {
+        "username": "exception",
+        "url": "/exception"
+      }
+    },
+    {
+      "id": 1574107,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "Hey @exception ,\n\nWe have pushed out the fix for this issue to Production. Attempting to modify the Host header at this endpoint will now result in the server responding with an error message. If you can find a way to bypass this, please let us know. Otherwise, thanks again!\n\nRockstar Games Security",
+      "automated_response": false,
+      "created_at": "2017-03-30T21:19:20.558Z",
+      "updated_at": "2017-03-30T21:19:20.558Z",
+      "actor": {
+        "username": "jmarshall",
+        "cleared": false,
+        "verified": false,
+        "url": "/jmarshall",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "reporter": {
+        "username": "exception",
+        "url": "/exception"
+      },
+      "genius_execution_id": null,
+      "team_handle": "rockstargames"
+    },
+    {
+      "id": 1577437,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": " ",
+      "automated_response": false,
+      "created_at": "2017-04-01T14:20:27.243Z",
+      "updated_at": "2017-04-01T14:20:27.243Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "exception",
+        "cleared": false,
+        "verified": false,
+        "url": "/exception",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/100/852/b1f7d559f94f85152099c4a3426ec92010ceba40_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "rockstargames"
+    },
+    {
+      "id": 1614269,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Can i write about this if we can not disclose ?",
+      "automated_response": false,
+      "created_at": "2017-04-16T22:52:57.021Z",
+      "updated_at": "2017-04-16T22:52:57.021Z",
+      "actor": {
+        "username": "exception",
+        "cleared": false,
+        "verified": false,
+        "url": "/exception",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/100/852/b1f7d559f94f85152099c4a3426ec92010ceba40_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "rockstargames"
+    },
+    {
+      "id": 1646469,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportBecamePublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2017-05-01T14:20:41.322Z",
+      "updated_at": "2017-05-01T14:20:41.322Z",
+      "actor": {
+        "url": "/rockstargames",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/002/143/db40b290ac0adcde231da85c33a668f610e6f4df_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "Rockstar Games"
+        }
+      },
+      "genius_execution_id": null,
+      "team_handle": "rockstargames"
+    },
+    {
+      "id": 6350605,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ChangedScope",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2019-11-19T21:12:38.794Z",
+      "updated_at": "2019-11-19T21:12:38.794Z",
+      "actor": {
+        "username": "jmarshall",
+        "cleared": false,
+        "verified": false,
+        "url": "/jmarshall",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "old_scope": "None",
+      "new_scope": "socialclub.rockstargames.com",
+      "genius_execution_id": null,
+      "team_handle": "rockstargames"
+    },
+    {
+      "id": 8409791,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportSeverityUpdated",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2020-06-25T17:55:48.004Z",
+      "updated_at": "2020-06-25T17:55:48.004Z",
+      "additional_data": {
+        "old_severity": null,
+        "new_severity": "Low",
+        "old_severity_id": null,
+        "new_severity_id": 761122
+      },
+      "actor": {
+        "username": "jmarshall",
+        "cleared": false,
+        "verified": false,
+        "url": "/jmarshall",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "rockstargames"
+    }
+  ],
+  "activity_page_count": 1,
+  "activity_page_number": 1,
+  "summaries": [
+    {
+      "category": "team",
+      "can_view?": true,
+      "can_create?": false
+    },
+    {
+      "category": "researcher",
+      "can_view?": true,
+      "can_create?": false
+    }
+  ]
+}

@@ -1,0 +1,408 @@
+{
+  "id": 638635,
+  "global_id": "Z2lkOi8vaGFja2Vyb25lL1JlcG9ydC82Mzg2MzU=",
+  "url": "https://hackerone.com/reports/638635",
+  "title": "Insecure Zendesk SSO implementation by generating JWT client-side",
+  "state": "Closed",
+  "substate": "resolved",
+  "severity_rating": "high",
+  "readable_substate": "Resolved",
+  "created_at": "2019-07-09T23:30:54.992Z",
+  "submitted_at": "2019-07-09T23:30:54.992Z",
+  "is_member_of_team?": false,
+  "is_organization_group_member?": false,
+  "reporter": {
+    "disabled": false,
+    "username": "xh3n1",
+    "url": "/xh3n1",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/DBFg5SkqL7s6js3eqCtTHTzf/3c7b305354c9073c106ae3d1701798defaaf5be844fb8fdfa49ca62f991a2c2c"
+    },
+    "is_me?": false,
+    "cleared": false,
+    "verified": false,
+    "hackerone_triager": false,
+    "hacker_mediation": false
+  },
+  "team": {
+    "id": 21749,
+    "url": "https://hackerone.com/trint",
+    "handle": "trint",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/qqW6sCzyN86bfWnrnhRpaLYD/ede8cd84a64d5392a2bb88ecb598721116469c27c015c2caa77148f11e211d58",
+      "medium": "https://profile-photos.hackerone-user-content.com/variants/qqW6sCzyN86bfWnrnhRpaLYD/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+    },
+    "permissions": [
+
+    ],
+    "submission_state": "disabled",
+    "default_currency": "usd",
+    "awards_miles": false,
+    "offers_bounties": false,
+    "state": "public_mode",
+    "only_cleared_hackers": false,
+    "pentest_feature_enabled?": false,
+    "profile": {
+      "name": "Trint Ltd",
+      "twitter_handle": "TrintHQ",
+      "website": "http://www.trint.com",
+      "about": "Trint’s AI audio transcription software makes any audio and video searchable, editable and shareable."
+    }
+  },
+  "has_bounty?": false,
+  "in_validation?": false,
+  "can_view_team": true,
+  "can_view_report": true,
+  "is_external_bug": false,
+  "is_published": false,
+  "is_participant": false,
+  "has_collaborators": false,
+  "submitted_by_team_member": false,
+  "stage": 4,
+  "public": true,
+  "visibility": "full",
+  "cve_ids": [
+
+  ],
+  "singular_disclosure_disabled": false,
+  "disclosed_at": "2019-09-08T09:55:04.583Z",
+  "bug_reporter_agreed_on_going_public_at": "2019-08-09T09:54:54.326Z",
+  "team_member_agreed_on_going_public_at": null,
+  "comments_closed?": false,
+  "facebook_team?": false,
+  "team_private?": false,
+  "vulnerability_information": "## Summary:\napp.trint.com implements SSO to Zendesk, it does this by using JWT as described at https://support.zendesk.com/hc/en-us/articles/203663816-Enabling-JWT-JSON-Web-Token-single-sign-on\n\nThis functionality has not been implemented securely because the JWT generation happens in the client-side. This is done by the Zendesk secret being hardcoded in the JavaScript code.\nThe secret is used to create JSON Web Tokens and then you can use the generated token to impersonate any customer in Zendesk. (therefore potentially getting access to their support tickets)\n\nWhilst support.trint.com is marked as out of scope for the program, the described vulnerability isn't caused by Zendesk. The vulnerable component is in app.trint.com.\n\n## Assessment\nThe JavaScript source map files are available next to the minified production files. This significantly makes analyzing this issue easier.\n\n- JavaScript file: https://app.trint.com/static/js/app.e984c9df.js\n- Sourcemap file: https://app.trint.com/static/js/app.e984c9df.js.map\n\nLooking at some of the UI views, I stumbled upon `static/js/modules/auth/pages/ZendeskLoadingPage.js`. I've attached a stripped version which shows the JWT generation:\n\n```js\n[snip]\nimport { ZENDESK_DOMAIN } from 'modules/core/constants/index';\n\nconst { REACT_APP_ZENDESK_SECRET } = process.env;\n\n[snip]\n\nfunction RedirectToZendesk(props) {\n  const { user, history } = props;\n\n  function generateZendeskTokenAndRedirect() {\n    const TIME_NOW_OBJECT = moment(Date.now());\n    try {\n      const payload = {\n        iat: TIME_NOW_OBJECT.unix(),\n        jti: uuid.v4(),\n        name: `${user.profile.firstName} ${user.profile.lastName}`,\n        email: user.username,\n      };\n\n      // encode zendesk token\n      const zendeskToken = jwt.sign(payload, REACT_APP_ZENDESK_SECRET);\n      window.location = `${ZENDESK_DOMAIN}/access/jwt?jwt=${zendeskToken}`;\n    } catch (err) {\n      history.push('/error');\n    }\n  }\n\n  useEffect(\n    () => {\n      generateZendeskTokenAndRedirect(user);\n    },\n    [user],\n  );\n\n  return <Loader />;\n}\n\n[snip]\n\nexport default ZendeskLoadingPage;\n```\r\n\nSearching for `REACT_APP_ZENDESK_SECRET` in the sourcemap will show the JWT secret: \n\n```js\nvar REACT_APP_ZENDESK_SECRET = \"oq1HJ4jXo99Wt41bwvLh9BXBVdgpi52CjkXbThow7UhWQGtJ\";\n```\n\nGenerating the JWT on the client-side like this allows anyone to mint an arbitrary JWT. It would probably be better to generate this on the server-side.\n\n## Reproduction steps\n\n- As logged-in user press \"Support\" on https://app.trint.com\n- Intercept the traffic and see the call to `https://trintsupport.zendesk.com/access/jwt?jwt=[JWT_TOKEN]`\n- Logout of Zendesk\n- Put the JWT token from above URI into https://jwt.io and decode it.\n\nExample:\n```\neyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpYXQiOjE1NjI3MDk2NTksImp0aSI6IjIxZDAyOTg3LWU3YWItNDQ5MC05N2Q3LTc2YTBmMzJhOTVjOCIsIm5hbWUiOiJUZXN0IFRlc3QiLCJlbWFpbCI6ImIzODcxNjk0QHVyaGVuLmNvbSJ9.mnnx7dbpXbvU7xr5Bp5pad2eHVN01mSsXApmZoFj73c\n```\n\n```\n{\n  \"iat\": 1562709659,\n  \"jti\": \"21d02987-e7ab-4490-97d7-76a0f32a95c8\",\n  \"name\": \"Test Test\",\n  \"email\": \"b3871694@urhen.com\"\n}\n```\n\n- Now we can continue with tampering the JWT \n  - Change IAT to the current Unix timestamp\n  - Change JTI to a random UUID v4\n  - Change email to the victim email address\n  - Insert `oq1HJ4jXo99Wt41bwvLh9BXBVdgpi52CjkXbThow7UhWQGtJ` as HMAC secret.\n- Use the resulting JWT in a call to `https://trintsupport.zendesk.com/access/jwt?jwt=[JWT_TOKEN]`. You will be logged in as the victim.\n\n## Impact\n\nAccess to the Zendesk account of Trint customers. This includes potentially the support history of said user.\n\nI haven't verified whether the same SSO flow can also be used against Zendesk administrators. If so, the risk would be higher.",
+  "weakness": {
+    "id": 24,
+    "name": "Password in Configuration File"
+  },
+  "original_report_id": null,
+  "original_report_url": null,
+  "attachments": [
+
+  ],
+  "allow_singular_disclosure_at": "2019-09-08T09:54:54.402Z",
+  "allow_singular_disclosure_after": -127518315.62981969,
+  "singular_disclosure_allowed": true,
+  "vote_count": 91,
+  "voters": [
+    "zzero",
+    "pprab",
+    "foobar7",
+    "holyfield",
+    "corraldev",
+    "tuo4n8",
+    "bsysop",
+    "s1r1u5",
+    "sameerphad72",
+    "tess",
+    "and 81 more..."
+  ],
+  "severity": {
+    "rating": "high",
+    "score": 8.1,
+    "author_type": "Team",
+    "metrics": {
+      "attack_vector": "network",
+      "attack_complexity": "high",
+      "privileges_required": "none",
+      "user_interaction": "none",
+      "scope": "unchanged",
+      "confidentiality": "high",
+      "integrity": "high",
+      "availability": "none"
+    }
+  },
+  "structured_scope": {
+    "databaseId": 22765,
+    "asset_type": "URL",
+    "asset_identifier": "app.trint.com",
+    "max_severity": "critical"
+  },
+  "abilities": {
+    "assignable_team_members": [
+
+    ],
+    "assignable_team_member_groups": [
+
+    ]
+  },
+  "activities": [
+    {
+      "id": 5301355,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @xh3n1,\n\nThank you for your submission. Your report is currently being reviewed and the HackerOne triage team will get back to you once there is additional information to share.\n\nKind regards,\n@tabascojellybeans ",
+      "automated_response": false,
+      "created_at": "2019-07-11T16:07:58.212Z",
+      "updated_at": "2019-07-11T16:07:58.212Z",
+      "actor": {
+        "username": "h1_analyst_fernando",
+        "cleared": false,
+        "verified": false,
+        "url": "/h1_analyst_fernando",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/137/012/ab9f6e7b1ceb2c40d1b957a077945cd82b0063b4_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": true,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "trint"
+    },
+    {
+      "id": 5301840,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugNeedsMoreInfo",
+      "message": "Hello @xh3n1,\n\nThanks for the report! After copying the resulting JWT, I am not logged in as the victim. Is there a step missing in your proof-of-concept? \n\nRegards,\n\n@magicmouse ",
+      "automated_response": false,
+      "created_at": "2019-07-11T17:40:02.488Z",
+      "updated_at": "2019-07-11T17:40:02.488Z",
+      "actor": {
+        "username": "h1_analyst_oceana",
+        "cleared": false,
+        "verified": false,
+        "url": "/h1_analyst_oceana",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/7koyrfQNuacHWmAt2BWtP73b/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "trint"
+    },
+    {
+      "id": 5311660,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugNew",
+      "message": "The issue consistently reproduces for me. Kindly see below video for the reproduction steps:\n\n {F527941} \n\nPlease do make sure that:\n\n- `iat` is set to the current timestamp\n- `jti` is set to a random UUID v4\n- `email` is the victim's email address\n- The JWT is quickly submitted after generation. Zendesk seems to not accept JWT with older timestamps.\n\nPlease do let me know if you require any further information to reproduce this issue.",
+      "automated_response": false,
+      "created_at": "2019-07-12T20:17:47.941Z",
+      "updated_at": "2019-07-12T20:17:47.941Z",
+      "actor": {
+        "username": "xh3n1",
+        "cleared": false,
+        "verified": false,
+        "url": "/xh3n1",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/DBFg5SkqL7s6js3eqCtTHTzf/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "attachments": [
+        {
+          "id": 527941,
+          "filename": "Screen_Recording-trint.mov",
+          "type": "video/quicktime",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/527/941/042d25ec490275896b9d76e4c83ebdf026b66a46/Screen_Recording-trint.mov?response-content-disposition=attachment%3B%20filename%3D%22Screen_Recording-trint.mov%22%3B%20filename%2A%3DUTF-8%27%27Screen_Recording-trint.mov&response-content-type=video%2Fquicktime&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ3C7WDVGJ%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T074010Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEC8aCXVzLXdlc3QtMiJHMEUCIDn3me4BiYTd9cEhiJgERTjoUKuLBgplckyo1gv%2Bebm1AiEAoY8YKDOvzgyQ3egDWlUq%2Bg%2BoNFbGN1HoNJcuLub14nsqsQUIKBADGgwwMTM2MTkyNzQ4NDkiDEqDO33z8UmFn3D1piqOBXBmutxLn4O8upRMZQVOHUfAZz%2F5H956nuLFNB1w4dHM76Efd6Esqgkx2W3whuKEdFaGEO2k4o2AP0w7OpJczkeT3IDGGn4RUI5bPh%2BiJMkqVI8tK3UzEpJJUSF6HbMTrwao7Uati6%2BREOOmMX2yjZ83ZIRyEqtTJSLCS4BGXULPEFPojDY4qjNA5b60yyjAnPj6gbXk%2BZoo550WZHFsUcA0FJSu69aScHPCXoxh2hDEQf8HLfH4FrgkK4qMpYKxTdxDKK46CLw%2Fg8T4YuK2rOrqRiOsGsGglYhAi9L5PX6QU8fFeU49TJFGG%2BkWWZX7ZXAb53PZjbJmvmXB%2FTEgBADExPBqb0GtBwSXjsfeg2MUkJ1JJKrjSnftn2uF44Lwl3eXcyZ%2FLbiRYRl8qOKyOuIMKOV4yidbKYdgPdbf35OZMs6zr%2F%2FRxFnwc%2FHV68T%2BizwT%2BFlshKH3y%2B%2BbJFOP6i0T1v7M7nKQFvxNABDtplEI%2B9fqUGW1Dg7ibbsBkVWXePr29ZQd73EmOTWK8CQDFOrZf9Oy4UK9y%2FKH%2Bc21lt7H7ZwU%2Fa2h97u0mRoHMoHc1rVbSje1tINDMsdaGwQRGz3ysdTjmviAJnhwBli9m9wXmWXllBnkXU4%2BfQtLWMu4iVOFewLKkpWUKsLuXh6jx3JosBPmfDd1N42E7Fr4XdEKa0y47oWruRIqlmjxP4X6JXrTROYLdF2CZ0zhGeAUylgD%2B4xxKokPK%2FGkiiw5BiLcaWolpFCXanJqcdWdwy6yMeRcmWXvrr50l3xmx4ZVenDU%2FJtgoI%2BVznl1w5kWpZyrrryWGATyEfw47VeINLtjJXQiBm%2FtsdJKR%2FUNyu1wxs4SPRLdf%2Fje9wnFOdNjAzD4n7qoBjqxAclBXSZX5G1EGG0VOqTUzC21u2MNyu51phI1ys1%2B6uIP3wgenMeIXpBmciTImpA3aFP4ng9cLZGSnZTRsU0zXZxH4%2FyvKBheT7YuS%2F6dlvGllnxjsRJpJSxFtvt%2BwQMln5HVRmPnEIWXGkSOdOWIYAiRkfYoHWEIfPVniUKAcjpGHmd44L06V2hWu2jHKJz33sdHWQxZVh5RDQ0uL0bYoUosxbzl%2BjgtMDeHkZmRLFwM3Q%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=084dc76ef979fda24425603dc7111f657749dca4a83ce70acdb64256418c904e"
+        }
+      ],
+      "genius_execution_id": null,
+      "team_handle": "trint"
+    },
+    {
+      "id": 5363476,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugNeedsMoreInfo",
+      "message": "Hi @xh3n1,\n\nThank you for your submission. This issue seems legit, but it seems that the access you have is limited since the account doesn't seem to have any activity or data apart from the ones you used in your JWT. Can you provide an email of an account which has some data so that we can verify the unauthorized access and properly evaluate the impact?\n\nKind regards,\n@lollipup\n",
+      "automated_response": false,
+      "created_at": "2019-07-18T18:14:57.473Z",
+      "updated_at": "2019-07-18T18:14:57.473Z",
+      "actor": {
+        "username": "lollipup",
+        "cleared": false,
+        "verified": false,
+        "url": "/lollipup",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/312/226/6ce43d57bb02270778136d09183d8d2fbe71e0a3_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "trint"
+    },
+    {
+      "id": 5364289,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugNew",
+      "message": "Hi @lollipup,\n\nOf course. After pressing on \"Contact Us\", you will end up on a support request form where you can file a request: \n\n{F532572}\n\nThis request will then be associated with your account and accessible at https://support.trint.com/hc/en-us/requests\n\n{F532573}\n\nYou could try the account \"b3871694@urhen.com\" and then go to https://support.trint.com/hc/en-us/requests. Please note that this account may already have been gotten suspended by the Trint team, so using your own one may be more reliable. (or they may have deleted this request itself :-))\n\nKind regards,\n@xh3n1",
+      "automated_response": false,
+      "created_at": "2019-07-18T20:02:52.838Z",
+      "updated_at": "2019-07-18T20:02:52.838Z",
+      "actor": {
+        "username": "xh3n1",
+        "cleared": false,
+        "verified": false,
+        "url": "/xh3n1",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/DBFg5SkqL7s6js3eqCtTHTzf/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "attachments": [
+        {
+          "id": 532573,
+          "filename": "my-activities.png",
+          "type": "image/png",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/532/573/24eb3396d7b747e297eb24d980bd808ef44e9c15/my-activities.png?response-content-disposition=attachment%3B%20filename%3D%22my-activities.png%22%3B%20filename%2A%3DUTF-8%27%27my-activities.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ3C7WDVGJ%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T074010Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEC8aCXVzLXdlc3QtMiJHMEUCIDn3me4BiYTd9cEhiJgERTjoUKuLBgplckyo1gv%2Bebm1AiEAoY8YKDOvzgyQ3egDWlUq%2Bg%2BoNFbGN1HoNJcuLub14nsqsQUIKBADGgwwMTM2MTkyNzQ4NDkiDEqDO33z8UmFn3D1piqOBXBmutxLn4O8upRMZQVOHUfAZz%2F5H956nuLFNB1w4dHM76Efd6Esqgkx2W3whuKEdFaGEO2k4o2AP0w7OpJczkeT3IDGGn4RUI5bPh%2BiJMkqVI8tK3UzEpJJUSF6HbMTrwao7Uati6%2BREOOmMX2yjZ83ZIRyEqtTJSLCS4BGXULPEFPojDY4qjNA5b60yyjAnPj6gbXk%2BZoo550WZHFsUcA0FJSu69aScHPCXoxh2hDEQf8HLfH4FrgkK4qMpYKxTdxDKK46CLw%2Fg8T4YuK2rOrqRiOsGsGglYhAi9L5PX6QU8fFeU49TJFGG%2BkWWZX7ZXAb53PZjbJmvmXB%2FTEgBADExPBqb0GtBwSXjsfeg2MUkJ1JJKrjSnftn2uF44Lwl3eXcyZ%2FLbiRYRl8qOKyOuIMKOV4yidbKYdgPdbf35OZMs6zr%2F%2FRxFnwc%2FHV68T%2BizwT%2BFlshKH3y%2B%2BbJFOP6i0T1v7M7nKQFvxNABDtplEI%2B9fqUGW1Dg7ibbsBkVWXePr29ZQd73EmOTWK8CQDFOrZf9Oy4UK9y%2FKH%2Bc21lt7H7ZwU%2Fa2h97u0mRoHMoHc1rVbSje1tINDMsdaGwQRGz3ysdTjmviAJnhwBli9m9wXmWXllBnkXU4%2BfQtLWMu4iVOFewLKkpWUKsLuXh6jx3JosBPmfDd1N42E7Fr4XdEKa0y47oWruRIqlmjxP4X6JXrTROYLdF2CZ0zhGeAUylgD%2B4xxKokPK%2FGkiiw5BiLcaWolpFCXanJqcdWdwy6yMeRcmWXvrr50l3xmx4ZVenDU%2FJtgoI%2BVznl1w5kWpZyrrryWGATyEfw47VeINLtjJXQiBm%2FtsdJKR%2FUNyu1wxs4SPRLdf%2Fje9wnFOdNjAzD4n7qoBjqxAclBXSZX5G1EGG0VOqTUzC21u2MNyu51phI1ys1%2B6uIP3wgenMeIXpBmciTImpA3aFP4ng9cLZGSnZTRsU0zXZxH4%2FyvKBheT7YuS%2F6dlvGllnxjsRJpJSxFtvt%2BwQMln5HVRmPnEIWXGkSOdOWIYAiRkfYoHWEIfPVniUKAcjpGHmd44L06V2hWu2jHKJz33sdHWQxZVh5RDQ0uL0bYoUosxbzl%2BjgtMDeHkZmRLFwM3Q%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=bc9cb0e319f75a40c8a8576a610150149584b79f4c622dd7b71e6cec9c6dcc7e"
+        },
+        {
+          "id": 532572,
+          "filename": "contact-us-button.png",
+          "type": "image/png",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/532/572/39212889e373f24690a831c833f13d3054d1e102/contact-us-button.png?response-content-disposition=attachment%3B%20filename%3D%22contact-us-button.png%22%3B%20filename%2A%3DUTF-8%27%27contact-us-button.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ3C7WDVGJ%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T074010Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEC8aCXVzLXdlc3QtMiJHMEUCIDn3me4BiYTd9cEhiJgERTjoUKuLBgplckyo1gv%2Bebm1AiEAoY8YKDOvzgyQ3egDWlUq%2Bg%2BoNFbGN1HoNJcuLub14nsqsQUIKBADGgwwMTM2MTkyNzQ4NDkiDEqDO33z8UmFn3D1piqOBXBmutxLn4O8upRMZQVOHUfAZz%2F5H956nuLFNB1w4dHM76Efd6Esqgkx2W3whuKEdFaGEO2k4o2AP0w7OpJczkeT3IDGGn4RUI5bPh%2BiJMkqVI8tK3UzEpJJUSF6HbMTrwao7Uati6%2BREOOmMX2yjZ83ZIRyEqtTJSLCS4BGXULPEFPojDY4qjNA5b60yyjAnPj6gbXk%2BZoo550WZHFsUcA0FJSu69aScHPCXoxh2hDEQf8HLfH4FrgkK4qMpYKxTdxDKK46CLw%2Fg8T4YuK2rOrqRiOsGsGglYhAi9L5PX6QU8fFeU49TJFGG%2BkWWZX7ZXAb53PZjbJmvmXB%2FTEgBADExPBqb0GtBwSXjsfeg2MUkJ1JJKrjSnftn2uF44Lwl3eXcyZ%2FLbiRYRl8qOKyOuIMKOV4yidbKYdgPdbf35OZMs6zr%2F%2FRxFnwc%2FHV68T%2BizwT%2BFlshKH3y%2B%2BbJFOP6i0T1v7M7nKQFvxNABDtplEI%2B9fqUGW1Dg7ibbsBkVWXePr29ZQd73EmOTWK8CQDFOrZf9Oy4UK9y%2FKH%2Bc21lt7H7ZwU%2Fa2h97u0mRoHMoHc1rVbSje1tINDMsdaGwQRGz3ysdTjmviAJnhwBli9m9wXmWXllBnkXU4%2BfQtLWMu4iVOFewLKkpWUKsLuXh6jx3JosBPmfDd1N42E7Fr4XdEKa0y47oWruRIqlmjxP4X6JXrTROYLdF2CZ0zhGeAUylgD%2B4xxKokPK%2FGkiiw5BiLcaWolpFCXanJqcdWdwy6yMeRcmWXvrr50l3xmx4ZVenDU%2FJtgoI%2BVznl1w5kWpZyrrryWGATyEfw47VeINLtjJXQiBm%2FtsdJKR%2FUNyu1wxs4SPRLdf%2Fje9wnFOdNjAzD4n7qoBjqxAclBXSZX5G1EGG0VOqTUzC21u2MNyu51phI1ys1%2B6uIP3wgenMeIXpBmciTImpA3aFP4ng9cLZGSnZTRsU0zXZxH4%2FyvKBheT7YuS%2F6dlvGllnxjsRJpJSxFtvt%2BwQMln5HVRmPnEIWXGkSOdOWIYAiRkfYoHWEIfPVniUKAcjpGHmd44L06V2hWu2jHKJz33sdHWQxZVh5RDQ0uL0bYoUosxbzl%2BjgtMDeHkZmRLFwM3Q%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=dcbb28289de988223f47d26aa600312781fc8e2ab66698f3585c78587d0a023a"
+        }
+      ],
+      "genius_execution_id": null,
+      "team_handle": "trint"
+    },
+    {
+      "id": 5371546,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportSeverityUpdated",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2019-07-19T15:41:51.829Z",
+      "updated_at": "2019-07-19T15:41:51.829Z",
+      "additional_data": {
+        "old_severity": "Medium (4.4)",
+        "new_severity": "High (8.1)",
+        "old_severity_id": 454353,
+        "new_severity_id": 467553
+      },
+      "actor": {
+        "username": "lollipup",
+        "cleared": false,
+        "verified": false,
+        "url": "/lollipup",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/312/226/6ce43d57bb02270778136d09183d8d2fbe71e0a3_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "trint"
+    },
+    {
+      "id": 5371548,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugTriaged",
+      "message": "Hello @xh3n1,\n\nThank you for your submission! We were able to validate your report, and have submitted it to the appropriate remediation team for review. They will let us know the final ruling on this report, and when/if a fix will be implemented. Please note that the status and severity are subject to change.\n\nRegards,\n@lollipup\n",
+      "automated_response": false,
+      "created_at": "2019-07-19T15:41:58.657Z",
+      "updated_at": "2019-07-19T15:41:58.657Z",
+      "actor": {
+        "username": "lollipup",
+        "cleared": false,
+        "verified": false,
+        "url": "/lollipup",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/312/226/6ce43d57bb02270778136d09183d8d2fbe71e0a3_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "trint"
+    },
+    {
+      "id": 5537763,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "Hello @xh3n1,\n\nThank you for bringing this to our attention.\nWe have now fixed it, and you are welcome to confirm this. \n\nThank you again for helping us keep our product secure.\n@fabioantunes ",
+      "automated_response": false,
+      "created_at": "2019-08-09T09:14:36.576Z",
+      "updated_at": "2019-08-09T09:14:36.576Z",
+      "actor": {
+        "username": "fabioantunes",
+        "cleared": false,
+        "verified": false,
+        "url": "/fabioantunes",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "reporter": {
+        "username": "xh3n1",
+        "url": "/xh3n1"
+      },
+      "genius_execution_id": null,
+      "team_handle": "trint"
+    },
+    {
+      "id": 5537989,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2019-08-09T09:54:54.355Z",
+      "updated_at": "2019-08-09T09:54:54.355Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "xh3n1",
+        "cleared": false,
+        "verified": false,
+        "url": "/xh3n1",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/DBFg5SkqL7s6js3eqCtTHTzf/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "trint"
+    },
+    {
+      "id": 5756084,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportBecamePublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2019-09-08T09:55:05.025Z",
+      "updated_at": "2019-09-08T09:55:05.025Z",
+      "actor": {
+        "url": "/trint",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/qqW6sCzyN86bfWnrnhRpaLYD/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "profile": {
+          "name": "Trint Ltd"
+        }
+      },
+      "genius_execution_id": null,
+      "team_handle": "trint"
+    }
+  ],
+  "activity_page_count": 1,
+  "activity_page_number": 1,
+  "summaries": [
+    {
+      "category": "team",
+      "can_view?": true,
+      "can_create?": false
+    },
+    {
+      "category": "researcher",
+      "can_view?": true,
+      "can_create?": false
+    }
+  ]
+}

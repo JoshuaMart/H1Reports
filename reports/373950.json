@@ -1,0 +1,324 @@
+{
+  "id": 373950,
+  "global_id": "Z2lkOi8vaGFja2Vyb25lL1JlcG9ydC8zNzM5NTA=",
+  "url": "https://hackerone.com/reports/373950",
+  "title": "Reflected Cross-Site Scripting in Serendipity (serendipity.SetCookie)",
+  "state": "Closed",
+  "substate": "resolved",
+  "severity_rating": "medium",
+  "readable_substate": "Resolved",
+  "created_at": "2018-06-29T16:09:17.875Z",
+  "submitted_at": "2018-06-29T16:09:17.875Z",
+  "is_member_of_team?": false,
+  "is_organization_group_member?": false,
+  "reporter": {
+    "disabled": true,
+    "username": "bb9866f3f743d6bf69b6836",
+    "url": "/bb9866f3f743d6bf69b6836",
+    "profile_picture_urls": {
+      "small": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+    },
+    "is_me?": false,
+    "cleared": false,
+    "verified": false,
+    "hackerone_triager": false,
+    "hacker_mediation": false
+  },
+  "team": {
+    "id": 30278,
+    "url": "https://hackerone.com/hannob",
+    "handle": "hannob",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/030/278/97035f061f6de55a9362b39edae4f5948bda6735_original./d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98",
+      "medium": "https://profile-photos.hackerone-user-content.com/variants/000/030/278/97035f061f6de55a9362b39edae4f5948bda6735_original./5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+    },
+    "permissions": [
+
+    ],
+    "submission_state": "paused",
+    "default_currency": "usd",
+    "awards_miles": false,
+    "offers_bounties": false,
+    "state": "public_mode",
+    "only_cleared_hackers": false,
+    "pentest_feature_enabled?": false,
+    "profile": {
+      "name": "Hanno's projects",
+      "twitter_handle": "hanno",
+      "website": "https://hboeck.de/",
+      "about": "Personal web projects from Hanno Böck."
+    }
+  },
+  "has_bounty?": false,
+  "in_validation?": false,
+  "can_view_team": true,
+  "can_view_report": true,
+  "is_external_bug": false,
+  "is_published": false,
+  "is_participant": false,
+  "has_collaborators": false,
+  "submitted_by_team_member": false,
+  "stage": 4,
+  "public": true,
+  "visibility": "full",
+  "cve_ids": [
+
+  ],
+  "singular_disclosure_disabled": false,
+  "disclosed_at": "2018-11-09T14:44:43.029Z",
+  "bug_reporter_agreed_on_going_public_at": "2018-11-09T14:44:42.968Z",
+  "team_member_agreed_on_going_public_at": "2018-11-09T14:36:35.628Z",
+  "comments_closed?": false,
+  "facebook_team?": false,
+  "team_private?": false,
+  "vulnerability_information": "## Summary\n\nThe *Smarty* template responsible of creating *JavaScript* snippets assigning cookies to users is during sorting of entries in the administration interface is affected by a reflected cross-site scripting.\n\n## Description\n\nIn `templates/2k11/admin/entries.inc.tpl`, the following code is dynamically creating a *JavaScript* snippet consisting of calls to `serendipity.SetCookie()`:\n\n```html\n    <script>\n        $(document).ready(function() {\n    {foreach $filter_import AS $f_import}\n        serendipity.SetCookie(\"entrylist_filter_{$f_import}\", \"{$get_filter_{$f_import}}\" )\n    {/foreach}\n    {foreach $sort_import AS $s_import}\n        serendipity.SetCookie(\"entrylist_sort_{$s_import}\", \"{$get_sort_{$s_import}}\" )\n    {/foreach}\n        });\n    </script>\n```\n\nHowever, *Smarty* is not aware of the context is is not told to escape it as `javascript` (https://www.smarty.net/docsv2/en/language.modifier.escape) and no prior encoding is performed on data injected in the template (see `include/admin/entries.inc.php:216`):\n\n```php\n<?php\n// [...]\ncase 'editSelect':\n        $data['switched_output'] = false;\n        $filter_import = array('author', 'category', 'isdraft');\n        $sort_import   = array('perPage', 'ordermode', 'order');\n\n        foreach($filter_import AS $f_import) {\n            serendipity_restoreVar($serendipity['COOKIE']['entrylist_filter_' . $f_import], $serendipity['GET']['filter'][$f_import]);\n            $data[\"get_filter_$f_import\"] = $serendipity['GET']['filter'][$f_import];\n        }\n\n        foreach($sort_import AS $s_import) {\n            serendipity_restoreVar($serendipity['COOKIE']['entrylist_sort_' . $s_import], $serendipity['GET']['sort'][$s_import]);\n            $data[\"get_sort_$s_import\"] = $serendipity['GET']['sort'][$s_import];\n        }\n```\n\nFor the record, the function `serendipity_JSsetCookie` is also vulnerable, but it's not in use in this version:\n```php\n<?php\n// [...]\nfunction serendipity_JSsetCookie($name, $value) {\n    $name  = serendipity_entities($name);\n    $value = urlencode($value);\n\n    echo '<script type=\"text/javascript\">serendipity.SetCookie(\"' . $name . '\", unescape(\"' . $value . '\"))</script>' . \"\\n\";\n}\n```\n\n## Steps To Reproduce\n\n  1. Access https://blog.fuzzing-project.org/serendipity_admin.php?serendipity[action]=admin&serendipity[adminModule]=entries&serendipity[adminAction]=editSelect&serendipity[filter][author]=1xx\");alert(document.domain);// while being authenticated;\n  1. Notice the execution of `alert(document.domain)` within the context of  `blog.fuzzing-project.org`.\n\n## Impact\n\nBy accessing a link specially crafted by an attacker and exploiting this vulnerability, an authenticated victim could be forced to perform actions on its behalf on the domain blog.fuzzing-project.org. If the victim is authenticated as administrator, it could be used to compromise the website or the underlying server (through the installation of `serendipity_plugin_externalphp`).",
+  "weakness": {
+    "id": 61,
+    "name": "Cross-site Scripting (XSS) - Reflected"
+  },
+  "original_report_id": null,
+  "original_report_url": null,
+  "attachments": [
+
+  ],
+  "allow_singular_disclosure_at": "2018-12-09T14:36:35.696Z",
+  "allow_singular_disclosure_after": -151089058.87824988,
+  "singular_disclosure_allowed": true,
+  "vote_count": 3,
+  "voters": [
+    "geeknik",
+    "eveeez",
+    "billal5625"
+  ],
+  "severity": {
+    "rating": "medium",
+    "author_type": "User"
+  },
+  "structured_scope": {
+    "databaseId": 11140,
+    "asset_type": "WILDCARD",
+    "asset_identifier": "*.fuzzing-project.org",
+    "max_severity": "critical"
+  },
+  "abilities": {
+    "assignable_team_members": [
+
+    ],
+    "assignable_team_member_groups": [
+
+    ]
+  },
+  "activities": [
+    {
+      "id": 2968279,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugTriaged",
+      "message": "I can confirm this, I'm forwarding this to the serendipity developers.\n\nI'm unsure about serendipity_JSsetCookie, from what I can see this is problematic if the first parameter is unescaped. I found a use of that function in the staticpage plugin, but the first param is a fixed string, so it looks harmless.",
+      "automated_response": false,
+      "created_at": "2018-07-01T10:02:32.338Z",
+      "updated_at": "2018-07-01T10:02:32.338Z",
+      "actor": {
+        "username": "hanno",
+        "cleared": false,
+        "verified": false,
+        "url": "/hanno",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/020/918/74da560ef66bf8cc239e219843444b441a7dfac6_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "hannob"
+    },
+    {
+      "id": 2968321,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Preliminary patch, also sent to s9y devs. I believe it's likely that similar issues exist, but a review of the templates would be a lot of work.",
+      "automated_response": false,
+      "created_at": "2018-07-01T10:35:30.387Z",
+      "updated_at": "2018-07-01T10:35:30.387Z",
+      "actor": {
+        "username": "hanno",
+        "cleared": false,
+        "verified": false,
+        "url": "/hanno",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/020/918/74da560ef66bf8cc239e219843444b441a7dfac6_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "attachments": [
+        {
+          "id": 314223,
+          "filename": "H1S9Y-XSS-1.diff",
+          "type": "text/x-diff",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/314/223/a7b95cbfe9cb3c041d967b082aa40ac39d5d5387/H1S9Y-XSS-1.diff?response-content-disposition=attachment%3B%20filename%3D%22H1S9Y-XSS-1.diff%22%3B%20filename%2A%3DUTF-8%27%27H1S9Y-XSS-1.diff&response-content-type=text%2Fx-diff&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQQM3U3QWN%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T074734Z&X-Amz-Expires=1775&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQC8AS0gj74xLCqoISG6HxbEYSI0PEfdF96wfaJ9XQRYXAIhANMJJf7iKjV7IKfTVUDY%2FFCPGSxnhIyV8N48256%2BMYR9KrEFCCMQAxoMMDEzNjE5Mjc0ODQ5Igxhj6IY2dpHIu8rk%2FQqjgVrs6hBhGYkbRpwnTMlcXODs%2BzBfQF20UuznJ4WeEETbBCS5xrQKwNciUh8fTXTf3AeLW8ma7i6nN2J%2FTPJmdDJep9LOqCCNnNfoot3TxHeog3PIzq8bBqzv%2FWnZ6WZiSTCgT0fRuUO%2F0NoLfCI2HO7HAJbzDCBBPLDbovCdCCec9tOhSCo4zeTxGL%2B5eNFzvxdrScMsFkSDHqK1nYzB%2BNHu67VcVBNgokTZ%2FiE0D5F2UMHD7Q41spCK9XBNhkLLcYkYcOLSZPgh0y0%2BhAqiB%2F5M75rvi%2FwL4GzjvstCuMp7%2BMlU5uW0LxRNU4av%2Fnf1lTfZJBbJdVp7t47cyPMsPTAh8YfP7rASoDKsUHiH%2BFUgz23qjds1QkLL5EbNJyfMeGE%2BXtoslgNninHIYEKrR5ds5PZuyrZzZMTDLF%2Fh1nIMmJ5vq2TjJfh421jqFfaYQ9GW34apWkiqGr0hGH8SptwKhv4intOnjJEMXalYWlbtl1Pzp1BC18KUB2I%2FxBURyEaaUVKRBbvabpkEgXV%2FnQqzWJTjCL5HnMD4ljLJgc%2BWfWt1Q1EKcMewZWvcY5%2By7QeV5XQIye%2F0GmL5eIhaBkMGzga%2B%2BT%2Btd2hzvF%2BJzR2we9VQYubOGxpQQuF9r%2FV8wkrGgx3sAX8Zd2QX8ckdW6pg1Klcdh7SLABopVWthPu4QV7L3BabFZmhQUAZxdk0ekb1%2Fw1u8af%2Fr51748Lwtjkx8eOWD49jDTLn6Xt0mW91m5QJ4eaq4%2FNmdjUMwnuXKlgK8ZooXSz0KzkvnZ9T%2F7ULiIfcJCltTowwu8hMBaBndUsJxqBhc8BqU6f%2BkchljSoaUmROWNJOFB0Hq9gD7TyVdCAdV0rFjpJkF%2Bqsjsw2Ym5qAY6sAF%2B%2FtGSYZrDIqtpyxX4SjQXtSTuGpkpw2NJ5IoQLX1kapRTuos3cgYmRQqD2osbXW8GAYux38XCyjB7nnsQGwJ0JEKqlWKQK6b0%2FrXO6AT6H0SgoF4kOVUPnUFGdGx5WY2LMvGJ%2FMBV8%2BSm%2FBqOEyct%2F4MP9bhaeuzEeKXirmXTi9G37p059sF1j%2Fald6zrk2x03j7jMV76l15cHOy6ntmTDUBjHYJB0MZDtEpHFj1bVg%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=785cabc76c08ed784230d68c04e3da4a1cfe057eeeac02ab12e73bfcf16b590a"
+        }
+      ],
+      "genius_execution_id": null,
+      "team_handle": "hannob"
+    },
+    {
+      "id": 3063065,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "This is now fixed with a patch I got from s9y's dev (as should be all other open issues).\nI'd appreciate if you could check that and also look for further issues, s9y will soon release a security update.",
+      "automated_response": false,
+      "created_at": "2018-07-18T17:37:14.559Z",
+      "updated_at": "2018-07-18T17:37:14.559Z",
+      "actor": {
+        "username": "hanno",
+        "cleared": false,
+        "verified": false,
+        "url": "/hanno",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/020/918/74da560ef66bf8cc239e219843444b441a7dfac6_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "hannob"
+    },
+    {
+      "id": 3063179,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "The fix (https://github.com/s9y/Serendipity/commit/19513cdf143ef5659f8afbfb3b16df921060d550#diff-dc826483a3a52ca69c83cec2fb97ce8e) looks good to me.",
+      "automated_response": false,
+      "created_at": "2018-07-18T17:59:36.619Z",
+      "updated_at": "2018-07-18T17:59:36.619Z",
+      "actor": {
+        "username": "bb9866f3f743d6bf69b6836",
+        "cleared": false,
+        "verified": false,
+        "url": "/bb9866f3f743d6bf69b6836",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "hannob"
+    },
+    {
+      "id": 3203958,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "Fix released:\nhttp://blog.s9y.org/archives/278-Serendipity-2.1.3-released.html\n\nFix is not mentioned in release notes, but it got committed.",
+      "automated_response": false,
+      "created_at": "2018-08-16T13:33:49.622Z",
+      "updated_at": "2018-08-16T13:33:49.622Z",
+      "actor": {
+        "username": "hanno",
+        "cleared": false,
+        "verified": false,
+        "url": "/hanno",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/020/918/74da560ef66bf8cc239e219843444b441a7dfac6_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "reporter": {
+        "username": "bb9866f3f743d6bf69b6836",
+        "url": "/bb9866f3f743d6bf69b6836"
+      },
+      "genius_execution_id": null,
+      "team_handle": "hannob"
+    },
+    {
+      "id": 3617244,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2018-11-09T14:36:35.663Z",
+      "updated_at": "2018-11-09T14:36:35.663Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "hanno",
+        "cleared": false,
+        "verified": false,
+        "url": "/hanno",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/020/918/74da560ef66bf8cc239e219843444b441a7dfac6_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "hannob"
+    },
+    {
+      "id": 3617262,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2018-11-09T14:44:42.995Z",
+      "updated_at": "2018-11-09T14:44:42.995Z",
+      "actor": {
+        "username": "bb9866f3f743d6bf69b6836",
+        "cleared": false,
+        "verified": false,
+        "url": "/bb9866f3f743d6bf69b6836",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "hannob"
+    },
+    {
+      "id": 3617263,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportBecamePublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2018-11-09T14:44:43.050Z",
+      "updated_at": "2018-11-09T14:44:43.050Z",
+      "actor": {
+        "username": "bb9866f3f743d6bf69b6836",
+        "cleared": false,
+        "verified": false,
+        "url": "/bb9866f3f743d6bf69b6836",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "hannob"
+    }
+  ],
+  "activity_page_count": 1,
+  "activity_page_number": 1,
+  "summaries": [
+    {
+      "category": "team",
+      "can_view?": true,
+      "can_create?": false
+    },
+    {
+      "category": "researcher",
+      "can_view?": true,
+      "can_create?": false
+    }
+  ]
+}

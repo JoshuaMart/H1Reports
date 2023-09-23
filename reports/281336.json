@@ -1,0 +1,487 @@
+{
+  "id": 281336,
+  "global_id": "Z2lkOi8vaGFja2Vyb25lL1JlcG9ydC8yODEzMzY=",
+  "url": "https://hackerone.com/reports/281336",
+  "title": "Negative size in tar header causes infinite loop",
+  "state": "Closed",
+  "substate": "resolved",
+  "severity_rating": "low",
+  "readable_substate": "Resolved",
+  "created_at": "2017-10-21T03:56:09.259Z",
+  "submitted_at": "2017-10-21T03:56:09.259Z",
+  "is_member_of_team?": false,
+  "is_organization_group_member?": false,
+  "reporter": {
+    "disabled": false,
+    "username": "plover",
+    "url": "/plover",
+    "profile_picture_urls": {
+      "small": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+    },
+    "is_me?": false,
+    "cleared": false,
+    "verified": false,
+    "hackerone_triager": false,
+    "hacker_mediation": false
+  },
+  "team": {
+    "id": 8212,
+    "url": "https://hackerone.com/rubygems",
+    "handle": "rubygems",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/008/212/e65eca09896d23bc029c08d3147a79a48ec1ee2f_original.png/d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98",
+      "medium": "https://profile-photos.hackerone-user-content.com/variants/000/008/212/e65eca09896d23bc029c08d3147a79a48ec1ee2f_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+    },
+    "permissions": [
+
+    ],
+    "submission_state": "open",
+    "default_currency": "usd",
+    "awards_miles": false,
+    "offers_bounties": true,
+    "state": "public_mode",
+    "only_cleared_hackers": false,
+    "pentest_feature_enabled?": false,
+    "profile": {
+      "name": "RubyGems",
+      "twitter_handle": "rubygems_status",
+      "website": "https://rubygems.org",
+      "about": "RubyGems.org is the Ruby community’s gem hosting service."
+    }
+  },
+  "has_bounty?": false,
+  "in_validation?": false,
+  "can_view_team": true,
+  "can_view_report": true,
+  "is_external_bug": false,
+  "is_published": false,
+  "is_participant": false,
+  "has_collaborators": false,
+  "submitted_by_team_member": false,
+  "stage": 4,
+  "public": true,
+  "visibility": "full",
+  "cve_ids": [
+
+  ],
+  "singular_disclosure_disabled": false,
+  "disclosed_at": "2018-03-01T05:47:32.276Z",
+  "bug_reporter_agreed_on_going_public_at": "2018-02-18T04:53:49.327Z",
+  "team_member_agreed_on_going_public_at": "2018-03-01T05:47:32.186Z",
+  "comments_closed?": false,
+  "facebook_team?": false,
+  "team_private?": false,
+  "vulnerability_information": "# Proof of concept\n\nThe attached file loop.gem causes an infinite loop in any command that tries to iterate over the entries in the tar container.\n```\ngem install loop.gem\ngem unpack loop.gem\ngem specification loop.gem\n```\n\n# Summary\n\n[`Gem::Package::TarHeader.from`](https://github.com/rubygems/rubygems/blob/v2.6.14/lib/rubygems/package/tar_header.rb#L97-L124) uses [`oct`](https://ruby-doc.org/core-2.4.2/String.html#method-i-oct) to parse fields in the tar header. `oct` does more than just parse octal digits, for example it permits these unexpected syntaxes:\n- sign characters:\n  - `\"+012345\".oct # 5349`\n  - `\"-012345\".oct # -5349`\n- radix prefixes:\n  - `\"0x12abc\".oct # 76476`\n  - `\"0b10000\".oct # 16`\n- silently ignoring errors:\n  - `\"123,456\".oct # 83`\n  - `\"nothing\".oct # 0`\n\nThe ability to encode negative values enables a DoS (infinite loop) in the tar reader. The proof-of-concept loop.gem has a size field of `-0000001000\\x00`, or −512. The negative size causes [`Gem::Package::TarReader.each`](https://github.com/rubygems/rubygems/blob/v2.6.14/lib/rubygems/package/tar_reader.rb#L52) to seek *backwards* after reading the header, so it reads the same header over and over.\n\nI suppose one could cause a lot of CPU usage on the rubygems.org server by uploading copies of loop.gem, but I didn't try it.\n\n# Remediation\n\nInstead of doing the conversion using `oct`, there could be a special-purpose function that validates its input better. It might be enough to check that the string matches `/\\A[0-7]+\\z/` before calling `oct`.\n\nThe attached patch file adds a test that `Gem::Package::TarHeader.from` rejects various bogus syntax.\n",
+  "weakness": {
+    "id": 48,
+    "name": "Denial of Service"
+  },
+  "original_report_id": null,
+  "original_report_url": null,
+  "attachments": [
+    {
+      "id": 231296,
+      "file_name": "loop.gem",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/231/296/b1b95f412814ad8eba0bce747653e11109cec4f6/loop.gem?response-content-disposition=attachment%3B%20filename%3D%22loop.gem%22%3B%20filename%2A%3DUTF-8%27%27loop.gem&response-content-type=application%2Fx-tar&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQRI2DKS33%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T075444Z&X-Amz-Expires=708&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJGMEQCIClqVjComm5eHHgl4hk6izxePckLv8jDeMc0T9b7T3O3AiADmJZnWuzG%2B70iNqDIQCs8vCBykwa2yXC74JTt7oggICqyBQgjEAMaDDAxMzYxOTI3NDg0OSIMymNPAONb%2FCmXBdVeKo8FJzded9JrQRalz027Fy9ORg8M6dHgBBXFzVDsXNDc1JhsKfZyKPDvBwtVth3yDUjFVges68qucKHRijQ6l7wR%2BSrXd5GDh5pLy2MTIGZe67Nnez9UpyMMkMJctkxp2GshCXqzgeHl6v5vSB7diJyZoACs1T7UBRfBPVqB2ExFrI2%2ByTsFYZc7jw70kHGnPahik3gX45Na5Kayh8HRMrZ3nvkWoQsOaDXxlIuviOeI5Nyk%2BqknsMl85LFsHGofSTOGYZXckaP1kkyR%2Fws8c%2FsDxEPpjbWADHNIoe1MFd9enDvdgnJNwHThsUBDzs2HZ0DaxfueMMQsmaKM7fUJBEcCBdyLJgLh9FwY2rWv0osDiBaDwoJBATYz0TqNSzbPLCHXCY4yvjrupR020hIrH7h6vaAO5AGy8BvQlbd4pDsg3fydvKz0cbgeICmouv0Z1B%2BNOmdg%2BiZsobA1R9WzJqDzDfOVTl5%2BplONkde1nrnLg%2FMBW9mk6pF4ZVrKen5uchggefwkdoDb8%2BQe0Ajvj8x8xFdUsC%2FFWEdzRTRjBETbScuWC84tinh7KwW8N2gJzaorc6xcHTdBLvgUtj96BY6lEvsNyjfHwLGgutWn8FvrDQIseWHlWXnVVIfP4p6hSWttAAC9HFoMzHIskKQ8OP21vUmVnZdmOmSLz1dG07Xymll1yNHsBo3AtM2WqzA%2BgnJvv6xCVMBGtXCr%2Fwgk0SMyytjAAt2Ayqtb%2FMcO4y9jne5RcXfe18ZM26LZ8Q%2FAr%2B7y5tFCIDsL%2Bv%2Fu41E9njnrOd4bPbjlDbGY6FQGcUeT8IjQ6%2FqK9rzqwByRyUW84v%2Fm6tpHTp9GZ3Z%2F8GxGiq1ytLMwnn4Nr8mHZoVXW95MFDDxhbmoBjqyAZJiId57NZFL44uwPAXChJjOVBJpFacYn6dA566GE9JXcWCJbWbLvQ1PLav0JA%2FFjK1C6zjLxpR6Zgm%2Bb1YVJ%2Fwvyz5iKzFpjrw5DUkBbq7AqgC1wANIYsCzKnybPgJV%2FdvDI8wXqZ5s4I4kfGwElgjNbNXwCPPz0GSv35NPkyyyGZTFfTgucOASY3bZjNx0yQISVMqLnWZVnzBkXcLX7FeL1pcuvp4XRZgpKzT%2BnTs6PiU%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=96279352274a6f4d22b51b99fb77f7f8d7dd96f99c6767c3059775b46d5f89e1",
+      "file_size": 512,
+      "type": "application/x-tar",
+      "moderated": null
+    },
+    {
+      "id": 231297,
+      "file_name": "0001-Test-that-Gem-Package-TarHeader.from-refuses-to-pars.patch",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/231/297/fa9ef1fef061e719a298c689d5c9730193127923/0001-Test-that-Gem-Package-TarHeader.from-refuses-to-pars.patch?response-content-disposition=attachment%3B%20filename%3D%220001-Test-that-Gem-Package-TarHeader.from-refuses-to-pars.patch%22%3B%20filename%2A%3DUTF-8%27%270001-Test-that-Gem-Package-TarHeader.from-refuses-to-pars.patch&response-content-type=text%2Fx-diff&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQRI2DKS33%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T075444Z&X-Amz-Expires=708&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJGMEQCIClqVjComm5eHHgl4hk6izxePckLv8jDeMc0T9b7T3O3AiADmJZnWuzG%2B70iNqDIQCs8vCBykwa2yXC74JTt7oggICqyBQgjEAMaDDAxMzYxOTI3NDg0OSIMymNPAONb%2FCmXBdVeKo8FJzded9JrQRalz027Fy9ORg8M6dHgBBXFzVDsXNDc1JhsKfZyKPDvBwtVth3yDUjFVges68qucKHRijQ6l7wR%2BSrXd5GDh5pLy2MTIGZe67Nnez9UpyMMkMJctkxp2GshCXqzgeHl6v5vSB7diJyZoACs1T7UBRfBPVqB2ExFrI2%2ByTsFYZc7jw70kHGnPahik3gX45Na5Kayh8HRMrZ3nvkWoQsOaDXxlIuviOeI5Nyk%2BqknsMl85LFsHGofSTOGYZXckaP1kkyR%2Fws8c%2FsDxEPpjbWADHNIoe1MFd9enDvdgnJNwHThsUBDzs2HZ0DaxfueMMQsmaKM7fUJBEcCBdyLJgLh9FwY2rWv0osDiBaDwoJBATYz0TqNSzbPLCHXCY4yvjrupR020hIrH7h6vaAO5AGy8BvQlbd4pDsg3fydvKz0cbgeICmouv0Z1B%2BNOmdg%2BiZsobA1R9WzJqDzDfOVTl5%2BplONkde1nrnLg%2FMBW9mk6pF4ZVrKen5uchggefwkdoDb8%2BQe0Ajvj8x8xFdUsC%2FFWEdzRTRjBETbScuWC84tinh7KwW8N2gJzaorc6xcHTdBLvgUtj96BY6lEvsNyjfHwLGgutWn8FvrDQIseWHlWXnVVIfP4p6hSWttAAC9HFoMzHIskKQ8OP21vUmVnZdmOmSLz1dG07Xymll1yNHsBo3AtM2WqzA%2BgnJvv6xCVMBGtXCr%2Fwgk0SMyytjAAt2Ayqtb%2FMcO4y9jne5RcXfe18ZM26LZ8Q%2FAr%2B7y5tFCIDsL%2Bv%2Fu41E9njnrOd4bPbjlDbGY6FQGcUeT8IjQ6%2FqK9rzqwByRyUW84v%2Fm6tpHTp9GZ3Z%2F8GxGiq1ytLMwnn4Nr8mHZoVXW95MFDDxhbmoBjqyAZJiId57NZFL44uwPAXChJjOVBJpFacYn6dA566GE9JXcWCJbWbLvQ1PLav0JA%2FFjK1C6zjLxpR6Zgm%2Bb1YVJ%2Fwvyz5iKzFpjrw5DUkBbq7AqgC1wANIYsCzKnybPgJV%2FdvDI8wXqZ5s4I4kfGwElgjNbNXwCPPz0GSv35NPkyyyGZTFfTgucOASY3bZjNx0yQISVMqLnWZVnzBkXcLX7FeL1pcuvp4XRZgpKzT%2BnTs6PiU%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=ed4a0ff01980072dd5aac7224157ebad4dd66e62493936b27179a308d2ea8750",
+      "file_size": 1411,
+      "type": "text/x-diff",
+      "moderated": null
+    }
+  ],
+  "allow_singular_disclosure_at": "2018-03-20T04:53:49.416Z",
+  "allow_singular_disclosure_after": -173934055.41636464,
+  "singular_disclosure_allowed": true,
+  "vote_count": 7,
+  "voters": [
+    "apapedulimu",
+    "eveeez",
+    "japz",
+    "sumit7",
+    "666reda",
+    "geotester",
+    "03813136"
+  ],
+  "severity": {
+    "rating": "low",
+    "author_type": "User"
+  },
+  "structured_scope": {
+    "databaseId": 2043,
+    "asset_type": "SOURCE_CODE",
+    "asset_identifier": "https://github.com/rubygems/rubygems",
+    "max_severity": "critical"
+  },
+  "abilities": {
+    "assignable_team_members": [
+
+    ],
+    "assignable_team_member_groups": [
+
+    ]
+  },
+  "activities": [
+    {
+      "id": 2090857,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Thanks for submitting this report to RubyGems. Our team will review and investigate the issue. Please note that only issues in the rubygems library are eligible for our bug bounty program.",
+      "automated_response": true,
+      "created_at": "2017-10-21T03:56:09.539Z",
+      "updated_at": "2017-10-21T03:56:09.539Z",
+      "actor": {
+        "url": "/rubygems",
+        "ibb": true,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/008/212/e65eca09896d23bc029c08d3147a79a48ec1ee2f_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "RubyGems"
+        }
+      },
+      "genius_execution_id": null,
+      "team_handle": "rubygems"
+    },
+    {
+      "id": 2093668,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@plover thanks for reporting this!  One of us will come up with a patch and propose it here for you to review.  Thank you!",
+      "automated_response": false,
+      "created_at": "2017-10-22T22:48:12.590Z",
+      "updated_at": "2017-10-22T22:48:12.590Z",
+      "actor": {
+        "username": "tenderlove",
+        "cleared": false,
+        "verified": false,
+        "url": "/tenderlove",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/003/318/60d828744b5d16813ecbf975fdc453dc4a933f4f_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "rubygems"
+    },
+    {
+      "id": 2095716,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@plover I think the attached patch should do the trick, if you'd care to review it? Thanks for the test case :)",
+      "automated_response": false,
+      "created_at": "2017-10-23T15:47:16.104Z",
+      "updated_at": "2017-10-23T15:47:16.104Z",
+      "actor": {
+        "username": "segiddins",
+        "cleared": false,
+        "verified": false,
+        "url": "/segiddins",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "attachments": [
+        {
+          "id": 231981,
+          "filename": "fix.patch",
+          "type": "text/x-diff",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/231/981/8b79e5485ba8e354cf4de4d2e81d83042ff56f1f/fix.patch?response-content-disposition=attachment%3B%20filename%3D%22fix.patch%22%3B%20filename%2A%3DUTF-8%27%27fix.patch&response-content-type=text%2Fx-diff&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQRI2DKS33%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T075444Z&X-Amz-Expires=708&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJGMEQCIClqVjComm5eHHgl4hk6izxePckLv8jDeMc0T9b7T3O3AiADmJZnWuzG%2B70iNqDIQCs8vCBykwa2yXC74JTt7oggICqyBQgjEAMaDDAxMzYxOTI3NDg0OSIMymNPAONb%2FCmXBdVeKo8FJzded9JrQRalz027Fy9ORg8M6dHgBBXFzVDsXNDc1JhsKfZyKPDvBwtVth3yDUjFVges68qucKHRijQ6l7wR%2BSrXd5GDh5pLy2MTIGZe67Nnez9UpyMMkMJctkxp2GshCXqzgeHl6v5vSB7diJyZoACs1T7UBRfBPVqB2ExFrI2%2ByTsFYZc7jw70kHGnPahik3gX45Na5Kayh8HRMrZ3nvkWoQsOaDXxlIuviOeI5Nyk%2BqknsMl85LFsHGofSTOGYZXckaP1kkyR%2Fws8c%2FsDxEPpjbWADHNIoe1MFd9enDvdgnJNwHThsUBDzs2HZ0DaxfueMMQsmaKM7fUJBEcCBdyLJgLh9FwY2rWv0osDiBaDwoJBATYz0TqNSzbPLCHXCY4yvjrupR020hIrH7h6vaAO5AGy8BvQlbd4pDsg3fydvKz0cbgeICmouv0Z1B%2BNOmdg%2BiZsobA1R9WzJqDzDfOVTl5%2BplONkde1nrnLg%2FMBW9mk6pF4ZVrKen5uchggefwkdoDb8%2BQe0Ajvj8x8xFdUsC%2FFWEdzRTRjBETbScuWC84tinh7KwW8N2gJzaorc6xcHTdBLvgUtj96BY6lEvsNyjfHwLGgutWn8FvrDQIseWHlWXnVVIfP4p6hSWttAAC9HFoMzHIskKQ8OP21vUmVnZdmOmSLz1dG07Xymll1yNHsBo3AtM2WqzA%2BgnJvv6xCVMBGtXCr%2Fwgk0SMyytjAAt2Ayqtb%2FMcO4y9jne5RcXfe18ZM26LZ8Q%2FAr%2B7y5tFCIDsL%2Bv%2Fu41E9njnrOd4bPbjlDbGY6FQGcUeT8IjQ6%2FqK9rzqwByRyUW84v%2Fm6tpHTp9GZ3Z%2F8GxGiq1ytLMwnn4Nr8mHZoVXW95MFDDxhbmoBjqyAZJiId57NZFL44uwPAXChJjOVBJpFacYn6dA566GE9JXcWCJbWbLvQ1PLav0JA%2FFjK1C6zjLxpR6Zgm%2Bb1YVJ%2Fwvyz5iKzFpjrw5DUkBbq7AqgC1wANIYsCzKnybPgJV%2FdvDI8wXqZ5s4I4kfGwElgjNbNXwCPPz0GSv35NPkyyyGZTFfTgucOASY3bZjNx0yQISVMqLnWZVnzBkXcLX7FeL1pcuvp4XRZgpKzT%2BnTs6PiU%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=b63dc420d62d57abe1fc571570063ce2efae1e6d89819f1d9f5d1c39cc003fde"
+        }
+      ],
+      "genius_execution_id": null,
+      "team_handle": "rubygems"
+    },
+    {
+      "id": 2096196,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "The `strict_oct` fix looks good to me.\n\nIt might be a good idea to add an additional check for `size >= 0` in [`Gem::Package::TarReader.each`](https://github.com/rubygems/rubygems/blob/v2.6.14/lib/rubygems/package/tar_reader.rb#L52), on top of the check for correct octal syntax. The reason I suggest that is that it seems that tar also supports a twos'-complement binary encoding for fields, which can also encode negative values. `TarHeader` doesn't support that encoding, but if it were added in the future, then the code could become vulnerable again. I only found out about the binary encoding when I was looking at how Go's archive/tar package works: https://github.com/golang/go/blob/083338cb976763e7a77e787827b24228fbaa7bf3/src/archive/tar/strconv.go#L93\n\nI'm attaching a modified test case that separately tests each kind of bad syntax. The test code I included before would pass if *any* of the bad cases was caught; this patch requires *all* the bad cases to be caught. It might be worth further adapting the test case so that it tests every octal field (as it is, it only tests the size).",
+      "automated_response": false,
+      "created_at": "2017-10-23T17:59:42.607Z",
+      "updated_at": "2017-10-23T17:59:42.607Z",
+      "actor": {
+        "username": "plover",
+        "cleared": false,
+        "verified": false,
+        "url": "/plover",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "attachments": [
+        {
+          "id": 232032,
+          "filename": "fix2.patch",
+          "type": "text/x-diff",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/232/032/2825102fb2d69fa48b6e53b097e2efa1fdd7e914/fix2.patch?response-content-disposition=attachment%3B%20filename%3D%22fix2.patch%22%3B%20filename%2A%3DUTF-8%27%27fix2.patch&response-content-type=text%2Fx-diff&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQRI2DKS33%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T075444Z&X-Amz-Expires=708&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJGMEQCIClqVjComm5eHHgl4hk6izxePckLv8jDeMc0T9b7T3O3AiADmJZnWuzG%2B70iNqDIQCs8vCBykwa2yXC74JTt7oggICqyBQgjEAMaDDAxMzYxOTI3NDg0OSIMymNPAONb%2FCmXBdVeKo8FJzded9JrQRalz027Fy9ORg8M6dHgBBXFzVDsXNDc1JhsKfZyKPDvBwtVth3yDUjFVges68qucKHRijQ6l7wR%2BSrXd5GDh5pLy2MTIGZe67Nnez9UpyMMkMJctkxp2GshCXqzgeHl6v5vSB7diJyZoACs1T7UBRfBPVqB2ExFrI2%2ByTsFYZc7jw70kHGnPahik3gX45Na5Kayh8HRMrZ3nvkWoQsOaDXxlIuviOeI5Nyk%2BqknsMl85LFsHGofSTOGYZXckaP1kkyR%2Fws8c%2FsDxEPpjbWADHNIoe1MFd9enDvdgnJNwHThsUBDzs2HZ0DaxfueMMQsmaKM7fUJBEcCBdyLJgLh9FwY2rWv0osDiBaDwoJBATYz0TqNSzbPLCHXCY4yvjrupR020hIrH7h6vaAO5AGy8BvQlbd4pDsg3fydvKz0cbgeICmouv0Z1B%2BNOmdg%2BiZsobA1R9WzJqDzDfOVTl5%2BplONkde1nrnLg%2FMBW9mk6pF4ZVrKen5uchggefwkdoDb8%2BQe0Ajvj8x8xFdUsC%2FFWEdzRTRjBETbScuWC84tinh7KwW8N2gJzaorc6xcHTdBLvgUtj96BY6lEvsNyjfHwLGgutWn8FvrDQIseWHlWXnVVIfP4p6hSWttAAC9HFoMzHIskKQ8OP21vUmVnZdmOmSLz1dG07Xymll1yNHsBo3AtM2WqzA%2BgnJvv6xCVMBGtXCr%2Fwgk0SMyytjAAt2Ayqtb%2FMcO4y9jne5RcXfe18ZM26LZ8Q%2FAr%2B7y5tFCIDsL%2Bv%2Fu41E9njnrOd4bPbjlDbGY6FQGcUeT8IjQ6%2FqK9rzqwByRyUW84v%2Fm6tpHTp9GZ3Z%2F8GxGiq1ytLMwnn4Nr8mHZoVXW95MFDDxhbmoBjqyAZJiId57NZFL44uwPAXChJjOVBJpFacYn6dA566GE9JXcWCJbWbLvQ1PLav0JA%2FFjK1C6zjLxpR6Zgm%2Bb1YVJ%2Fwvyz5iKzFpjrw5DUkBbq7AqgC1wANIYsCzKnybPgJV%2FdvDI8wXqZ5s4I4kfGwElgjNbNXwCPPz0GSv35NPkyyyGZTFfTgucOASY3bZjNx0yQISVMqLnWZVnzBkXcLX7FeL1pcuvp4XRZgpKzT%2BnTs6PiU%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=16e616ca97f6c29c32b7ead2f62a3f9b5c7b5ba48008757a4e9b05e94a7a67c2"
+        }
+      ],
+      "genius_execution_id": null,
+      "team_handle": "rubygems"
+    },
+    {
+      "id": 2295276,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugTriaged",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2018-01-18T15:08:19.099Z",
+      "updated_at": "2018-01-18T15:08:19.099Z",
+      "actor": {
+        "username": "dwradcliffe",
+        "cleared": false,
+        "verified": false,
+        "url": "/dwradcliffe",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/082/355/821154e381fe27d2273bc54a18049a3a87e1591d_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "rubygems"
+    },
+    {
+      "id": 2373631,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Thanks! going to queue this up for our next security release",
+      "automated_response": false,
+      "created_at": "2018-02-12T05:50:43.475Z",
+      "updated_at": "2018-02-12T05:50:43.475Z",
+      "actor": {
+        "username": "segiddins",
+        "cleared": false,
+        "verified": false,
+        "url": "/segiddins",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "rubygems"
+    },
+    {
+      "id": 2373641,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "This patch actually breaks a bunch of tests -- I think we might need to allow the entirely nul padded case to continue to be interpreted as 0",
+      "automated_response": false,
+      "created_at": "2018-02-12T05:57:24.443Z",
+      "updated_at": "2018-02-12T05:57:24.443Z",
+      "actor": {
+        "username": "segiddins",
+        "cleared": false,
+        "verified": false,
+        "url": "/segiddins",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "rubygems"
+    },
+    {
+      "id": 2395718,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "This bug was fixed in RubyGems 2.7.6\n\nhttp://blog.rubygems.org/2018/02/15/2.7.6-released.html\n\nThanks!",
+      "automated_response": false,
+      "created_at": "2018-02-18T04:40:20.501Z",
+      "updated_at": "2018-02-18T04:40:20.501Z",
+      "actor": {
+        "username": "claudijd",
+        "cleared": false,
+        "verified": false,
+        "url": "/claudijd",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/003/131/3c373767fbd4f34648ab754b0f692fb718bfb8e5_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "reporter": {
+        "username": "plover",
+        "url": "/plover"
+      },
+      "genius_execution_id": null,
+      "team_handle": "rubygems"
+    },
+    {
+      "id": 2395719,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::NotEligibleForBounty",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2018-02-18T04:40:28.151Z",
+      "updated_at": "2018-02-18T04:40:28.151Z",
+      "actor": {
+        "url": "/rubygems",
+        "ibb": true,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/008/212/e65eca09896d23bc029c08d3147a79a48ec1ee2f_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "RubyGems"
+        }
+      },
+      "genius_execution_id": null,
+      "team_handle": "rubygems"
+    },
+    {
+      "id": 2395734,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2018-02-18T04:53:49.371Z",
+      "updated_at": "2018-02-18T04:53:49.371Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "plover",
+        "cleared": false,
+        "verified": false,
+        "url": "/plover",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "rubygems"
+    },
+    {
+      "id": 2395873,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Credit for this bug also goes to Nathan Malkin (nmalkin). We were working as a team.",
+      "automated_response": false,
+      "created_at": "2018-02-18T06:33:21.781Z",
+      "updated_at": "2018-02-18T06:33:21.781Z",
+      "actor": {
+        "username": "plover",
+        "cleared": false,
+        "verified": false,
+        "url": "/plover",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "rubygems"
+    },
+    {
+      "id": 2445048,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "@plover for credit modifications, since it's an open source blog, you can send PR requests to our blog, similar to how I did [here](https://github.com/rubygems/rubygems.github.io/pull/31)",
+      "automated_response": false,
+      "created_at": "2018-03-01T05:46:27.283Z",
+      "updated_at": "2018-03-01T05:46:27.283Z",
+      "actor": {
+        "username": "claudijd",
+        "cleared": false,
+        "verified": false,
+        "url": "/claudijd",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/003/131/3c373767fbd4f34648ab754b0f692fb718bfb8e5_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "rubygems"
+    },
+    {
+      "id": 2445049,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2018-03-01T05:47:32.224Z",
+      "updated_at": "2018-03-01T05:47:32.224Z",
+      "actor": {
+        "username": "claudijd",
+        "cleared": false,
+        "verified": false,
+        "url": "/claudijd",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/003/131/3c373767fbd4f34648ab754b0f692fb718bfb8e5_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "rubygems"
+    },
+    {
+      "id": 2445050,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportBecamePublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2018-03-01T05:47:32.306Z",
+      "updated_at": "2018-03-01T05:47:32.306Z",
+      "actor": {
+        "username": "claudijd",
+        "cleared": false,
+        "verified": false,
+        "url": "/claudijd",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/003/131/3c373767fbd4f34648ab754b0f692fb718bfb8e5_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "rubygems"
+    }
+  ],
+  "activity_page_count": 1,
+  "activity_page_number": 1,
+  "summaries": [
+    {
+      "category": "team",
+      "can_view?": true,
+      "can_create?": false
+    },
+    {
+      "category": "researcher",
+      "can_view?": true,
+      "can_create?": false
+    }
+  ]
+}

@@ -1,0 +1,460 @@
+{
+  "id": 363636,
+  "global_id": "Z2lkOi8vaGFja2Vyb25lL1JlcG9ydC8zNjM2MzY=",
+  "url": "https://hackerone.com/reports/363636",
+  "title": "DoS through PeerExplorer",
+  "state": "Closed",
+  "substate": "resolved",
+  "severity_rating": "high",
+  "readable_substate": "Resolved",
+  "created_at": "2018-06-09T05:00:54.753Z",
+  "submitted_at": "2018-06-09T05:00:54.753Z",
+  "is_member_of_team?": false,
+  "is_organization_group_member?": false,
+  "reporter": {
+    "disabled": false,
+    "username": "z3t",
+    "url": "/z3t",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/042/875/f509a2a60ca4f406a7194137e1f5df0ea52cc0c9_original.jpg/3c7b305354c9073c106ae3d1701798defaaf5be844fb8fdfa49ca62f991a2c2c"
+    },
+    "is_me?": false,
+    "cleared": true,
+    "verified": true,
+    "hackerone_triager": false,
+    "hacker_mediation": false
+  },
+  "team": {
+    "id": 25854,
+    "url": "https://hackerone.com/iovlabs",
+    "handle": "iovlabs",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/Prz5MCDWRGv5MpRAQsmSVoLw/3c7b305354c9073c106ae3d1701798defaaf5be844fb8fdfa49ca62f991a2c2c",
+      "medium": "https://profile-photos.hackerone-user-content.com/variants/Prz5MCDWRGv5MpRAQsmSVoLw/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+    },
+    "permissions": [
+
+    ],
+    "submission_state": "open",
+    "default_currency": "usd",
+    "awards_miles": false,
+    "offers_bounties": true,
+    "state": "public_mode",
+    "only_cleared_hackers": false,
+    "pentest_feature_enabled?": false,
+    "profile": {
+      "name": "IOVLabs",
+      "twitter_handle": "iovlabs",
+      "website": "https://www.iovlabs.org/",
+      "about": "Building Value Networks"
+    }
+  },
+  "has_bounty?": true,
+  "in_validation?": false,
+  "can_view_team": true,
+  "can_view_report": true,
+  "is_external_bug": false,
+  "is_published": false,
+  "is_participant": false,
+  "has_collaborators": false,
+  "submitted_by_team_member": false,
+  "stage": 4,
+  "public": true,
+  "visibility": "full",
+  "cve_ids": [
+
+  ],
+  "singular_disclosure_disabled": true,
+  "disclosed_at": "2019-09-18T13:16:28.759Z",
+  "bug_reporter_agreed_on_going_public_at": null,
+  "team_member_agreed_on_going_public_at": "2019-09-18T13:07:08.066Z",
+  "comments_closed?": false,
+  "facebook_team?": false,
+  "team_private?": false,
+  "vulnerability_information": "**Summary:** The peer discovery implementation is vulnerable to a Denial of Service attack due to improper management of connections.\n\n**Description:** The two main files of interest in detailing this vulnerability are [PeerExplorer.java](https://github.com/rsksmart/rskj/blob/master/rskj-core/src/main/java/co/rsk/net/discovery/PeerExplorer.java) and [NodeChallengeManager.java](https://github.com/rsksmart/rskj/blob/master/rskj-core/src/main/java/co/rsk/net/discovery/NodeChallengeManager.java). To explain the flow of execution I'll be mentioning two theoretical nodes: an attacker, \"N1\" and a target, \"N2\".\n\nWhen N1 sends an initial \"ping\" message to N2, N2 will reply with a \"pong\" message and a subsequent ping message to continue the handshake. After this, when N1 replies with a pong message, N2 will attempt to add N1 to its structure holding established connections. The relevant code snippets from `PeerExplorer.java` are below:\n```    \npublic void handlePong(String ip, PongPeerMessage message) {\n\tPeerDiscoveryRequest request = this.pendingPingRequests.get(message.getMessageId());\n\n\tif (request != null && request.validateMessageResponse(message)) {\n\t\tthis.pendingPingRequests.remove(message.getMessageId());\n\t\tNodeChallenge challenge = this.challengeManager.removeChallenge(message.getMessageId());\n\t\tif (challenge == null) {\n\t\t\tthis.addConnection(message, ip, message.getPort());\n\t\t}\n\t}\n}\n...\nprivate void addConnection(PongPeerMessage message, String ip, int port) {\n\tNode senderNode = new Node(message.getNodeId().getID(), ip, port);\n\tif (!StringUtils.equals(senderNode.getHexId(), this.localNode.getHexId())) {\n\t\tOperationResult result = this.distanceTable.addNode(senderNode);\n\n\t\tif (result.isSuccess()) {\n\t\t\tNodeID senderId = senderNode.getId();\n\t\t\tthis.establishedConnections.put(senderId, senderNode);\n\t\t\tlogger.debug(\"New Peer found ip:[{}] port[{}]\", ip, port);\n\t\t} else {\n\t\t\tthis.challengeManager.startChallenge(result.getAffectedEntry().getNode(), senderNode, this);\n\t\t}\n\t}\n}\n```\nThe `addConnection` method first attempts to add N1 to the `NodeDistanceTable` - a structure designed to hold a limited number of nodes (by default, 4096). If this insertion fails due to the target `NodeDistanceTable` bucket already being full, the attempted connection is instead added to `NodeChallengeManager`. The relevant code snippets from `NodeChallengeManager.java` are below:\n```\npublic NodeChallenge startChallenge(Node challengedNode, Node challenger, PeerExplorer explorer) {\n\tPingPeerMessage pingMessage = explorer.sendPing(challengedNode.getAddress(), 1, challengedNode);\n\tString messageId = pingMessage.getMessageId();\n\tNodeChallenge challenge = new NodeChallenge(challengedNode, challenger, messageId);\n\tactiveChallenges.put(messageId, challenge);\n\treturn challenge;\n}\n\npublic NodeChallenge removeChallenge(String challengeId) {\n\treturn activeChallenges.remove(challengeId);\n}\n```\n\nThrough the `startChallenge` method N2 will send N1 another ping message, adding a \"challenge\" to `activeChallenges` with that new ping message's `messageId`. The issue here is that **the entry is only ever removed from `activeChallenges` if N1 replies with a pong that has the same `messageId` as the new ping message** - as seen in `PeerExplorer.handlePong`. Thus, N1 is able to create an arbitrary number of entries in `activeChallenges` by never sending N2 a pong with the challenge ping's `messageId`.\n\nIt should be noted that there is a slight limitation as to how this could be exploited by a single host. The relevant code snippets from `PeerExplorer.java` are below:\n```\npublic PingPeerMessage sendPing(InetSocketAddress nodeAddress, int attempt, Node node) {\n\tPingPeerMessage nodeMessage = checkPendingPeerToAddress(nodeAddress);\n\n\tif (nodeMessage != null) {\n\t\treturn nodeMessage;\n\t}\n\t....\n}\n...\nprivate PingPeerMessage checkPendingPeerToAddress(InetSocketAddress address) {\n\tfor (PeerDiscoveryRequest req : this.pendingPingRequests.values()) {\n\t\tif (req.getAddress().equals(address)) {\n\t\t\treturn (PingPeerMessage) req.getMessage();\n\t\t}\n\t}\n\n\treturn null;\n}\n\n```\nThe `sendPing` method will only ever actually send a new ping to N1 if there are no pending pings to its `InetSocketAddress` (which is deemed equal if the host and port match) - as seen in `checkPendingPeerToAddress`. However, pending pings have a set expiry time (by default, 30 seconds) and those that have expired are cleared by `PeerExplorerCleaner` at a fixed rate (by default, every 60 seconds). So due to this limitation, with the default configuration settings a single host can only complete 65,535 handshakes (one per port) every minute - imposing a (perhaps unreachable) limit on the time it takes to exhaust the target node's memory. Though this can obviously be circumvented by using multiple hosts to attack a target node. \n\n\nBecause most peer discovery functionality identifies nodes by their `NodeID` and not by host/port, it's trivial to send a flood of requests with unique `NodeID`s to fill `NodeDistanceTable` and subsequently make an unrestricted amount of in-memory insertions into `NodeChallengeManager.activeChallenges`. This is further aided by the fact that `NodeChallengeManager` is never purged, so the request flood does not have to occur within a short period of time. Memory exhaustion will eventually occur as the `NodeChallenge` objects begin taking up a significant amount of memory and are not eligible for garbage collection. This is expected to eventually disable node functionality as individual threads die when they throw `OutOfMemoryError`s, but in my testing it ended up crashing the whole JVM after reaching ~200,000 insertions.\n\n## Steps To Reproduce:\n\nI've attached a PoC program that interfaces with the RSKj library for the sake of simplicity. Due to the PoC program being somewhat inefficient and unreliable, I ended up accelerating the testing process by modifying my testing node's `NodeChallengeManager` to make 10 insertions per valid `startChallenge` call. If you're interested in running the PoC despite those issues, follow these steps:\n  1. Download a copy of the RSKj code\n  2. Move the PoC files into the `co.rsk.net.discovery` package (overwrite `PeerExplorer.java` with my modified version)\n  3. Launch a node for testing - ensure peer discovery is enabled\n  4. Compile and run the PoC from `PeerFlood` - arguments format: `<local_address> <target_address> <target_port> <num_threads>`\n  5. Monitor testing node's logs and stability\n\nIf you're developing your own PoC, you need to simply flood a testing node with connections that use random `NodeID`s, completing a single ping<->pong handshake then immediately disconnecting.\n\n## Mitigation\nThis could be mitigated by implementing expiring challenges that are cleared by `PeerExplorerCleaner`.\n\n## Impact\n\nAn attacker could crash any RSKj node with peer discovery enabled (which it is by default).",
+  "bounty_amount": "4000.0",
+  "formatted_bounty": "$4,000",
+  "weakness": {
+    "id": 48,
+    "name": "Denial of Service"
+  },
+  "original_report_id": null,
+  "original_report_url": null,
+  "attachments": [
+    {
+      "id": 306904,
+      "file_name": "PoC.zip",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/306/904/b3bb57dc81076b13db555b631fa4d85b459d15bd/PoC.zip?response-content-disposition=attachment%3B%20filename%3D%22PoC.zip%22%3B%20filename%2A%3DUTF-8%27%27PoC.zip&response-content-type=application%2Fzip&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQXL2TV4JY%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T073953Z&X-Amz-Expires=587&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQC6gxJ2Fgorv1CGF8se8AzeZarVMBLse4f%2Fv1LWZPPIbAIhAIe13AyRf7KoGQmk0MZsohJbY2mmh8fOJTnvWpEfZdoaKrEFCCMQAxoMMDEzNjE5Mjc0ODQ5IgzcVzLSCfqhl64LbOoqjgXEg5yJowTgB6h0qoSj2KgKW%2FmO5%2Fb22frcKudampbs5LOCE%2Bl%2BTzvnLlh8zfsY9Insep7fcRUtb%2F%2Ba%2BgVdyMNa5k1sDhv63hYhXctRIhsubT4u%2BKuj6RCLHJY3dXzqK889huk5FJgsPR61WQfBkCfEQC8iLWjotXcQ24R5LylVYeAdAfDTBXiQl0%2Ba%2BsgeYEoj5X7QnFy0DX62VlrQT9rRHS%2BIe%2F4W0R8qQqELu9%2Fy2ZB8v7fPotewALFtGyLN4MQlE6%2BVl4GI35jgi1WT1qpLseSJ1p25J9nDGI0NHpdpJMKM5E5L7%2B7%2BsgEZUdYkWeEF%2BG2KgYj%2BzPGsOkRbev%2BBTlxTRT56vZh2BRi%2B7sFDgxdE9NJnxxH8jgVf1E5Ct0dLWQGpSMpZO8f%2BytRKMtjz6dgiSnO6iQESsRG4RRbxtSJ8Q8G0cVH7H8u%2BerokbE32PnqwkjuLNE0gsVc8huN5G1P8RNdp8r2ey4m2akCouacY8lQOFlyPG6vZt7JBfvSkSSeDsbntLEW%2B5kw6heg5vyz4VHHUBtamMvWasHge4MYAJCQwVSCo6Bi9PphSSWqY5Fxm%2BNXcTJ7TPGzYD3k3A56HihvKmfDPJeQgsOSp4EIHxZNlD5RO4k6VuxWFSWHmfDKgnWPobSypItRUebo7ysrxPeAhcG2U%2FtrFJ6c2ZosszPY%2FH59x4%2BfV5NBF2Jd7i8ENzcU7YQRNAjqwgIPfx%2FneHwZpkr%2Byxa%2BJJ2OmPe9rY%2FzN0lLqdrjIoYEeo3EMS9SVaDjVLU4VHKBE7jBWfPqA4KtQ0k9%2BOXLZyOzFIt1Tw4LmwjOTNELjF19oHFeBobYeeWBAaW8yAqvbuqQ9vAW%2BzNZlxiXed4sFhe4whIa5qAY6sAHLr4%2F9PHLdkIzOpDMedWUTk8aJzmnJUfV88BMC69XqLdUVuF5lgOfwWykGqhdHJcdd3HpN5u%2FHo%2B83%2BGJoiPKJmXhOQe9FM5DVP4kYrIwsbZ4L0BTJd%2FkqEwGkjVprA7%2BEXsI%2FPKeL8nhijDijPctTq5akS%2FashM8yWrO3PeZId%2BcQDzw0vMnnxt3w6el0izvNlb%2FxKQ2ULn%2F8qTT7eIADRYt52%2BO3AJVBd%2F8I3XgSyA%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=a925442dbbc977a284b0ec2d89e42e23c725e488a8424ec70ced41294ea4a45b",
+      "file_size": 2341,
+      "type": "application/zip",
+      "moderated": null
+    }
+  ],
+  "allow_singular_disclosure_at": null,
+  "vote_count": 49,
+  "voters": [
+    "n1m0",
+    "sameerphad72",
+    "tess",
+    "lucash-dev",
+    "spam404",
+    "s_p_q_r",
+    "ali",
+    "dhakal_ananda",
+    "theappsec",
+    "foreguard",
+    "and 39 more..."
+  ],
+  "severity": {
+    "rating": "high",
+    "score": 7.7,
+    "author_type": "Team",
+    "metrics": {
+      "attack_vector": "network",
+      "attack_complexity": "high",
+      "privileges_required": "none",
+      "user_interaction": "none",
+      "scope": "unchanged",
+      "confidentiality": "none",
+      "integrity": "none",
+      "availability": "high"
+    }
+  },
+  "structured_scope": {
+    "databaseId": 5820,
+    "asset_type": "SOURCE_CODE",
+    "asset_identifier": "https://github.com/rsksmart/rskj",
+    "max_severity": "critical"
+  },
+  "abilities": {
+    "assignable_team_members": [
+
+    ],
+    "assignable_team_member_groups": [
+
+    ]
+  },
+  "activities": [
+    {
+      "id": 2862009,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Thanks for the clear and detailed report Jacob! \n\nTo make your PoC attack succeed exhausting the program's memory and crashing it you had modified the target RSKj code . It will be helpful for us if you can provide more information to estimate the amount of memory an attacker can force the node to allocate and for how long for each source IP address.\n\nPlease share your modified `NodeChallengeManager`  and details of the target system against which the attack succeeded including CPU, RAM and Java VM memory limits configuration.\n\nThank you",
+      "automated_response": false,
+      "created_at": "2018-06-09T12:20:03.692Z",
+      "updated_at": "2018-06-09T12:20:03.692Z",
+      "actor": {
+        "username": "julianor",
+        "cleared": false,
+        "verified": false,
+        "url": "/julianor",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "iovlabs"
+    },
+    {
+      "id": 2863049,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Thanks for the quick response!\n\n>It will be helpful for us if you can provide more information to estimate the amount of memory an attacker can force the node to allocate and for how long for each source IP address.\n\nTo measure the memory usage of `NodeChallengeManager.activeChallenges` I wrote a program (attached as `MemTest.java`) that uses the memory measurement utility [Classmexer](https://www.javamex.com/classmexer/). With this I measured memory usage in increments of 10,000 insertions into a structure identical to `activeChallenges`. The results of that are as follows:\n```\n0 entries = 64 bytes\n10000 entries = 2785848 bytes\n20000 entries = 5571200 bytes\n30000 entries = 8421080 bytes\n40000 entries = 11139592 bytes\n50000 entries = 14122256 bytes\n60000 entries = 16841752 bytes\n70000 entries = 19560104 bytes\n80000 entries = 22278232 bytes\n90000 entries = 24996520 bytes\n100000 entries = 28239416 bytes\n```\nThe memory usage of each increment remains pretty consistent with each additional 10,000 entries occupying ~2.8MB of memory and 100,000 entries occupying ~28MB. Given these measurements and the limitation I mentioned in the initial report, with the default configuration a single host can theoretically force a maximum of ~18.2MB in allocations per minute.\n\nAs stated before, entries in `activeChallenges` are never removed unless a specific \"pong\" message is received, making the entries ineligible for garbage collection and thus resulting in the allocations remaining until the JVM shuts down.\n\n>Please share your modified NodeChallengeManager and details of the target system against which the attack succeeded including CPU, RAM and Java VM memory limits configuration.\n\nI've attached my modified `NodeChallengeManager.java` that I initially used to accelerate the PoC, but in my latest test I was able to trigger a crash without the modifications. Unfortunately I don't have the hardware resources to run a full test against a node running with the [recommended system specs](https://github.com/rsksmart/rskj/wiki/Node-Minimum-Requirements). However, because the allocated memory in the attack is never freed, a crash should be reachable regardless of system specs. My latest testing was against a node running on a 2GB RAM Debian server, the relevant JVM memory configurations for it are below:\n```    \nuintx InitialHeapSize                          := 33554432\nuintx MaxHeapSize                              := 526385152\n```\n",
+      "automated_response": false,
+      "created_at": "2018-06-10T06:58:17.666Z",
+      "updated_at": "2018-06-10T06:58:17.666Z",
+      "actor": {
+        "username": "z3t",
+        "cleared": true,
+        "verified": true,
+        "url": "/z3t",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/042/875/f509a2a60ca4f406a7194137e1f5df0ea52cc0c9_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "attachments": [
+        {
+          "id": 307277,
+          "filename": "NodeChallengeManager.java",
+          "type": "text/plain",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/307/277/4e38349faa8901e186a3b41ec681bb5e44bdff99/NodeChallengeManager.java?response-content-disposition=attachment%3B%20filename%3D%22NodeChallengeManager.java%22%3B%20filename%2A%3DUTF-8%27%27NodeChallengeManager.java&response-content-type=text%2Fplain&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQXL2TV4JY%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T073953Z&X-Amz-Expires=587&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQC6gxJ2Fgorv1CGF8se8AzeZarVMBLse4f%2Fv1LWZPPIbAIhAIe13AyRf7KoGQmk0MZsohJbY2mmh8fOJTnvWpEfZdoaKrEFCCMQAxoMMDEzNjE5Mjc0ODQ5IgzcVzLSCfqhl64LbOoqjgXEg5yJowTgB6h0qoSj2KgKW%2FmO5%2Fb22frcKudampbs5LOCE%2Bl%2BTzvnLlh8zfsY9Insep7fcRUtb%2F%2Ba%2BgVdyMNa5k1sDhv63hYhXctRIhsubT4u%2BKuj6RCLHJY3dXzqK889huk5FJgsPR61WQfBkCfEQC8iLWjotXcQ24R5LylVYeAdAfDTBXiQl0%2Ba%2BsgeYEoj5X7QnFy0DX62VlrQT9rRHS%2BIe%2F4W0R8qQqELu9%2Fy2ZB8v7fPotewALFtGyLN4MQlE6%2BVl4GI35jgi1WT1qpLseSJ1p25J9nDGI0NHpdpJMKM5E5L7%2B7%2BsgEZUdYkWeEF%2BG2KgYj%2BzPGsOkRbev%2BBTlxTRT56vZh2BRi%2B7sFDgxdE9NJnxxH8jgVf1E5Ct0dLWQGpSMpZO8f%2BytRKMtjz6dgiSnO6iQESsRG4RRbxtSJ8Q8G0cVH7H8u%2BerokbE32PnqwkjuLNE0gsVc8huN5G1P8RNdp8r2ey4m2akCouacY8lQOFlyPG6vZt7JBfvSkSSeDsbntLEW%2B5kw6heg5vyz4VHHUBtamMvWasHge4MYAJCQwVSCo6Bi9PphSSWqY5Fxm%2BNXcTJ7TPGzYD3k3A56HihvKmfDPJeQgsOSp4EIHxZNlD5RO4k6VuxWFSWHmfDKgnWPobSypItRUebo7ysrxPeAhcG2U%2FtrFJ6c2ZosszPY%2FH59x4%2BfV5NBF2Jd7i8ENzcU7YQRNAjqwgIPfx%2FneHwZpkr%2Byxa%2BJJ2OmPe9rY%2FzN0lLqdrjIoYEeo3EMS9SVaDjVLU4VHKBE7jBWfPqA4KtQ0k9%2BOXLZyOzFIt1Tw4LmwjOTNELjF19oHFeBobYeeWBAaW8yAqvbuqQ9vAW%2BzNZlxiXed4sFhe4whIa5qAY6sAHLr4%2F9PHLdkIzOpDMedWUTk8aJzmnJUfV88BMC69XqLdUVuF5lgOfwWykGqhdHJcdd3HpN5u%2FHo%2B83%2BGJoiPKJmXhOQe9FM5DVP4kYrIwsbZ4L0BTJd%2FkqEwGkjVprA7%2BEXsI%2FPKeL8nhijDijPctTq5akS%2FashM8yWrO3PeZId%2BcQDzw0vMnnxt3w6el0izvNlb%2FxKQ2ULn%2F8qTT7eIADRYt52%2BO3AJVBd%2F8I3XgSyA%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=a4061279c70ef0b1b3a8198b836365e498cde72d81b2843592b8c128def2a1c9"
+        },
+        {
+          "id": 307258,
+          "filename": "MemTest.java",
+          "type": "text/x-c",
+          "url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/000/307/258/f0bd4ed11a989514c37088069a22ef52bc14671a/MemTest.java?response-content-disposition=attachment%3B%20filename%3D%22MemTest.java%22%3B%20filename%2A%3DUTF-8%27%27MemTest.java&response-content-type=text%2Fx-c&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQXL2TV4JY%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T073953Z&X-Amz-Expires=587&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJIMEYCIQC6gxJ2Fgorv1CGF8se8AzeZarVMBLse4f%2Fv1LWZPPIbAIhAIe13AyRf7KoGQmk0MZsohJbY2mmh8fOJTnvWpEfZdoaKrEFCCMQAxoMMDEzNjE5Mjc0ODQ5IgzcVzLSCfqhl64LbOoqjgXEg5yJowTgB6h0qoSj2KgKW%2FmO5%2Fb22frcKudampbs5LOCE%2Bl%2BTzvnLlh8zfsY9Insep7fcRUtb%2F%2Ba%2BgVdyMNa5k1sDhv63hYhXctRIhsubT4u%2BKuj6RCLHJY3dXzqK889huk5FJgsPR61WQfBkCfEQC8iLWjotXcQ24R5LylVYeAdAfDTBXiQl0%2Ba%2BsgeYEoj5X7QnFy0DX62VlrQT9rRHS%2BIe%2F4W0R8qQqELu9%2Fy2ZB8v7fPotewALFtGyLN4MQlE6%2BVl4GI35jgi1WT1qpLseSJ1p25J9nDGI0NHpdpJMKM5E5L7%2B7%2BsgEZUdYkWeEF%2BG2KgYj%2BzPGsOkRbev%2BBTlxTRT56vZh2BRi%2B7sFDgxdE9NJnxxH8jgVf1E5Ct0dLWQGpSMpZO8f%2BytRKMtjz6dgiSnO6iQESsRG4RRbxtSJ8Q8G0cVH7H8u%2BerokbE32PnqwkjuLNE0gsVc8huN5G1P8RNdp8r2ey4m2akCouacY8lQOFlyPG6vZt7JBfvSkSSeDsbntLEW%2B5kw6heg5vyz4VHHUBtamMvWasHge4MYAJCQwVSCo6Bi9PphSSWqY5Fxm%2BNXcTJ7TPGzYD3k3A56HihvKmfDPJeQgsOSp4EIHxZNlD5RO4k6VuxWFSWHmfDKgnWPobSypItRUebo7ysrxPeAhcG2U%2FtrFJ6c2ZosszPY%2FH59x4%2BfV5NBF2Jd7i8ENzcU7YQRNAjqwgIPfx%2FneHwZpkr%2Byxa%2BJJ2OmPe9rY%2FzN0lLqdrjIoYEeo3EMS9SVaDjVLU4VHKBE7jBWfPqA4KtQ0k9%2BOXLZyOzFIt1Tw4LmwjOTNELjF19oHFeBobYeeWBAaW8yAqvbuqQ9vAW%2BzNZlxiXed4sFhe4whIa5qAY6sAHLr4%2F9PHLdkIzOpDMedWUTk8aJzmnJUfV88BMC69XqLdUVuF5lgOfwWykGqhdHJcdd3HpN5u%2FHo%2B83%2BGJoiPKJmXhOQe9FM5DVP4kYrIwsbZ4L0BTJd%2FkqEwGkjVprA7%2BEXsI%2FPKeL8nhijDijPctTq5akS%2FashM8yWrO3PeZId%2BcQDzw0vMnnxt3w6el0izvNlb%2FxKQ2ULn%2F8qTT7eIADRYt52%2BO3AJVBd%2F8I3XgSyA%3D%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=6b0c4fbe43022da3ab3a1d27cb3b5f8fa36b4ed4bc1f0a4f8859b53ce372a724"
+        }
+      ],
+      "genius_execution_id": null,
+      "team_handle": "iovlabs"
+    },
+    {
+      "id": 2869308,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportSeverityUpdated",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2018-06-11T18:27:09.648Z",
+      "updated_at": "2018-06-11T18:27:09.648Z",
+      "additional_data": {
+        "old_severity": "High (7.1)",
+        "new_severity": "High (7.7)",
+        "old_severity_id": 165536,
+        "new_severity_id": 166366
+      },
+      "actor": {
+        "username": "julianor",
+        "cleared": false,
+        "verified": false,
+        "url": "/julianor",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "iovlabs"
+    },
+    {
+      "id": 2869329,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugTriaged",
+      "message": "We were not able to reproduce your \"crashing the whole JVM\" result but the missing removal of challenges from `NodeChallengeManager.activeChallenges` after a timeout is being fixed.",
+      "automated_response": false,
+      "created_at": "2018-06-11T18:37:13.123Z",
+      "updated_at": "2018-06-11T18:37:13.123Z",
+      "actor": {
+        "username": "julianor",
+        "cleared": false,
+        "verified": false,
+        "url": "/julianor",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "iovlabs"
+    },
+    {
+      "id": 2869351,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Thanks for the update. Just to add a clarification, I discovered that the full JVM crashes were due to the JVM not being able to reach its `MaxHeapSize` on the low-memory VM I initially used for testing. In subsequent tests the expected behavior of most threads crashing with `OutOfMemoryError`s was observed.",
+      "automated_response": false,
+      "created_at": "2018-06-11T18:45:03.111Z",
+      "updated_at": "2018-06-11T18:45:03.111Z",
+      "actor": {
+        "username": "z3t",
+        "cleared": true,
+        "verified": true,
+        "url": "/z3t",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/042/875/f509a2a60ca4f406a7194137e1f5df0ea52cc0c9_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "iovlabs"
+    },
+    {
+      "id": 2874980,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hello Jacob,  \n\nWe would be grateful if you could review the fix pushed to the `update_explorer` branch and share your comments here.\n\nhttps://github.com/rsksmart/rskj/commits/update_explorer \n\nThank you!",
+      "automated_response": false,
+      "created_at": "2018-06-12T19:00:34.179Z",
+      "updated_at": "2018-06-12T19:00:34.179Z",
+      "actor": {
+        "username": "julianor",
+        "cleared": false,
+        "verified": false,
+        "url": "/julianor",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "iovlabs"
+    },
+    {
+      "id": 2875398,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "I've reviewed the changes and the issue appears to be fixed.",
+      "automated_response": false,
+      "created_at": "2018-06-12T21:20:40.719Z",
+      "updated_at": "2018-06-12T21:20:40.719Z",
+      "actor": {
+        "username": "z3t",
+        "cleared": true,
+        "verified": true,
+        "url": "/z3t",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/042/875/f509a2a60ca4f406a7194137e1f5df0ea52cc0c9_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "iovlabs"
+    },
+    {
+      "id": 2880830,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BountyAwarded",
+      "message": "Thank you very much for the time spent and the clear report, we really appreciate your hard work! We look forward to hearing more from you! Are you ok if we make this report public?",
+      "automated_response": false,
+      "created_at": "2018-06-13T20:15:47.588Z",
+      "updated_at": "2018-06-13T20:15:47.588Z",
+      "actor": {
+        "url": "/iovlabs",
+        "ibb": false,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/Prz5MCDWRGv5MpRAQsmSVoLw/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "profile": {
+          "name": "IOVLabs"
+        }
+      },
+      "bounty_amount": "4000.0",
+      "bonus_amount": "0.0",
+      "bounty_currency": "usd",
+      "genius_execution_id": null,
+      "team_handle": "iovlabs",
+      "collaborator": {
+        "username": "z3t",
+        "url": "/z3t"
+      }
+    },
+    {
+      "id": 2880950,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2018-06-13T20:54:19.732Z",
+      "updated_at": "2018-06-13T20:54:19.732Z",
+      "actor": {
+        "username": "julianor",
+        "cleared": false,
+        "verified": false,
+        "url": "/julianor",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "reporter": {
+        "username": "z3t",
+        "url": "/z3t"
+      },
+      "genius_execution_id": null,
+      "team_handle": "iovlabs"
+    },
+    {
+      "id": 2880963,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Awesome, thank you so much for the bounty and quick fix! I'm fine with making this report public, but we should probably define some period of delay so users have time to update as needed.",
+      "automated_response": false,
+      "created_at": "2018-06-13T21:01:56.309Z",
+      "updated_at": "2018-06-13T21:01:56.309Z",
+      "actor": {
+        "username": "z3t",
+        "cleared": true,
+        "verified": true,
+        "url": "/z3t",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/042/875/f509a2a60ca4f406a7194137e1f5df0ea52cc0c9_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "iovlabs"
+    },
+    {
+      "id": 5835118,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2019-09-18T13:07:08.095Z",
+      "updated_at": "2019-09-18T13:07:08.095Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "bernacodesido",
+        "cleared": false,
+        "verified": false,
+        "url": "/bernacodesido",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/663/587/40cf6f2372b7222ff24e3ec497dc994f5b9dca4c_original.jpg/f4a495c04fdb224bac8ec64587537e511aa8c4925e7955bee0a19e0ed7d891dc"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "iovlabs"
+    },
+    {
+      "id": 5835190,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ManuallyDisclosed",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2019-09-18T13:16:28.666Z",
+      "updated_at": "2019-09-18T13:16:28.666Z",
+      "actor": {
+        "username": "julianor",
+        "cleared": false,
+        "verified": false,
+        "url": "/julianor",
+        "profile_picture_urls": {
+          "medium": "/assets/avatars/default-25f7248a18bdf9e2dc8310319b148d66cff430fa0fade6c5f25fee1b8d7f27ed.png"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "iovlabs"
+    }
+  ],
+  "activity_page_count": 1,
+  "activity_page_number": 1,
+  "summaries": [
+    {
+      "category": "team",
+      "can_view?": true,
+      "can_create?": false
+    },
+    {
+      "category": "researcher",
+      "can_view?": true,
+      "can_create?": false
+    }
+  ]
+}

